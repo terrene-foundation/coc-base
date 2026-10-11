@@ -58,6 +58,16 @@ const path = require("path");
 const fs = require("fs");
 const { execFileSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env");
+const { askOnce, eventGitKey } = require("./event-git.js");
+
+// THE canonical `--git-common-dir` question (git-cache-design-memo.md §3.2 / §5.1 D1):
+// ONE argv for every asker of the shared git dir, so event-git's question key
+// collapses them to one spawn per event. `--path-format=absolute` keeps the value
+// this module already read; output order follows argv — toplevel FIRST, common
+// dir LAST. The `-C <cwd>` form is gone so the argv matches every other asker
+// (the directory is passed through the spawn's `cwd:` option instead — the same
+// directory, and git's own answer is what it was).
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 // sanitizeName — DEFINED HERE, not imported (2026-08-27 merge resolution).
 // It previously came from `unlanded-work-surface.js`, but that export exists only
 // on this branch: main's copy of that file evolved 8 other exports and never
@@ -144,12 +154,28 @@ function realOr(p) {
  * THE single place this lookup happens, so the property "this lineage never uses
  * `--show-toplevel` to find the main checkout" has ONE mutation point and is
  * therefore testable by mutation rather than being an unfalsifiable claim about
- * two identical call sites.
+ * two identical call sites. The canonical argv asks for the toplevel in the same
+ * spawn (every asker shares that ONE question); the answer READ here is still the
+ * common-dir line, never the toplevel.
  */
 function gitCommonDir(cwd) {
-  const r = runGit(["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  if (!r.ok) return null;
-  return r.out.trim() || null;
+  const gitBin = resolveGitBinary();
+  if (!gitBin) return null;
+  // ONE answer per distinct question per hook event (lib/event-git.js). Outside
+  // an event scope `askOnce` runs the probe directly — unchanged behaviour.
+  const probe = askOnce(
+    eventGitKey({ gitBin, cwd, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+    () => {
+      const r = runGit(CANONICAL_COMMON_DIR_ARGS, { cwd });
+      return r.ok ? { ok: true, value: String(r.out || "") } : { ok: false, reason: String(r.err || "git rev-parse failed") };
+    },
+  );
+  if (!probe.ok) return null;
+  const lines = String(probe.value || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return lines.length ? lines[lines.length - 1] : null;
 }
 
 /**

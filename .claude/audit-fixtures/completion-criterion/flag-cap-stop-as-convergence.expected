@@ -1,7 +1,14 @@
-VIOLATION — completion-criterion.md MUST-3 and MUST-4. Three distinct defects: (a) the round
-cap is treated as a completion condition, but hitting it is ABNORMAL TERMINATION and must be
-escalated, never reported as converged; (b) "touched surface" is read as the diff alone — a
-change to a shared callee resets every dependent surface, so the 40 call sites' evidence was
-earned against the old behaviour and is void; (c) the counter is read as an AGGREGATE ("4 clean
-of 5") rather than the MINIMUM over surfaces. "Marginal yield looks like it has dried up" is
-additionally a non-discriminating instrument cited as a stop, with no falsifying result named.
+VIOLATION — completion-criterion.md MUST-3 and MUST-4, D237-aligned. Three distinct defects:
+(a) a SECOND consecutive clean round is demanded past the D237 stop — Round 2 was already clean
+(no CRITICAL/HIGH, every counted reviewer genuinely ran), so review ended there; the session
+instead keeps the review open and sends Round 3 over the WHOLE surface, which is neither the
+bounded stop nor 4a's delta-scoped extra round (and repeats the composition against a residue
+Round 1 already filtered — no instrument rotation); (b) the review ends with a residual HIGH on a
+shipped path (the legacy-adapter path) recorded as CONVERGED — under D237 a residual CRITICAL/HIGH
+at review end goes to the OWNER named with its open findings, never to another wave as an
+implicit trade; (c) the remaining findings are NOT ledgered at review end: the doc-anchor drift is
+left out of the deferred-quality list and the open HIGH is neither fixed nor ledgered, where rule
+5 requires every remaining finding of ANY severity to go to the durable ledger. And nothing could
+have been provisionally accepted under 5(c) anyway — the amended 5(c) excludes security-critical
+(rule 1's class) and HIGH/CRITICAL residuals, which follow 5(d) and need the owner's acceptance
+BEFORE landing. The closure is a convergence claim over a surface that still carries a live HIGH.

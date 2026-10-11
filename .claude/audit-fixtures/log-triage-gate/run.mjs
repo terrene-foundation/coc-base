@@ -908,7 +908,7 @@ withLogs({ "app.log": "ERROR database connection failed" }, {}, (dir) => {
   const r = runHookWithPath(dir, "/nonexistent-bin-dir-for-fixture-34");
   check(
     "fixture-34-a-failed-enumeration-is-reported-not-treated-as-clean",
-    r.json !== null && r.json.continue === true && r.msg.includes("enumeration itself failed"),
+    r.json !== null && r.json.continue === true && r.msg.includes("enumeration failed or timed out for declared root(s)"),
     `a scan whose enumeration failed reported clean: status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
   );
 });
@@ -919,7 +919,7 @@ withLogs({ "app.log": "ERROR database connection failed" }, {}, (dir) => {
   const r = runHook(dir);
   check(
     "fixture-35-a-healthy-scan-does-not-claim-enumeration-failure",
-    !r.msg.includes("enumeration itself failed"),
+    !r.msg.includes("enumeration failed"),
     `a healthy scan claimed its enumeration failed: ${JSON.stringify(r.msg).slice(0, 300)}`,
   );
 });

@@ -116,7 +116,7 @@ BUDGET: <work budget>. Return: per todo, what landed, what did not, and why.
   agent's build output at its own subdirectory, for example a per-agent target, virtualenv or dist
   directory.
 - **BUDGET** — an agent with no budget that wedges returns silence, and silence reads as progress
-  (`rules/agents.md` § A Dispatched Agent's Result Is Not Received Until It Is DELIVERED).
+  (`rules/agents.md` § A Dispatched Agent's Result Is Not Received Until DELIVERED).
 
 ## 6. Refill
 

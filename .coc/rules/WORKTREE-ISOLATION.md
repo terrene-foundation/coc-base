@@ -23,7 +23,7 @@ Two forms are BLOCKED as the assertion: `git -C <worktree> …` (never establish
 
 ```python
 # DO — pre-made SIBLING, no isolation flag, STEP-0 assertion MANDATED in the prompt
-wt = "/Users/me/repos/.myrepo-wt/shard-abc"      # sibling of the repo, NEVER under it
+wt = "<operator-home>/repos/.myrepo-wt/shard-abc"      # sibling of the repo, NEVER under it
 # git worktree add -b feat/shard-abc "$wt" origin/main
 Agent(prompt=f"""
 Working directory: {wt}

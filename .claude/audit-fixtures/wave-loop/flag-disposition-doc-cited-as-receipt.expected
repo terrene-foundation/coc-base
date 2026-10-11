@@ -19,8 +19,8 @@ None of the three rails the clause enumerates is cited. No journal entry is writ
 work.
 
 Discriminator 1 — MUST-3 IS SATISFIED. Five reviewers dispatched in one message, all five
-delivering real payloads in all three rounds, one BUG found and fixed, the INCREMENTAL correctly
-accreted without resetting the counter, two consecutive clean rounds on BUG + INVEST-NOW. The
+delivering real payloads in every round, one BUG found and fixed, the INCREMENTAL correctly
+accreted, the round-1 BUG fixed and verified in a clean fix-verification round (D237 stop) on BUG + INVEST-NOW. The
 convergence the receipt claims genuinely happened — which is exactly why presence-checking
 fails here and the transcript is the only instrument that separates the poles.
 

@@ -6,6 +6,17 @@
  * @hook-event: UserPromptSubmit (lifecycle) — the submitted prompt exists at the turn boundary for regression and acknowledgment signals.
  * @hook-event: Stop (lifecycle) — the completed assistant response is available at the turn boundary for report-discipline signals.
  *
+ * Codex read-lane status — MEASURED 2026-10-09, codex-cli 0.161.0: NO hookable
+ * file-read tool event exists to bind the Read matcher. The tool-call enums carry
+ * exec_command / apply_patch / view_image / web / image_generation / collab /
+ * sleep and no read item; `read_file` appears only as the app-server `fs/readFile`
+ * RPC (FsReadFileParams) and the exec-server remote-FS RPCs; `codex debug
+ * prompt-input` renders no read tool; a live `codex exec` probe was UNRUNNABLE
+ * (ChatGPT usage limit, no data). Reads execute inside `functions.exec` via the
+ * shell lane (mirrored where a hookable command runs). The Read-matcher arm has
+ * no Codex surface to bind to; the CC arms remain the enforcement surface and
+ * the rule-layer discipline reaches Codex via the rules-reference skill channel.
+ *
  * detect-violations — POC hook for the trust-posture system.
  *
  * Wired to multiple events; reads tool_event from stdin payload's hookEventName field.
@@ -15,6 +26,20 @@
  *   UserPromptSubmit          → regression signal from user prompt
  *
  * Mitigates cc-artifacts.md Rule 7 (timeout fallback).
+ */
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/violations.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "One violations.jsonl row is appended per finding, per event, with no payload dedupe (only the Stop ack arm consults existing rows), so a repeat appends again. The sink routes through lib/state-io.js::appendViolation or lib/coc-append.js::appendStamped; lib/state-resolver.js::ensureStateDir mkdirs `.claude/learning/` (or $CLAUDE_TRUST_STATE_DIR / a per-process quarantine) first. Spawns: git probes in lib/state-resolver.js and lib/state-io.js, plus git/ssh-keygen in lib/operator-id.js."
+ * }
  */
 
 const TIMEOUT_MS = 5000;
@@ -60,7 +85,7 @@ const { isMutationTool } = require(
 // The rationale for every guard in that reader (the single-resolution open, the
 // O_NOFOLLOW/O_NONBLOCK pair, the fail-soft-but-never-silent WARN, and the
 // measurements the two constants come from) moved WITH the code.
-const { readFinalAssistantText, warnTranscriptRecovery } = require(
+const { readAssistantTextFromPayload, warnTranscriptRecovery } = require(
   path.join(__dirname, "lib", "transcript-read.js"),
 );
 
@@ -500,23 +525,9 @@ async function main() {
   }
 
   if (event === "Stop") {
-    // Prefer the payload's inline text when present; otherwise recover it from
-    // the transcript. This ordering is correct under BOTH payload shapes, so it
-    // needs no knowledge of which one the CLI actually emits.
-    let finalText =
-      (typeof payload.last_assistant_text === "string" &&
-        payload.last_assistant_text) ||
-      "";
-    if (!finalText) {
-      const recovered = readFinalAssistantText(payload.transcript_path);
-      finalText = recovered.text;
-      // Only warn when a transcript was actually OFFERED and yielded nothing —
-      // a Stop payload carrying neither shape is the ordinary no-op, not a
-      // detector blind spot.
-      if (!recovered.text && recovered.reason) {
-        warnTranscriptRecovery(recovered.reason);
-      }
-    }
+    const recovered = readAssistantTextFromPayload(payload);
+    const finalText = recovered.text;
+    if (recovered.reason) warnTranscriptRecovery(recovered.reason);
 
     // Receipt token validation (Phase 2): if pending_verification non-empty
     // AND finalText lacks [ack: <rule_id>] for each pending rule

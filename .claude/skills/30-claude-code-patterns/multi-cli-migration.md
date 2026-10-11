@@ -237,11 +237,13 @@ Copy paths declared in `multi_cli_overlays.multi-cli.paths` from sister → proj
 ```bash
 node .claude/bin/scan-synced-disclosure.mjs --check --root "$SISTER" || { echo "disclosure finding in resolved template — HALT"; exit 1; }
 # BEGIN native-overlay-copy: preflight every elected copy before any write.
-node --input-type=module - "$SISTER" . "$CODEX_ENABLED" "$GEMINI_ENABLED" "$CODEX_NATIVE_SKILLS" <<'NODE' || exit 1
+CODEX_CATALOG_FILES='rules-index.md rules-index.json agent-contracts.json'
+node --input-type=module - "$SISTER" . "$CODEX_ENABLED" "$GEMINI_ENABLED" "$CODEX_NATIVE_SKILLS" "$CODEX_CATALOG_FILES" <<'NODE' || exit 1
 import fs from "node:fs";
 import path from "node:path";
 const roots = process.argv.slice(2, 4).map(value => path.resolve(value));
 const [codex, gemini, skills] = process.argv.slice(4).map(value => value === "true");
+const catalogFiles = process.argv[7].split(" ");
 function inspect(root, relative = "", required = false) {
   let cursor = root;
   for (const part of ["", ...relative.split("/").filter(Boolean)]) {
@@ -267,8 +269,17 @@ if (codex) {
 if (!inspect(roots[0], ".codex", true).isDirectory()) throw new Error("source .codex is not a directory");
 const installed = inspect(roots[1], ".codex");
 if (installed && !installed.isDirectory()) throw new Error("destination .codex is not a directory");
+for (const name of catalogFiles) {
+  const relative = `.codex/${name}`;
+  if (!inspect(roots[0], relative, true).isFile()) throw new Error(`catalog is not a regular file: ${relative}`);
+  check(relative, relative);
+}
+const rules = JSON.parse(fs.readFileSync(path.join(roots[0], ".codex/rules-index.json"), "utf8"));
+if (rules.schema_version !== 1 || rules.profile !== "distribution" || !Array.isArray(rules.rules)) throw new Error("consumer requires a distribution rule catalog");
+const contracts = JSON.parse(fs.readFileSync(path.join(roots[0], ".codex/agent-contracts.json"), "utf8"));
+if (contracts.schema_version !== 1 || !Array.isArray(contracts.agents)) throw new Error("consumer requires an agent contract catalog");
 for (const name of fs.readdirSync(path.join(roots[0], ".codex"))) {
-  if (name === "agents" || name === "native-agents-receipt.json" || name.startsWith(".native-agent-delivery-")) continue;
+  if (name === "agents" || name === "native-agents-receipt.json" || name === "authoring-projection.json" || name.startsWith(".native-agent-delivery-")) continue;
   check(`.codex/${name}`, `.codex/${name}`);
 }
 if (skills) { if (!inspect(roots[0], ".agents/skills", true).isDirectory()) throw new Error("native skills are not a directory"); check(".agents/skills", ".agents/skills"); }
@@ -288,7 +299,7 @@ if [ "$CODEX_ENABLED" = true ]; then
   for entry in "$SISTER"/.codex/* "$SISTER"/.codex/.[!.]* "$SISTER"/.codex/..?*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
     case "${entry##*/}" in
-      agents|native-agents-receipt.json|.native-agent-delivery-*) continue ;;
+      agents|native-agents-receipt.json|authoring-projection.json|.native-agent-delivery-*) continue ;;
     esac
     cp -R "$entry" .codex/ || exit 1
   done
@@ -357,6 +368,15 @@ CLAUDE.md is template-owned at the CC-only template; the multi-CLI variant diffe
 
 Closes variant-overlay-drift (the gap PR #52 left open). Sister installed `.claude/bin/emit.mjs` + `emit-cli-artifacts.mjs` at Step 4; now run them so the project's `.claude/rules/`, `.claude/commands/`, `.claude/skills/`, `.claude/agents/` propagate to the per-CLI surfaces with variant overlays applied:
 
+Keep the emitted `.codex/rules-index.md`, `rules-index.json` and
+`agent-contracts.json` bytes intact when installing discovery and runtime
+metadata. These are produced by `emitRulesReferenceSkill`
+(`.claude/bin/emit-cli-artifacts.mjs:860-861`) and `emitCodexAgentPrompts`
+(`.claude/bin/emit-cli-artifacts.mjs:1301-1301`). Both copy paths below require
+a distribution rule catalog; the preliminary overlay excludes the source-local
+`authoring-projection.json`, and the regeneration copy names only the three
+consumer catalog files.
+
 ```bash
 # Emit final dotted roots (.codex, elected .agents/skills, .gemini) into an
 # out-of-tree scratch directory; the emitter rejects a working-tree destination.
@@ -367,11 +387,13 @@ EMIT_TMP="$(mktemp -d -t coc-migrate-emit-XXXXXX)"
 node .claude/bin/emit-cli-artifacts.mjs --out "$EMIT_TMP" || exit 1
 
 # BEGIN emitted-overlay-copy: all selected destinations checked before reconciliation/copy.
-node --input-type=module - "$EMIT_TMP" . "$CODEX_ENABLED" "$GEMINI_ENABLED" "$CODEX_NATIVE_SKILLS" <<'NODE' || exit 1
+CODEX_CATALOG_FILES='rules-index.md rules-index.json agent-contracts.json'
+node --input-type=module - "$EMIT_TMP" . "$CODEX_ENABLED" "$GEMINI_ENABLED" "$CODEX_NATIVE_SKILLS" "$CODEX_CATALOG_FILES" <<'NODE' || exit 1
 import fs from "node:fs";
 import path from "node:path";
 const roots = process.argv.slice(2, 4).map(value => path.resolve(value));
 const [codex, gemini, skills] = process.argv.slice(4).map(value => value === "true");
+const catalogFiles = process.argv[7].split(" ");
 function inspect(root, relative = "", required = false) {
   let cursor = root;
   for (const part of ["", ...relative.split("/").filter(Boolean)]) {
@@ -407,6 +429,15 @@ if (codex) {
   inspectTree(roots[1], ".codex/agents"); inspect(roots[1], ".codex/native-agents-receipt.json");
   inspect(roots[1], "AGENTS.md");
   directory(".codex/prompts"); check(".codex/prompts", ".codex/prompts");
+  for (const name of catalogFiles) {
+    const relative = `.codex/${name}`;
+    if (!inspect(roots[0], relative, true).isFile()) throw new Error(`catalog is not a regular file: ${relative}`);
+    check(relative, relative);
+  }
+  const rules = JSON.parse(fs.readFileSync(path.join(roots[0], ".codex/rules-index.json"), "utf8"));
+  if (rules.schema_version !== 1 || rules.profile !== "distribution" || !Array.isArray(rules.rules)) throw new Error("consumer requires a distribution rule catalog");
+  const contracts = JSON.parse(fs.readFileSync(path.join(roots[0], ".codex/agent-contracts.json"), "utf8"));
+  if (contracts.schema_version !== 1 || !Array.isArray(contracts.agents)) throw new Error("consumer requires an agent contract catalog");
   if (skills) { directory(".agents/skills"); check(".agents/skills", ".agents/skills"); }
 }
 if (gemini) inspect(roots[1], "GEMINI.md");
@@ -421,6 +452,9 @@ if [ "$CODEX_ENABLED" = true ]; then
     --target . --source-commit "$SOURCE_COMMIT" || exit 1
   mkdir -p .codex/prompts || exit 1
   cp -R "$EMIT_TMP/.codex/prompts/." .codex/prompts/ || exit 1
+  for name in $CODEX_CATALOG_FILES; do
+    cp "$EMIT_TMP/.codex/$name" ".codex/$name" || exit 1
+  done
   if [ "$CODEX_NATIVE_SKILLS" = true ]; then
     [ -d "$EMIT_TMP/.agents/skills" ] || { echo "elected native skill emission missing — HALT"; exit 1; }
     mkdir -p .agents/skills || exit 1
@@ -644,7 +678,7 @@ Surface CC-native syntax leaks in workspaces/journals/briefs/todos/.session-note
 node tools/lint-workspaces.js workspaces/ .session-notes 2>/dev/null || true   # advisory
 ```
 
-If `tools/lint-workspaces.js` is absent (project predates v2.23.x), inline the regex set from (loom-internal reference):
+If `tools/lint-workspaces.js` is absent (project predates v2.23.x), obtain its `PATTERNS` declaration from the selected template or a checksum-bound preserved copy before using inline checks (`tools/lint-workspaces.js:22-53`). Without either source, report this check UNRUN; these categories are reference, not a substitute for the unavailable predicate:
 
 - `Agent\([^)]*subagent_type` (CC delegation)
 - `Agent\([^)]*run_in_background`

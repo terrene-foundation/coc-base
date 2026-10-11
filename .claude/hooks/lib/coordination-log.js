@@ -194,6 +194,13 @@ const foldVerificationCheckpoint = require("./fold-verification-checkpoint.js");
 // (see the invariant assert after the default engine is built). actuation-types
 // is a leaf module (requires only fs/path); this import cannot close a cycle.
 const { ACTUATION_RECORD_TYPES } = require("./actuation-types.js");
+// L-REVOKE root fix (2026-10-10): the ONE list of fold-derived field names. A
+// record whose own body carries one is rejected in _foldLog before any rule
+// reads it; operator-gate.js consumes the same list. Leaf module, no cycle.
+const {
+  DERIVED_FIELD_REJECTION,
+  derivedFieldsIn,
+} = require("./fold-derived-fields.js");
 
 /**
  * LIVENESS_TTL_MS — 20 minutes per architecture §4.4. Same constant as
@@ -387,7 +394,21 @@ function createEngine(opts) {
  */
 function _genesisAnchorPredicate(record, ctx) {
   const state = ctx.foldState || { trustRoot: null };
-  const result = foldGenesisAnchor(record, state, ctx.roster, cocSign.verify);
+  // Reuse the fold's shared GPG verify-homedir when one exists, so the
+  // trust-root re-verify does not build (and tear down) an ephemeral one of its
+  // own — see the stamping site in _foldLog for the measurement. The identity
+  // binding travels with it: `expectedFpr` is pinned to the key this record's
+  // `verified_id` resolved to, which is what keeps a multi-key shared ring from
+  // accepting any rostered signer (fold-genesis-anchor passes it through).
+  const verifyOpts =
+    ctx.opts && ctx.opts.gpgHome ? { gpgHome: ctx.opts.gpgHome } : {};
+  const result = foldGenesisAnchor(
+    record,
+    state,
+    ctx.roster,
+    cocSign.verify,
+    verifyOpts,
+  );
   return {
     accepted: result.accepted,
     foldState: result.foldState,
@@ -739,7 +760,7 @@ function _registerM0Defaults(registry) {
   // a non-exempt actuation's presence nonce can be archived while still fresh and
   // replay as PROVEN across a checkpoint (F5). Same single-signer no-op-accept
   // shape as gate-op-receipt; the governance-record CONTENT schema (target,
-  // decision, etc.) is off-loom loom-command's and gains a richer predicate when
+  // decision, etc.) is the off-loom enterprise product's and gains a richer predicate when
   // it lands — this registration unblocks the end-to-end #583 emit path today
   // without presuming that schema.
   for (const t of [
@@ -1152,7 +1173,49 @@ function _coSignedStubPredicate(record, ctx) {
       reason: `${record.type}: primary signer ${record.verified_id} not in roster`,
     };
   }
-  distinctSigners.add(primary.person_id, primary.person);
+  // The PRIMARY is a signer too, and for gate-approval it must clear the same
+  // eligibility floor the co-signers clear. Before this, eligibility was
+  // applied to co-signers ONLY, so a `host_role: ci` or below-floor primary
+  // could carry an otherwise-valid record: R5-S-04 says a CI host is "NEVER
+  // eligible to co-sign any owner-quorum, distinctness, gate-approval, …"
+  // (eligibility.js), and the emitter of the approval is a signer of it. The
+  // documented flow agrees — the SECOND operator signs AND appends the record
+  // (commands/release.md § Submission flow), so the primary is the approver.
+  if (record.type === "gate-approval") {
+    const primaryElig = isEligibleSigner(primary.person, "gate-approval");
+    if (!primaryElig.eligible) {
+      return {
+        accepted: false,
+        foldState: state,
+        reason: `${record.type}: primary signer ${record.verified_id} ineligible: ${primaryElig.reason}`,
+      };
+    }
+  }
+  // 4-eyes: the REQUESTER'S principal keys are seeded BEFORE any signer is
+  // admitted, so a co-signer resolving to the requester collides (see
+  // _gateApprovalPredicate § 4-eyes). Seeding first also means the requester
+  // occupies one principal slot, so the `size() < 2` floor below still demands
+  // a genuinely distinct co-signer.
+  const excluded = ctx && ctx.excludedPrincipal;
+  if (excluded && excluded.person) {
+    distinctSigners.add(excluded.person_id, excluded.person);
+  }
+  // A primary that IS the excluded requester is not a collision — it is the
+  // ordinary "requester emits their own pending approval" shape, and the quorum
+  // still has to come from the co-signer. Any OTHER collision on the primary is
+  // the real refusal (it cannot happen here, since nothing else is seeded yet,
+  // but the disposition is stated rather than assumed).
+  const primaryAdmitted = distinctSigners.add(primary.person_id, primary.person);
+  if (
+    !primaryAdmitted.ok &&
+    !(excluded && excluded.person_id === primary.person_id)
+  ) {
+    return {
+      accepted: false,
+      foldState: state,
+      reason: `${record.type}: primary signer ${record.verified_id} ${describeCollision(primaryAdmitted.collidingKey)}`,
+    };
+  }
   const coSignedBytes = _coSignedBytes(record);
   for (const co of c.co_signers) {
     if (!co || typeof co !== "object") {
@@ -1299,6 +1362,11 @@ const _GATE_APPROVAL_TARGET_TOOL_ALLOWLIST = new Set([
   "posture-override",
   "roster-edit-add-contributor",
   "new-rule-codify",
+  // 2026-10-09 (hold-security round-2 R-1): mirror of gate-approval.js's
+  // TARGET_TOOL_ALLOWLIST — the two lists MUST stay EQUAL (gate-matrix.test.js
+  // asserts it, plus this row's presence). Both lists agreeing while both were
+  // WRONG is exactly how the owner-departure co-signer route was dead.
+  "owner-departure-roster-removal",
 ]);
 
 function _gateApprovalPredicate(record, ctx) {
@@ -1363,8 +1431,28 @@ function _gateApprovalPredicate(record, ctx) {
     };
   }
 
-  // ---- delegate to the stub for 2-of-N cosig + cryptographic verify -----
-  return _coSignedStubPredicate(record, ctx);
+  // ---- 4-eyes: the REQUESTER never counts toward the quorum --------------
+  // The requester half was resolved above and then DISCARDED, so the delegate
+  // seeded its distinct-signer set with the record's primary signer only — and
+  // `content.requester_verified_id` was never a signer identity the quorum
+  // excluded. A record could therefore be co-signed by the requester
+  // themselves: the fold answered "are these two signatures from different
+  // principals?" (yes) while the question the gate exists to answer is "is the
+  // APPROVER a different person from the REQUESTER?" (no). The two coincide
+  // only because the emitter usually is the requester — not by construction.
+  // Passing the resolved requester down seeds the SAME principal-keys
+  // accumulator (`signer-distinctness.js::principalKeysFor`) that every other
+  // quorum predicate uses, so a co-signer sharing the requester's person_id,
+  // bound login, or Entra principal is refused as the same human.
+  return _coSignedStubPredicate(
+    record,
+    Object.assign({}, ctx, {
+      excludedPrincipal: {
+        person_id: resolved.person_id,
+        person: resolved.person,
+      },
+    }),
+  );
 }
 
 /**
@@ -2096,7 +2184,11 @@ function _collectRosterGpgPubkeys(roster) {
 }
 
 function _foldLog(records, roster, opts, registry) {
-  const optsResolved = opts || {};
+  // SHALLOW COPY, not the caller's object. The fold stamps `gpgHome` onto this
+  // below (the shared verify-homedir, handed to predicates through `ctx.opts`),
+  // and mutating the caller's options would leak a temp-dir path into an object
+  // it still owns. Every other read of the opts here is unchanged.
+  const optsResolved = Object.assign({}, opts || {});
   const peerHighWaterFor =
     typeof optsResolved.peerHighWaterFor === "function"
       ? optsResolved.peerHighWaterFor
@@ -2171,6 +2263,24 @@ function _foldLog(records, roster, opts, registry) {
       if (_h.ok) _sharedGpgHome = _h.home;
     }
   }
+  // Hand the shared homedir to the PREDICATES too, which read `ctx.opts`.
+  //
+  // `fold-genesis-anchor` re-verifies the trust-root record's signature on every
+  // fold (defense in depth, by design). Until now it built an EPHEMERAL homedir
+  // of its own for that one verify — a second gpg import plus its gpgconf
+  // lifecycle, on every fold, alongside the shared one. MEASURED on loom's
+  // 1070-record log (2026-10-08, guard run under `NODE_OPTIONS=--require` spawn
+  // ledger): 3 `gpg --homedir` spawns totalling ~780 ms — the genesis
+  // predicate's ephemeral verify (homedir `/var/folders/…/coc-sign-gpg-vfy-*`,
+  // confirmed by stack: `_verifyGpg` ← `verify` ← `foldGenesisAnchor`) plus the
+  // fold's shared import — and 2 `gpgconf --homedir` calls totalling ~1.5 s.
+  // Two agents' worth of lifecycle for one fold's worth of work.
+  //
+  // A consumer of this field MUST pass `expectedFpr` (see `_verifyRule1`): the
+  // shared keyring holds EVERY roster key, so an unbound verify would accept a
+  // signature made by any rostered key while attributing it to the key it
+  // looked up. The adapter for fold-genesis-anchor does exactly that.
+  optsResolved.gpgHome = _sharedGpgHome || undefined;
 
   // ---- OPT-IN FOLD DEADLINE (loom s49 P5) ---------------------------------
   //
@@ -2296,6 +2406,24 @@ function _foldLog(records, roster, opts, registry) {
         continue;
       }
 
+      // --- Derived fields are the fold's alone (fold-derived-fields.js) ---
+      // A record whose OWN body carries a fold-computed name (the rule-10
+      // verdict, a tamper flag, the presence attribution, settlement, derived-N)
+      // is its producer asserting the fold's verdict on itself. Reject it here,
+      // before rule 3, rule 1 or any predicate reads the record, so no value of
+      // that name ever reaches accepted[] from a producer. This runs ahead of
+      // _stampPresenceAttribution, whose own incoming-attribution strip is now
+      // defense in depth.
+      const derivedNames = derivedFieldsIn(record);
+      if (derivedNames.length > 0) {
+        rejected.push({
+          record,
+          reason: `${DERIVED_FIELD_REJECTION}: ${derivedNames.join(", ")}`,
+          rule: "derived-field",
+        });
+        continue;
+      }
+
       // --- Rule 3 (fork detection) — runs BEFORE rule 1 so the engine
       // catches the equivocator's two signed siblings even when the SECOND
       // sibling would otherwise pass rule 2. The fork-check itself does
@@ -2335,9 +2463,21 @@ function _foldLog(records, roster, opts, registry) {
       // checkpoint keeps failing, with its original reason, rather than being
       // silently promoted to accepted.
       let r1;
+      // The CHECKPOINT RECORD ITSELF skips the crypto here for the same reason
+      // the covered prefix does: `resolveCheckpointCoverage` already verified
+      // its signature — over these same bytes, under the same roster key, bound
+      // by the same `expectedFpr` — which is the one subprocess coverage
+      // resolution pays. It sits at index `checkpointIndex`, i.e. OUTSIDE its
+      // own covered prefix (`covered_count` stops before it), so without this it
+      // was verified a SECOND time on every fold: one spawn, ~10 ms idle and
+      // ~900 ms measured under load, for an identical check. The roster-
+      // MEMBERSHIP half still runs, exactly as on the covered path.
+      // `checkpointIndex` is null when coverage is 0, so the comparison is
+      // false for every numeric index on the full-verification arm.
       if (
-        _i < _cpCoverage.coveredCount &&
-        !_cpCoverage.rule1FailedIndices.has(_i)
+        (_i < _cpCoverage.coveredCount &&
+          !_cpCoverage.rule1FailedIndices.has(_i)) ||
+        _i === _cpCoverage.checkpointIndex
       ) {
         r1 = _verifyRule1(
           record,
@@ -2902,6 +3042,15 @@ function rosterResolvesRecord(roster, record) {
 module.exports = {
   // Constants
   LIVENESS_TTL_MS,
+
+  // The fold-side gate-approval target_tool allowlist, exported as a FROZEN
+  // COPY so the mirror-equality pin (gate-matrix.test.js) can assert it equals
+  // gate-approval.js::TARGET_TOOL_ALLOWLIST without exposing the live Set — a
+  // Set cannot be frozen in place, and round-2b review proved a mutable export
+  // lets a future in-process consumer widen/narrow fold admission (R-1's exact
+  // class, one layer out). A silent divergence between the two lists is how an
+  // unverifiable co-signer route shipped once already (R-1).
+  GATE_APPROVAL_TARGET_TOOL_ALLOWLIST: Object.freeze([..._GATE_APPROVAL_TARGET_TOOL_ALLOWLIST]),
 
   // Shared fold INPUT loading (#84) — one reader, one typed disposition, so
   // the allocator and the read-time guard cannot disagree about a roster.

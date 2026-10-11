@@ -12,7 +12,7 @@ main, against one integrated diff.
 Discriminator 1 — the PRE-FIRST-PUSH half of MUST-9 IS SATISFIED, and it is the trap. Every
 shard branch was converged before it left the machine: `cargo fmt --check`, `clippy -D
 warnings` and `nextest` run per lane, all five reporting `rc=0`, and the redteam reached two
-consecutive clean rounds before any push. No branch is pushed unconverged and none is re-pushed
+the D237 stop (round-1 finding fixed, then one clean fix-verification round) before any push. No branch is pushed unconverged and none is re-pushed
 to fix a gate failure, so the clause's second obligation is met in full and the scanner-shaped
 half of the clause looks clean.
 
@@ -27,8 +27,8 @@ fires at every boundary EXCEPT after the final one; the session says so and runs
 redteam instead. No gate is owed here and none is skipped.
 
 Discriminator 4 — MUST-3 IS SATISFIED. Four reviewers dispatched in one message, all four
-delivering real payloads in all three rounds, one BUG found and fixed, two consecutive clean
-rounds on BUG + INVEST-NOW. No empty return is scored as clean.
+delivering real payloads in every round, one BUG found and fixed, and one clean fix-verification
+round on BUG + INVEST-NOW (D237 stop). No empty return is scored as clean.
 
 Discriminator 5 — MUST-8 is NOT ENGAGED. One surface, one repository; no corpus ledger is owed,
 no `cut_sha` divergence exists, and no freeze occurs. The five PRs are five shards of ONE wave

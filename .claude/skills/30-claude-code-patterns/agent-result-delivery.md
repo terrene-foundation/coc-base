@@ -1,6 +1,6 @@
 # Agent Result Delivery — A Spawned Agent Is Not A Delivered Result
 
-Depth file for `rules/agents.md` § "MUST: A Dispatched Agent's Result Is Not Received Until It Is DELIVERED". The rule body carries the load-bearing MUST; this file carries the measurement, the mechanism, a DO/DO-NOT block PER MODE, the BLOCKED-rationalization corpus per mode, the bounded resume procedure, and the recovery procedure.
+Depth file for `rules/agents.md` § "MUST: A Dispatched Agent's Result Is Not Received Until DELIVERED". The rule body carries the load-bearing MUST; this file carries the measurement, the mechanism, a DO/DO-NOT block PER MODE, the BLOCKED-rationalization corpus per mode, the bounded resume procedure, and the recovery procedure.
 
 This is the **spawn-configuration** sibling of `redteam-dispatch-evidence-gate.md` Axis 1. That axis covers an agent that ERRORED and returned nothing. This one covers TWO ways a SUCCEEDING agent still returns nothing usable: it produced its full report and had no return path (mode 1, below), or it stalled before writing and returned a status fragment (mode 2). Same rule family (`evidence-first-claims.md` MUST-3: an empty return is zero evidence), different and more dangerous cause: nothing anywhere reports a failure.
 
@@ -84,7 +84,7 @@ result exists. A populated `result` field is exactly what makes this mode invisi
 **What makes it a FRAGMENT is not brevity — it is that it announces work still to come instead
 of stating a result.** A terse but complete verdict ("CLEAN — no findings this round") IS a
 delivered result and MUST NOT be re-run as a non-delivery; doing so would invert the very
-clean-round counter § Redteam Reviewer Dispatch governs.
+clean-round verdict § Redteam Reviewer Dispatch governs.
 
 ### Resume works HERE — and that does NOT contradict the BLOCKED entry above
 
@@ -156,7 +156,7 @@ result: "Now the adversarial sweep the earlier lane never finished: …"
 
 # DO — a terse verdict IS a delivery; do not re-run it
 result: "CLEAN — no findings this round."
-  -> states a result -> delivered; re-running it would invert the clean-round counter
+  -> states a result -> delivered; re-running it would invert the clean-round verdict
 
 # DO — resume ONCE, releasing only what the AGENT assigned itself
 SendMessage(to: <id>, "A fragment arrived; it is zero evidence. Your next message must BE

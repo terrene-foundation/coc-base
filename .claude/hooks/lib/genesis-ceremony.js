@@ -100,12 +100,17 @@ function _defaultLocalAppend(repoDir) {
     // eslint-disable-next-line global-require
     const path = require("path");
     // eslint-disable-next-line global-require
-    const { appendSinkLine } = require("./append-sink.js");
+    const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
     // loom#1349 R1 F3 — routed through the shared hardened primitive. Genesis rows anchor the
     // repo's trust root, so a symlinked sink here would land the anchor outside the repo.
     const sinkPath = path.join(repoDir, ".claude", "learning", "coordination-log.jsonl");
     try {
-      const w = appendSinkLine({ repoDir, sinkPath, line: JSON.stringify(record) });
+      const w = appendSinkLine({
+        repoDir,
+        additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+        sinkPath,
+        line: JSON.stringify(record),
+      });
       if (!w.ok)
         return { ok: false, error: "default local append failed", reason: `${w.error} — ${w.reason}` };
       return { ok: true };

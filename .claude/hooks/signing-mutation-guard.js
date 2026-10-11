@@ -12,8 +12,10 @@
  *   config / explicit env (NOT the multi-operator roster), and the
  *   degraded-mode read-only block is the same behavior already shipped on
  *   the Codex shell lane (DF-AC6-2) — extending it to apply_patch makes
- *   the file-edit lane symmetric with the shell lane. The cc-only
- *   coordination guards deliberately omit this marker.
+ *   the file-edit lane symmetric with the shell lane. Since 2026-10-09 the
+ *   coordination guards carry the marker too: the orchestrator ruling makes
+ *   native execution the default, and an exclusion survives only with a
+ *   written reason plus a compensating control.
  *
  * Shard B3a (workspaces/multi-operator-coc/02-plans/01-architecture.md
  * §2.3 + §4.3 hook-table row + R4-S-02 + R5-S-03).
@@ -94,7 +96,25 @@
 
 "use strict";
 
-const TIMEOUT_MS = 5000;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git ls-files` / `git check-ignore` (wouldMutateWorkingTree), the sibling-porcelain worktree enumeration, lib/state-resolver.js, and lib/operator-id.js::resolveIdentity's key discovery (git / ssh-keygen / gpg). The hook itself performs no durable write: the operator-id hint cache it used to declare (lib/operator-id.js::_writeCache) was REMOVED 2026-10-09 — its reader had already been deleted and nothing in the repo read the file, so the write was dead. lib/instruct-and-wait.js emits to stdout only."
+ * }
+ */
+
+// Raised 5000 -> 20000 (2026-10-08) TOGETHER with its settings.json registration
+// (5s -> 20s, both rows): the sibling-porcelain-scaling BUDGET fixture asserts these
+// move together, so a load-slowed scan is not killed by the internal timer while the
+// harness is still willing to wait. Registered timeouts are [20,20]s.
+const TIMEOUT_MS = 20000;
 
 let fallback = null;
 
@@ -143,7 +163,8 @@ function resolveRepoDir(payload) {
   // unrelated repo and it passed everything through. See lib/repo-dir-override.js
   // for the 8-of-8 two-pole measurement, the three arms, and why
   // `provenCheckoutRoot` does not close it.
-  return resolveRepoDirBound(payload, { hookName: "signing-mutation-guard" }).repoDir;
+  return resolveRepoDirBound(payload, { hookName: "signing-mutation-guard" })
+    .repoDir;
 }
 
 /**
@@ -587,7 +608,8 @@ module.exports = { hookMain };
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The
 // selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
   else {
     // FW-TIER2 — a STANDALONE invocation is one hook event, so it opens the same
     // one-answer-per-question scope the dispatch worker opens. Without it every

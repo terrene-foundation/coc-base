@@ -32,6 +32,15 @@ const {
   resolveMainCheckoutDetailed,
 } = require("./state-resolver");
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env");
+const { askOnce, eventGitKey } = require("./event-git.js");
+
+// THE canonical `--git-common-dir` question (git-cache-design-memo.md §3.2 / §5.1 D1) —
+// the identical argv every asker of the shared git dir uses, so event-git's
+// question key collapses them to ONE spawn per event. Output order follows argv:
+// toplevel first, common dir LAST. `--path-format=absolute` keeps the value the
+// absolute-form callers read; the `path.isAbsolute` guard below is retained for
+// the relative form a non-canonical asker would still produce.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 const {
   validatePostureV2Schema,
   migrateV1ToV2,
@@ -518,16 +527,36 @@ function resolveWitnessPath(repoDir) {
     // Unresolvable git falls through to the literal `<repoDir>/.git/` fallback
     // below — that branch resolves inside repoDir, so it never widens trust.
     if (!gitBin) throw new Error("git binary unresolved");
-    const gitCommonDir = execFileSync(
-      gitBin,
-      ["rev-parse", "--git-common-dir"],
-      {
-        cwd: repoDir,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        env: gitEnv(),
+    // ONE answer per distinct question per hook event (lib/event-git.js): the
+    // canonical argv makes this the SAME question every other common-dir asker
+    // asks, so the event shares one spawn. Outside an event scope `askOnce`
+    // runs the probe directly — unchanged behaviour for standalone callers.
+    const probe = askOnce(
+      eventGitKey({ gitBin, cwd: repoDir, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+      () => {
+        try {
+          const out = execFileSync(gitBin, CANONICAL_COMMON_DIR_ARGS, {
+            cwd: repoDir,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+            env: gitEnv(),
+          });
+          return { ok: true, value: String(out || "").trim() };
+        } catch (e) {
+          // A spawn failure is an ANSWER here (a recorded failure stays a
+          // failure for the event), never a throw into the guard — the outer
+          // catch below keeps the literal `.git/` fallback.
+          return { ok: false, reason: String((e && e.message) || e) };
+        }
       },
-    ).trim();
+    );
+    const probeLines = probe.ok
+      ? String(probe.value || "")
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    const gitCommonDir = probeLines.length > 0 ? probeLines[probeLines.length - 1] : "";
     if (gitCommonDir) {
       // `--git-common-dir` may return a relative path (e.g. `.git`) — resolve
       // against repoDir to get an absolute path.
@@ -1194,8 +1223,8 @@ function writePosture(cwd, posture) {
  */
 function _stripRepoPath(p) {
   if (typeof p !== "string" || !p) return "unknown";
-  // Trailing-slash basename: works for `/Users/x/repos/loom`,
-  // `/home/x/repos/loom`, `/repos/loom`, `C:\\Users\\x\\repos\\loom`,
+  // Trailing-slash basename: works for `<operator-home>/repos/loom`, (Source: .claude/hooks/lib/state-io.js:1224-1233.)
+  // `<operator-home>/repos/loom`, `/repos/loom`, `C:<operator-home>\\repos\\loom`,
   // and relative paths alike.
   const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
   return idx >= 0 ? p.slice(idx + 1) || "unknown" : p;

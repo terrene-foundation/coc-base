@@ -259,7 +259,11 @@ const path = require("node:path");
 // binding in scope is how the naive `statSync`/`readFileSync` read got written next to a hardened
 // write in the first place (loom#1762 CRITICAL 1); leaving it out makes the unhardened path
 // something a future edit has to ADD an import to reach, rather than something already at hand.
-const { appendSinkLine, readSinkFile } = require("./append-sink.js");
+const {
+  appendSinkLine,
+  readSinkFile,
+  mainCheckoutBoundaryRoots,
+} = require("./append-sink.js");
 
 // The orchestrator-generation sentinel, IMPORTED from the producer rather than restated. A local
 // copy would be a second definition of a join key, which is the drift class this module's
@@ -930,6 +934,7 @@ function markSurfaced(repoDir, session, sig, nowIso) {
   try {
     return appendSinkLine({
       repoDir,
+      additionalRoots: mainCheckoutBoundaryRoots(repoDir),
       sinkPath: markerPath(repoDir, session),
       line: JSON.stringify({ sig, ts: nowIso || new Date().toISOString() }),
     });

@@ -11,6 +11,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const RUNTIME_STARTED_AT = require("node:perf_hooks").performance.now();
 const ROOT = fs.realpathSync(path.resolve(__dirname, "../../.."));
 const INPUT_TIMEOUT_MS = 2000;
 const MAX_INPUT_BYTES = 4 * 1024 * 1024;
@@ -21,6 +22,8 @@ const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 // does on its own hook timeout is UNMEASURED, and this design does not depend
 // on it either way.
 const NATIVE_CALL_BUDGET_MS = 540000;
+const NATIVE_LIFECYCLE_EVENTS = new Set(["SessionStart", "SessionEnd", "PreCompact", "PostCompact", "UserPromptSubmit",
+  "SubagentStart", "SubagentStop", "Stop", "Interrupt", "PostToolUse", "PermissionRequest"]);
 // These are direct-handler roles, not replacements for native-policy's live
 // registration inventory or its separate 550s/600s aggregate budget.
 const HANDLERS = [
@@ -82,6 +85,46 @@ function parseOutput(stdout) {
   } catch { return null; }
 }
 
+function nativeEventFailure(event, message) {
+  const json = { systemMessage: `[codex-native-events] ${message}` };
+  let exitCode = 0;
+  if (["SessionStart", "PreCompact", "PostCompact", "UserPromptSubmit", "PostToolUse"].includes(event)) {
+    json.continue = false; json.stopReason = message;
+  } else if (event === "PermissionRequest") {
+    json.hookSpecificOutput = { hookEventName: event, decision: { behavior: "deny", message } };
+    exitCode = 2;
+  } else if (!["Stop", "SubagentStop"].includes(event)) exitCode = 1;
+  return { stdout: event === "SessionEnd" ? "" : JSON.stringify(json), stderr: message + "\n", exitCode,
+    _nativeRuntimeFault: ["Stop", "SubagentStop"].includes(event) };
+}
+
+function finalizeNativeEventFailure(event, out, rawPayload) {
+  const { _nativeRuntimeFault, ...result } = out;
+  if (!_nativeRuntimeFault || !["Stop", "SubagentStop"].includes(event)) return result;
+  const json = parseOutput(result.stdout) || {};
+  if (json.decision === "block" || json.continue === false) return result;
+  let verdict = { refuse: false, reason: "uncountable-input" };
+  if (rawPayload && rawPayload.hook_event_name === event && typeof rawPayload.stop_hook_active === "boolean" &&
+      typeof rawPayload.cwd === "string" && path.isAbsolute(rawPayload.cwd) &&
+      typeof rawPayload.session_id === "string" && /^[A-Za-z0-9._-]{1,200}$/.test(rawPayload.session_id) &&
+      rawPayload.session_id !== "unknown-session") {
+    try {
+      const { refusalVerdict } = require("./stop-refusal");
+      verdict = refusalVerdict(event, { payload: rawPayload, repoDir: ROOT,
+        budgetKey: "codex-native-events", maxRefusals: 3 }, { nativeSubagentStop: true });
+    } catch (error) { verdict = { refuse: false, reason: `budget-unavailable: ${error.message}` }; }
+  }
+  if (verdict.refuse) {
+    json.decision = "block";
+    json.reason = result.stderr.trim() || json.systemMessage || "Native lifecycle evaluation failed.";
+  } else {
+    const notice = `[codex-native-events] runtime refusal suppressed: ${verdict.reason}`;
+    json.systemMessage = [json.systemMessage, notice].filter(Boolean).join("\n\n");
+    result.stderr = [result.stderr.trim(), notice].filter(Boolean).join("\n") + "\n";
+  }
+  return { ...result, stdout: JSON.stringify(json) + "\n" };
+}
+
 function normalizeRecord(event, result, toolName) {
   const out = { ...result };
   const json = parseOutput(out.stdout);
@@ -94,6 +137,11 @@ function normalizeRecord(event, result, toolName) {
     return refusal("Policy supplied malformed hook-specific output.");
   }
   const h = json.hookSpecificOutput || {};
+  if (["continue", "suppressOutput"].some(key => json[key] !== undefined && typeof json[key] !== "boolean") ||
+      ["reason", "stopReason", "systemMessage", "validation"].some(key => json[key] !== undefined && typeof json[key] !== "string") ||
+      ["additionalContext", "permissionDecisionReason", "validation", "hookEventName"].some(key => h[key] !== undefined && typeof h[key] !== "string")) {
+    return refusal("Policy supplied malformed control or context fields.");
+  }
   if ((h.permissionDecision !== undefined && !["allow", "deny", "ask"].includes(h.permissionDecision)) ||
       (json.decision !== undefined && !["approve", "block"].includes(json.decision)) ||
       json.updatedInput !== undefined || json.permissionDecision !== undefined) {
@@ -234,8 +282,11 @@ function normalizeLifecycle(event, result) {
   for (const json of records) {
     if (COMMON_EVENTS.has(event)) {
       if (typeof json.continue === "boolean" && out.continue !== false) out.continue = json.continue;
-      if (typeof json.suppressOutput === "boolean") out.suppressOutput = json.suppressOutput;
       if (typeof json.stopReason === "string") out.stopReason = [out.stopReason, json.stopReason].filter(Boolean).join("\n");
+      if (["PreCompact", "PostCompact", "SessionStart"].includes(event) && json.decision === "block") {
+        out.continue = false;
+        out.stopReason = [out.stopReason, json.reason || "Hook requested further review."].filter(Boolean).join("\n");
+      }
     }
     if (event === "PostToolUse" && json.continue === false) {
       out.continue = false;
@@ -437,8 +488,9 @@ function restoreNativeRewrite(result, original, evaluateRewritten) {
   const output = parseOutput(result.stdout);
   const rewrite = output?.hookSpecificOutput?.updatedInput;
   if (!rewrite) return result;
-  if (original.tool_name === "apply_patch" || NATIVE_AGENT_TOOLS.has(original.tool_name)) {
-    return refusal("Canonical edit or agent rewrites cannot be mapped unambiguously to this native tool.");
+  if (original.tool_name === "apply_patch" || NATIVE_AGENT_TOOLS.has(original.tool_name) ||
+      ["update_plan", "functionsupdate_plan", "send_message", "collaborationsend_message"].includes(original.tool_name)) {
+    return refusal("Canonical edit, agent, plan or message rewrites cannot be mapped unambiguously to this native tool.");
   }
   if (!NATIVE_SHELL_TOOLS.has(original.tool_name)) {
     // A COMMAND rewrite for a tool outside the set is unmappable and must not
@@ -791,11 +843,47 @@ function evaluateEveryRendering(payload, renderings, evaluate, deadline = Date.n
   return canonical;
 }
 
+/** THE established native-policy evaluation, as ONE function: `evaluateNative`
+ * normalized to this boundary's legacy shape. The foundation seam below wraps
+ * THIS — it never re-implements or replaces it. The requires stay INSIDE the
+ * function: `codex-native-policy` requires this module at load, so a
+ * module-level require here would close the cycle at load time. */
+function evaluateLegacyPolicy(payload, deadline) {
+  const { evaluateNative } = require("./codex-native-policy");
+  return normalizeOutput(payload.hook_event_name, evaluateNative(payload, deadline), payload.tool_name);
+}
+
+/** THE ONE Foundation seam, shared by both policy entry points (the
+ * `--native-policy` dispatch path and the rewrite re-evaluation path).
+ *
+ * `evaluateFoundation` wraps the established evaluation, derives a foundation
+ * decision record, and returns `{decision, legacyResult}`;
+ * `serializeDecision` restores the caller's shape, so the value this returns
+ * is byte-identical to what the established chain returned before this seam
+ * existed — the wrapper is behaviour-preserving BY CONSTRUCTION, and the
+ * decision record rides BESIDE the legacy verdict rather than replacing it.
+ *
+ * STATUS, honestly: no facts are wired from dispatch yet, so a permissive
+ * legacy result currently decides `unknown` (never `allow` — an exit-0 result
+ * carries no rule identity) and a refusal decides `deny`. Nothing consumes
+ * the decision yet; the L1 fact wiring and its consumer are later increments.
+ * The evaluator is NOT decoupled from `codex-mcp-guard/server.js` by this
+ * seam — the coupling moved to the injection point, it was not removed. */
+function evaluateThroughFoundation(payload, deadline) {
+  const { evaluateFoundation, serializeDecision } = require("./codex-foundation-adapter");
+  return serializeDecision(
+    payload.hook_event_name,
+    evaluateFoundation(payload, { evaluate: evaluateLegacyPolicy, deadline }),
+  );
+}
+
 function dispatch(args = process.argv.slice(2), raw = fs.readFileSync(0, "utf8")) {
   const [targetArg, ...forwardedArgs] = args;
   if (!targetArg) throw new Error("no target hook path given");
+  if (targetArg === "--native-event" && (forwardedArgs.length !== 1 || !NATIVE_LIFECYCLE_EVENTS.has(forwardedArgs[0]))) throw new Error("native event launcher requires one supported event binding");
   const parsed = JSON.parse(raw || "{}");
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("hook input must be an object");
+  if (targetArg === "--native-event" && parsed.hook_event_name !== forwardedArgs[0]) throw new Error("native event payload does not match its registered event binding");
   const payload = normalizeNativeInput(parsed);
   if (JSON.stringify(payload) !== JSON.stringify(parsed)) raw = JSON.stringify(payload);
   const renderings = normalizeCommandShape(payload);
@@ -830,7 +918,6 @@ function dispatch(args = process.argv.slice(2), raw = fs.readFileSync(0, "utf8")
   // adapter merely to pass a call through, and a rewrite on such a tree
   // refuses with its own module error instead of silently skipping the check.
   const evaluateRewritten = (nativeInput, command) => {
-    const { evaluateNative } = require("./codex-native-policy");
     const rewritten = Array.isArray(command) ? commandRenderings(command) : [command];
     const base = { ...nativeInput };
     delete base.command;
@@ -839,7 +926,12 @@ function dispatch(args = process.argv.slice(2), raw = fs.readFileSync(0, "utf8")
       { ...evaluated, tool_input: { ...base, command: rewritten[0] } },
       rewritten,
       (candidate) => {
-        const out = normalizeOutput(candidate.hook_event_name, evaluateNative(candidate, nativeDeadline), candidate.tool_name);
+        // The rewritten command is RE-EVALUATED through the SAME foundation
+        // seam the dispatch path uses — same chain, same deadline, same
+        // decision derivation — and the serializer restores the caller's
+        // `{stdout, stderr, exitCode}` shape, so the rewrite classifier below
+        // reads exactly what it read before this seam existed.
+        const out = evaluateThroughFoundation(candidate, nativeDeadline);
         const again = parseOutput(out.stdout)?.hookSpecificOutput?.updatedInput;
         if (again !== undefined) {
           // LOW a (security round): accept ONLY an idempotent echo of the
@@ -862,14 +954,17 @@ function dispatch(args = process.argv.slice(2), raw = fs.readFileSync(0, "utf8")
   process.env.COC_RUNTIME = "codex";
   process.env.CLAUDE_PROJECT_DIR = ROOT;
   if (targetArg === "--native-policy") {
-    const { evaluateNative } = require("./codex-native-policy");
+    // The evaluation passes THROUGH the foundation seam (see
+    // evaluateThroughFoundation): behaviour-preserving for every rendering,
+    // with the foundation decision derived beside the legacy verdict.
     return evaluateEveryRendering(evaluated, renderings, (candidate) =>
       restoreNativeRewrite(
-        normalizeOutput(candidate.hook_event_name, evaluateNative(candidate, nativeDeadline), candidate.tool_name),
+        evaluateThroughFoundation(candidate, nativeDeadline),
         parsed,
         evaluateRewritten,
       ), nativeDeadline);
   }
+  if (targetArg === "--native-event") return require("./codex-native-events").evaluateEvent(evaluated, { startedAt: RUNTIME_STARTED_AT, rawPayload: parsed });
   const descriptor = resolveTarget(targetArg);
   const { target } = descriptor;
   if (!descriptor.hygiene && payload.tool_name === "apply_patch" && payload.hook_event_name === "PostToolUse") {
@@ -913,12 +1008,18 @@ function readInput(stream = process.stdin) {
 
 async function main() {
   let result;
-  let event = "PreToolUse";
+  let rawPayload;
+  const nativeEvent = process.argv[2] === "--native-event";
+  let event = nativeEvent && NATIVE_LIFECYCLE_EVENTS.has(process.argv[3]) ? process.argv[3] : "PreToolUse";
   try {
     const raw = await readInput();
-    event = parseOutput(raw)?.hook_event_name || event;
-    result = dispatch(process.argv.slice(2), raw);
-  } catch (error) { result = normalizeOutput(event, refusal(`[codex-hook-runtime] ${error.message}`, event), undefined, { preserveExit: true }); }
+    rawPayload = parseOutput(raw);
+    if (!nativeEvent) event = parseOutput(raw)?.hook_event_name || event;
+    result = await dispatch(process.argv.slice(2), raw);
+  } catch (error) {
+    result = process.argv[2] === "--native-event" ? finalizeNativeEventFailure(event, nativeEventFailure(event, error.message), rawPayload)
+      : normalizeOutput(event, refusal(`[codex-hook-runtime] ${error.message}`, event), undefined, { preserveExit: true });
+  }
   fs.writeSync(1, result.stdout || "");
   fs.writeSync(2, result.stderr || "");
   process.exitCode = result.exitCode;
@@ -926,9 +1027,14 @@ async function main() {
 // `commandRenderings` and `evaluateEveryRendering` are exported for the
 // array/string suites: the first pins the unwrap composition and the depth- and
 // rendering-bound refusals WITHOUT paying a policy evaluation per rendering, the
+// `restoreNativeRewrite` is exported for the cases-codex corpus: its reach
+// token is derived from the LOADED function's own source (the rewrite guards
+// live solely inside it), and an unexported function has no source a subject
+// process can read — measured: before this export the token read `:removed`
+// on the UNMUTATED control, i.e. a reach proof that proved nothing.
 // second pins the restrictive-verdict rule (a `block` at exit 0) directly —
 // LATENT through the runtime today, because the native adapter refuses every
 // non-PreToolUse event, and the rule exists so the loop cannot drop a block the
 // normalisers treat as a refusal.
-module.exports = { ROOT, NATIVE_AGENT_TOOLS, NATIVE_SHELL_TOOLS, normalizeOutput, normalizeNativeInput, parseOutput, refusal, dispatch, resolveTarget, commandRenderings, evaluateEveryRendering, INPUT_TIMEOUT_MS };
+module.exports = { ROOT, NATIVE_AGENT_TOOLS, NATIVE_SHELL_TOOLS, NATIVE_LIFECYCLE_EVENTS, normalizeOutput, normalizeNativeInput, parseOutput, refusal, dispatch, resolveTarget, restoreNativeRewrite, commandRenderings, evaluateEveryRendering, INPUT_TIMEOUT_MS, nativeEventFailure, finalizeNativeEventFailure };
 if (require.main === module) main();

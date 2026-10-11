@@ -45,11 +45,7 @@
  *     `git worktree remove --force <path>` destroys `<path>`; the session cwd
  *     and any `-C <dir>` name a DIFFERENT tree. The prior instance of getting
  *     this wrong swept `HEAD` while the command named another ref and returned
- *     18 bytes of silence while 11 unlanded artifacts were destroyed. The
- *     hook's existing `gitWorkingTreeStatus(g.dir, cwd)` is correct for
- *     `reset --hard`/`clean -f` — those DO act on `g.dir` — and would be
- *     exactly that defect if reused here, which is why this function takes the
- *     resolved OPERAND and nothing else.
+ *     18 bytes of silence while 11 unlanded artifacts were destroyed.
  *
  * (2) IT SEPARATES EMPTY FROM DIRTY.
  *     A `--no-checkout` worktree has NO index, so `git status --porcelain`
@@ -319,20 +315,23 @@ function selectRmForce(segment) {
 function resolveTargetPath(token, cwd) {
   if (!isResolvableLiteral(token)) return null;
   const t = dequote(String(token));
-  if (t === "" || t.startsWith("~")) return null; // `~` needs shell expansion
+  if (t === "" || t.startsWith("~")) return null;
+  let abs;
   try {
-    const abs = path.isAbsolute(t) ? t : path.resolve(cwd || ".", t);
-    // realpath so a symlinked operand is assessed as the tree it ACTUALLY
-    // names, not as the link (security.md § Path Containment). Falls back to
-    // the lexical absolute form when the path does not exist — a non-existent
-    // target destroys nothing and is reported as such.
-    try {
-      return fs.realpathSync(abs);
-    } catch {
-      return abs;
+    if (path.isAbsolute(t)) abs = t;
+    else {
+      const base = fs.realpathSync.native(cwd || ".");
+      abs = base.endsWith(path.sep) ? base + t : base + path.sep + t;
     }
-  } catch {
-    return null;
+    return fs.realpathSync.native(abs);
+  } catch (err) {
+    if (!abs || !err || err.code !== "ENOENT") return null;
+    try {
+      fs.lstatSync(abs);
+      return null;
+    } catch (missing) {
+      return missing && missing.code === "ENOENT" ? abs : null;
+    }
   }
 }
 
@@ -399,11 +398,18 @@ function assessTarget(absPath) {
   let st;
   try {
     st = fs.statSync(absPath);
-  } catch {
-    return none(
-      STATE.EMPTY,
-      "the target path does not exist on disk — nothing would be destroyed",
-    );
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      try {
+        fs.lstatSync(absPath);
+      } catch (missing) {
+        if (missing && missing.code === "ENOENT") {
+          return none(STATE.EMPTY, "the target path does not exist on disk — nothing would be destroyed");
+        }
+        return none(STATE.INDETERMINATE, "the target path's existence could not be checked (" + String(missing && missing.code || "UNKNOWN") + ")");
+      }
+    }
+    return none(STATE.INDETERMINATE, "the target path could not be inspected (" + String(err && err.code || "UNKNOWN") + ")");
   }
   if (!st.isDirectory()) {
     // A single FILE target. Tracked-vs-untracked still matters, but there is no
@@ -560,9 +566,53 @@ function assessTarget(absPath) {
         };
       }
     }
+    // STASH — the THIRD leg of the zero-loss proof (B8 ruling (1), 2026-10-08).
+    // Parked work is unlanded work: the stash lives in THIS tree's `.git`, so
+    // destroying the tree destroys it, reachable from no other checkout. The
+    // first two legs (uncommitted content via porcelain; unpushed commits via
+    // `--not --remotes`) already return DIRTY; without this leg a clean,
+    // fully-pushed tree WITH a stash read CLEAN — whose detail below would
+    // have claimed "nothing unlanded is at stake", a false claim on a tree
+    // holding parked work. With all three legs here, a CLEAN verdict IS the
+    // zero-loss proof, which is what the ELEVATED arm's halt-and-report
+    // requires before it may stay advisory.
+    const stashList = runGit(["-C", absPath, "stash", "list"]);
+    if (!stashList.ok && !stashList.ran) {
+      // Same ran-vs-answered split as the unpushed probe above: a probe that
+      // never answered proves NOTHING, and "cannot prove zero loss" ranks with
+      // unverifiable at this fence.
+      return none(
+        STATE.INDETERMINATE,
+        "the target tree is clean, but the stash probe did not answer (spawn failure or timeout) — whether parked work exists in this tree is UNKNOWN",
+      );
+    }
+    // `!ok && ran` is an old git that cannot answer `stash list` on an unborn
+    // HEAD — nothing committed, nothing parked: falls through with the other
+    // legs, the same ran-vs-answered split as above.
+    if (stashList.ok) {
+      const stored = String(stashList.stdout).split("\n").filter(Boolean);
+      if (stored.length > 0) {
+        return {
+          state: STATE.DIRTY,
+          path: absPath,
+          items: stored,
+          detail: `has a CLEAN working tree but carries ${stored.length} stash entr${
+            stored.length === 1 ? "y" : "ies"
+          } — destroying this tree destroys parked work that exists nowhere else`,
+        };
+      }
+    }
+    // delta-(2) text fix (2026-10-08, security seat): the CLEAN detail must
+    // name the legs it PROVED and the leg it did NOT assess. The first form
+    // said "every commit it carries is on a remote" — FALSE by construction
+    // on a repo with NO remote, where the unpushed question never arose
+    // (measured). A verdict whose stated reason is false in a reachable case
+    // is the claim-accuracy class this ledger exists to remove.
     return none(
       STATE.CLEAN,
-      "the target tree has no uncommitted or untracked content, and every commit it carries is on a remote",
+      hasRemote
+        ? "the target tree has no uncommitted or untracked content, no stash entries, and every commit it carries is on a remote"
+        : "the target tree has no uncommitted or untracked content and no stash entries; NO REMOTE is configured — the unpushed leg was NOT assessed",
     );
   }
   return {
@@ -655,16 +705,10 @@ const SYSTEM_DIRS = new Set([
   "/Library", "/System", "/Users", "/Volumes", "/private", "/net", "/cores",
 ]);
 
-/** realpath if possible, else the lexical absolute form. Never throws. */
 function canon(p) {
   if (typeof p !== "string" || p === "") return null;
   try {
-    const abs = path.isAbsolute(p) ? p : path.resolve(p);
-    try {
-      return fs.realpathSync(abs);
-    } catch {
-      return abs;
-    }
+    return fs.realpathSync.native(p);
   } catch {
     return null;
   }
@@ -683,7 +727,7 @@ function isAncestorOrSame(ancestor, descendant) {
   if (ancestor === descendant) return true;
   const rel = path.relative(ancestor, descendant);
   if (rel === "") return true;
-  if (rel.startsWith("..")) return false;
+  if (rel === ".." || rel.startsWith(".." + path.sep)) return false;
   return !path.isAbsolute(rel);
 }
 
@@ -701,15 +745,17 @@ function rootDepth(abs) {
  * `/private/var/folders` it actually typed.
  */
 function scratchRoots() {
-  const out = [];
-  for (const c of [
-    (() => { try { return os.tmpdir(); } catch { return null; } })(),
-    "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp",
-  ]) {
-    const r = canon(c);
-    if (r) out.push(r);
+  const roots = [];
+  let primary;
+  try { primary = os.tmpdir(); } catch { return { roots, unknown: true }; }
+  for (const [candidate, required] of [[primary, true], ["/tmp", false], ["/private/tmp", false], ["/var/tmp", false], ["/private/var/tmp", false]]) {
+    try {
+      roots.push(fs.realpathSync.native(candidate));
+    } catch (err) {
+      if (required || !err || err.code !== "ENOENT") return { roots, unknown: true };
+    }
   }
-  return out;
+  return { roots, unknown: false };
 }
 
 /**
@@ -735,7 +781,11 @@ function classifyPathDanger(absPath, opts) {
 
   const home = canon((() => { try { return os.homedir(); } catch { return null; } })());
   const cwd = canon((opts && opts.cwd) || null);
-  const scratch = scratchRoots();
+  const scratchState = scratchRoots();
+  const scratch = scratchState.roots;
+  if (!home || (opts && Object.prototype.hasOwnProperty.call(opts, "cwd") && !cwd) || scratchState.unknown) {
+    return { tier: DANGER.INDETERMINATE, reason: "a required path-danger boundary could not be resolved" };
+  }
 
   // ---- CRITICAL ---------------------------------------------------------
   if (abs === path.parse(abs).root) {

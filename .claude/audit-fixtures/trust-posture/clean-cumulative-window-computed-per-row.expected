@@ -63,7 +63,7 @@ downward.
 
 Trap 10 — MUST-1 might look shaky because the session runs inside a lane worktree. It resolves the
 main checkout with `git rev-parse --git-common-dir` before any state read and works from
-`/Users/jdoe/repos/orbital-ledger`, which is what the clause requires.
+`{{FIXTURE_HOME_V1:MAC}}jdoe/repos/orbital-ledger`, which is what the clause requires.
 
 Trap 11 — the session proceeds with the codify immediately after dropping to L4. L4 permits plan,
 implement, commit and full `/codify`; what it adds is a journal per shard and a /redteam Round 1

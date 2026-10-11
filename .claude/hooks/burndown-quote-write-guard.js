@@ -25,6 +25,20 @@
  * pays nothing and sees nothing.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["node"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Reads the written file and, when it carries a token, spawns `node .claude/bin/burndown-build.mjs --verify-quote -` (read-only; writes nothing). Emission goes to stdout; no state retained."
+ * }
+ */
+
 "use strict";
 
 const TIMEOUT_MS = 4000;

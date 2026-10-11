@@ -237,7 +237,7 @@ Six scenarios cover: (1) clear value vs clear fit tradeoff, (2) Carried-forward 
 
 ## Empirical-claim status — ablation cycles (F-1 / F-1.5 / F-2.0 / F-3.0 / F-3.1)
 
-Extracted VERBATIM from `rules/value-prioritization.md` § Origin (2026-08-16 paired extraction per `rule-authoring.md` Rule 10 path (a); injection-budget headroom for the `loom-command-edit` profile). ZERO de-scoping — the § Origin Primary + Corroboration paragraphs and a pointer to this section stayed with the rule (in its body until 2026-09-27; since then in its wiring sibling `.claude/skills/32-trust-posture/wiring/value-prioritization.md`, read by every validator as part of the rule).
+Extracted VERBATIM from `rules/value-prioritization.md` § Origin (2026-08-16 paired extraction per `rule-authoring.md` Rule 10 path (a); injection-budget headroom for the `codify-edit` profile). ZERO de-scoping — the § Origin Primary + Corroboration paragraphs and a pointer to this section stayed with the rule (in its body until 2026-09-27; since then in its wiring sibling `.claude/skills/32-trust-posture/wiring/value-prioritization.md`, read by every validator as part of the rule).
 
 **Empirical-claim status (2026-05-11, post F-3.0 — substantive claim DIRECTIONALLY SUPPORTED via two cycles; caveats 3 + 5 closed):** Four ablation cycles measure the rule across the anchor-source surface (F-1 / F-1.5 / F-2.0 / F-3.0). F-2.0 reproduces Failure-A under filename-as-authority bait (`feedback_*.md` files); F-3.0 reproduces Failure-A under non-filename bait (six BLOCKED-reframing patterns distributed across `team-conventions.md` / `ARCHITECTURE.md` / `WORKING-AGREEMENT.md` / `CONTRIBUTING.md` / `README.md` / Confluence-mirror) AND under active retrieval (bait in `CLAUDE.md` 'Project conventions', neither path nor phrase in prompt body). Aggregate:
 
@@ -267,7 +267,7 @@ Full results: `journal/0055`-`0058` (F-1), `journal/0059` (F-1.5), `journal/0060
 
 # Structural-cleanup extraction — 2026-08-19 (rule-injection budget)
 
-The sections below were moved VERBATIM out of `rules/value-prioritization.md` on 2026-08-19 to bring loom's rule-injection budget under its per-profile ceilings (the rule fires in the two most over-budget profiles, `loom-command-edit` and `workspace-note`). **ZERO de-scoping** — every MUST, MUST NOT, BLOCKED-rationalization entry, DO/DO-NOT block and `**Why:**` line stayed in the rule body; what moved is evidence, runnable detail, measured narrative, per-instance provenance and the cross-reference map. `rule-authoring.md` Rule 10 / Rule 11 do **NOT** fire on this extraction: Rule 10 § "Trigger scope" limits the proximity-band gate to `priority: 0` + `scope: baseline` rules, and `value-prioritization.md` is `priority: 10` + `scope: path-scoped`, so it contributes nothing to baseline emission — this is a STRUCTURAL-CLEANUP extraction, not a Rule-10 paired extraction, and it is NOT Rule-11 recurrence input (the same disposition `journal/0148` recorded for `rule-authoring.md`'s own extraction).
+The sections below were moved VERBATIM out of `rules/value-prioritization.md` on 2026-08-19 to bring loom's rule-injection budget under its per-profile ceilings (the rule fires in the two most over-budget profiles, `codify-edit` and `workspace-note`). **ZERO de-scoping** — every MUST, MUST NOT, BLOCKED-rationalization entry, DO/DO-NOT block and `**Why:**` line stayed in the rule body; what moved is evidence, runnable detail, measured narrative, per-instance provenance and the cross-reference map. `rule-authoring.md` Rule 10 / Rule 11 do **NOT** fire on this extraction: Rule 10 § "Trigger scope" limits the proximity-band gate to `priority: 0` + `scope: baseline` rules, and `value-prioritization.md` is `priority: 10` + `scope: path-scoped`, so it contributes nothing to baseline emission — this is a STRUCTURAL-CLEANUP extraction, not a Rule-10 paired extraction, and it is NOT Rule-11 recurrence input (the same disposition `journal/0148` recorded for `rule-authoring.md`'s own extraction).
 
 ## Demotion to path-scoped (2026-05-09) — the emit-budget record
 
@@ -430,7 +430,7 @@ Runtime detection (the four hooks named in § Trust Posture Wiring) remains the 
 **Extraction record** (2026-08-19, ZERO de-scoping): eight depth topics — each pointed at in place
 above — moved VERBATIM to § "Structural-cleanup extraction — 2026-08-19 (rule-injection budget)".
 Every MUST, MUST NOT, BLOCKED-rationalization entry, DO/DO-NOT block and `**Why:**` line stayed
-here. Driver: loom's rule-injection budget (this rule fires in the `loom-command-edit` +
+here. Driver: loom's rule-injection budget (this rule fires in the `codify-edit` +
 `workspace-note` profiles). **`rule-authoring.md` Rule 10 / Rule 11 do NOT fire** — Rule 10
 § "Trigger scope" limits the proximity-band gate to `priority: 0` + `scope: baseline` rules and
 this rule is `scope: path-scoped`, so this is a STRUCTURAL-CLEANUP extraction, not a Rule-10

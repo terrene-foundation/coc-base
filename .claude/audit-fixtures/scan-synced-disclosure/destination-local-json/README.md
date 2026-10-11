@@ -6,4 +6,4 @@ Per `rules/cc-artifacts.md` Rule 9 + `rules/hook-output-discipline.md` MUST-4. P
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Destination scan via `--root <dir>` flips `.local.json` exclusion OFF. A committed `.local.json` at the destination embeds operator-home-path shapes → flag. |
 
-Synthetic content per the dir's `README.md` convention: invented home paths only (`/Users/fakeuser/...`, `~/fake-repos/...`) — NO real operator coordinates.
+Synthetic content per the dir's `README.md` convention: invented home paths only (`<operator-home>/...`, `~/fake-repos/...`) — NO real operator coordinates.

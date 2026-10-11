@@ -81,6 +81,23 @@
  * `COC_CONSERVATION_BUDGET_MS`, `COC_CONSERVATION_CONCURRENCY`.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/stop-refusal/",
+ *       ".claude/learning/stop-refusal/<session-id>.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: the forest survey in lib/worktree-conservation.js — `git worktree list --porcelain` plus one `git status --porcelain` per tree (execFileSync + an async execFile pool). fs_writes: this is the FIRST `refuseHandback` adopter, so lib/instruct-and-wait.js -> lib/stop-refusal.js appends one budget row per refusal to `.claude/learning/stop-refusal/<session-id>.jsonl` (via lib/append-sink.js, which mkdirs the directory); a repeat payload appends another row until the budget is spent and then returns a different decision, so not idempotent. The common no-finding path writes nothing (silent passthrough)."
+ * }
+ */
+
 const path = require("path");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 const {

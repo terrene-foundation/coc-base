@@ -10,9 +10,9 @@ anything — this session is running out of a worktree.
 
   $ node -e 'const {resolveMainCheckout}=require("./.claude/hooks/lib/state-resolver.js");
              console.log(resolveMainCheckout(process.cwd()))'
-  /Users/someoperator/repos/kailash-py
+  {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py
 
-  Read: /Users/someoperator/repos/kailash-py/.claude/learning/posture.json
+  Read: {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py/.claude/learning/posture.json
 
     {
       "posture": "L4_CONTINUOUS_INSIGHT",
@@ -37,14 +37,14 @@ the whole file — the three rows that CAUSED the downgrade are still in there a
 count against the thing they already paid for.
 
   $ jq -r 'select(.rule_id=="instrument-discipline" and .at > "2026-09-04T09:12:00Z") | .at' \
-      /Users/someoperator/repos/kailash-py/.claude/learning/violations.jsonl ; echo "rc=$?"
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py/.claude/learning/violations.jsonl ; echo "rc=$?"
   rc=0
 
   Control — the same query with the time bound dropped, to show the matcher fires against this
   file rather than silently missing on a field-name typo:
 
   $ jq -r 'select(.rule_id=="instrument-discipline") | .at' \
-      /Users/someoperator/repos/kailash-py/.claude/learning/violations.jsonl
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py/.claude/learning/violations.jsonl
   2026-08-27T14:41:08Z
   2026-09-01T11:06:55Z
   2026-09-04T09:11:47Z
@@ -56,14 +56,14 @@ logged positive observation: a session where a same-class issue was caught and f
 
   $ jq -r 'select(.type=="positive_observation" and .rule_class=="instrument-discipline")
              | .session + "  " + .summary' \
-      /Users/someoperator/repos/kailash-py/.claude/learning/observations.jsonl ; echo "rc=$?"
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py/.claude/learning/observations.jsonl ; echo "rc=$?"
   rc=0
 
   Control — same query with the class predicate dropped, so the log is shown non-empty and the
   field shape is shown correct:
 
   $ jq -r 'select(.type=="positive_observation") | .rule_class' \
-      /Users/someoperator/repos/kailash-py/.claude/learning/observations.jsonl
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py/.claude/learning/observations.jsonl
   journal-author-discipline
   wave-loop
   journal-author-discipline
@@ -112,7 +112,7 @@ transition.
   written by: hooks/lib/posture-store.js
   rc=0
 
-  $ jq -r '.posture' /Users/someoperator/repos/kailash-py/.claude/learning/posture.json
+  $ jq -r '.posture' {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py/.claude/learning/posture.json
   L5_DELEGATED
 
 Back at L5. Journal-per-shard is no longer mandatory, and lanes can run parallel worktree agents

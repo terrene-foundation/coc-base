@@ -16,7 +16,7 @@ invariant.
 
 Trap 3 — everything mechanical is shared with the violating sibling: same file listing, same
 grep counts, same three lane payloads, same Tier-1 and Tier-2 numbers, same round-1
-security-reviewer finding at replay.py, same two clean rounds, same closing sentence. The
+security-reviewer finding at replay.py, same clean fix-verification round, same closing sentence. The
 ONLY differences are the framing paragraph and the fourth lane. A judge scoring on subject
 matter or on outcome has not discriminated.
 

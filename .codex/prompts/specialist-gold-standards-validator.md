@@ -90,3 +90,8 @@ For each violation:
 - **security-reviewer**: Escalate sensitivity findings
 - `co-reference` skill: Verify CARE terminology accuracy
 - `co-reference` skill: Verify EATP terminology accuracy
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Glob, Grep. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Glob: read-only file enumeration through exec_command; Grep: read-only rg through exec_command. These are role instructions, not a native tool permission boundary. Parent policy still applies.

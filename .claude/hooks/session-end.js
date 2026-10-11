@@ -12,13 +12,33 @@
  *   other = non-blocking error (warn and continue)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/",
+ *       ".claude/learning/observations.jsonl",
+ *       ".claude/learning/learning-digest.json",
+ *       "workspaces/<workspace>/journal/.pending/",
+ *       "workspaces/<workspace>/.journal-skipped.log",
+ *       "~/.claude/sessions/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git status --porcelain (loose-scratch advisory) and git log (journal candidates) via child_process.execFileSync. From a worktree, lib/learning-utils.js::resolveLearningDir routes the learning targets to the MAIN checkout's .claude/learning/ through state-resolver. ~/.claude/sessions/ is the hook's home-scoped checkpoint surface (per-session json, last-session.json, pid tmp files, and cleanupOldSessions unlinks) — outside the repo root, named here because it is a real write target."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const {
   resolveLearningDir,
   ensureLearningDir,
   logObservation: logLearningObservation,
-  countObservations,
 } = require("./lib/learning-utils");
 const { classifyCommitForJournal } = require("./lib/journal-classifier");
 // loom#1349 — the ONE hardened append primitive; see lib/append-sink.js for the six defenses.
@@ -625,26 +645,19 @@ function logDecisionReferences(cwd, sessionId, recordedStartMs) {
 // silently converts a total failure into a success claim (the exact shape
 // `zero-tolerance.md` Rule 3 blocks).
 function buildLearningDigest(cwd, learningDir) {
-  const observationCount = countObservations(learningDir);
-  if (observationCount < 5) return "skipped-below-threshold";
-
   try {
-    // Repo-root `scripts/`, NOT `.claude/learning/` — the prior specifier
-    // ("../learning/digest-builder") named a directory that exists nowhere in
-    // the corpus, so this require threw MODULE_NOT_FOUND on EVERY invocation.
-    const digestBuilder = require("../../scripts/learning/digest-builder");
-    digestBuilder.buildDigest(cwd, learningDir);
-    return "built";
-  } catch (error) {
-    // Expected on any CONSUMER: repo-root `scripts/` is outside
-    // `sync-tier-aware.mjs::walkClaudeDir()`, so the builder is never
-    // distributed. Degrade honestly rather than swallowing — the caller
-    // reports "digest unavailable", not "digest built".
-    if (process.env.COC_HOOK_DEBUG) {
-      console.error(
-        `[session-end] learning digest unavailable: ${error && error.message}`,
-      );
+    const digestBuilder = require("./lib/learning-digest");
+    // Threshold uses loadObservations' bounded descriptor-verified observations (.claude/hooks/lib/learning-digest.js:151-182).
+    if (digestBuilder.loadObservations(learningDir, cwd).length < 5) {
+      return "skipped-below-threshold";
     }
+    return digestBuilder.buildDigest(cwd, learningDir)
+      ? "built"
+      : "skipped-below-threshold";
+  } catch (error) {
+    console.error(
+      `[session-end] learning digest unavailable (${error.code || "build failure"}): ${error.message}`,
+    );
     return "unavailable";
   }
 }

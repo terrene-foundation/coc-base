@@ -1,28 +1,30 @@
 # /redteam Integration — Posture-Scaled Audit Depth
 
-/redteam audit DEPTH scales with posture: higher trust = lighter touch PER ROUND; lower trust = deeper checks per round. **Convergence is NOT posture-scaled** — every `/redteam` at L2–L5 runs to 2 consecutive clean rounds (per `commands/redteam.md` § Convergence Criteria). Posture sets how deep each round digs, never whether convergence is reached.
+/redteam audit DEPTH scales with posture: higher trust = lighter touch PER ROUND; lower trust = deeper checks per round. **The round STRUCTURE is NOT posture-scaled** — every `/redteam` at L2–L5 runs the same shape: a round is **clean** when it has **no CRITICAL/HIGH finding**, and **Round 1 clean = review ends** (the EVIDENCE GATE applies every round: a reviewer counts only if it genuinely ran — an errored, empty or timed-out review is NO evidence: re-run it, never count it). Security-critical changes — auth, signing, revocation, tenant isolation, fail-closed gates, kill paths, destructive ops, disclosure, and **ANY trust boundary**; when unclear, treat it as security-critical — use a **paired Round 1**: a correctness reviewer + an adversarial security reviewer, in parallel. Not clean → fix → Round 2 reviews ONLY the fixes plus their blast radius, with the **SAME reviewer composition as Round 1**; then review ends (per `commands/redteam.md` § Convergence Criteria). Posture sets how deep each round digs, never the round structure.
 
 ## Audit Depth By Posture
 
-Depth is **cumulative down the ladder** (each lower posture's per-round floor includes every higher posture's). The convergence target — 2 consecutive clean rounds + Convergence Criteria 4–9 — is **invariant** at L2–L5.
+Depth is **cumulative down the ladder** (each lower posture's per-round floor includes every higher posture's). The round structure — **Round 1 clean = review ends**; else fix → Round 2 reviews only the fixes plus their blast radius, with the same reviewer composition as Round 1, then review ends (a single Round 3 only for a small security-critical fix's delta; never a Round 4) — is **invariant** at L2–L5.
+
+**Review ending does not close the findings.** When review ends — at any round — every remaining finding of ANY severity goes to the durable LEDGER (none dropped), and a residual CRITICAL/HIGH goes to the OWNER. Rule 5(c)'s provisional acceptance covers ONLY a risk that is **NOT security-critical (rule 1's class, including any trust boundary) and NOT HIGH/CRITICAL**; a security-critical or HIGH/CRITICAL residual risk is **NEVER** provisionally accepted — it follows 5(d) and needs the owner's acceptance **BEFORE landing**.
 
 | Posture               | Per-round audit DEPTH floor (cumulative)                                                             | Convergence target             |
 | --------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------ |
-| L5 DELEGATED          | Mechanical sweeps (grep, AST, pytest --collect-only, file-existence, marker scrub)                   | **2 consecutive clean rounds** |
-| L4 CONTINUOUS_INSIGHT | **+ closure-parity** verification of every prior-round finding                                       | **2 consecutive clean rounds** |
-| L3 SHARED_PLANNING    | **+ spec-compliance** audit (literal assertions AST/grep-verified per `specs-authority.md`)          | **2 consecutive clean rounds** |
-| L2 SUPERVISED         | **+ full spec-compliance** grep against every pending_verification rule                              | **2 consecutive clean rounds** |
+| L5 DELEGATED          | Mechanical sweeps (grep, AST, pytest --collect-only, file-existence, marker scrub)                   | **Round 1 clean = review ends (paired round for security-critical)** |
+| L4 CONTINUOUS_INSIGHT | **+ closure-parity** verification of every prior-round finding                                       | **Round 1 clean = review ends (paired round for security-critical)** |
+| L3 SHARED_PLANNING    | **+ spec-compliance** audit (literal assertions AST/grep-verified per `specs-authority.md`)          | **Round 1 clean = review ends (paired round for security-critical)** |
+| L2 SUPERVISED         | **+ full spec-compliance** grep against every pending_verification rule                              | **Round 1 clean = review ends (paired round for security-critical)** |
 | L1 PSEUDO_AGENT       | **N/A** — no autonomous /implement to red-team; /redteam at L1 is advisory simulation only (no loop) | N/A (no convergence loop)      |
 
-The round depth-sections below (Mechanical Sweeps / Closure-Parity / Spec Compliance) name the depth RUNGS, not a per-round count: at L5 every round applies ≥ the Mechanical-Sweeps rung and the loop runs until 2 are clean; at L2 every round applies all rungs. UNDER-applying the posture's depth floor (e.g., skipping closure-parity at L4) OR stopping before 2 consecutive clean rounds at L2–L5 is the violation logged via `appendViolation` against `redteam/posture-aware-depth`.
+The round depth-sections below (Mechanical Sweeps / Closure-Parity / Spec Compliance) name the depth RUNGS, not a per-round count: at L5 every round applies ≥ the Mechanical-Sweeps rung; at L2 every round applies all rungs. UNDER-applying the posture's depth floor (e.g., skipping closure-parity at L4) OR over-running the round structure (a second full round after a clean Round 1, or any Round 4) is the violation logged via `appendViolation` against `redteam/posture-aware-depth`.
 
 ### Carve-out — Self-Referential /codify Surface
 
-When a `/codify` proposal touches the self-referential surface allowlist enumerated in `rules/self-referential-codify.md` Rule 2 (codify-class commands, codify-discipline skills/rules, codify-class hooks/bin, audit fixtures, management agents), every round MUST dispatch the full multi-agent team in parallel — reviewer + security-reviewer + cc-architect (or analyst / gold-standards-validator per surface) — REGARDLESS of posture, rather than the posture-reduced per-round depth above. Convergence (2 consecutive clean rounds) is already invariant; this carve-out additionally raises the per-round DEPTH to full-multi-agent on the self-referential surface. See `rules/self-referential-codify.md` Rule 1 for the dispatch contract and Rule 3 for the one-time-per-rule bootstrap-circularity carve-out.
+When a `/codify` proposal touches the self-referential surface allowlist enumerated in `rules/self-referential-codify.md` Rule 2 (codify-class commands, codify-discipline skills/rules, codify-class hooks/bin, audit fixtures, management agents), every round MUST dispatch the full multi-agent team in parallel — reviewer + security-reviewer + cc-architect (or analyst / gold-standards-validator per surface) — REGARDLESS of posture, rather than the posture-reduced per-round depth above. The round structure (**Round 1 clean = review ends**) is already invariant, and the larger team **replaces the correctness + adversarial-security pair in every round** (D237 rule 1); this carve-out additionally raises the per-round DEPTH to full-multi-agent on the self-referential surface. See `rules/self-referential-codify.md` Rule 1 for the dispatch contract and Rule 3 for the one-time-per-rule bootstrap-circularity carve-out.
 
-## Mechanical Sweeps (Round 1)
+## Mechanical Sweeps (depth rung)
 
-Per `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep":
+Per `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical Sweeps":
 
 - `grep -c` parity on critical call-site patterns
 - `pytest --collect-only -q` exit 0 across all test dirs
@@ -30,15 +32,15 @@ Per `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical AST/Grep Swe
 - AST-walk every `Literal[...]` / `Enum`-valued dispatch parameter; confirm exhaustive branches
 - Grep `.claude/learning/violations.jsonl` for unaddressed entries from current session
 
-## Closure-Parity (Round 2)
+## Closure-Parity (depth rung)
 
-Per `rules/agents.md` "Audit/Closure-Parity Verification Specialist":
+Per `rules/agents.md` "Closure-Parity Audit Specialist Has Bash + Read":
 
 - For every prior-round finding, run gh pr view / gh pr diff / pytest --collect-only
 - Convert FORWARDED rows to VERIFIED with command output evidence
 - Specialist MUST be Bash+Read equipped (pact-specialist or general-purpose, NOT analyst)
 
-## Spec Compliance (Round 3)
+## Spec Compliance (depth rung)
 
 Per `rules/specs-authority.md`:
 
@@ -171,4 +173,16 @@ closed the entire substring-mask + normalization-collision + arrow-split
 /redteam --posture L4   # forces L4 audit depth even if posture.json says L5
 ```
 
-The invocation logs a violation if the agent attempts to UNDER-audit (e.g., skipping the spec-compliance depth floor at L3, or stopping before 2 consecutive clean rounds at L2–L5).
+The invocation logs a violation if the agent attempts to UNDER-audit (e.g., skipping the spec-compliance depth floor at L3) OR to over-run the round structure (a second full round after a clean Round 1, or any Round 4).
+
+## D237 cap-raise
+
+`commands/redteam.md`'s ratified body ceiling (`validate-emit.mjs`, the `COMMAND_LINE_CAP` exemption table) was raised **153 → 163** when the D237 rules 1–9 were rendered VERBATIM into § Convergence Criteria (2026-10-08); the ratified exception reads `maxBodyLines: 163` and names THIS section as its `cc-artifacts.md` Rule 3 exception receipt — the `sweep.md` precedent, where the receipt is the PAIRED SKILL SECTION because a skill section carries no citation window, where a journal path would stay a phantom until the entry lands.
+
+Why the raise rather than an extraction:
+
+- **The ruling is rendered VERBATIM in the command.** D237's rules 1–9 are the operator's canonical review-stop ruling — they SUPERSEDE both the former two-consecutive-clean-rounds mechanism AND the "full re-run after each fix" practice (rule 7: re-run the failed check + the checks the fix's diff touches) — and the command body is where an agent reads them before its first dispatch. Paraphrasing them here and citing back would put the stopping rule one hop from the gate it governs.
+- **Measured, not estimated.** The body measures **163** by the check's own metric, against a floor of **161** with the nine rules collapsed to one line each — no reformatting slack remains.
+- **Non-extractable without loss.** What remains in the body is load-bearing procedural depth (an execution-model/preamble ruling): the Step 0 posture read, the dispatch table, the receipt path. Trimming any of it to fit 153 would drop a verification step, not prose.
+
+Prior rungs on the same ceiling, kept here so the next raise starts from the record: 145 → 151 (journal/0544 — Step 0.5 dual-surface classification + the skip-class carve-out) and 151 → 153 (2026-07-21, #1218 — the Conformance-Walk-as-standing-gate wiring).

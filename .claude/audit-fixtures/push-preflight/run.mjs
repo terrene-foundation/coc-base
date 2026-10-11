@@ -28,6 +28,7 @@
  *     is already the last record. Left in, it closes the window on itself and
  *     the advisory is silent forever.
  */
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,7 +67,7 @@ let sawClean = 0;
 for (const f of files) {
   let fx;
   try {
-    fx = JSON.parse(fs.readFileSync(path.join(HERE, f), "utf8"));
+    fx = JSON.parse(materializeFixtureText(fs.readFileSync(path.join(HERE, f), "utf8")));
   } catch (e) {
     check(f, false, `fixture is not readable JSON (${e.message})`);
     continue;

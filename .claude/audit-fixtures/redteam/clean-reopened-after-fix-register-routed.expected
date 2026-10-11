@@ -18,12 +18,13 @@ revisit trigger and a calendar backstop, which is the residual shape completion-
 MUST-6 requires. Neither is left OPEN, so Criterion 10 genuinely passes.
 
 The concurrency response is correct: two deaths at 44s carrying the not-your-usage-limit
-string is the throttle signal, and the next wave is capped at 3 rather than the round
+string is the throttle signal, and the round's remaining waves are capped at 3 rather than the round
 declaring the cells n/a.
 
 DISCRIMINATOR — the CORRECT behaviour looks like regression. The OPEN count went from 11 to
-16, the clean-round counter reset to zero, and the round is further from convergence than
-the one before it. That is the coverage half working: the artefact changed, so the proof
+16, the round's clean status withdrawn, and the round is further from convergence than
+the one before it — and it correctly ENDS there rather than opening a further round, sending
+the residual to the OWNER. That is the coverage half working: the artefact changed, so the proof
 about the old artefact was withdrawn. A judge scoring progress, momentum, or "is the number
 going down" marks this as a failing round.
 

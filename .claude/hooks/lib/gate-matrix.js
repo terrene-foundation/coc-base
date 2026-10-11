@@ -138,10 +138,10 @@ const GATE_MATRIX_ROWS = Object.freeze([
   Object.freeze({
     gate: "owner-departure-roster-removal",
     self_approvable: "owner-departure-recovery",
-    required_signers: "self (REMOVAL-ONLY)",
-    signing_context: "n/a",
+    required_signers: "distinct owner co-signer (self-approval DISABLED pending redesign)",
+    signing_context: "owner-quorum",
     notes:
-      "§6.4 row 9 — owner-departure recovery; R7-A-03 + R8-S-01 (removal-only, never owner-add)",
+      "§6.4 row 9 — owner-departure recovery; R7-A-03 + R8-S-01 (removal-only, never owner-add). FAIL-CLOSED HOLD 2026-10-09 (owner-ordered): the self-approvable path is DISABLED until the redesign lands — five review rounds refuted inferring 'departed' from git ref state on a remote with no server-side refs/coc/** protection. signing_context 'owner-quorum' (NOT 'n/a'): the context being non-'n/a' is what makes operator-gate REQUIRE and cryptographically verify a gate-approval for this row — with 'n/a' the co-signer route was UNREACHABLE and every armed /whoami --depart hard-refused (hold-security F1). The owner-only floor matches the row text and eligibility.js:69-70's design expectation.",
   }),
   Object.freeze({
     gate: "roster-edit-add-contributor",
@@ -339,20 +339,58 @@ function evaluateGate(ctx) {
       };
     }
     if (!ctx.revocationSettled) {
+      // The caller names WHICH precondition is unmet (operator-gate.js
+      // ::departureRevocation: no victim / untrusted verdict / contested /
+      // unconfirmed / no revocation, with the fold's rejection when it has one /
+      // victim mismatch); appended after the fixed prefix, which stays the
+      // refusal's identity.
+      const unmet =
+        typeof ctx.revocationUnsettledReason === "string" &&
+        ctx.revocationUnsettledReason
+          ? ` — ${ctx.revocationUnsettledReason}`
+          : "";
       return {
         allowed: false,
         reason:
-          "operator-gate/owner-departure: revocation must be settled (rule 10 liveness-contest) before this recovery row fires",
+          "operator-gate/owner-departure: revocation must be settled (rule 10 liveness-contest) before this recovery row fires" +
+          unmet,
         audit_marker: null,
         row,
       };
     }
-    return {
-      allowed: true,
-      reason: "owner-departure recovery (REMOVAL-ONLY, R7-A-03 + R8-S-03)",
-      audit_marker: "owner-departure-recovery-removal-only",
-      row,
-    };
+    // ── FAIL-CLOSED HOLD (owner-ordered 2026-10-09; redesign queued) ────────
+    // The self-approvable recovery is DISABLED: five consecutive review rounds
+    // refuted the premise that "departed" can be inferred from git ref state on
+    // a remote with no server-side protection of refs/coc/** (github.com
+    // rejects the custom-ref ruleset pattern; transport-git-ref.js:53-72). A
+    // DISTINCT owner-eligible co-signer must approve the removal — the
+    // universal checks below then apply — or the manual recovery ceremony is
+    // used. This branch previously returned allow DIRECTLY, which is why no
+    // approver check could see the row.
+    if (!approverPerson || _isSelfApproval(requester, approver)) {
+      return {
+        allowed: false,
+        reason:
+          "operator-gate/owner-departure: HOLD — self-approvable owner-departure recovery is DISABLED pending redesign; a DISTINCT owner co-signer must approve this removal, or use the manual recovery ceremony",
+        audit_marker: null,
+        row,
+      };
+    }
+    // Context taken from the ROW, never hardcoded (hold-security F3): the row's
+    // signing_context IS the floor the universal checks will also apply, so the
+    // hold-side check can never drift from it.
+    const coSignerEligibility = isEligibleSigner(approverPerson, row.signing_context);
+    if (!coSignerEligibility.eligible) {
+      return {
+        allowed: false,
+        reason:
+          `operator-gate/owner-departure: HOLD — co-signer is not owner-eligible: ${coSignerEligibility.reason}`,
+        audit_marker: null,
+        row,
+      };
+    }
+    // Co-signed removal falls through to the universal checks; the tail
+    // returns allow on a distinct, eligible approver.
   }
 
   // ---- universal cross-cutting checks (apply to all co-signer-requiring rows) ----
@@ -453,6 +491,13 @@ function evaluateGate(ctx) {
     "generation-rotation",
     "genesis-migration",
     "roster-edit-add-contributor",
+    // hold-security F2 (2026-10-09): an owner-removal co-signature is an
+    // owner-class act; without this membership "distinct" meant distinct
+    // person_id ONLY, so two person_ids bound to the SAME GitHub collaborator
+    // passed (in-model: this roster permits a same-login second person_id via
+    // same_human_as). Fail-closed UNRESOLVED applies as for the other rows
+    // (an ADO roster without github_login therefore refuses — accepted).
+    "owner-departure-roster-removal",
   ]);
   //
   //    #1440 fail-closed: an UNRESOLVED login on either side makes R5-S-07

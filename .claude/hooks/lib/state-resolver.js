@@ -134,13 +134,28 @@ const PROBE_MARGIN_MS = 50;
 /** Below this no git is worth spawning — process start alone costs most of it. */
 const MIN_PROBE_MS = 25;
 // The fixed spawn cap the `gitTreeProof` probe passes to spawnSync —
-// `git-checkout-proof.js::GIT_TIMEOUT_MS` (`git-checkout-proof.js:114`,
-// `const GIT_TIMEOUT_MS = 2000;`). That callee takes no timeout parameter, so the override path
+// `git-checkout-proof.js::GIT_TIMEOUT_MS` (`const GIT_TIMEOUT_MS = 2000;`; cited by
+// SYMBOL, not line: a numeric citation here rots the moment a line is inserted
+// above the constant upstream). That callee takes no timeout parameter, so the override path
 // cannot SHORTEN it — it can only decline to start a proof the remaining budget cannot cover.
 // Pinned against the source by `state-resolver-indeterminate.test.mjs` T6e.
 const PROOF_GIT_TIMEOUT_MS = 2000;
 /** The typed prefix every budget-exhausted reason starts with. */
 const BUDGET_EXHAUSTED_REASON = "main checkout unresolved: budget exhausted";
+
+// THE canonical `--git-common-dir` question (git-cache-design-memo.md §3.2 / §5.1 D1).
+// Every asker of the shared git dir — this resolver plus the eight direct askers in
+// `state-io`, `repo-dir-override`, `guard-path-scope`, `git-checkout-proof`,
+// `synthetic-load-guard`, `wip-discipline-guard`, `nested-worktree-guard` and
+// `worktree-occupancy` — MUST use this ONE argv, or event-git's question key
+// (`lib/event-git.js::eventGitKey`, which hashes the argv) keeps them as SEPARATE
+// questions and each pays its own spawn per event.
+//   --path-format=absolute: the VALUE the absolute-form callers already read, and
+//     the relative-tolerant callers (this one included) already normalise a
+//     relative answer through `path.isAbsolute`, so the same main checkout results.
+//   --show-toplevel: answered in the SAME spawn, for the two tree-proof callers
+//     that need the top as well. Output order follows argv: top, then common dir.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 
 /** Resolve a caller's opts to an absolute deadline (epoch ms). */
 function _deadlineOf(opts) {
@@ -522,14 +537,25 @@ function resolveMainCheckoutDetailed(cwd, opts) {
 
   // PRIMARY (deterministic): the shared git-common-dir identifies the MAIN
   // checkout unambiguously. For a linked worktree it is <main>/.git; for a
-  // plain checkout it is `.git` (relative) → resolves to <top>/.git. In both
-  // cases the main top-level is the parent of the common dir when it ends in
-  // `.git`. No ordering/exclusion heuristic is load-bearing here.
-  const common = safeExec(["rev-parse", "--git-common-dir"], startCwd, deadline);
+  // plain checkout it resolves to <top>/.git. In both cases the main top-level
+  // is the parent of the common dir when it ends in `.git`. No
+  // ordering/exclusion heuristic is load-bearing here.
+  //
+  // Asked through the ONE canonical argv (see CANONICAL_COMMON_DIR_ARGS), so this
+  // question shares its answer with every other asker in the same event. The
+  // common dir is the LAST line of the answer (top is printed first).
+  const common = safeExec(CANONICAL_COMMON_DIR_ARGS, startCwd, deadline);
   if (!common.ok) failures.push(common.reason);
   if (common.exhausted) return budgetExhausted(startCwd, failures);
-  if (common.ok && common.value) {
-    const commonDir = common.value;
+  const commonLines =
+    common.ok && common.value
+      ? String(common.value)
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+  if (commonLines.length > 0) {
+    const commonDir = commonLines[commonLines.length - 1];
     const absCommon = path.isAbsolute(commonDir)
       ? commonDir
       : path.resolve(startCwd, commonDir);

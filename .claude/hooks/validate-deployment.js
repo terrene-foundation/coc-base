@@ -14,6 +14,20 @@
  *   2 = blocking error (stop tool execution)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Pure regex predicate over the payload's own file_path/content — it inspects TEXT and spawns nothing; findings go to stdout via lib/instruct-and-wait.js, which writes nothing durable."
+ * }
+ */
+
 const TIMEOUT_MS = 10000;
 const { instructAndWait } = require("./lib/instruct-and-wait");
 let timeout = null;

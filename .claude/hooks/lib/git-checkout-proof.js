@@ -108,10 +108,18 @@ const { spawnSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require(
   path.join(__dirname, "git-subprocess-env.js"),
 );
+const { askOnce, eventGitKey } = require(path.join(__dirname, "event-git.js"));
 
 // Matches guard-path-scope's own bound. A hung git must become an ordinary
 // negative rather than wedging the hook it is called from.
 const GIT_TIMEOUT_MS = 2000;
+
+// THE canonical `--git-common-dir` question (git-cache-design-memo.md §3.2 / §5.1 D1):
+// ONE argv for every asker of the shared git dir, so event-git's question key
+// collapses them to one spawn per event. This module is the two-fact consumer —
+// `--show-toplevel` prints first, the common dir LAST — and `--path-format=absolute`
+// is what the absolute-form callers read. Output order follows argv.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 
 /** realpath, or the input unchanged — the lenient form the tree probe reports with. */
 function _realpathSafe(p) {
@@ -199,9 +207,12 @@ function treeIsCoherent(tree) {
  * git-common-dir (the repo-family identity). Returns null when `dir` is not
  * inside a git repository, or git is unavailable/errors/times out.
  *
- * `--show-toplevel --git-common-dir` prints toplevel first, common-dir second;
- * for a linked worktree the common dir is absolute (`<main>/.git`), for a plain
- * checkout it is the relative `.git`, resolved here against the query dir.
+ * Asked through the ONE canonical argv (`CANONICAL_COMMON_DIR_ARGS`), so the
+ * answer is shared with every other common-dir asker of this tree in the same
+ * event. Output order follows argv: toplevel first, common-dir LAST, and
+ * `--path-format=absolute` makes the common dir absolute even in a plain
+ * checkout at the work-tree root (it used to print the relative `.git`); the
+ * `path.isAbsolute` guard is retained for any non-canonical asker.
  *
  * loom#1462 F1: git is invoked by ABSOLUTE path (no PATH lookup) with an arg
  * ARRAY (no shell) and an env built from constants by `gitEnv()`, so the
@@ -216,20 +227,31 @@ function gitTreeProof(dir) {
   if (typeof dir !== "string" || dir === "") return null;
   const bin = resolveGitBinary();
   if (!bin) return null;
-  let r;
-  try {
-    r = spawnSync(bin, ["rev-parse", "--show-toplevel", "--git-common-dir"], {
-      cwd: dir,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
-      timeout: GIT_TIMEOUT_MS,
-      env: gitEnv(), // NOTHING inherited — GIT_DIR & family cannot reach this
-    });
-  } catch {
-    return null;
-  }
-  if (!r || r.status !== 0) return null;
-  const lines = String(r.stdout || "")
+  // ONE answer per distinct question per hook event (lib/event-git.js). Outside
+  // an event scope `askOnce` runs the probe directly, so a standalone caller is
+  // unchanged; a recorded FAILURE stays a failure for the whole event (it
+  // returns null here either way — the fail-closed direction).
+  const probe = askOnce(
+    eventGitKey({ gitBin: bin, cwd: dir, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+    () => {
+      let r;
+      try {
+        r = spawnSync(bin, CANONICAL_COMMON_DIR_ARGS, {
+          cwd: dir,
+          stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf8",
+          timeout: GIT_TIMEOUT_MS,
+          env: gitEnv(), // NOTHING inherited — GIT_DIR & family cannot reach this
+        });
+      } catch (e) {
+        return { ok: false, reason: String((e && e.message) || e) };
+      }
+      if (!r || r.status !== 0) return { ok: false, reason: "git rev-parse failed" };
+      return { ok: true, value: String(r.stdout || "") };
+    },
+  );
+  if (!probe.ok) return null;
+  const lines = String(probe.value || "")
     .split("\n")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);

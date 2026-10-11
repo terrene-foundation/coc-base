@@ -7,14 +7,14 @@
  * WHAT IT IS (and is NOT). The C-1 fence (`mesh-registry-scrub.mjs`, S1, PR
  * #959) runs at the SOURCE — each project authors its registry tuple
  * ALREADY-SCRUBBED pre-commit, so raw client-identifying values never enter a
- * git object loom-command fetches. This backstop is the SECOND line: a
- * DETECT-ONLY re-scan that runs at loom-command AFTER the `git fetch`, over the
+ * git object the UP-pull aggregator fetches. This backstop is the SECOND line: a
+ * DETECT-ONLY re-scan that runs at the UP-pull aggregator AFTER the `git fetch`, over the
  * UP-pulled registry text, to catch a MISCONFIGURED (non-malicious) project
  * that failed to scrub at source (RES-16).
  *
  * It is DETECT-NOT-PREVENT, and this is load-bearing (not a hedge). The re-scan
  * runs AFTER the fetch, so the offending git objects are ALREADY in
- * loom-command's `.git` and persist by SHA even with no ref — the same "a fence
+ * the UP-pull aggregator's `.git` and persist by SHA even with no ref — the same "a fence
  * AFTER the fetch is structurally too late" property the primary fence derives.
  * The backstop CANNOT unfetch them and CANNOT prevent the leak:
  * scrub-at-source remains the ONLY prevent-side fence. The backstop makes a
@@ -151,7 +151,7 @@ function detectTuple(fetched) {
  * the client-identifying free text the fence exists to redact). So the ref is
  * the tuple's OWN opaque identity — `lineage_id` — but ONLY when it passes
  * `isOpaqueHandle` (opaque ≥128-bit, non-invertible, and the very value a
- * NAME-BLIND loom-command console already renders — specs/04 § "DELIBERATELY NOT
+ * NAME-BLIND aggregator console already renders — specs/04 § "DELIBERATELY NOT
  * SCRUBBED", specs/04 § M3 name-blind). A non-opaque / absent lineage_id (itself
  * a finding) falls back to a positional sentinel — never the raw key.
  */
@@ -282,7 +282,7 @@ function parseArgs(argv) {
 
 const HELP = `mesh-registry-backstop — loom-side POST-FETCH detection backstop (RES-16)
 
-DETECT-ONLY re-scan of the UP-pulled registry text at loom-command. Re-applies
+DETECT-ONLY re-scan of the UP-pulled registry text at the UP-pull aggregator. Re-applies
 the shipped scrub-at-source predicate (mesh-registry-scrub.mjs::scrubTuple) to
 each fetched tuple and QUARANTINES any tuple that is NOT a fixed point of the
 fence — a raw value survived, a HARD violation is present, or the fetched value

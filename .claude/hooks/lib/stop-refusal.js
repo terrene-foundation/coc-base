@@ -101,8 +101,8 @@ function _isNonEmptyString(v) {
 
 /**
  * Kill switch, DEFAULT-ON, `COC_FLEET_DRAIN`'s shape. Default-on is safe here precisely because
- * refusal is opt-in at the call site: "on" means "an opted-in caller may refuse", and no shipped
- * hook opts in.
+ * shared-emitter refusal is call-site opt-in (.claude/hooks/lib/instruct-and-wait.js:417-431).
+ * Native lifecycle faults request this budget directly (.claude/hooks/lib/codex-hook-runtime.js:101-115).
  */
 function resolveRefusalEnabled(env) {
   const e = env || process.env;
@@ -129,7 +129,11 @@ function _repoRootOf(dir) {
   let cur = path.resolve(String(dir || process.cwd()));
   for (let i = 0; i < 64; i++) {
     try {
-      if (fs.existsSync(path.join(cur, ".claude", "settings.json")) || fs.existsSync(path.join(cur, ".git"))) return cur;
+      if (
+        fs.existsSync(path.join(cur, ".claude", "settings.json")) ||
+        fs.existsSync(path.join(cur, ".git"))
+      )
+        return cur;
     } catch {
       /* unreadable ancestor: keep walking */
     }
@@ -143,7 +147,13 @@ function _repoRootOf(dir) {
 function _ledgerPath(repoDir, sessionId) {
   const raw = _isNonEmptyString(sessionId) ? sessionId : "unknown-session";
   const safe = raw.replace(/[^A-Za-z0-9._-]/g, "_");
-  return path.join(_repoRootOf(repoDir), ".claude", "learning", "stop-refusal", `${safe}.jsonl`);
+  return path.join(
+    _repoRootOf(repoDir),
+    ".claude",
+    "learning",
+    "stop-refusal",
+    `${safe}.jsonl`,
+  );
 }
 
 /**
@@ -160,13 +170,18 @@ function countRefusals(repoDir, sessionId, key) {
     let text = "";
     try {
       const st = fs.statSync(p);
-      if (!st.isFile()) return { ok: false, reason: "ledger path is not a file" };
-      if (st.size > MAX_LEDGER_BYTES) return { ok: false, reason: "ledger exceeds read cap" };
+      if (!st.isFile())
+        return { ok: false, reason: "ledger path is not a file" };
+      if (st.size > MAX_LEDGER_BYTES)
+        return { ok: false, reason: "ledger exceeds read cap" };
       text = fs.readFileSync(p, "utf8");
     } catch (e) {
       // A ledger that does not exist yet is a real zero, NOT a read failure. Any other errno is.
       if (!e || e.code !== "ENOENT") {
-        return { ok: false, reason: `ledger unreadable: ${e && e.message ? e.message : String(e)}` };
+        return {
+          ok: false,
+          reason: `ledger unreadable: ${e && e.message ? e.message : String(e)}`,
+        };
       }
       return { ok: true, count: 0 };
     }
@@ -193,15 +208,22 @@ function countRefusals(repoDir, sessionId, key) {
 
 function _append(repoDir, sessionId, record) {
   try {
-    const { appendSinkLine } = require("./append-sink.js");
+    const {
+      appendSinkLine,
+      mainCheckoutBoundaryRoots,
+    } = require("./append-sink.js");
     const w = appendSinkLine({
       repoDir,
+      additionalRoots: mainCheckoutBoundaryRoots(repoDir),
       sinkPath: _ledgerPath(repoDir, sessionId),
       line: JSON.stringify(record),
     });
     return w && w.ok
       ? { ok: true }
-      : { ok: false, reason: (w && `${w.error} — ${w.reason}`) || "append failed" };
+      : {
+          ok: false,
+          reason: (w && `${w.error} — ${w.reason}`) || "append failed",
+        };
   } catch (e) {
     return { ok: false, reason: e && e.message ? e.message : String(e) };
   }
@@ -237,9 +259,12 @@ function recordHandbackCleared(repoDir, sessionId, key, nowIso) {
  * @param {{payload: object, repoDir: string, budgetKey: string, maxRefusals?: number,
  *          env?: object, now?: string}} req
  */
-function refusalVerdict(hookEvent, req) {
+function refusalVerdict(hookEvent, req, { nativeSubagentStop = false } = {}) {
   try {
-    if (!REFUSAL_EVENTS.has(hookEvent)) {
+    if (
+      !REFUSAL_EVENTS.has(hookEvent) &&
+      !(nativeSubagentStop === true && hookEvent === "SubagentStop")
+    ) {
       return { refuse: false, reason: "event-not-refusable", count: 0, max: 0 };
     }
     if (!resolveRefusalEnabled(req.env)) {
@@ -258,17 +283,32 @@ function refusalVerdict(hookEvent, req) {
     // BOUND 2 — the per-session budget.
     const read = countRefusals(req.repoDir, sessionId, req.budgetKey);
     if (!read.ok) {
-      return { refuse: false, reason: `budget-unreadable: ${read.reason}`, count: 0, max };
+      return {
+        refuse: false,
+        reason: `budget-unreadable: ${read.reason}`,
+        count: 0,
+        max,
+      };
     }
     if (read.count >= max) {
-      return { refuse: false, reason: "budget-exhausted", count: read.count, max };
+      return {
+        refuse: false,
+        reason: "budget-exhausted",
+        count: read.count,
+        max,
+      };
     }
 
     // BOUND 4 — write BEFORE refusing (see the header). A budget we could not increment is a
     // refusal nothing bounds.
     const w = recordRefusal(req.repoDir, sessionId, req.budgetKey, req.now);
     if (!w.ok) {
-      return { refuse: false, reason: `budget-unwritable: ${w.reason}`, count: read.count, max };
+      return {
+        refuse: false,
+        reason: `budget-unwritable: ${w.reason}`,
+        count: read.count,
+        max,
+      };
     }
     return { refuse: true, reason: "refused", count: read.count + 1, max };
   } catch (e) {

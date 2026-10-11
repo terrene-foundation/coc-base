@@ -55,7 +55,34 @@ const MAX_LOCAL_REGISTRY_BYTES = 1024 * 1024;
 // pinned session then runs its hash-verified kept copy (resolvePinnedRegistryText).
 const MAX_REGISTRY_BYTES = 1024 * 1024;
 const MAX_LOCAL_ROWS_PER_EVENT = 512;
-const DETECTOR_MODES = new Set(["module", "process"]);
+// "module" (default): the dispatcher requires the file and calls its `hookMain` export
+// — the contract every converted loom hook satisfies. "legacy": the engine runs the file
+// as its own CLI entry, in a worker thread of the dispatcher, with the process-shaped
+// sandbox (stdin payload, captured stdout/stderr, process.exit / process.exitCode as the
+// row's result, per-row budget; hook-engine.js § LEGACY ROWS) — for a hook written as a
+// standalone stdin script, which exports no hookMain and therefore cannot be a module
+// row. "process": the dispatcher spawns it as its own node process.
+const DETECTOR_MODES = new Set(["module", "process", "legacy"]);
+// The per-row incomplete-execution contract — `on_incomplete` on a registry row.
+// "deny": the row's code path can turn the merged reply into a refusal, so the
+// dispatcher runs it in a worker of its OWN (lib/hook-engine.js::runDetectorsIsolated
+// § the per-row boundary) — no other row's realm can reach its verdict, and the
+// engine additionally keeps per-realm-kind git-answer pools so no shared-batch
+// neighbour can plant a git answer the deny row is served (round-6 SEC R1-F2;
+// deny rows share that isolated pool with the OTHER DENY ROWS by design);
+// AND a deny row that does NOT complete — crash, own-budget overrun, non-zero
+// exit without a JSON reply — REFUSES the call at PreToolUse, fail-closed
+// (lib/dispatch-main.js § FAIL-CLOSED FOR INCOMPLETE DENY ROWS; the field name
+// is the contract). "continue":
+// advisory; it shares a batch. MISSING or an unrecognised value reads as "deny":
+// fail-closed, an unclassified row is treated as one whose verdict may refuse,
+// never as one that may not (there is NO RegistryError for this field — a
+// registry that cannot be READ is refused whole, but an unknown value here is a
+// declaration to coerce, not a shape to reject; the authored registry's row set
+// is kept explicit by .claude/bin/check-deny-capable-declarations.mjs, which reds
+// both directions). The Codex policy emitter (C4 lane) reads the same
+// declaration from this same registry — the field is a cross-lane interface.
+const ROW_ON_INCOMPLETE_DEFAULT = "deny";
 // How dispatch.js runs an event's detectors (lib/hook-engine.js::runDetectorsIsolated):
 // "event" (default) one shared worker, in order; "detector" a fresh worker each, in
 // order; "parallel" every detector at once, a worker each.
@@ -165,9 +192,14 @@ function validateRegistry(reg) {
 /**
  * The group list of one event — the settings.json group shape. `allowMode`
  * admits the per-hook `mode` field the LOCAL registry may carry: "module" (the
- * default — runs in-process, the hook must export hookMain) or "process" (the
- * dispatcher spawns it as its own node process, for a repo hook not yet
- * converted; it keeps its exact standalone semantics and costs one process).
+ * default — runs in-process, the hook must export hookMain), "legacy" (runs
+ * in-process as the CLI script it is: the engine loads the file the way `node
+ * <file>` does, so a hook that exports no hookMain still runs inside the
+ * dispatcher's worker instead of costing a process; hook-engine.js § LEGACY ROWS),
+ * or "process" (the dispatcher spawns it as its own node process, outside the
+ * dispatcher's process tree, for a repo hook whose isolation requirement the
+ * worker-thread path does not meet; it keeps its exact standalone semantics and
+ * costs one process).
  */
 function validateGroups(event, groups, { allowMode }) {
     if (!Array.isArray(groups) || groups.length === 0) throw new RegistryError(`${event}: groups must be a non-empty array`);
@@ -209,8 +241,119 @@ function validateLocalRegistry(reg) {
       }
     }
     validateGroups(`local ${event}`, spec.groups, { allowMode: true });
+    assertNoDivergentDuplicateRows(event, spec.groups);
   }
   return reg;
+}
+
+// The typed refusal for two rows on ONE event that name the same hook and declare
+// DIFFERENT `on_incomplete` values. Divergence is an ERROR, not a tie to break: the
+// two lookups that consume the declaration (registry order, and the deny-class set
+// the dispatcher refuses an incomplete row from) would otherwise disagree — first
+// wins in one, last in the other — and the seam is silently fail-OPEN in one order
+// ([deny, continue]: the deny row RUNS, its crash refuses nothing) and
+// OVER-REFUSING in the other ([continue, deny]: a row that declared no refusal
+// refuses). Measured by the security round's p3 probes. Refused LOUDLY, whole file,
+// in the add-only spirit: ambiguity is a state to reject, not to resolve.
+const DUPLICATE_ROW_DIVERGENCE_CODE = "DUPLICATE_ROW_DIVERGENCE";
+
+/** Throws when two rows of one event name the same hook with different normalized `on_incomplete`. */
+function assertNoDivergentDuplicateRows(event, groups) {
+  const seen = new Map(); // hook basename (case-folded) → { hook, declared }
+  for (const g of groups) {
+    for (const h of g.hooks || []) {
+      const base = hookBasename(h.command);
+      if (!base) continue;
+      const declared = onIncompleteOf(h);
+      const key = base.toLowerCase();
+      const prev = seen.get(key);
+      if (!prev) {
+        seen.set(key, { hook: base, declared });
+        continue;
+      }
+      if (prev.declared !== declared) {
+        const e = new RegistryError(
+          `local ${event}: ${base} is declared TWICE with DIVERGENT on_incomplete values (${prev.hook === base ? "" : `${prev.hook} vs ${base}: `}` +
+            `${JSON.stringify(prev.declared)} and ${JSON.stringify(declared)}). One hook gets one declaration — ` +
+            "an incomplete deny-capable row must not be able to hide behind a duplicate that says it is advisory. " +
+            "Give the rows the same on_incomplete, or rename one detector.",
+        );
+        e.code = DUPLICATE_ROW_DIVERGENCE_CODE;
+        throw e;
+      }
+      // Identical declarations: left as they are. The host runs one command once per
+      // event, and planLocalRows keeps the FIRST matching row per hook, so the
+      // duplicates collapse to one run and no verdict is ambiguous.
+    }
+  }
+  return null;
+}
+
+// The typed refusal a local row earns when it names a hook the TEMPLATE registry
+// already dispatches for the same event — the add-only invariant of
+// `.claude/rules/local/` (bin/lib/local-rules.mjs::loadLocalRules,
+// LocalRulesError("add-only-violation", …)) applied to hook rows. A local row can
+// never override, disable or re-class a template row; naming one is refused, not
+// ignored, because an ignored row reads to its author as one that added something.
+const ADD_ONLY_VIOLATION_CODE = "ADD_ONLY_VIOLATION";
+
+/** The hook basenames the TEMPLATE registry dispatches for one event, lower-cased. */
+function templateHookNames(template, event) {
+  const spec = template && template.events && template.events[event];
+  const out = new Set();
+  for (const g of (spec && spec.groups) || []) {
+    for (const h of g.hooks || []) {
+      const b = hookBasename(h.command);
+      if (b) out.add(b.toLowerCase());
+    }
+  }
+  return out;
+}
+
+/**
+ * ADD-ONLY. Throws a TYPED refusal (RegistryError with
+ * `code === ADD_ONLY_VIOLATION`) when a local row names a hook the template
+ * registry already dispatches FOR THE SAME EVENT. Decided at LOAD, like the
+ * local-rules precedent, so a collision is refused whether or not the call in
+ * hand matches either row's matcher — a row that shadows only sometimes is
+ * exactly the shape that cannot be reasoned about.
+ *
+ * Case-folded (macOS filesystems are case-insensitive, so `Posture-Gate.js` and
+ * `posture-gate.js` are one file there), matching the precedent. A local row for
+ * an event the template registry does not carry is NOT a collision — the local
+ * group for such an event never runs at all (withLocal), which is a separate gap
+ * this check does not own.
+ *
+ * `opts.isLive(hook)` — the SAME eligibility predicate the dispatcher runs the
+ * template rows under (dispatch-registry.js::makeEligible: the script resolves
+ * here and it is not `loom_only` outside loom). A template row this tree does NOT
+ * run shadows nothing, and the dispatcher's rule has always been that an
+ * ineligible loom row must not block the repo's own row of that name
+ * (dispatch-main.js, "eligibility BEFORE de-duplication"). Without this the check
+ * would refuse a file the runtime would happily run — it would be a NEW shadowing
+ * of the repo's rows, by this very invariant.
+ */
+function assertAddOnly(local, template, opts = {}) {
+  const isLive = typeof opts.isLive === "function" ? opts.isLive : () => true;
+  for (const [event, spec] of Object.entries(local.events)) {
+    const shadowed = templateHookNames(template, event);
+    if (!shadowed.size) continue;
+    for (const g of spec.groups) {
+      for (const h of g.hooks) {
+        const base = hookBasename(h.command);
+        if (!shadowed.has(base.toLowerCase())) continue;
+        if (!isLive(base)) continue;
+        const e = new RegistryError(
+          `local ${event}: row for ${base} COLLIDES with a detector .claude/hooks/dispatch-registry.json already dispatches for ${event}. ` +
+            "The repo-local registry is ADD-ONLY — a local row MUST NOT override, disable or re-class a loom row. " +
+            "Rename the repo's detector (and the file it names), or contribute the change to loom via /codify.",
+        );
+        e.code = ADD_ONLY_VIOLATION_CODE;
+        throw e;
+      }
+    }
+  }
+  return local;
 }
 
 /** Whether a local registry is present at all (lstat only — its content is not read). */
@@ -223,12 +366,20 @@ function localRegistryPresent(hooksDir) {
  * The consumer's local registry, or null when absent. Throws RegistryError when
  * malformed or over MAX_LOCAL_REGISTRY_BYTES (fstat-checked before any byte is
  * read, and the read itself stops one byte past the cap — a file that grows while
- * it is read is refused too).
+ * it is read is refused too). When `template` is passed, the ADD-ONLY check runs
+ * too (assertAddOnly) — the dispatcher passes it; the settings-expansion tooling,
+ * which only reads, stays able to inspect a tree this check would refuse.
  */
-function loadLocalRegistryIfPresent(hooksDir) {
+function loadLocalRegistryIfPresent(hooksDir, template = null) {
   const p = localRegistryPath(hooksDir);
   if (!localRegistryPresent(hooksDir)) return null;
-  const text = readRegularFileSync(p, MAX_LOCAL_REGISTRY_BYTES);
+  const reg = parseLocalRegistryText(readRegularFileSync(p, MAX_LOCAL_REGISTRY_BYTES));
+  if (template) assertAddOnly(reg, template);
+  return reg;
+}
+
+/** Parse + validate one local registry's text. Throws RegistryError. */
+function parseLocalRegistryText(text) {
   let reg;
   try {
     reg = JSON.parse(text);
@@ -236,6 +387,293 @@ function loadLocalRegistryIfPresent(hooksDir) {
     throw new RegistryError(`local: unparseable JSON: ${e.message}`);
   }
   return validateLocalRegistry(reg);
+}
+
+// ---------------------------------------------------------------------------
+// The repo-local registry's SESSION PIN
+// ---------------------------------------------------------------------------
+//
+// The template registry is pinned by the `--registry-sha256=` value the host
+// snapshotted into settings.json at session start; the local registry has no
+// settings entry to carry one, so the FIRST read of a session IS the pin: the
+// text read then is kept, and every later event of that session runs THAT text
+// wherever the file on disk has changed (or gone). The property is the one the
+// template registry already has — the session's guard set does not change
+// underneath it — and the move it denies is the one only editing can make: a row
+// REMOVED (or a detector path re-pointed) after the session began.
+//
+// BOUNDED AND OPTIONAL, exactly like the file it pins: a session with no local
+// registry writes NO pin (there is nothing to protect, and an appearing file is
+// an addition — rows cannot disable anything loom runs); a pin that cannot be
+// read or written is a NOTICE, never a refusal — the pin is the dispatcher's own
+// bookkeeping, and losing it must not cost the repo its detectors. Only the
+// registry FILE's own faults (unreadable, malformed, colliding) refuse.
+const LOCAL_PIN_PREFIX = "local-registry-";
+// Room for the 64-hex hash, the newline, and a short fault worth of slack: the pin
+// holds the registry's own bytes verbatim, capped where the registry itself is.
+const LOCAL_PIN_OVERHEAD_BYTES = 256;
+
+/**
+ * Where a session's pinned local-registry copy lives. The key is the SESSION **and
+ * the registry's own absolute path**: two trees' registries are different files,
+ * and a session id alone would let one tree's pin be served to another (measured
+ * while building this: a probe reusing one session id across sandbox trees had the
+ * first tree's pin answer the second tree's reads, reported as "changed on disk").
+ * Hashing the pair keeps the name a fixed length whatever the path holds.
+ */
+function localRegistryPinPath(dir, sessionId, registryAbsPath) {
+  return path.join(dir, `${LOCAL_PIN_PREFIX}${sha256Hex(`local-registry-session:${sessionId}\n${registryAbsPath}`)}.pin`);
+}
+
+/**
+ * The pin's ANCHOR — the second file, beside the pinned text, recording which sha
+ * THIS session accepted at its first read.
+ *
+ * WHY A SECOND FILE (the security round's finding). A pin file alone is
+ * self-sufficient: `sha256(text)\ntext` verifies against itself. So a pin that was
+ * DELETED mid-session read as "no pin yet" and the edited registry was pinned
+ * silently (fail-open, no notice), and a pin that was REPLACED with a
+ * self-consistent forgery was served verbatim, with the note blaming the live file
+ * for a change the live file never made. The template registry has neither hole
+ * because its pin VALUE lives in settings.json — a hash the session cannot lose —
+ * and the kept copy is only ever a copy. The anchor is that hash, for the local
+ * registry: written once per session beside the text, never re-derived from the pin
+ * file, so a missing, changed or unreadable pin becomes a REFUSAL with its own name
+ * instead of a silent re-pin.
+ *
+ * NAMED RESIDUAL: an adversary who can write this private directory AND remove both
+ * files returns the state to "the session has not pinned yet" — that is not
+ * distinguishable from a first read without state outside the directory (the
+ * template pin's escape is settings.json; there is no equivalent here), and it is a
+ * STRICTLY larger capability than the one the finding demonstrated (one `rm` of the
+ * pin, which now refuses). The invariant this design holds: once this session has
+ * ACCEPTED a registry text, no later event of it runs a different one silently.
+ */
+function localRegistryAnchorPath(dir, sessionId, registryAbsPath) {
+  return path.join(dir, `${LOCAL_PIN_PREFIX}${sha256Hex(`local-registry-session:${sessionId}\n${registryAbsPath}`)}.anchor`);
+}
+
+/** Read a kept pin (raw `sha\n<text>`), or a fault description — never a throw. */
+function readLocalPin(pinPath) {
+  let raw;
+  try {
+    raw = readRegularFileSync(pinPath, MAX_LOCAL_REGISTRY_BYTES + LOCAL_PIN_OVERHEAD_BYTES);
+  } catch (e) {
+    if (e && e.code === "ENOENT") return { ok: false, kind: "absent", problem: "it does not exist" };
+    return { ok: false, kind: "file", problem: (e && e.message) || (e && e.code) || String(e) };
+  }
+  const nl = raw.indexOf("\n");
+  const head = nl === -1 ? "" : raw.slice(0, nl);
+  const text = nl === -1 ? "" : raw.slice(nl + 1);
+  if (!/^[0-9a-f]{64}$/.test(head) || sha256Hex(text) !== head) {
+    return { ok: false, kind: "file", problem: "its content does not match its own hash" };
+  }
+  return { ok: true, sha: head, text };
+}
+
+/** Read the anchor (`sha\n<registry path>`), or a fault description — never a throw. */
+function readLocalAnchor(anchorPath) {
+  let raw;
+  try {
+    raw = readRegularFileSync(anchorPath, LOCAL_PIN_OVERHEAD_BYTES);
+  } catch (e) {
+    if (e && e.code === "ENOENT") return { ok: false, kind: "absent", problem: "it does not exist" };
+    return { ok: false, kind: "file", problem: (e && e.message) || (e && e.code) || String(e) };
+  }
+  const sha = raw.split("\n", 1)[0];
+  if (!/^[0-9a-f]{64}$/.test(sha)) return { ok: false, kind: "file", problem: "it names no accepted registry hash" };
+  return { ok: true, sha };
+}
+
+/** Write the anchor atomically (0600); never overwrite an entry that is there. */
+function writeLocalAnchor(anchorPath, sha) {
+  const tmp = `${anchorPath}.${process.pid}.tmp`;
+  let ours = false;
+  try {
+    const c = fs.constants;
+    const fd = fs.openSync(tmp, c.O_WRONLY | c.O_CREAT | c.O_EXCL | (c.O_NOFOLLOW || 0), 0o600);
+    ours = true;
+    try {
+      fs.writeSync(fd, `${sha}\n`);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, anchorPath);
+    return { ok: true, problem: null };
+  } catch (e) {
+    if (ours) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {}
+    }
+    return { ok: false, problem: (e && e.code) || (e && e.message) || String(e) };
+  }
+}
+
+/** Write a pin atomically; never overwrite an entry that is already there. */
+function writeLocalPin(pinPath, text) {
+  const tmp = `${pinPath}.${process.pid}.tmp`;
+  let ours = false;
+  try {
+    const c = fs.constants;
+    const fd = fs.openSync(tmp, c.O_WRONLY | c.O_CREAT | c.O_EXCL | (c.O_NOFOLLOW || 0), 0o600);
+    ours = true;
+    try {
+      fs.writeSync(fd, `${sha256Hex(text)}\n${text}`);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, pinPath);
+    return { ok: true, problem: null };
+  } catch (e) {
+    // Only a file THIS call created is removed; a planted entry fails O_EXCL or
+    // O_NOFOLLOW and is left exactly where it was — the write is refused, never
+    // worked around.
+    if (ours) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {}
+    }
+    return { ok: false, problem: (e && e.code) || (e && e.message) || String(e) };
+  }
+}
+
+/**
+ * The local registry text the dispatcher must run THIS event, pinned to the
+ * session's first read (`sessionId` — the payload's `session_id`).
+ *
+ * THE PIN IS AN ACCEPTANCE RECORD, NOT A CACHE. Once this session has accepted a
+ * text, nothing else may run: the pin (the accepted text) and its anchor (the
+ * accepted sha) are both required, and every way they can disagree with each other
+ * or with the session's own record is a REFUSAL — never a silent re-pin of whatever
+ * is on disk now, and never a note that blames a file for a change it did not make.
+ *
+ * @returns {{text:string|null, note:string|null, notice:string|null, pinPending:{pinPath:string,anchorPath:string,text:string}|null}}
+ *   `text` null ⇒ the file is (pinned) absent: no repo-owned rows for the event.
+ *   `note` ⇒ the file on disk is not what runs (it changed, or cannot be read),
+ *   the session's own accepted copy is serving — true of every event while it lasts.
+ *   `notice` ⇒ the pin could not be KEPT (its directory is unusable, or the writes
+ *   were refused): the file on disk runs, so nothing is hidden, and the session has
+ *   no pin to fall back on — a hazard, said out loud, never a refusal.
+ *   `pinPending` ⇒ the session's first read of a file that needs, and has not yet
+ *   been given, a pin: the caller writes it with commitLocalRegistryPin ONLY once
+ *   the text it returns has PARSED and VALIDATED (and passed the add-only and
+ *   duplicate checks). A pin taken from a text the loader then refuses would freeze
+ *   the fault: the operator repairs the file, and every later event of the session
+ *   keeps serving the unparseable copy — the trap this two-step exists to close.
+ *   Measured: a repaired file still refused until the session was restarted.
+ * @throws RegistryError when the LIVE file is unreadable and there is no accepted
+ *   copy to serve, and when the pin state itself cannot be trusted: a pin that was
+ *   established and is now absent, a pin that is not the text this session
+ *   accepted, an anchor with no pin, or a pin with no anchor. The caller turns
+ *   every one of these into a refusal at PreToolUse (the repair hatch admits a
+ *   Read and an edit of the local registry) and a loud note elsewhere.
+ */
+function resolveLocalRegistryText(hooksDir, sessionId, snapshotDirOrChoice) {
+  // Absolute: the pin is keyed on this path, and two spellings of one file must not
+  // key two pins.
+  const livePath = path.resolve(localRegistryPath(hooksDir));
+  const readLive = () => {
+    if (!localRegistryPresent(hooksDir)) return { text: null, problem: "it does not exist" };
+    try {
+      return { text: readRegularFileSync(livePath, MAX_LOCAL_REGISTRY_BYTES), problem: null };
+    } catch (e) {
+      if (e && e.code === "ENOENT") return { text: null, problem: "it does not exist" };
+      return { text: null, problem: e && e.code === "ELOOP" ? "it is a symbolic link" : (e && e.message) || (e && e.code) || String(e) };
+    }
+  };
+  const live = readLive();
+  // No session to pin against (a payload without a usable session_id): the file is
+  // read fresh on every event, exactly as before the pin existed.
+  if (typeof sessionId !== "string" || !sessionId || sessionId.length > 512) {
+    if (live.text === null && live.problem !== "it does not exist") throw new RegistryError(`local: cannot read the local registry: ${live.problem}`);
+    return { text: live.text, note: null, notice: null };
+  }
+  const choice = snapshotDirOrChoice && typeof snapshotDirOrChoice === "object" ? snapshotDirOrChoice : { dir: snapshotDirOrChoice, rejected: null };
+  const dirProblem = snapshotDirProblem(choice.dir);
+  if (dirProblem !== null) {
+    // No usable directory: the pin cannot be kept at all. The live file runs and the
+    // hazard is said; an unreadable one is still the fault it has always been.
+    if (live.text === null && live.problem !== "it does not exist") throw new RegistryError(`local: cannot read the local registry: ${live.problem}`);
+    return { text: live.text, note: null, notice: localPinUnusableNotice(dirProblem) };
+  }
+  const pinPath = localRegistryPinPath(choice.dir, sessionId, livePath);
+  const anchorPath = localRegistryAnchorPath(choice.dir, sessionId, livePath);
+  const pin = readLocalPin(pinPath);
+  const anchor = readLocalAnchor(anchorPath);
+  const refuse = (why) =>
+    new RegistryError(
+      `local: ${why} — the repo-local registry is pinned to the text this session ACCEPTED, and that record can no longer be trusted. ` +
+        `Remove both \`${pinPath}\` and \`${anchorPath}\` (or restart the session) to accept the file as it is now.`,
+    );
+  if (anchor.ok) {
+    if (!pin.ok) throw refuse(`this session's pin for .claude/${LOCAL_REGISTRY_BASENAME} is ${pin.kind === "absent" ? "GONE" : `unreadable (${pin.problem})`}`);
+    if (pin.sha !== anchor.sha) throw refuse("the pin is not the text this session accepted (it was replaced)");
+    // The accepted text is what runs, whenever the file on disk is not identical to it.
+    if (live.problem === null && sha256Hex(live.text) === pin.sha) return { text: live.text, note: null, notice: null };
+    return {
+      text: pin.text,
+      notice: null,
+      note:
+        live.problem === null
+          ? `.claude/${LOCAL_REGISTRY_BASENAME} changed on disk since this session first read it; the dispatcher is running the registry this session ACCEPTED. ` +
+            "Restart the session (or re-review the file) to apply the change.\n"
+          : `.claude/${LOCAL_REGISTRY_BASENAME} cannot be read (${live.problem}); the dispatcher is running the registry this session ACCEPTED, so the repo's own detectors still ran. ` +
+            `Restore the file (e.g. \`git checkout -- .claude/${LOCAL_REGISTRY_BASENAME}\`): a NEW session cannot start its detectors without it.\n`,
+    };
+  }
+  if (anchor.kind === "file") throw refuse(`the session's pin ACCEPTANCE RECORD at \`${anchorPath}\` cannot be read (${anchor.problem})`);
+  // No anchor: either the session's first read, or a pin nobody recorded accepting.
+  if (pin.ok || pin.kind === "file") throw refuse(`a pin is present with no acceptance record for it${pin.kind === "file" ? ` (${pin.problem})` : ""}`);
+  if (live.text === null && live.problem !== "it does not exist") {
+    throw new RegistryError(`local: cannot read the local registry: ${live.problem}`);
+  }
+  return { text: live.text, note: null, notice: null, pinPending: live.text === null ? null : { pinPath, anchorPath, text: live.text } };
+}
+
+/**
+ * Write the pin resolveLocalRegistryText handed back, ONCE the caller has accepted
+ * the text (it parsed, validated, and passed the add-only check). A refused write is
+ * a notice the caller says — never a refusal of the call.
+ * @returns {{ok:boolean, problem:string|null}}
+ */
+function commitLocalRegistryPin(pinPending) {
+  const w = writeLocalPin(pinPending.pinPath, pinPending.text);
+  if (!w.ok) return { ok: false, problem: w.problem };
+  // The anchor LAST, and never left half-written: a pin whose anchor is missing
+  // refuses on every later event, so if the anchor cannot be written the pin is
+  // taken back down rather than left to poison the session.
+  const a = writeLocalAnchor(pinPending.anchorPath, sha256Hex(pinPending.text));
+  if (a.ok) return { ok: true, problem: null };
+  let kept = "";
+  try {
+    fs.unlinkSync(pinPending.pinPath);
+  } catch (e2) {
+    kept = `; the pin itself could not be removed either (${(e2 && e2.code) || (e2 && e2.message) || e2}), so the NEXT event will refuse until ${pinPending.pinPath} and ${pinPending.anchorPath} are removed`;
+  }
+  return { ok: false, problem: `its acceptance record could not be written (${a.problem}) and the pin was removed again${kept}` };
+}
+
+/** The sentence said when the pin could not be WRITTEN (its own remedy, not the directory's). */
+function localPinWriteNotice(pinPath, problem) {
+  return (
+    `the repo-local registry's pin for this session could not be written at ${pinPath} (${problem}), so it is read fresh on every event and an edit to it takes effect mid-session. ` +
+    "Free space there, or remove whatever is planted at that path — the copy is retried on every event, and this notice clears once one succeeds."
+  );
+}
+
+/**
+ * The sentence said when a session cannot pin its local registry because the
+ * SNAPSHOT DIRECTORY is not usable (the caller's notice). The directory's remedy
+ * only — a fault at the pin FILE (unreadable, forged, replaced, removed) is a
+ * REFUSAL with its own message, never this sentence (the correctness round measured
+ * the old wording blaming "that directory" for faults that were at the file).
+ */
+function localPinUnusableNotice(why) {
+  return (
+    `this session cannot pin .claude/${LOCAL_REGISTRY_BASENAME} (${why}), so it is read fresh on every event and an edit to it takes effect mid-session. ` +
+    "Remove or fix that directory (it must be a real directory owned by you, mode 0700)."
+  );
 }
 
 function registryPath(hooksDir) {
@@ -569,6 +1007,21 @@ function loadRegistryIfPresent(hooksDir) {
 }
 
 /**
+ * The row's declared incomplete-execution contract, NORMALIZED to "deny" /
+ * "continue". Only the exact string "continue" reads as "continue"; every other
+ * value — including the field being absent — reads as "deny" (fail-closed; see
+ * ROW_ON_INCOMPLETE_DEFAULT). This is the ONE normalizer both the dispatcher
+ * (lib/dispatch-main.js) and the declaration ratchet read, so the consumed value
+ * and the checked value cannot drift. The dispatcher reads it for BOTH halves of
+ * the contract: the per-row worker boundary (hook-engine.js) AND the refusal an
+ * incomplete deny row earns at PreToolUse (dispatch-main.js § FAIL-CLOSED FOR
+ * INCOMPLETE DENY ROWS).
+ */
+function onIncompleteOf(h) {
+  return h && h.on_incomplete === "continue" ? "continue" : ROW_ON_INCOMPLETE_DEFAULT;
+}
+
+/**
  * The detectors a dispatcher runs for one event, flattened in registry order,
  * de-duplicated by hook file (the host runs an identical command once per
  * event), each carrying the matcher of the group it came from.
@@ -579,7 +1032,7 @@ function detectorsFor(reg, event) {
   const out = [];
   for (const g of spec.groups) {
     for (const h of g.hooks) {
-      out.push({ event, matcher: g.matcher, hook: hookBasename(h.command), timeout: h.timeout, mode: h.mode || "module" });
+      out.push({ event, matcher: g.matcher, hook: hookBasename(h.command), timeout: h.timeout, mode: h.mode || "module", onIncomplete: onIncompleteOf(h) });
     }
   }
   return out;
@@ -600,6 +1053,11 @@ function detectorsFor(reg, event) {
  *   `run`: row indexes to run; `notes`: what the agent is told. A second matching
  *   local row naming the same hook is dropped silently (one run per hook command,
  *   as the host de-duplicates identical commands).
+ *
+ * The `shadowed` note is the SECOND fence of ADD-ONLY: the dispatcher refuses a row
+ * naming a template hook for this event at LOAD (assertAddOnly), so a row reaching
+ * here with `loomRuns: true` is one a caller did not vet — it is dropped, named, and
+ * never allowed to re-run or re-time a row loom already ran.
  */
 function planLocalRows(rows, matches) {
   const run = [];
@@ -800,8 +1258,21 @@ module.exports = {
   MAX_LOCAL_REGISTRY_BYTES,
   MAX_REGISTRY_BYTES,
   MAX_LOCAL_ROWS_PER_EVENT,
+  ADD_ONLY_VIOLATION_CODE,
+  assertAddOnly,
+  templateHookNames,
   validateLocalRegistry,
+  parseLocalRegistryText,
   loadLocalRegistryIfPresent,
+  resolveLocalRegistryText,
+  commitLocalRegistryPin,
+  localPinUnusableNotice,
+  localPinWriteNotice,
+  localRegistryPinPath,
+  localRegistryAnchorPath,
+  assertNoDivergentDuplicateRows,
+  DUPLICATE_ROW_DIVERGENCE_CODE,
+  LOCAL_PIN_PREFIX,
   withLocal,
   DISPATCHER_BASENAME,
   SCHEMA,
@@ -824,6 +1295,8 @@ module.exports = {
   loadRegistry,
   loadRegistryIfPresent,
   detectorsFor,
+  onIncompleteOf,
+  ROW_ON_INCOMPLETE_DEFAULT,
   planLocalRows,
   isLoomRepo,
   repoClass,

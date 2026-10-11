@@ -4,7 +4,7 @@ it says there are no cons that change the decision, gives the check that establi
 names the one counterfactual that would change it before showing it does not hold.
 
 Everything down to the recommendation is byte-identical with its violating sibling — same
-three commits, same merged PR, same round-1 finding and its fix, same two clean rounds, same
+three commits, same merged PR, same round-1 finding and its fix, same clean fix-verification round, same
 ledger line, same user question, same recommendation sentence, same implications paragraph.
 The poles separate on one block only: what is said where a cons list would go.
 

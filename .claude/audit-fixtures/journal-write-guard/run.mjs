@@ -214,6 +214,14 @@ runDispositionSuite({ suiteDir: HERE, hook: HOOK, fixtures: FIXTURES, setups: SE
 // Neither shape is excluded by the fixture set alone. Each control flips EXACTLY
 // ONE element and requires the disposition to MOVE.
 console.log("\n=== T4: paired controls — flip one setup element, require the verdict to move ===");
+// The verdict signal asserted below is the DISPOSITION TAG, never `refused`. The
+// shared runner defines `refused` as a TRUE DENIAL only (exit 2 / continue:false /
+// deny — hook-fixture-runner.mjs § driveHook), and this guard's slot findings are
+// halt-and-report: exit 0, continue:true, the tool RUNS (fixtures 02/04's
+// expected.txt: severity halt-and-report, stderr_tag [HALT-AND-REPORT]). A
+// `refused === true` assertion on these arms would demand a fence the guard's
+// design does not carry — and did pass only while the runner's old predicate
+// counted any [HALT-AND-REPORT] output as a refusal.
 
 function drive(w, payload) {
   return driveHook(HOOK, { stdinRaw: JSON.stringify(payload), cwd: w.repoDir, env: envFor(w) });
@@ -271,7 +279,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const theirs = drive(w, payload);
   check(
     "C1: same slot with a covering reservation — signed by SELF ⇒ passthrough / by SIBLING ⇒ REFUSED",
-    mine.code === 0 && mine.tag === "(none)" && theirs.refused === true,
+    mine.code === 0 && mine.tag === "(none)" && theirs.tag === "[HALT-AND-REPORT]",
     `self-signed: exit=${mine.code} tag=${mine.tag} | sibling-signed: exit=${theirs.code} tag=${theirs.tag}`,
     "identical dispositions = the reservation.verified_id === selfVerifiedId discriminator is dead. Passing on BOTH means one operator can write over a slot another operator reserved (the silent clobber MUST-NOT-3 exists to prevent); refusing on BOTH means an operator cannot write their OWN reserved slot.",
   );
@@ -305,7 +313,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const write = drive(w, { ...base, tool_name: "Write", tool_input: { file_path: target, content: SHAPE_CLEAN_FM + "x\n" } });
   check(
     "C3: same unreserved journal path — Read ⇒ passthrough / Write ⇒ REFUSED",
-    read.code === 0 && read.tag === "(none)" && write.refused === true,
+    read.code === 0 && read.tag === "(none)" && write.tag === "[HALT-AND-REPORT]",
     `Read: exit=${read.code} tag=${read.tag} | Write: exit=${write.code} tag=${write.tag}`,
     "identical dispositions = isWatchedTool is not gating. Both refusing halts every Read of a journal entry; both passing removes the slot fence from the mutation tools it exists for.",
   );
@@ -325,7 +333,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const inside = drive(w, writePayload(w, "journal/0001-DECISION-inside.md"));
   check(
     "C4: same Write — /tmp/... ⇒ passthrough / <repo>/journal/... ⇒ REFUSED",
-    outside.code === 0 && outside.tag === "(none)" && inside.refused === true,
+    outside.code === 0 && outside.tag === "(none)" && inside.tag === "[HALT-AND-REPORT]",
     `outside: exit=${outside.code} tag=${outside.tag} | inside: exit=${inside.code} tag=${inside.tag}`,
     "identical dispositions = isWatchedPath is not scoping. Refusing on the OUTSIDE arm taxes every unrelated Write on the machine; passing on the INSIDE arm removes the slot fence from the repo it guards.",
   );
@@ -377,7 +385,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
     "C6: ENROLLED-SOLO (coordination OFF, governance ON) — unreserved ⇒ REFUSED UNRESERVED / self-reserved ⇒ passthrough",
     mode.coordination === "implicit-solo-single-operator" &&
       mode.governance === "enrolled-solo" &&
-      unreserved.refused === true &&
+      unreserved.tag === "[HALT-AND-REPORT]" &&
       unreserved.combined.includes("UNRESERVED") &&
       reserved.code === 0 &&
       reserved.tag === "(none)",
@@ -450,7 +458,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
       landed &&
       reservedWrite.code === 0 &&
       reservedWrite.tag === "(none)" &&
-      unreservedWrite.refused === true &&
+      unreservedWrite.tag === "[HALT-AND-REPORT]" &&
       unreservedWrite.combined.includes("UNRESERVED"),
     `contained=${contained} (${logTarget}) | reserve: ok=${r && r.ok} slot=${slot} record=${!!(r && r.record)} step=${r && r.step} | log reservations=${logged.length} landed=${landed} | write ${filename}: ${verdict(reservedWrite)} | write ${next}: ${verdict(unreservedWrite)}`,
     "landed=false = the supply emitted no record on a governed repo, and every governed journal write halts; a refusal on the reserved write = supply and demand disagree about the key or the fold, the deadlock; a pass on the unreserved write = the demand is not armed here at all.",
@@ -492,7 +500,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
       record.sig !== reservationRecord(w, { slot: "0031", dir: "journal", by: "self" }).sig &&
       off.code === 0 &&
       off.tag === "(none)" &&
-      on.refused === true &&
+      on.tag === "[HALT-AND-REPORT]" &&
       on.combined.includes("UNRESERVED"),
     `off modes: ${offMode.coordination}/${offMode.governance} → ${verdict(off)} | on modes: ${onMode.coordination}/${onMode.governance} → ${verdict(on)}`,
     "a refusal on the OFF arm = the governance-only fold verifies signatures, paying loom#1890's per-record subprocess on every governed journal write and disagreeing with the allocator's acceptance set; a pass on the ON arm = coordination-ON repos lost signature verification, i.e. a sibling can forge a reservation that reads as yours.",
@@ -596,9 +604,9 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
       preBlind &&
       a.code === 0 &&
       a.tag === "(none)" &&
-      b.refused === true &&
+      b.tag === "[HALT-AND-REPORT]" &&
       b.combined.includes("UNRESERVED") &&
-      c.refused === true &&
+      c.tag === "[HALT-AND-REPORT]" &&
       c.combined.includes("UNRESERVED"),
     `modes: ${mode.coordination}/${mode.governance} | full fold: ${full.accepted.length} accepted, ${full.rejected.length} rejected (${full.rejected.map((e) => e.rule).join(",")}) in ${foldMs}ms | pre-filtered fold holds 0120: ${!preBlind} | 0120: ${verdict(a)} (${aMs}ms) | 0121: ${verdict(b)} | 0150: ${verdict(c)}`,
     "a refusal on 0120 = the guard no longer folds the emitter's whole chain (a record-type pre-filter, or any reading that drops the codify-lease / gate-op-receipt records a reservation chains through) and every real reservation reads UNRESERVED; a pass on 0150 = chain integrity is no longer consulted and a hand-appended off-chain record reserves a slot the allocator never counted; a pass on 0121 = the lookup is not keyed on the slot.",
@@ -787,13 +795,13 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const carriesAuthor = (r) => r.combined.includes("author") && r.combined.includes("human");
   check(
     "C12: identical `author: human` content, unbacked — UNRESERVED slot ⇒ refusal carrying BOTH the slot and the author finding / SIBLING slot ⇒ likewise / SELF-reserved slot ⇒ refusal on the author finding alone",
-    unreserved.refused === true &&
+    unreserved.tag === "[HALT-AND-REPORT]" &&
       unreserved.combined.includes("UNRESERVED") &&
       carriesAuthor(unreserved) &&
-      sibling.refused === true &&
+      sibling.tag === "[HALT-AND-REPORT]" &&
       sibling.combined.includes(SIB.display_id) &&
       carriesAuthor(sibling) &&
-      selfSlot.refused === true &&
+      selfSlot.tag === "[HALT-AND-REPORT]" &&
       carriesAuthor(selfSlot) &&
       !selfSlot.combined.includes("UNRESERVED"),
     `unreserved: ${verdict(unreserved)} carriesAuthor=${carriesAuthor(unreserved)} | sibling: ${verdict(sibling)} carriesAuthor=${carriesAuthor(sibling)} | self: ${verdict(selfSlot)} carriesAuthor=${carriesAuthor(selfSlot)}`,
@@ -832,12 +840,12 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const bodyOnly = fire("---\ntype: DECISION\n---\n\nauthor: human\n");
   check(
     "C13: same self-reserved slot — `author: human` written plain / quoted-key / spaced-key ⇒ all REFUSED; unterminated and duplicated frontmatter ⇒ REFUSED as unparseable; `author: agent`, no frontmatter, and a BODY-only `author:` line ⇒ passthrough",
-    plain.refused === true &&
-      quotedKey.refused === true &&
-      spacedKey.refused === true &&
-      unterminated.refused === true &&
+    plain.tag === "[HALT-AND-REPORT]" &&
+      quotedKey.tag === "[HALT-AND-REPORT]" &&
+      spacedKey.tag === "[HALT-AND-REPORT]" &&
+      unterminated.tag === "[HALT-AND-REPORT]" &&
       unterminated.combined.includes("UNPARSEABLE") &&
-      duplicate.refused === true &&
+      duplicate.tag === "[HALT-AND-REPORT]" &&
       duplicate.combined.includes("UNPARSEABLE") &&
       agent.code === 0 &&
       agent.tag === "(none)" &&

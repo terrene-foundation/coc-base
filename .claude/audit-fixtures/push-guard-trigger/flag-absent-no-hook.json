@@ -3,7 +3,7 @@
   "state": {
     "delegatePresent": true,
     "trackedTriggerPresent": true,
-    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "hooksDir": "{{FIXTURE_HOME_V1:MAC}}someoperator/repos/loom/.git/hooks",
     "resolveError": null,
     "readError": null,
     "triggerPresent": false,

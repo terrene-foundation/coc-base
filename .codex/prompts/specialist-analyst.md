@@ -176,3 +176,8 @@ The release gate is pipeline-green — NOT unit+integration-green. Every feature
 **Why:** Fake-integration patterns (a field exists on a frozen dataclass but is populated at only some return sites) pass every unit and integration test because those tests exercise ONE return path at a time. The Quick Start regression is the only test that exercises the full documented pipeline; its absence means every release ships with a non-zero probability that the documented user journey silently crashes for users. Evidence: kailash-ml W33c (2026-04-23, `15033fa6` on `feat/kailash-ml-1.0.0-m1-foundations`) — 6 engine unit suites + 6 integration suites all passed; `km.train() → km.register()` crashed end-to-end because `TrainingResult.trainable` was set on Sklearn's return site only. W33b regression (`480dc3d3`) caught it before v1.1.0 ship.
 
 **Origin:** Session 2026-04-23 M1 release wave. Pattern 5 of 8 from the kailash-ml-audit session notes — generalizable to any release: the "release-blocking end-to-end regression" is the minimum viable release gate.
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Grep, Glob. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command. These are role instructions, not a native tool permission boundary. Parent policy still applies.

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "events": {
+    "PreToolUse": {
+      "dispatcher": { "matcher": "*", "timeout": 30 },
+      "groups": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/advise-hook.js\"", "timeout": 5, "on_incomplete": "deny" }
+          ]
+        }
+      ]
+    }
+  }
+}

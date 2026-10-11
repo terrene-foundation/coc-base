@@ -161,8 +161,34 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/wip-authz/override-ledger.jsonl",
+ *       ".claude/wip-authz/wip-limit-allow"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: lane surveys / landing-provenance / age reads via lib/wip-lanes.js and one `git rev-parse --show-toplevel --git-common-dir` through lib/event-git.js (all spawnSync, gitEnv-pinned). Writes: an honoured override (either channel) APPENDS one row to `.claude/wip-authz/override-ledger.jsonl` via lib/append-sink.js — resolved under the MAIN checkout, not the invoking worktree — and the receipt channel CONSUMES (unlinks) `.claude/wip-authz/wip-limit-allow` via lib/override-receipt.js. Repeat payload ⇒ receipt already gone and a possible extra ledger row, so not idempotent; the read-only paths (no override) change nothing."
+ * }
+ */
+
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+// Defines functions only — a require() of THIS file still has no side effects.
+const { askOnce, eventGitKey } = require(path.join(__dirname, "lib", "event-git.js"));
+
+// THE canonical `--git-common-dir` question (git-cache-design-memo.md §3.2 / §5.1 D1):
+// ONE argv for every asker of the shared git dir, so event-git's question key
+// collapses them to one spawn per event. Output order follows argv — TOPLEVEL
+// first, common dir LAST, so the consumer below reads the LAST line (it used to
+// read line 0 of a single-line answer).
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 
 /** The wait-for-stdin bound. Fixed: no payload has arrived, so nothing is tunable yet. */
 const TIMEOUT_MS = 8000;
@@ -347,22 +373,36 @@ function mainCheckoutTop(repoDir) {
   try {
     const gitBin = resolveGitBinary();
     if (!gitBin) return null;
-    const r = spawnSync(
-      gitBin,
-      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      {
-        cwd: repoDir,
-        encoding: "utf8",
-        timeout: 1500,
-        killSignal: "SIGKILL",
-        stdio: ["ignore", "pipe", "ignore"],
-        env: gitEnv(),
+    // ONE answer per distinct question per hook event (lib/event-git.js). Outside
+    // an event scope `askOnce` runs the probe directly — unchanged behaviour.
+    const probe = askOnce(
+      eventGitKey({ gitBin, cwd: repoDir, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+      () => {
+        let r;
+        try {
+          r = spawnSync(gitBin, CANONICAL_COMMON_DIR_ARGS, {
+            cwd: repoDir,
+            encoding: "utf8",
+            timeout: 1500,
+            killSignal: "SIGKILL",
+            stdio: ["ignore", "pipe", "ignore"],
+            env: gitEnv(),
+          });
+        } catch (e) {
+          return { ok: false, reason: String((e && e.message) || e) };
+        }
+        if (!r || r.error || r.status !== 0) return { ok: false, reason: "git rev-parse failed" };
+        return { ok: true, value: String(r.stdout || "").trim() };
       },
     );
-    if (r.error || r.status !== 0) return null;
-    const line = String(r.stdout || "")
-      .trim()
-      .split("\n")[0];
+    if (!probe.ok) return null;
+    const lines = String(probe.value || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // The common dir is the LAST line — the toplevel is printed first under the
+    // canonical argv, and `path.dirname(toplevel)` would name the repo's PARENT.
+    const line = lines.length ? lines[lines.length - 1] : "";
     return line ? path.dirname(line) : null;
   } catch {
     return null;
@@ -1896,7 +1936,15 @@ function onStdinEnd(input) {
   }
 }
 
-module.exports = { hookMain };
+module.exports = {
+  hookMain,
+  // Test-only — NOT part of the supported API. `mainCheckoutTop` is otherwise
+  // reachable only through `hookMain`'s block path (which needs a measured
+  // WIP overrun), so the common-dir normalization's spawn/key measurement
+  // (git-cache-design-memo.md §6.2) could not otherwise drive this call site
+  // in-process. Same seam shape as `repo-dir-override._test_repoIdentity`.
+  _test_mainCheckoutTop: mainCheckoutTop,
+};
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The

@@ -80,7 +80,26 @@
  * Mitigates cc-artifacts.md Rule 7 (timeout fallback).
  */
 
-const TIMEOUT_MS = 5000;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".coc-clone-init-witness",
+ *       ".claude/learning/.coc-clone-init-witness"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "This file itself writes only stdout/stderr. Its one fs capability is CONDITIONAL and delegated: lib/state-io.js::readPosture calls migrateWitnessIfPresent, which writes the F52 separate-location sentinel at <main checkout>/.coc-clone-init-witness and unlinks the legacy .claude/learning/.coc-clone-init-witness. That migration is documented idempotent (a no-op once the new location exists), which is why idempotent stays true: a repeat runs the same verdict and moves no state. spawns: the git rev-parse probes state-io uses to resolve the state dir and main checkout."
+ * }
+ */
+
+// Raised 5000 -> 20000 (2026-10-08) with the registered budget (5s -> 20s): internal
+// and harness bind must move together or the guard self-kills mid-scan under load.
+const TIMEOUT_MS = 20000;
 let fallback = null;
 
 const path = require("path");
@@ -715,7 +734,8 @@ module.exports = { hookMain };
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The
 // selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
   else {
     // FW-TIER2 — a STANDALONE invocation is one hook event, so it opens the same
     // one-answer-per-question scope the dispatch worker opens. Without it every

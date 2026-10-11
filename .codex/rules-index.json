@@ -1,0 +1,1188 @@
+{
+  "schema_version": 1,
+  "profile": "distribution",
+  "emission_selection": {
+    "cli": "codex",
+    "lang": "base"
+  },
+  "rules": [
+    {
+      "file": "adversarial-coverage.md",
+      "paths": [
+        ".claude/commands/redteam.md",
+        ".claude/commands/vet.md",
+        "**/04-validate/**",
+        "**/04-vet/**"
+      ],
+      "sha256": "885c63c07f969af3a6f4b7b6dee4d219acd0c8617fe87300f33578e9062407fc",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/adversarial-coverage.md"
+    },
+    {
+      "file": "agent-reasoning.md",
+      "paths": [
+        "**/kaizen/**",
+        "**/*agent*",
+        "**/agents/**",
+        "**/*classifier*",
+        "**/*extractor*",
+        "**/*delegate*",
+        "**/*router*",
+        "**/*dispatcher*",
+        "**/*intent*"
+      ],
+      "sha256": "5a4ea8bba977732a19bc64583acfcdec38c094e7c28c551d2842795c5fcced6f",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/agent-reasoning.md"
+    },
+    {
+      "file": "agents.md",
+      "paths": [],
+      "sha256": "2308eb6eee3a8a9bf1313b637cf8097e866583b5de122c2691a780665e921c82",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/agents.md"
+    },
+    {
+      "file": "analyze-output-completeness.md",
+      "paths": [
+        "**/.claude/commands/analyze.md",
+        "**/.claude/commands/todos.md",
+        "**/.claude/commands/implement.md",
+        "**/.claude/hooks/analyze-completeness-guard.js",
+        "**/workspaces/**"
+      ],
+      "sha256": "c988574e627aaf8724db10efadbfe9cf19cb19fa9416596619ee3bd6b2367bd3",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/analyze-output-completeness.md"
+    },
+    {
+      "file": "artifact-flow.md",
+      "paths": [
+        ".claude/**",
+        "sync-manifest.yaml",
+        "**/VERSION"
+      ],
+      "sha256": "84beae8da263a88816f65b896bd6633b6dca733e9b3f493205a9f70c799b1b41",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/artifact-flow.md"
+    },
+    {
+      "file": "artifact-stranding.md",
+      "paths": [
+        "**/.claude/rules/**",
+        "**/.claude/agents/**",
+        "**/.claude/skills/**",
+        "**/.claude/commands/**",
+        "**/.claude/hooks/**",
+        "**/specs/**",
+        "**/journal/**",
+        "**/.session-notes*"
+      ],
+      "sha256": "6c68e6290a7abfd31ff94586e00cf5c66b01d65994ea006c188500b09ff928fe",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/artifact-stranding.md"
+    },
+    {
+      "file": "autonomous-execution.md",
+      "paths": [],
+      "sha256": "a20ed8b915a889160f1a6fb76f1b481f1df022450ab2e4d4c566ba7823243211",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/autonomous-execution.md"
+    },
+    {
+      "file": "burn-down-reporting.md",
+      "paths": [
+        "**/workspaces/**",
+        "**/.session-notes*",
+        "**/.session-notes.d/**",
+        "**/.wave-tracker*",
+        "**/.wave-tracker.d/**",
+        "**/todos/**",
+        "journal/**"
+      ],
+      "sha256": "06eae3a907e2173bbdc43f877f2130a710c647794510c253e6e1ac4ed78f2fe4",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/burn-down-reporting.md"
+    },
+    {
+      "file": "burndown-integrity.md",
+      "paths": [
+        "**/workspaces/**",
+        "**/.session-notes*",
+        "**/.session-notes.d/**",
+        "journal/**",
+        "**/*REGISTER*",
+        "**/*BURNDOWN*",
+        "**/burndown/**"
+      ],
+      "sha256": "7659782635617aa6a5a35cf259592bfdbaa39c56b2b731eb7cf2a8c5fd600fec",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/burndown-integrity.md"
+    },
+    {
+      "file": "burndown-traceability.md",
+      "paths": [
+        "**/burndown/**",
+        "**/*BURNDOWN*",
+        "**/*REGISTER*",
+        "**/.session-notes.shared.md"
+      ],
+      "sha256": "68762db0ce121239719970e012d898cc5e4dc635101e60109e6c8d551413d255",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/burndown-traceability.md"
+    },
+    {
+      "file": "ci-cost-discipline.md",
+      "paths": [
+        "**/todos/**",
+        "**/.wave-tracker*",
+        "**/.wave-tracker.d/**",
+        "**/.github/workflows/**"
+      ],
+      "sha256": "3b068fc58b372ce3ebc2d275cab279e8542165b5411913c974fe35d9d29109d9",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/ci-cost-discipline.md"
+    },
+    {
+      "file": "ci-job-budget.md",
+      "paths": [
+        ".github/workflows/**",
+        "scripts/ci/**",
+        ".claude/hooks/ci-job-budget-guard.js",
+        ".claude/bin/ci-job-budget-audit.mjs",
+        ".github/job-budget.json",
+        ".github/scripts/job-budget-audit.py"
+      ],
+      "sha256": "1ce051ae9c3c8169c306abd27743e295709c0071666efe9d720d34a1897da18e",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/ci-job-budget.md"
+    },
+    {
+      "file": "ci-runners.md",
+      "paths": [
+        ".github/workflows/**",
+        "**/ci/**",
+        "**/.github/**"
+      ],
+      "sha256": "d5b11d6c12c11a5222371950b7ff953186a180cf40c160ebe49f769c3ae3fb94",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/ci-runners.md"
+    },
+    {
+      "file": "command-skill-parity.md",
+      "paths": [
+        ".claude/commands/**",
+        ".claude/skills/**"
+      ],
+      "sha256": "3e26f09b840aa6351aa4146ada3f0526a4b5370ed9e3ed60fcb7edb7ae9ced1e",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/command-skill-parity.md"
+    },
+    {
+      "file": "communication.md",
+      "paths": [],
+      "sha256": "2257e8b33f0f15444d1e44c745d222bdce13a7c2b00b5d662da819b0a6375d19",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/communication.md"
+    },
+    {
+      "file": "completion-criterion.md",
+      "paths": [
+        "**/todos/**",
+        "**/specs/**",
+        "**/briefs/**",
+        "**/.session-notes*",
+        "**/.session-notes.d/**"
+      ],
+      "sha256": "0280b8a7e1e81e6fcddff82c9b0686fa81ca18d7268adb73876306ab37edd9d8",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/completion-criterion.md"
+    },
+    {
+      "file": "conformance-walk.md",
+      "paths": [
+        "**/tools/conformance/**",
+        "**/e2e/**",
+        "**/eval-harness/**",
+        "**/04-validate/**",
+        "**/*conformance*",
+        "**/suites/**",
+        "scripts/ci/**",
+        ".github/workflows/**",
+        ".claude/bin/check-*.mjs",
+        ".claude/hooks/**",
+        ".claude/test-harness/**",
+        ".claude/audit-fixtures/**"
+      ],
+      "sha256": "5947eda0f9ca7253c534405bc0b74ac89f15791eea208ebc12f571e6fc7a44d1",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/conformance-walk.md"
+    },
+    {
+      "file": "conservation-gate.md",
+      "paths": [],
+      "sha256": "8bb15d57ac1bc263762aab634f532ac0b0c311481090bb84f731711bf0941472",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/conservation-gate.md"
+    },
+    {
+      "file": "cross-cli-artifact-hygiene.md",
+      "paths": [
+        "workspaces/**/*.md",
+        "briefs/**/*.md"
+      ],
+      "sha256": "7d64a9e907dcdf6fe7bb927471279d4876f3b282f7b9cfdcd5677d76e0b6052d",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/cross-cli-artifact-hygiene.md"
+    },
+    {
+      "file": "deferral-registry-locality.md",
+      "paths": [
+        ".claude/rules/project/**",
+        ".claude/agents/project/**",
+        ".claude/commands/project/**",
+        ".claude/skills/project/**",
+        "**/deferrals.json",
+        "**/phase2-deferrals.json"
+      ],
+      "sha256": "388c980dcf68f6dc558363baa57cb6ef13a813c0a957b00c6431568664095773",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/deferral-registry-locality.md"
+    },
+    {
+      "file": "dependencies.md",
+      "paths": [
+        "pyproject.toml",
+        "Cargo.toml",
+        "package.json",
+        "**/*.py",
+        "**/*.rs",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx"
+      ],
+      "sha256": "c930b6b0d4ab0d9d6759ba209a147afc306a968c3b2161068069460105c5c894",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/dependencies.md"
+    },
+    {
+      "file": "deploy-hygiene.md",
+      "paths": [
+        "**/Dockerfile",
+        "**/*.dockerfile",
+        "deploy/**",
+        "**/k8s/**",
+        "**/kubernetes/**",
+        "**/helm/**",
+        "**/.github/workflows/**",
+        "**/fly.toml",
+        "**/vercel.json",
+        "**/app.yaml",
+        "**/serverless.yml",
+        "**/wrangler.toml",
+        "**/Procfile",
+        "**/next.config.*",
+        "**/vite.config.*",
+        "**/package.json",
+        "deploy/deployment-config.md"
+      ],
+      "sha256": "9bcde7741e56a86e451ff8996408a9025fdd0b5e2ff34809f65b68101a649ce5",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/deploy-hygiene.md"
+    },
+    {
+      "file": "deployment.md",
+      "paths": [
+        "deploy/**",
+        ".github/**",
+        "pyproject.toml",
+        "CHANGELOG.md"
+      ],
+      "sha256": "05b157e992f9b9f79d2df994dda789623d2176dbbf5550506d898541ff542e6b",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/deployment.md"
+    },
+    {
+      "file": "e2e-god-mode.md",
+      "paths": [
+        "tests/e2e/**",
+        "**/*e2e*",
+        "**/*playwright*"
+      ],
+      "sha256": "b111daaab24e580eaee9ecf1548e984c0c8b9b9ec7a4bd1952e2032c2c0325b7",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/e2e-god-mode.md"
+    },
+    {
+      "file": "enrollment-operations.md",
+      "paths": [
+        ".claude/operators.roster.json",
+        ".claude/commands/enroll.md",
+        ".claude/commands/whoami.md",
+        ".claude/commands/ecosystem-init.md",
+        ".claude/commands/onboard.md"
+      ],
+      "sha256": "7a339d974d98d6ab283ca1ff6ab94828b6698272d89391437f5dc3c563367171",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/enrollment-operations.md"
+    },
+    {
+      "file": "env-models.md",
+      "paths": [
+        "**/*.py",
+        "**/*.ts",
+        "**/*.js",
+        "**/*.rs",
+        "**/*.rb",
+        ".env*"
+      ],
+      "sha256": "243db61998ae7ac1c5d05968b071faf9ca3a4188de27c025965092d23ddf2ba8",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/env-models.md"
+    },
+    {
+      "file": "evidence-first-claims.md",
+      "paths": [],
+      "sha256": "79461f54b48158140f4a5d799944ce2c4bbb6df8fd4fd999d20ccd7c6947756a",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/evidence-first-claims.md"
+    },
+    {
+      "file": "facade-manager-detection.md",
+      "paths": [
+        "packages/**",
+        "src/**",
+        "**/tests/**"
+      ],
+      "sha256": "9ff28959264303ce33a89c50548ecd7936e4e465661076f73084fffdcc724f5f",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/facade-manager-detection.md"
+    },
+    {
+      "file": "git.md",
+      "paths": [],
+      "sha256": "4ee1696ff0414da63829f5a03145bcd729254aab0b9d4a66a5480aad9486964a",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/git.md"
+    },
+    {
+      "file": "governed-throughput.md",
+      "paths": [
+        ".claude/agents/**",
+        ".claude/commands/**",
+        ".claude/skills/**",
+        "**/*worktree*",
+        "**/workspaces/**"
+      ],
+      "sha256": "8909b635c8733c3540c43003d55614ef82f2c51a51ac8f9977087d4a6096a669",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/governed-throughput.md"
+    },
+    {
+      "file": "handoff-completion.md",
+      "paths": [
+        ".claude/rules/**",
+        ".claude/commands/**",
+        "**/.session-notes*",
+        "journal/**"
+      ],
+      "sha256": "a5ce01294c37958221ca12a7f23ee7a51a55859d7f6df85a95b8fe626dc34c54",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/handoff-completion.md"
+    },
+    {
+      "file": "hook-event-selection.md",
+      "paths": [
+        "**/.claude/hooks/**",
+        "**/.claude/variants/**/hooks/**",
+        "**/.claude/settings.json"
+      ],
+      "sha256": "817b0dfc526a1115ba02d0c80f4b6dfd764248327468772b4b49ca7ae6de1995",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/hook-event-selection.md"
+    },
+    {
+      "file": "hook-output-discipline.md",
+      "paths": [
+        "**/.claude/hooks/**",
+        "**/.claude/variants/**/hooks/**",
+        "**/.claude/test-harness/**"
+      ],
+      "sha256": "f57b2cf3346121ceae853796695d64bfc5e93bb2968200303fe2169267a47c4b",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/hook-output-discipline.md"
+    },
+    {
+      "file": "instrument-bipolarity.md",
+      "paths": [
+        "**/.claude/bin/**",
+        "**/.claude/hooks/**",
+        "**/.claude/audit-fixtures/**",
+        "**/.claude/test-harness/**",
+        "**/.github/workflows/**",
+        "**/tests/**",
+        "**/*.test.*",
+        "**/*_test.*",
+        "**/test_*.py"
+      ],
+      "sha256": "ef4aadc39d0de5d728f1bbed182c9e35d988ee7465e5c6a1c394e55de14b1739",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/instrument-bipolarity.md"
+    },
+    {
+      "file": "instrument-discipline.md",
+      "paths": [],
+      "sha256": "faece8100df935116ac17e45b1ca68b236ac153719543a5f802fb1881cb18516",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/instrument-discipline.md"
+    },
+    {
+      "file": "issue-triage-routing.md",
+      "paths": [],
+      "sha256": "89b81439cfd136985ffa0a376963f4470ce2dc8d9aed28465028cea82292f29c",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/issue-triage-routing.md"
+    },
+    {
+      "file": "journal-author-discipline.md",
+      "paths": [
+        "**/journal/**"
+      ],
+      "sha256": "d99ebf4ea5e9d37aa1dee7909d87c81c1616f14fc49c5132bb1492f876367d99",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/journal-author-discipline.md"
+    },
+    {
+      "file": "journal.md",
+      "paths": [
+        "**/journal/**"
+      ],
+      "sha256": "40fc951c6d0b88dd6dd48e7af75c98f39724a03ce1f3547cd80fbb717969ebe0",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/journal.md"
+    },
+    {
+      "file": "knowledge-cascade-routing.md",
+      "paths": [
+        "**/MEMORY.md",
+        "**/memory/**/*.md",
+        "journal/**",
+        "**/.session-notes*",
+        ".claude/rules/**",
+        ".claude/.proposals/**"
+      ],
+      "sha256": "de452b9ae9156b2d2fbc5ebd9a2a4906affe003725bfefb2d563728a82e25f63",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/knowledge-cascade-routing.md"
+    },
+    {
+      "file": "knowledge-convergence.md",
+      "paths": [
+        ".claude/team-memory/**",
+        ".claude/learning/**",
+        "**/journal/**",
+        ".claude/commands/codify.md",
+        ".session-notes*",
+        ".session-notes.d/**",
+        ".claude/.proposals/**"
+      ],
+      "sha256": "f7d733443758834c58f870b50b808a76e2b85aef9b53d11074a33949958e0af1",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/knowledge-convergence.md"
+    },
+    {
+      "file": "multi-operator-coordination.md",
+      "paths": [
+        "**/*"
+      ],
+      "sha256": "b4b71ed40edec03eb21d7307e2c1e60052b48b1754049707c99d4793bd34bd01",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/multi-operator-coordination.md"
+    },
+    {
+      "file": "observability.md",
+      "paths": [
+        "**/*.py",
+        "**/*.rs",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx"
+      ],
+      "sha256": "231670417d36e71b5c30903db8f7362945acccae42c65e988176013321d1eb0b",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/observability.md"
+    },
+    {
+      "file": "orchestration-launch-ledger.md",
+      "paths": [
+        "**/workspaces/**",
+        "**/.session-notes*",
+        "journal/**"
+      ],
+      "sha256": "e2560db5afe45b1ff38433bc81d62b58ac5edf4bd5b74a0f38f663679cf6393d",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/orchestration-launch-ledger.md"
+    },
+    {
+      "file": "orchestrator-context-economy.md",
+      "paths": [
+        ".claude/agents/**",
+        "**/.claude/agents/**",
+        "**/.claude/hooks/**",
+        "**/.claude/settings.json"
+      ],
+      "sha256": "838486ba7743618721374cf038391880375d947cd9553e4d6cacb1cf39fb314a",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/orchestrator-context-economy.md"
+    },
+    {
+      "file": "orphan-detection.md",
+      "paths": [
+        "packages/**",
+        "src/**",
+        "**/tests/**",
+        "crates/**",
+        "**/src/**"
+      ],
+      "sha256": "27de36481660d6df322685424884bdb033b3a5cdbe9accd5f025b60959dfff66",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/orphan-detection.md"
+    },
+    {
+      "file": "probe-driven-verification.md",
+      "paths": [
+        "**/test-harness/**",
+        "**/audit-fixtures/**",
+        ".claude/hooks/**",
+        "tests/**",
+        "**/*test*",
+        "**/*spec*",
+        "**/04-validate/**",
+        "**/suites/**"
+      ],
+      "sha256": "04150c59ac5a0633938aed3deaa3afb61dbb2fc12a37ef7b798424c3be183456",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/probe-driven-verification.md"
+    },
+    {
+      "file": "product-completion-first.md",
+      "paths": [
+        ".claude/commands/**",
+        ".claude/rules/**"
+      ],
+      "sha256": "1e526568cd2f60282ded8ac2c3c41d5e792d4dc36b2af957134d290f8c315d1e",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/product-completion-first.md"
+    },
+    {
+      "file": "proposal-intake-trust.md",
+      "paths": [
+        "**/.proposals/**"
+      ],
+      "sha256": "d6c7655c069a538a413e9e6df5cb4932195669a5fb2500cffb6ff2cc7079c425",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/proposal-intake-trust.md"
+    },
+    {
+      "file": "python-environment.md",
+      "paths": [
+        "**/*.py",
+        "pyproject.toml",
+        "conftest.py",
+        "tests/**"
+      ],
+      "sha256": "21588a954f81304801a199d29641fc5b04fb383718e6b3b317fbcfc85e83be5b",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/python-environment.md"
+    },
+    {
+      "file": "recommendation-quality.md",
+      "paths": [
+        ".claude/commands/**",
+        "workspaces/**",
+        "**/*.md",
+        "briefs/**",
+        "todos/**",
+        "journal/**"
+      ],
+      "sha256": "811e61daba2bdb852feb0b202d12adc3256dddaeab67cd739df0838cd0c96388",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/recommendation-quality.md"
+    },
+    {
+      "file": "refactor-invariants.md",
+      "paths": [
+        "**/*.py",
+        "packages/**"
+      ],
+      "sha256": "e11fc5f5be31073f7edcd839fd6c2c987d43c7dcc6a68fdf912ab2b4f001a108",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/refactor-invariants.md"
+    },
+    {
+      "file": "repo-scope-discipline.md",
+      "paths": [],
+      "sha256": "d29df056d4dc24827901cd334825dc69130c74a600a185d79e5116b3ed94a231",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/repo-scope-discipline.md"
+    },
+    {
+      "file": "rule-authoring.md",
+      "paths": [
+        "**/.claude/rules/**",
+        "**/.claude/variants/**/rules/**"
+      ],
+      "sha256": "a56e5175fd87bcb99bd8fd6690a55318b811e0d801fbcda27f10bf366c09911a",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/rule-authoring.md"
+    },
+    {
+      "file": "schema-migration.md",
+      "paths": [
+        "**/migrations/**",
+        "**/db/**",
+        "**/*.sql",
+        "**/models.py",
+        "**/schema.py",
+        "**/dataflow/**",
+        "**/*.py",
+        "**/*.rb"
+      ],
+      "sha256": "68bf8b48a0910f5ccdaf5d0938b203b9280f4a55c91c461ce0ed2cdcc7c0ab22",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/schema-migration.md"
+    },
+    {
+      "file": "script-tool-manifest-sanity.md",
+      "paths": [
+        "**/package.json",
+        "**/pyproject.toml",
+        "**/Cargo.toml"
+      ],
+      "sha256": "13415935db9e00c03f4133d2c45951e656cc156eb515e983a429d23df127e6b3",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/script-tool-manifest-sanity.md"
+    },
+    {
+      "file": "security.md",
+      "paths": [],
+      "sha256": "617d58e66b25670b33931b2b186e47a5029660eb6c56553c1a98e0c258dedf05",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/security.md"
+    },
+    {
+      "file": "self-referential-codify.md",
+      "paths": [
+        ".claude/commands/**",
+        ".claude/rules/**",
+        ".claude/skills/**",
+        ".claude/hooks/**",
+        ".claude/bin/**",
+        ".claude/guides/rule-extracts/**",
+        ".claude/agents/management/**",
+        ".claude/audit-fixtures/**",
+        ".claude/test-harness/tests/**",
+        ".claude/test-harness/lib/**",
+        ".claude/sync-manifest.yaml",
+        ".claude/operators.roster.schema.json",
+        ".claude/disclosure-tenant-denylist.json",
+        ".claude/disclosure-benign-collisions.json",
+        ".claude/codex-mcp-guard/**",
+        "tools/verify-overlays.sh",
+        "scripts/publish-to-public.mjs",
+        "scripts/publish-to-private-template.mjs"
+      ],
+      "sha256": "54c1840e442ebef0bcf0191a7ab9a0078a56abb89998390b10c8dc83fdd265ba",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/self-referential-codify.md"
+    },
+    {
+      "file": "session-notes-continuity.md",
+      "paths": [
+        "**/.session-notes*",
+        "**/.session-notes.d/**"
+      ],
+      "sha256": "f5a7a89b6bd23f832bf7e30da401741cbe318ec6e9a011e49c704a88c640ebde",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/session-notes-continuity.md"
+    },
+    {
+      "file": "spec-accuracy.md",
+      "paths": [
+        "**/specs/**",
+        "**/specs/_index.md",
+        "**/workspaces/**/specs/**",
+        "**/02-plans/**",
+        "**/briefs/**",
+        "**/README*.md",
+        "**/docs/**",
+        "**/skills/**/*.md"
+      ],
+      "sha256": "add6cd105516e12bcfffa4afe84dd81ec774750092d535947768aa66ced970e7",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/spec-accuracy.md"
+    },
+    {
+      "file": "specs-authority.md",
+      "paths": [
+        "**/specs/**",
+        "**/workspaces/**",
+        "**/briefs/**",
+        "**/02-plans/**",
+        "**/todos/**"
+      ],
+      "sha256": "e81cea1cc437d18d8cb7f5db274422543838291d00ef656a98aa31c4cd9b67a7",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/specs-authority.md"
+    },
+    {
+      "file": "stack-detection.md",
+      "paths": [
+        "**/STACK.md",
+        "**/.claude/agents/onboarding/**",
+        "**/.claude/commands/onboard-stack.md",
+        "**/.claude/skills/40-stack-onboarding/**"
+      ],
+      "sha256": "7a682b9ba0f290aa469c74a6b51fea73d42cfa44e778907b0d3a3a0787330a33",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/stack-detection.md"
+    },
+    {
+      "file": "state-file-write-guard.md",
+      "paths": [
+        "deploy/**",
+        "**/.last-deployed-*",
+        "**/.last-smoke-result-*",
+        "**/.last-interactions-smoke-result-*",
+        "**/state-file-write-guard.*",
+        "**/validate-state-file.*",
+        "**/post-deploy-smoke.*"
+      ],
+      "sha256": "c72fab64ca6104fdff4a65c5bcaac9b1ccbcd2b0f724aec95a0cb8c08f26c25d",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/state-file-write-guard.md"
+    },
+    {
+      "file": "state-regression-integrity.md",
+      "paths": [
+        "**/*REGISTER*",
+        "**/*BURNDOWN*",
+        "**/burndown/**"
+      ],
+      "sha256": "e2710cd6d6e910b823c07037ff5ec671530862945280c114ac43737b4792c42a",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/state-regression-integrity.md"
+    },
+    {
+      "file": "sweep-completeness.md",
+      "paths": [
+        ".claude/commands/sweep.md",
+        ".claude/commands/redteam.md",
+        ".claude/commands/codify.md",
+        ".claude/commands/wrapup.md",
+        ".claude/commands/cc-audit.md",
+        ".claude/commands/cli-audit.md",
+        ".claude/commands/i-audit.md",
+        ".claude/commands/i-harden.md",
+        ".claude/commands/i-polish.md",
+        ".claude/skills/sweep/**",
+        ".claude/skills/spec-compliance/**",
+        "**/redteam-*.md",
+        "**/sweep-*.md",
+        "**/04-validate/**"
+      ],
+      "sha256": "3ef8931b85e4a4ed2156d96d414a0f35bc96296e235f7a2b940b7c890eee8653",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/sweep-completeness.md"
+    },
+    {
+      "file": "symbol-anchored-citations.md",
+      "paths": [
+        "**/specs/**",
+        "**/workspaces/**/specs/**",
+        "**/02-plans/**",
+        "**/01-analysis/**",
+        "**/briefs/**",
+        "**/todos/**",
+        "**/journal/**"
+      ],
+      "sha256": "b154de18d8745e7ce9f20962d05ae4422464c79e8a6f2ef3ef91b0e6a8fb4a38",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/symbol-anchored-citations.md"
+    },
+    {
+      "file": "testing.md",
+      "paths": [
+        "tests/**",
+        "**/*test*",
+        "**/*spec*",
+        "conftest.py",
+        "**/.spec-coverage*",
+        "**/.test-results*",
+        "**/02-plans/**",
+        "**/04-validate/**",
+        "crates/**"
+      ],
+      "sha256": "15a02c467521b54a9c5e9222de5c6ba54b4824e42ad52b0ebc87d576058dceae",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/testing.md"
+    },
+    {
+      "file": "time-pressure-discipline.md",
+      "paths": [
+        "**/workspaces/**",
+        "**/.claude/commands/**",
+        "**/.claude/agents/**",
+        "**/.session-notes",
+        "**/journal/**"
+      ],
+      "sha256": "e3d270e9916d91e49eb706da5ceebba85e08eaf96fded2b4493f780ba9203065",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/time-pressure-discipline.md"
+    },
+    {
+      "file": "trust-posture.md",
+      "paths": [
+        "**/.claude/rules/**",
+        "**/.claude/hooks/**",
+        "**/.claude/commands/**",
+        "**/.claude/learning/**",
+        "**/.claude/settings.json",
+        "**/.claude/sync-manifest.yaml"
+      ],
+      "sha256": "17cd4269f5fd1e0d63e8f40be618cba84a04dc9c7d843246c4b8b039116641f9",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/trust-posture.md"
+    },
+    {
+      "file": "type-relaxation-sweep.md",
+      "paths": [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.py",
+        "**/*.rs"
+      ],
+      "sha256": "3ea7698d679561d3ce0dc15fc724a95b390883724d07f4fb00fced3ecbd1d2dd",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/type-relaxation-sweep.md"
+    },
+    {
+      "file": "ui-backend-defense.md",
+      "paths": [
+        "**/routes/**",
+        "**/handlers/**",
+        "**/api/**",
+        "**/*_endpoint*",
+        "**/*_handler*",
+        "**/*_route*"
+      ],
+      "sha256": "73a21e26cb46367ecccd5bf0a2f1151cf833e4c41a497bba66924c806bef3854",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/ui-backend-defense.md"
+    },
+    {
+      "file": "upstream-issue-hygiene.md",
+      "paths": [
+        "**/.github/**",
+        "**/CONTRIBUTING.md",
+        "**/SECURITY.md",
+        "**/.session-notes",
+        "**/journal/**",
+        "**/workspaces/**"
+      ],
+      "sha256": "d850c34b5be18ff63936bedf5888e5fd7104c49efaf9c4c0c70dff6cea2d061a",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/upstream-issue-hygiene.md"
+    },
+    {
+      "file": "user-flow-validation.md",
+      "paths": [
+        ".claude/**",
+        "**/.claude/**",
+        "specs/**",
+        "**/specs/**",
+        "briefs/**",
+        "**/briefs/**",
+        "todos/**",
+        "**/todos/**",
+        "**/.session-notes*",
+        "src/**",
+        "**/src/**",
+        "packages/**",
+        "crates/**",
+        "tests/**",
+        "**/tests/**",
+        "scripts/**",
+        "tools/**"
+      ],
+      "sha256": "93d4471dae0a5c87d275f85e8a9e7f9f60102a138701f66766a21c5133bcb863",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/user-flow-validation.md"
+    },
+    {
+      "file": "value-prioritization.md",
+      "paths": [
+        "**/workspaces/**",
+        "**/journal/**",
+        "**/.session-notes",
+        "**/.claude/commands/**",
+        "**/SWEEP*.md",
+        "**/WORKSPACE-DISPOSITION*.md",
+        "**/CHANGELOG*.md"
+      ],
+      "sha256": "581958770a76711d962d93fca2aea25d0f806503ae1ea075694ec8822740812c",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/value-prioritization.md"
+    },
+    {
+      "file": "verification-gate-integrity.md",
+      "paths": [
+        ".github/workflows/**",
+        ".github/actions/**",
+        "scripts/ci/**",
+        "tools/**",
+        ".claude/audit-fixtures/**",
+        "**/tests/**",
+        "**/*test*",
+        ".claude/bin/**",
+        ".claude/hooks/**"
+      ],
+      "sha256": "0faf5f1d338e9595345914b9673276599ba277340ad71bf556d57dd5e7e239ae",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/verification-gate-integrity.md"
+    },
+    {
+      "file": "verify-claims-before-write.md",
+      "paths": [
+        "**/*.md",
+        "**/CHANGELOG*",
+        "**/.session-notes",
+        "**/journal/**"
+      ],
+      "sha256": "2ca2ac266375a3c917fe08e88093c08ac958c0a40838db7be1a3c91358154ed7",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/verify-claims-before-write.md"
+    },
+    {
+      "file": "verify-resource-existence.md",
+      "paths": [
+        "**/*.py",
+        "**/*.rs",
+        "**/*.mjs",
+        "**/*.js",
+        "**/*.sh",
+        "**/workspaces/**",
+        ".claude/{commands,skills}/**"
+      ],
+      "sha256": "e5907140b3214cb68eadde5ed609e3e83eda921e5761f60fb5ea17d20df7ca5d",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/verify-resource-existence.md"
+    },
+    {
+      "file": "wave-loop.md",
+      "paths": [
+        "**/workspaces/**",
+        "**/todos/**",
+        "**/.claude/commands/**",
+        "**/02-plans/**"
+      ],
+      "sha256": "9eb630f401b3c1cffc1a26f5d0f5f122f9c60dfe3767c1f47b73c80b09e0dacc",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/wave-loop.md"
+    },
+    {
+      "file": "wip-discipline.md",
+      "paths": [
+        "**/workspaces/**",
+        "**/.session-notes*",
+        "**/.session-notes.d/**",
+        ".claude/hooks/**",
+        ".claude/bin/**"
+      ],
+      "sha256": "5bc955d808531171440097dff424133c55a0853e169a9f0a5f897b0ba54e4c73",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/wip-discipline.md"
+    },
+    {
+      "file": "worktree-isolation.md",
+      "paths": [
+        ".claude/agents/**",
+        ".claude/commands/**",
+        ".claude/skills/**",
+        "**/*worktree*"
+      ],
+      "sha256": "01854e8e7392441db871bde2ff55edc4ff5019bfa304b216adb6a5bf5e98f5ee",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "skill-channel",
+      "source": ".claude/rules/worktree-isolation.md"
+    },
+    {
+      "file": "zero-tolerance.md",
+      "paths": [],
+      "sha256": "81fe302f86dde04a4f24d15f0c7ad024684393fdbbaec5e7f8428fc557c00829",
+      "applicable": true,
+      "disposition": "canonical rule content",
+      "lane": "baseline",
+      "source": ".claude/rules/zero-tolerance.md"
+    }
+  ]
+}

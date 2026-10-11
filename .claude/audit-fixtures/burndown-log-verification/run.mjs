@@ -432,6 +432,58 @@ function commitAll(dir, msg) {
   execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-q", "-m", msg], { cwd: dir, stdio: "ignore" });
 }
 
+/**
+ * Build the decoy: copy the victim's WORKING TREE — every entry except `.git` —
+ * into `dest` (which already exists as the mkdtemp root), then let GIT create the
+ * repository there.
+ *
+ * WHY `.git` IS NOT COPIED, AND WHY THAT IS THE FIX RATHER THAN A SHORTCUT.
+ * MEASURED: the decoy used to carry a file-by-file copy of the victim's `.git`,
+ * and CI intermittently died inside `fs.cpSync` with
+ * `ENOENT, No such file or directory '<dest>/.git/objects'`. That message shape —
+ * `<ERR_NAME>, <strerror> '<DEST path>'` — is Node's C++ `fs.cp` layer reporting a
+ * per-entry failure against the DESTINATION DIRECTORY it is iterating
+ * (`src/node_file.cc`: `CpSyncCopyDir` throws
+ * `ThrowStdErrException(error, "cp", dest_str)`, so the failing entry is not the
+ * path printed); the plain `fs` ladder reports the same class of failure as
+ * `ENOENT: no such file or directory, <syscall> '<path>'` instead. MEASURED on a
+ * Linux host (node v24.21.0), forcing each side deterministically: a dest-side
+ * copy failure reads `EACCES, Permission denied '<dest>'` while a vanished
+ * source entry reads `ENOENT: no such file or directory, lstat '<src>'`. So the
+ * walk lost an entry while traversing a live git object store.
+ *
+ * Both decoy poles build the decoy through this one function, which is why the
+ * failure moved between them, and why replacing the whole-directory copy with an
+ * entry-by-entry one did not stop it — the traversal of `.git` is the fragile
+ * primitive, not the merge semantics of the call that wraps it.
+ *
+ * Git's object store is git's to build. A repository git creates here answers
+ * every query the victim answers with the SAME BYTES — the committed roster
+ * `git show HEAD:<roster>` returns is the one either pole depends on — so the
+ * decoy stays a full-content copy of the victim whose only semantic difference is
+ * the roster, while `.git` is never walked by a copy at all.
+ */
+function copyRepoInto(src, dest) {
+  for (const ent of fs.readdirSync(src)) {
+    if (ent === ".git") continue;
+    try {
+      fs.cpSync(path.join(src, ent), path.join(dest, ent), { recursive: true });
+    } catch (e) {
+      throw new Error(
+        `fixture construction failed: entry ${JSON.stringify(ent)} ` +
+          `(${path.join(src, ent)} -> ${path.join(dest, ent)}): ${e && e.message}`,
+      );
+    }
+  }
+  // A repository git builds, carrying the victim's content as its HEAD.
+  gitInit(dest);
+  if (!fs.existsSync(path.join(dest, ".git", "objects"))) {
+    throw new Error(
+      `fixture construction failed: ${path.join(dest, ".git", "objects")} absent after git init`,
+    );
+  }
+}
+
 function blobOf(dir, rel) {
   try {
     return execFileSync("git", ["rev-parse", `HEAD:${rel}`], { cwd: dir, encoding: "utf8" }).trim();
@@ -555,7 +607,9 @@ function runGen(dir, args = [], tool = GENERATOR, extraEnv = null) {
 function mutantSignedLog(mutate) {
   const abs = path.join(REPO_ROOT, ".claude", "hooks", "lib", "signed-log.js");
   let out = fs.readFileSync(abs, "utf8");
-  for (const dep of ["coc-sign.js", "git-subprocess-env.js"]) {
+  // `append-sink.js` since signed-log escapes the record fields it quotes into a finding
+  // with the shared escaper (`_shown`); un-rebased, every library mutant failed to load.
+  for (const dep of ["coc-sign.js", "git-subprocess-env.js", "append-sink.js"]) {
     const bridge = `require(path.join(__dirname, ${JSON.stringify(dep)}))`;
     if (!out.includes(bridge)) throw new Error(`a sibling-require anchor is gone from signed-log.js: ${bridge}`);
     out = subOnce(out, bridge, `require(${JSON.stringify(path.join(REPO_ROOT, ".claude", "hooks", "lib", dep))})`);
@@ -1304,8 +1358,26 @@ pair(
  * `eligibility.js` is the FOURTH, and it arrived the same way: the authority binding
  * delegates the R5-S-04 audit-only-host exclusion and the role floor to that module's
  * `isEligibleSigner` rather than inlining a fourth copy of the predicate.
+ *
+ * `append-sink.js` and `state-io.js` are the FIFTH and SIXTH, again by the same route:
+ * appends moved to the gitignored PENDING stream, whose flush extends the tracked log
+ * through `appendSinkLine` and reads the stream through `readSinkFile`, and whose lock
+ * reads its body through `readFileHardened`. Three cases went red with `Cannot find
+ * module .../append-sink.js` until they were enumerated here.
+ *
+ * `ssh-pubkey-fingerprint.js` is the SEVENTH: an append now verifies its pending
+ * predecessor against the appender's own key, and binds an ssh roster key to the
+ * appender's `verified_id` with the same fingerprint function that derived the id.
  */
-const SIBLING_DEPS = ["coc-append.js", "signed-log.js", "git-subprocess-env.js", "eligibility.js"];
+const SIBLING_DEPS = [
+  "coc-append.js",
+  "signed-log.js",
+  "append-sink.js",
+  "state-io.js",
+  "git-subprocess-env.js",
+  "eligibility.js",
+  "ssh-pubkey-fingerprint.js",
+];
 
 function mkLibVariantTool(mutateLib, tag) {
   const libSrc = fs.readFileSync(LIB, "utf8");
@@ -2081,6 +2153,97 @@ check("signature-tamper · MUTATION · exempting the read gate lets the FORGED r
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ARM — A REFUSAL REACHES THE TERMINAL ESCAPED
+//
+// A refusal can quote a record field verbatim — the bad-signature finding names the
+// record's `id`, its `item_id` and its emitter — and a FORGED record's fields are
+// whatever its author typed. Those findings are joined raw into the refusal, so on
+// this path the banner's print site (`printable`) is the ONLY escaper between a
+// field and the operator's terminal or a CI log, where U+009B (the 8-bit CSI) followed
+// by `[2J` clears the screen rather than printing.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ESC_ID = "rec_fixture_esc\u009b[2J";
+
+pair(
+  "print-site-escapes-record-fields",
+  "a forged record whose id carries a C1 control is refused with that id ESCAPED, never raw",
+  () => {
+    const dir = mkRepo({ events: evtLine({}, { id: ESC_ID }) });
+    const r = runGen(dir, ["--check-links"]);
+    if (r.code !== 2) return `a forged record exited ${r.code}; the gate must be UNRUNNABLE (exit 2)`;
+    if (!/\[bad-signature\]/.test(r.err)) return `refused, but not on the finding that quotes the id: ${r.err.slice(0, 240)}`;
+    if (r.err.includes("\u009b")) return "the RAW C1 control reached stderr";
+    if (!r.err.includes("rec_fixture_esc\\u009b[2J")) return `the id is not shown in its escaped form: ${r.err.slice(0, 300)}`;
+    return "RED:print-site criterion=printable finding=bad-signature shown=escaped raw-control=absent exit=2";
+  },
+  "a forged record with a plain id is refused and quoted exactly as it is — the escaper alters nothing printable",
+  () => {
+    const dir = mkRepo({ events: evtLine({}, { id: "rec_fixture_plain_forged" }) });
+    const r = runGen(dir, ["--check-links"]);
+    if (r.code !== 2) return `a forged record exited ${r.code}; the gate must be UNRUNNABLE (exit 2)`;
+    if (!r.err.includes("record 'rec_fixture_plain_forged'")) return `the plain id is not quoted verbatim: ${r.err.slice(0, 300)}`;
+    if (/\\u00/.test(r.err)) return `a plain refusal carries an escape sequence: ${r.err.slice(0, 300)}`;
+    return "GREEN:print-site criterion=printable finding=bad-signature shown=verbatim exit=2";
+  },
+);
+
+check("print-site · MUTATION · printing the refusal raw lets the C1 control reach stderr", () => {
+  // The counterfactual: if the escaping above came from anywhere but the print site,
+  // this mutant would still print the escaped form and the case would be UNRESOLVED.
+  const tool = mutantTool((s) =>
+    subOnce(
+      s,
+      "process.stderr.write(`UNRUNNABLE — refusing because ${printable(e.message)}\\n`);",
+      "process.stderr.write(`UNRUNNABLE — refusing because ${e.message}\\n`); void printable;",
+    ),
+  );
+  const dir = mkRepo({ events: evtLine({}, { id: ESC_ID }) });
+  const real = runGen(dir, ["--check-links"]);
+  const mutant = runGen(dir, ["--check-links"], tool);
+  if (real.code !== 2 || mutant.code !== 2) return `both must refuse (real ${real.code}, mutant ${mutant.code})`;
+  if (real.err.includes("\u009b")) return "the REAL binary printed the raw control";
+  if (!mutant.err.includes("\u009b")) return `the mutant ALSO escaped it — UNRESOLVED, not a verdict: ${mutant.err.slice(0, 240)}`;
+  return true;
+});
+
+// The SAME property one layer down, where it is owned rather than borrowed: the chain
+// check names an emitter id in every finding, and it runs BEFORE any signature check on
+// the paths that read an unsigned-until-proven line (the burndown flush). An emitter id
+// carrying a C1 control or a bidi override passes canonical serialization (which refuses
+// only C0), so it reaches those findings — escaped by `signed-log.js::_shown`.
+const chainFindingsFor = (lib, id) => {
+  const a = JSON.stringify({ schema: "chain-fixture", verified_id: id, seq: 1, prev_hash: null });
+  const b = JSON.stringify({ schema: "chain-fixture", verified_id: id, seq: 3, prev_hash: null });
+  return lib.verifyChain(`${a}\n${b}\n`, "chain-fixture").findings.map((f) => f.why).join("\n");
+};
+
+pair(
+  "chain-findings-escape-emitter-ids",
+  "an emitter id carrying a C1 CSI and a bidi override is quoted ESCAPED in the chain's findings",
+  () => {
+    const shown = chainFindingsFor(require(path.join(REPO_ROOT, ".claude", "hooks", "lib", "signed-log.js")), "emitter\u009b[2J‮x");
+    if (!/seq/.test(shown)) return `the chain produced no finding to read: ${JSON.stringify(shown)}`;
+    if (/[\u009b‮]/.test(shown)) return "a RAW control reached the finding";
+    if (!shown.includes("emitter\\u009b[2J\\u202ex")) return `the id is not shown escaped: ${JSON.stringify(shown.slice(0, 200))}`;
+    return "RED:verifyChain criterion=_shown finding=seq-gap id=escaped";
+  },
+  "a plain emitter id is quoted exactly as it is",
+  () => {
+    const shown = chainFindingsFor(require(path.join(REPO_ROOT, ".claude", "hooks", "lib", "signed-log.js")), "emitter-plain");
+    if (!shown.includes("'emitter-plain' jumped to seq 3")) return `the plain id is not quoted verbatim: ${JSON.stringify(shown.slice(0, 200))}`;
+    return "GREEN:verifyChain criterion=_shown finding=seq-gap id=verbatim";
+  },
+);
+
+check("chain-findings · MUTATION · quoting the emitter id raw lets the controls through", () => {
+  const mutantPath = mutantSignedLog((s) => subOnce(s, "const shownWho = _shown(who);", "const shownWho = who;"));
+  const shown = chainFindingsFor(require(mutantPath), "emitter\u009b[2J‮x");
+  if (!/[\u009b‮]/.test(shown)) return `the mutant ALSO escaped the id — UNRESOLVED, not a verdict: ${JSON.stringify(shown.slice(0, 200))}`;
+  return true;
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ARM — A CLOSED GENERATION VERIFIES UNDER ITS OWN SUITE, AND THE COUNT IS
 //       GATED ON VERIFICATION RATHER THAN ON POPULATION
 //
@@ -2574,8 +2737,9 @@ pair(
 // evidence for the fix (`instrument-discipline.md` MUST-2). This arm is the one
 // that discriminates, and it is why the other one is not sufficient on its own.
 //
-// The decoy is a full COPY of the victim, so every OTHER query it answers is
-// plausible and the ONLY semantic difference between the two repositories is the
+// The decoy carries the victim's full WORKING-TREE content and is committed by
+// git itself (`copyRepoInto`), so every query it answers returns the victim's
+// bytes and the ONLY semantic difference between the two repositories is the
 // roster. Absent that, the poles could differ for a dozen reasons.
 pair(
   "ambient-GIT_DIR-cannot-repoint-the-roster",
@@ -2584,12 +2748,24 @@ pair(
     const dir = mkRepo({
       events: evtLog({}) + `${JSON.stringify(attackerRecord(ATTACKER))}\n`,
     });
-    // The decoy: byte-identical, except its COMMITTED roster carries the attacker.
+    // The decoy: the victim's content, git-committed in the decoy — except its
+    // COMMITTED roster carries the attacker.
     const decoy = fs.mkdtempSync(path.join(os.tmpdir(), "bd-decoy-"));
     tmpDirs.push(decoy);
-    fs.cpSync(dir, decoy, { recursive: true });
+    copyRepoInto(dir, decoy);
     addKeyToWorkingTreeRoster(decoy, ATTACKER);
     commitAll(decoy, "the decoy repository vouches for the attacker");
+    // THE DECOY MUST BE A REAL ATTACK TARGET, or this pole passes vacuously:
+    // a decoy that is not a valid repository (or whose COMMITTED roster lost the
+    // attacker) is ignored for reasons that have nothing to do with the envelope,
+    // and the RED verdict would then measure the construction, not the steering.
+    // Asserted here so a future change to `copyRepoInto` reports ITSELF.
+    const decoyRoster = execFileSync("git", ["-C", decoy, "show", `HEAD:${ROSTER_REL}`], {
+      encoding: "utf8",
+    });
+    if (!decoyRoster.includes(ATTACKER.fingerprint)) {
+      return `the decoy's COMMITTED roster does not carry the attacker — the attack target is not a plausible repository, so the refusal below would not be evidence about the envelope`;
+    }
     const r = runGen(dir, ["--check-links"], GENERATOR, { GIT_DIR: path.join(decoy, ".git") });
     if (r.code === 0) return "an ambient GIT_DIR re-pointed the trust root — the decoy's roster was used";
     if (!/\[unrostered-signer\]/.test(r.err)) {
@@ -2607,7 +2783,7 @@ pair(
     commitAll(dir, "register the second operator in THIS repository");
     const decoy = fs.mkdtempSync(path.join(os.tmpdir(), "bd-decoy-green-"));
     tmpDirs.push(decoy);
-    fs.cpSync(dir, decoy, { recursive: true });
+    copyRepoInto(dir, decoy);
     // Same ambient steering as the RED pole, so the env is NOT what differs.
     const r = runGen(dir, ["--check-links"], GENERATOR, { GIT_DIR: path.join(decoy, ".git") });
     if (r.code !== 0) return `a legitimately rostered signer was refused (exit ${r.code}): ${r.err.slice(0, 300)}`;

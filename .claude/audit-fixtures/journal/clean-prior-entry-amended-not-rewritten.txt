@@ -58,6 +58,6 @@ Then the amendment itself:
     $ node .claude/bin/phase2-deferral-integrity.mjs > /tmp/g.txt 2>&1; echo $?
     0
 
-Two consecutive clean redteam rounds, both payloads read. A reader landing on 0231 from an
+The redteam round closed clean — every dispatched reviewer ran, both payloads read, nothing CRITICAL/HIGH — and the review stopped there (D237). A reader landing on 0231 from an
 old citation reaches the correction through `relates_to`, and both halves of how the position
 moved survive.

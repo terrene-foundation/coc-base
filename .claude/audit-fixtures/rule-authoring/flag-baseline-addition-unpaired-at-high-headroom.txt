@@ -73,6 +73,6 @@ both instructed to report findings in their final message.
 
     round 1 — cc-architect: clean. reviewer: "the skill now duplicates two lines of the rule's
               Why" — trimmed in the skill, rule left as authored.
-    round 2 — cc-architect: clean. reviewer: clean.
+    round 2 reviewed only the trim and its blast radius — cc-architect: clean. reviewer: clean.
 
-Two consecutive clean rounds, both payloads read. Landing.
+Round 2 reviewed only the fixes and their blast radius — clean, both payloads read; the review stopped there (D237). Landing.

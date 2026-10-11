@@ -5,7 +5,7 @@
  * Single source of truth for (a) WHICH coordination-log record types carry
  * human intent (the "actuation" class the presence proof gates), and (b) the
  * provisioning-state signal `isPresenceMechanismConfigured` (the loom ↔
- * loom-command provisioning contract). Importers (Shard 3a):
+ * enterprise-product provisioning contract). Importers (Shard 3a):
  *   - `coc-emit.js`  — the EMIT-side gate: an actuation emission MUST carry a
  *     PROVEN `content.presence_proof` (verified via presence-proof-verify.js).
  *   - `presence-proof-verify.js` — `foldPresenceGate` consults
@@ -17,7 +17,7 @@
  * Contract: workspaces/signing-agent-contract/02-plans/01-...contract.md
  *   §C4 (presence-proof-gated signing as an enforced property); §0/§4 (the
  *   presence-token FORMAT + cryptographic verification are off-loom
- *   `loom-command`'s; loom enforces the presence + broker-sig verification of
+ *   the enterprise product's; loom enforces the presence + broker-sig verification of
  *   the proof). #583 Shards 1–3 (journal/0505/0506/0508 + the Shard-3a
  *   convergence receipt).
  *
@@ -61,7 +61,7 @@
  * constant) — NOT the mutable `presence-mechanism.json` / env signal. The FOLD
  * (foldPresenceGate) rejects an ABSENT actuation regardless of any provisioning
  * state; the EMIT gate requires a PROVEN proof. `isPresenceMechanismConfigured`
- * below is RETAINED (hardened per AC-L15) as the loom ↔ loom-command
+ * below is RETAINED (hardened per AC-L15) as the loom ↔ enterprise-product
  * provisioning-state signal + defense-in-depth for any future conditional
  * consumer; the always-on latch does NOT gate on it.
  */
@@ -108,7 +108,7 @@ function requiresPresenceAttestation(type) {
 /**
  * Provisioning-state signal (AC-L15 fail-closed requirement latch). Returns
  * true when this repo has a hardware-presence mechanism provisioned (the
- * off-loom `loom-command` path).
+ * off-loom enterprise-product path).
  *
  * PRECEDENCE — FILE IS AUTHORITATIVE (the AC-L15 fix, journal/0505 CRITICAL
  * finding 2): a config file `.claude/learning/presence-mechanism.json` carrying
@@ -121,7 +121,7 @@ function requiresPresenceAttestation(type) {
  * gate (the journal/0365 sec MED-3 mintability re-open).
  *
  * INTEGRITY REQUIREMENT: the file `.claude/learning/presence-mechanism.json`
- * MUST live in `settings.json::permissions.deny` (only loom-command's
+ * MUST live in `settings.json::permissions.deny` (only the enterprise product's
  * provisioning ceremony writes it) — exactly the protection `posture.json` /
  * the roster carry. The write-guard + this file-authoritative precedence
  * together make the provisioning state fail-closed-once-provisioned.
@@ -129,7 +129,7 @@ function requiresPresenceAttestation(type) {
  * Any read/parse error fails SAFE to "not configured by file" (then env is
  * consulted). Note: under the Shard-3a always-on model the presence latch does
  * NOT consult this signal (static type-membership is the enforcement signal);
- * this function is retained hardened for the loom ↔ loom-command provisioning
+ * this function is retained hardened for the loom ↔ enterprise-product provisioning
  * contract + defense-in-depth for any future conditional consumer.
  */
 function isPresenceMechanismConfigured(repoDir, env) {

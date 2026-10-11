@@ -29,6 +29,22 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/provenance/<session>-<session-sha256-8>.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The ledger target is NOT named in this file: lib/provenance-ledger.js::_ledgerPath builds <repoDir>/.claude/learning/provenance/<sanitized session>-<8-char sha256 of the raw id>.jsonl and appends through lib/append-sink.js. One row per submitted prompt, so a repeat is not a no-op. spawns: identity resolution (lib/operator-id.js git config / ssh-keygen probes) before the append."
+ * }
+ */
+
 const TIMEOUT_MS = 5000;
 // Armed by hookMain (FIRST, before the stdin read — the same point relative to the
 // work it had as a load-time statement); reset per run because the engine requires

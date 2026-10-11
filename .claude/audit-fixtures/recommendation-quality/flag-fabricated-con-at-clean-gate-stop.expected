@@ -4,7 +4,7 @@ rhetorical filler. At a clean gate-stop, manufacturing one additionally misframe
 correct hand-to-human action as a compromise and pressures toward continuing.
 
 The recommendation is right and the state backing it is in the excerpt: three lanes on
-main, PR merged, two consecutive clean rounds, ledger 0 in-flight and 0 fragment. Then the
+main, PR merged, a clean fix-verification round and a stop (D237), ledger 0 in-flight and 0 fragment. Then the
 response attaches a "Cons of stopping here (honest)" block with three entries, and not one
 of them can change the user's decision. The next shard not landing tonight is what stopping
 MEANS, not a cost of choosing it. The reload cost is paid at whatever hour the session

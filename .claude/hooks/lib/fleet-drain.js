@@ -297,7 +297,11 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { appendSinkLine, readSinkFile } = require("./append-sink.js");
+const {
+  appendSinkLine,
+  readSinkFile,
+  mainCheckoutBoundaryRoots,
+} = require("./append-sink.js");
 
 /**
  * The main-agent generation sentinel. IMPORTED from the producer, never restated. A local copy of
@@ -1417,7 +1421,17 @@ function markSurfaced(repoDir, sessionId, signature, nowIso) {
       signature,
       ts: _isNonEmptyString(nowIso) ? nowIso : new Date().toISOString(),
     });
-    const w = appendSinkLine({ repoDir, sinkPath, line });
+    // Declared even though this sink is repoDir-contained today: measured in a real
+    // worktree, containment passes either way, while OMITTING it fails closed the
+    // moment an entry point resolves the shared learning tree to the main checkout.
+    // Uniform declaration is what keeps the boundary one derivation instead of a
+    // per-caller judgement that drifted six times already.
+    const w = appendSinkLine({
+      repoDir,
+      additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+      sinkPath,
+      line,
+    });
     return w && w.ok ? { ok: true } : { ok: false, error: (w && `${w.error} — ${w.reason}`) || "append failed" };
   } catch (e) {
     return { ok: false, error: e && e.message ? e.message : String(e) };

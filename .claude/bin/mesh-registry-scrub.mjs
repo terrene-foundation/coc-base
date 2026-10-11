@@ -16,7 +16,7 @@
  *
  *  WHERE IT RUNS — AT THE SOURCE, PRE-COMMIT. The transport is a `git fetch`
  *  of each project's COMMITTED registry text, so a post-fetch scrub is
- *  structurally too late (the raw objects are already in loom-command's
+ *  structurally too late (the raw objects are already in the UP-pull aggregator's
  *  `.git`). The PROJECT authors its registry tuple ALREADY-SCRUBBED by
  *  routing it through this engine at its own authoring/observation verdict.
  *  (specs/02 § "The UP-pull transport — and WHERE the fence sits".)
@@ -53,10 +53,10 @@
  *       structure PRESERVED) — never fail-closed-DROPPED, which would break
  *       the merge back-reference the console must render.
  *
- *  NAME-BLINDNESS (specs/04 § "loom-command governance is NAME-BLIND", M3):
- *    the readable <name> NEVER reaches loom-command; the S2 console resolves
+ *  NAME-BLINDNESS (specs/04 § "… governance is NAME-BLIND", M3):
+ *    the readable <name> NEVER reaches the UP-pull aggregator; the S2 console resolves
  *    display names from the LOCAL handle vault, not the pulled tuple. So the
- *    `name` field IS redacted here — loom-command needs the opaque handle,
+ *    `name` field IS redacted here — the UP-pull aggregator needs the opaque handle,
  *    never the readable name.
  *
  *  OUTPUT SAFETY: like scan-synced-disclosure.mjs, the report NEVER prints a
@@ -167,7 +167,7 @@ const CASCADE_SCOPE_DEFAULT = "scoped";
 // accounting". Every one of the 13 tuple fields appears exactly once.
 // ────────────────────────────────────────────────────────────────
 const DISPOSITIONS = {
-  name: "scrub", // free text; loom-command is name-blind (M3) ⇒ redact
+  name: "scrub", // free text; the UP-pull aggregator is name-blind (M3) ⇒ redact
   provenance: "scrub", // operator identity ⇒ redact
   staleness_policy_ref: "scrub", // may carry a client-repo path ⇒ redact
   reservoir_locator: "scrub", // may embed an infra hostname ⇒ redact
@@ -305,7 +305,7 @@ function scrubTuple(tuple) {
 
     switch (disposition) {
       case "scrub": {
-        // Free-text / identity / locator: loom-command has no need for the
+        // Free-text / identity / locator: the UP-pull aggregator has no need for the
         // raw value (name-blind, M3). Redact unconditionally to a sentinel.
         scrubbed[field] = REDACTED;
         dispositions.push({ field, disposition: "scrub", action: "redacted" });
@@ -542,7 +542,7 @@ function parseArgs(argv) {
 const HELP = `mesh-registry-scrub — knowledge-mesh C-1 metadata-scrub fence (S1)
 
 Scrubs a knowledge-product registry TUPLE at the SOURCE (pre-commit) so the
-raw client-identifying values never enter a git object loom-command fetches.
+raw client-identifying values never enter a git object the UP-pull aggregator fetches.
 Contract: workspaces/knowledge-mesh-2026-07-10/specs/04-plane-split.md
 § "Metadata-observation disclosure fence".
 

@@ -47,4 +47,4 @@ Full sibling sweep over the workspace's own spec set, not scoped to the new file
       states, and the two files use "push-delivery" for the one concept.
 
 Gates: markdownlint clean, the cross-reference check resolves every path in the new file,
-two consecutive clean adversarial rounds with both payloads read.
+one clean adversarial round with both payloads read and a stop (D237).

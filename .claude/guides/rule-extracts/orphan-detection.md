@@ -30,7 +30,7 @@ class DataFlow:
 
 The 2,407 LOC trust integration code with zero production call sites is the canonical orphan post-mortem. The model + facade + accessor + downstream consumers all shipped; the framework's hot path never invoked the executor; every documented security promise about the trust plane was untrue at runtime. Downstream consumers saw the public attribute, built their security model around the documented behavior, and shipped features that silently bypassed the protection because the framework never invoked the class on the actual data path.
 
-This is the failure mode cited by `rules/autonomous-execution.md` § Origin (capacity bands) and by `rules/agents.md` § "Reviewer Prompts Include Mechanical AST/Grep Sweep" — it is invisible at diff level, which is why the mechanical sweep exists.
+This is the failure mode cited by `rules/autonomous-execution.md` § Origin (capacity bands) and by `rules/agents.md` § "Reviewer Prompts Include Mechanical Sweeps" — it is invisible at diff level, which is why the mechanical sweep exists.
 
 For the full narrative, see `skills/16-validation-patterns/orphan-audit-playbook.md` § "Phase 5.11 Post-Mortem".
 
@@ -298,7 +298,7 @@ Topics moved: the orphan failure shape (rule-body opening exposition) · Rule 1a
 
 **`rule-authoring.md` Rule 10 and Rule 11 do NOT fire here.** Rule 10 § "Trigger scope" limits the proximity-band admission gate to `priority: 0` + `scope: baseline` rules; `orphan-detection.md` is `priority: 10` + `scope: path-scoped`, so it contributes nothing to baseline emission and Rule 10 is not engaged. Rule 11 counts only Rule-10-MANDATED invocations, so a structural-cleanup extraction on a path-scoped rule is not Rule-11 input either. Same disposition `journal/0148` recorded for the `rule-authoring.md` self-extraction.
 
-The Phase 5.11 orphan evidence (2,407 LOC of trust integration with zero production call sites), cited by `rules/autonomous-execution.md` § Origin and `rules/agents.md` § "Reviewer Prompts Include Mechanical AST/Grep Sweep", is unchanged and still resolves at § "Phase 5.11 Trust Executor Post-Mortem" above.
+The Phase 5.11 orphan evidence (2,407 LOC of trust integration with zero production call sites), cited by `rules/autonomous-execution.md` § Origin and `rules/agents.md` § "Reviewer Prompts Include Mechanical Sweeps", is unchanged and still resolves at § "Phase 5.11 Trust Executor Post-Mortem" above.
 
 ## Extraction Record — 2026-09-13
 

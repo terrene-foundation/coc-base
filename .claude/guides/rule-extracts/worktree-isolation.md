@@ -780,7 +780,7 @@ recoverability argument onto the other five.
 Relocated VERBATIM from the Rule-10 (MUST-10) Trust-Posture-Wiring `**Detection mechanism:**` and
 `**Origin:**` fields on 2026-09-12, to pay for the lane-unit amendment to Rule 1 in the same change:
 before this extraction that amendment had grown this path-scoped rule by 1,412 B and put the
-`loom-skill-edit` and `loom-command-edit` injection profiles over their ceilings
+`loom-skill-edit` and `codify-edit` injection profiles over their ceilings
 (`check-rule-injection-budget.mjs`, measured). Both fields keep their normative statements — the
 predicate, its severity ceiling, the RETIRED Bash-layer Phase 2 and the scope.
 

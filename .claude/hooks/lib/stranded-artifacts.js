@@ -637,6 +637,8 @@ function currentBranch(exec) {
  * `refs/remotes/<remote>/<branch>`. Added alongside `targets` rather than folded
  * into it so no existing consumer of `targets` changes shape.
  */
+const { resolveGitTargetContext, physicalPath } = require("./git-target-context.js");
+
 function detectStrandingDestructiveCommand(command) {
   if (!parseGitInvocations || typeof command !== "string" || !command.trim()) {
     return null;
@@ -649,7 +651,7 @@ function detectStrandingDestructiveCommand(command) {
   }
 
   for (const inv of invocations) {
-    if (!inv || inv.unresolvable) {
+    if (!inv || inv.unresolvable === "command" || inv.unresolvable === "subcommand") {
       // A fused/unresolvable invocation hides its verb. Report nothing rather
       // than guess — the guard is advisory, so a miss costs a report, while a
       // guess would manufacture a finding against an unknown command.
@@ -657,6 +659,7 @@ function detectStrandingDestructiveCommand(command) {
     }
     const argv = Array.isArray(inv.argv) ? inv.argv : [];
     const dir = inv.dir || null;
+    const invocation = inv;
 
     if (inv.sub === "branch") {
       const deletes = argv.some(
@@ -665,7 +668,7 @@ function detectStrandingDestructiveCommand(command) {
       if (!deletes) continue;
       const targets = argv.filter((a) => !a.startsWith("-"));
       if (targets.length) {
-        return { kind: "branch-delete", targets, dir, remote: null };
+        return { kind: "branch-delete", targets, dir, invocation, remote: null };
       }
     }
 
@@ -674,7 +677,7 @@ function detectStrandingDestructiveCommand(command) {
       if (argv[0] !== "remove") continue;
       const targets = argv.slice(1).filter((a) => !a.startsWith("-"));
       if (targets.length) {
-        return { kind: "worktree-remove", targets, dir, remote: null };
+        return { kind: "worktree-remove", targets, dir, invocation, remote: null };
       }
     }
 
@@ -689,6 +692,7 @@ function detectStrandingDestructiveCommand(command) {
             kind: "remote-branch-delete",
             targets,
             dir,
+            invocation,
             remote: positional[0] || null,
           };
         }
@@ -700,6 +704,7 @@ function detectStrandingDestructiveCommand(command) {
           kind: "remote-branch-delete",
           targets: [colonRefspec.slice(1)],
           dir,
+          invocation,
           remote: positional.find((a) => !a.startsWith(":")) || null,
         };
       }
@@ -731,12 +736,16 @@ function resolveDestructiveTargets({ exec, destructive, cwd = null }) {
 
   // A `-C <dir>` invocation names refs in ANOTHER repository. Answering from
   // this one would be confidently wrong, so every target is UNKNOWN.
-  if (destructive.dir) {
+  const context = destructive.invocation
+    ? resolveGitTargetContext(destructive.invocation, cwd)
+    : resolveGitTargetContext({ dir: destructive.dir }, cwd || process.cwd());
+  const session = physicalPath(cwd || process.cwd(), process.cwd());
+  if (!context.known || context.cwd !== session || context.gitDir || (context.workTree && context.workTree !== session)) {
     return targets.map((t) => ({
       target: t,
       ref: null,
       label: t,
-      unresolved: `foreign-repo:${destructive.dir}`,
+      unresolved: `foreign-repo:${context.detail || context.gitDir || context.target || destructive.dir}`,
     }));
   }
 
@@ -774,8 +783,8 @@ function resolveDestructiveTargets({ exec, destructive, cwd = null }) {
       }));
     }
     return targets.map((t) => {
-      const want = canonicalPath(cwd ? path.resolve(cwd, t) : t);
-      const hit = trees.find((w) => canonicalPath(w.path) === want);
+      const want = physicalPath(t, context.cwd);
+      const hit = want && trees.find((w) => physicalPath(w.path, context.cwd) === want);
       if (!hit) {
         return {
           target: t,
@@ -875,23 +884,6 @@ function listWorktrees(exec) {
   }
   if (cur) out.push(cur);
   return out;
-}
-
-/**
- * Canonicalize a filesystem path for an IDENTITY match against the paths git
- * reports. Both sides go through THIS function, so symlinked checkout roots
- * (`/tmp` → `/private/tmp` on macOS is the everyday case) compare equal instead
- * of silently missing. An unresolvable path degrades to a normalized lexical
- * form rather than throwing — the consequence of a miss here is UNKNOWN, which
- * fails open.
- */
-function canonicalPath(p) {
-  if (typeof p !== "string" || !p) return "";
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
 }
 
 /**

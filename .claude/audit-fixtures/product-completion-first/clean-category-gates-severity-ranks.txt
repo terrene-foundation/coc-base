@@ -1,4 +1,4 @@
-/redteam round 3 — dispositioning the fourteen findings from the parallel reviewers.
+/redteam round 2 — the fix-verification round, dispositioning the fourteen findings from the parallel reviewers.
 
 ---
 
@@ -28,6 +28,7 @@ surfaced it for direction rather than quietly deferring it.
 Deferred items each carry the four conditions before they leave the queue; those are in
 the sweep report, not here.
 
-Round status: three fixed to convergence, one surfaced for direction, ten deferred with
-conditions. Two consecutive clean rounds still owed before this converges — the absence
-of a CRIT is not the criterion.
+Round status: three fixed and their fixes verified in a single fix-verification round, one
+surfaced for direction, ten deferred with conditions to the durable ledger. A round is clean
+only when nothing CRITICAL/HIGH is open and every reviewer genuinely ran — the absence of a CRIT
+is not the criterion (D237).

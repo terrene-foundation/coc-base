@@ -71,6 +71,7 @@
  */
 
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { readFileSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -117,9 +118,9 @@ if (names.length === 0) {
 const cases = [];
 for (const name of names) {
   try {
-    const input = JSON.parse(readFileSync(path.join(HERE, `${name}.json`), "utf8"));
+    const input = JSON.parse(materializeFixtureText(readFileSync(path.join(HERE, `${name}.json`), "utf8")));
     const expected = JSON.parse(
-      readFileSync(path.join(HERE, `${name}.expected`), "utf8"),
+      materializeFixtureText(readFileSync(path.join(HERE, `${name}.expected`), "utf8")),
     );
     if (typeof input.filePath !== "string" || typeof input.toolName !== "string") {
       fail(name, "fixture needs string `toolName` and `filePath`");

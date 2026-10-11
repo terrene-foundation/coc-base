@@ -24,10 +24,8 @@
  *    1. command-frontmatter        every .claude/commands/*.md opens with `---`
  *                                  (or is in COMMAND_FRONTMATTER_EXEMPT)
  *    2. command-line-cap           command body (after frontmatter) <= 150 lines
- *    3. readonly-specialist-tools  agents named read-only in agents.md MUST NOT
- *                                  declare file-mutation tools (Edit/Write).
- *                                  Bash + Task are allowed — reviewer's mechanical
- *                                  sweeps need Bash, Task is sub-delegation.
+ *    3. readonly-specialist-tools  read-only roster inventory check
+ *                                  (implementation: .claude/bin/validate-emit.mjs:256-256,572-733).
  *    4. tool-canonicality          every agent `tools:` value is a canonical CC tool
  *    5. mirror-exclusion           every source SKILL is emitted to each CLI tree
  *                                  (fresh emit) OR is in cli_emit_exclusions
@@ -159,6 +157,7 @@ import { emitCoc } from "./emit-coc.mjs";
 // `cliRoot` is imported (not re-declared) so the mirror + consumer-efficacy
 // checks read the SAME per-CLI root the emitter writes. A second local copy of
 // the name is how the two sides drift into comparing mismatched roots.
+import { resolveEmissionProfile } from "./lib/local-authoring-projection.mjs";
 import { REPO as EMIT_REPO, cliRoot, cliSkillRoot, validateCodexAgentToml } from "./emit-cli-artifacts.mjs";
 // settings.json deny-rule FORM gate — loom's own settings.json (and any
 // to-be-emitted one) MUST NOT carry a Write()/NotebookEdit() permissions.deny
@@ -173,11 +172,11 @@ import { EMIT_LANGS, EMIT_CLIS } from "./lib/emit-axes.mjs";
 // static import would be ERR_MODULE_NOT_FOUND at every consumer — a hard load
 // failure of their `/cc-audit` gate, not a degraded check. It is lazy-`_require`d
 // inside `checkWiringDetectionCanonical` and degrades to SKIP, the same shape the
-// edition-libs check uses (and the same reason line 850's ALWAYS_INCLUDE comment
-// records "edition check lazy-degrades — F1030d"). MEASURED with the engine's own
+// edition-libs check uses (and the same reason the ALWAYS_INCLUDE entry
+// records at .claude/bin/sync-tier-aware.mjs:1496-1496). MEASURED with the engine's own
 // `buildLaneClassifier`: this file is `copy/always_include` on all 8 lanes and
 // that module is `skip/loom_only` on all 8 — adding it to ALWAYS_INCLUDE does NOT
-// fix this, because loom_only is tested FIRST (sync-tier-aware.mjs:4043-4055).
+// fix this, because classifyFile tests loom_only FIRST (.claude/bin/sync-tier-aware.mjs:4545-4548).
 // `target-owned-integrity` reuses the ENGINE's own manifest readers + real plan
 // rather than standing up a second parser (security.md § Enforcement-Surface
 // Parity — a re-derived reader is the shape that silently drifts). Those readers
@@ -254,15 +253,7 @@ const CANONICAL_CC_TOOLS = new Set([
   "WebSearch", "WebFetch", "Skill", "Agent", "NotebookEdit", "*",
 ]);
 
-// File-MUTATION tools a read-only specialist MUST NOT declare. Per agents.md
-// § "Verify Specialist Tool Inventory", implementation delegation requires a
-// specialist with `Edit` AND `Bash`; "read-only" means it cannot MUTATE files
-// (no Edit/Write). Bash is NOT forbidden — reviewer/security-reviewer run
-// read-only mechanical sweeps (`grep -c`, `pytest --collect-only`) that need
-// Bash (agents.md § "MUST: Reviewer Prompts Include Mechanical AST/Grep
-// Sweep"). Task is sub-delegation, not
-// file mutation. So the prohibition is exactly the two mutation tools.
-const READONLY_FORBIDDEN_TOOLS = new Set(["Edit", "Write"]);
+const READONLY_FORBIDDEN_TOOLS = new Set(["Edit", "Write", "NotebookEdit", "*"]);
 
 const COMMAND_LINE_CAP = 150; // cc-artifacts.md Rule 3 + command-authoring SKILL
 
@@ -288,9 +279,20 @@ const COMMAND_LINE_CAP = 150; // cc-artifacts.md Rule 3 + command-authoring SKIL
 // subdirectory does NOT inherit the exemption — matches how the rest of this
 // file addresses artifacts by `rel`.
 const COMMAND_LINE_CAP_EXCEPTIONS = Object.freeze({
-  ".claude/commands/sweep.md": { maxBodyLines: 173, receipt: "journal/0468" }, // 177 wc -l (162→173: Sweep-10 deferred-quality revisit + 6-part management report, journal/0468)
+  // 173→182 (2026-10-07): Sweep 11 — USE-template delivery freshness. +10 body lines
+  // (section header, rationale prose, the runnable probe carrying the consumer N/A
+  // sentinel, the gate paragraph) for a measurement that did not previously exist
+  // anywhere: two of three live USE templates sat 48 days behind loom main while every
+  // existing probe read self-consistent. The ceiling is the EXACT count by design, so
+  // the next addition returns here. THE RECEIPT IS THE PAIRED SKILL SECTION, chosen
+  // over a journal path because it carries NO citation window at all — the rationale
+  // ships resolved in the same change, where a journal receipt would be a phantom
+  // until the entry lands. Journal slot 0657 was reserved and signed from the lane
+  // (`journal-slot-reservation` record, coordination log seq 133) and stays as
+  // PROVENANCE for the decision — optional to write; the receipt does not depend on it.
+  ".claude/commands/sweep.md": { maxBodyLines: 182, receipt: ".claude/skills/sweep/SKILL.md § 7 (Sweep 11 — the metric, the wiring, and the cap-raise rationale; journal slot 0657 reserved as provenance)" },
   ".claude/commands/wrapup.md": { maxBodyLines: 168, receipt: "journal/0543" }, // 172 wc -l (160→168: co-owner-directed § Wave tracker POINTER + cap-3→4 allowlist + running-agent carve-out, journal/0543 § Implementation notes)
-  ".claude/commands/redteam.md": { maxBodyLines: 153, receipt: "journal/0544 + #1218 (b5f7bb9b)" }, // 157 wc -l. 145→151 (journal/0544: co-owner Step 0.5 dual-surface classification + § Convergence Criteria skip-class carve-out); 151→153 ratified 2026-07-21: CW-SDL (#1218, b5f7bb9b) added the Conformance-Walk-as-primary-standing-gate wiring (§ Execution Model, the CW-vs-/redteam gate declaration) — load-bearing procedural depth, non-extractable (a gate declaration in the execution-model preamble); redteam.md is the canonical dense procedural command (cc-artifacts.md Rule 3 § Named-rationale exception). No redundant prose to trim without losing a load-bearing verification step.
+  ".claude/commands/redteam.md": { maxBodyLines: 163, receipt: "journal/0544 + #1218 (b5f7bb9b) + the D237 ruling (2026-10-08; cap-raise rationale in .claude/skills/32-trust-posture/redteam-integration.md § D237 cap-raise)" }, // 168 wc -l. 145→151 (journal/0544: co-owner Step 0.5 dual-surface classification + § Convergence Criteria skip-class carve-out); 151→153 ratified 2026-07-21: CW-SDL (#1218, b5f7bb9b) added the Conformance-Walk-as-primary-standing-gate wiring (§ Execution Model, the CW-vs-/redteam gate declaration); 153→163 ratified 2026-10-08 (D237): the operator's canonical review-stop ruling renders rules 1-9 VERBATIM into § Convergence Criteria, SUPERSEDING the former two-consecutive-clean-rounds mechanism — body measured 163 by this check's own metric (floor with the nine one-line rules is 161); load-bearing procedural depth, non-extractable (an execution-model/preamble ruling), no redundant prose to trim without losing a load-bearing verification step.
 });
 
 // Commands intentionally exempt from the `---` frontmatter requirement.
@@ -567,59 +569,170 @@ function checkCommandLineCap(root) {
 // =======================================================================
 //  CHECK 3 — read-only specialist tool inventory
 // =======================================================================
-// Parse the read-only specialist list from agents.md verbatim
-// ("Read-only specialists (`a`, `b`, ...)"), then assert each named agent's
-// frontmatter `tools:` declares NONE of READONLY_FORBIDDEN_TOOLS.
-function parseReadonlySpecialists(root) {
-  const agentsRule = safeRead(join(root, ".claude", "rules", "agents.md"));
-  if (agentsRule === null) return null;
-  const m = agentsRule.match(/Read-only specialists\s*\(([^)]*)\)/);
-  if (!m) return null;
-  const names = [];
-  for (const bt of m[1].matchAll(/`([a-z0-9-]+)`/g)) names.push(bt[1]);
-  return names;
+function outsideMarkdownFences(text) {
+  let fence = null;
+  return text.split(/\r?\n/).map((line) => {
+    if (fence) {
+      const close = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      return "";
+    }
+    const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (open) {
+      fence = open[1];
+      return "";
+    }
+    return line;
+  }).join("\n");
 }
 
-function findAgentFile(root, name) {
-  const agentsDir = join(root, ".claude", "agents");
-  for (const f of listMarkdown(agentsDir)) {
-    if (basename(f) === `${name}.md`) return f;
+function readReadonlyRoster(root) {
+  let artifact = ".claude/rules/agents.md";
+  const rule = safeRead(join(root, artifact));
+  const error = (reason, detail) => ({ artifact, reason: `not-run:${reason}`, detail: `NOT RUN: ${detail}` });
+  if (rule === null) return error("authority-unreadable", "read-only roster rule missing or unreadable");
+  const body = outsideMarkdownFences(rule);
+  const legacy = [...body.matchAll(/^Read-only specialists[ \t]*\(([^)\r\n]*)\)[ \t]*\.?[ \t]*$/gm)];
+  const hasGuidePointer = body.includes("`.claude/guides/rule-extracts/agents.md`");
+  let roster;
+  if (hasGuidePointer) {
+    if (legacy.length) return error("roster-unparseable", "conflicting inline and declared guide roster authorities");
+    artifact = ".claude/guides/rule-extracts/agents.md";
+    const guide = safeRead(join(root, artifact));
+    if (guide === null) return error("authority-unreadable", "declared read-only roster guide missing or unreadable");
+    const sections = [...outsideMarkdownFences(guide).matchAll(/^## Verify Specialist Tool Inventory — read-only roster \+ materialization\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/gm)];
+    if (sections.length !== 1) return error("roster-unparseable", "declared guide needs exactly one inventory section");
+    const prefix = "**Read-only specialists — MUST NOT be delegated implementation work:**";
+    const lines = sections[0][1].split(/\r?\n/).filter((line) => line.startsWith(prefix));
+    if (lines.length !== 1) return error("roster-unparseable", "declared guide inventory section has no unique read-only roster");
+    roster = lines[0].slice(prefix.length).split(".")[0].trim();
+  } else {
+    if (legacy.length !== 1) return error("roster-unparseable", "rule needs one standalone inline roster or a declared guide pointer");
+    roster = legacy[0][1].trim();
   }
-  return null;
+  if (!/^`[a-z0-9-]+`(?:\s*,\s*`[a-z0-9-]+`)*$/.test(roster)) {
+    return error("roster-unparseable", "read-only roster is empty or malformed");
+  }
+  const names = [...roster.matchAll(/`([a-z0-9-]+)`/g)].map((m) => m[1]);
+  if (new Set(names).size !== names.length) return error("roster-unparseable", "read-only roster repeats a specialist");
+  return { names, artifact };
+}
+
+function scanAgentFrontmatterKeys(text) {
+  const normalizedText = text.replace(/\r\n/g, "\n");
+  const allLines = normalizedText.split("\n");
+  const boundaryError = (line, detail) => ({ declarations: [], error_code: "frontmatter-boundary-invalid", error: `frontmatter boundary invalid at line ${line}: ${detail}` });
+  const carriageReturn = normalizedText.indexOf("\r");
+  if (carriageReturn !== -1) return boundaryError(normalizedText.slice(0, carriageReturn).split("\n").length, "noncanonical carriage return");
+  if (allLines[0] !== "---") {
+    if (/^(?:\uFEFF)?---[ \t\u00a0]*$/.test(allLines[0])) return boundaryError(1, "noncanonical opening delimiter");
+    return { declarations: [], error: null };
+  }
+  const end = allLines.findIndex((line, index) => index > 0 && line === "---");
+  const normalized = allLines.join("\n");
+  const firstCloser = normalized.indexOf("---", 3);
+  const canonicalCloser = end === -1 ? -1 : allLines.slice(0, end).join("\n").length + 1;
+  if (firstCloser !== -1 && firstCloser !== canonicalCloser) return boundaryError(normalized.slice(0, firstCloser).split("\n").length, "first closing marker differs from canonical line delimiter");
+  const lines = allLines.slice(1, end === -1 ? undefined : end);
+  const declarations = [];
+  for (const [index, line] of lines.entries()) {
+    if (/^[ \t]*\t/.test(line)) return { declarations, error_code: "frontmatter-key-invalid", error: `tab-indented frontmatter at line ${index + 2}: ${line}` };
+    if (/^[ \t]/.test(line) || /^(?:\s*|#.*)$/.test(line)) continue;
+    const key = line.match(/^([A-Za-z_][A-Za-z0-9_-]*):/);
+    if (!key) return { declarations, error_code: "frontmatter-key-invalid", error: `noncanonical top-level frontmatter key at line ${index + 2}: ${line}` };
+    if (key[1] === "tools") declarations.push({ line, index });
+  }
+  return { declarations, error: null };
+}
+
+function parseAgentToolInventory(text) {
+  const keyScan = scanAgentFrontmatterKeys(text);
+  if (keyScan.error) return { tools: null, error: keyScan.error, error_code: keyScan.error_code };
+  const fm = parseFrontmatter(text);
+  const invalid = (error) => ({ tools: null, error });
+  if (!fm.hasFrontmatter || fm.unterminated) return invalid("complete frontmatter required");
+  const allLines = text.split(/\r?\n/);
+  const end = allLines.findIndex((line, index) => index > 0 && line === "---");
+  const lines = allLines.slice(1, end);
+  const { declarations } = keyScan;
+  if (declarations.length !== 1) return invalid("exactly one tools declaration required");
+  const { line, index } = declarations[0];
+  if (!/^tools:(?:[ \t]+.*)?$/.test(line)) return invalid("malformed tools key");
+  const value = line.slice("tools:".length).trim();
+  const continuation = [];
+  for (let i = index + 1; i < lines.length; i++) {
+    if (/^[A-Za-z0-9_-]+:/.test(lines[i])) break;
+    if (/^\s*(?:#.*)?$/.test(lines[i])) continue;
+    continuation.push(lines[i]);
+  }
+  if (value && continuation.length) return invalid("scalar tools declaration has unexpected continuation");
+  const unquote = (raw) => {
+    const token = raw.trim();
+    if (/^['"]/.test(token)) {
+      const quote = token[0];
+      if (token.length < 2 || token.at(-1) !== quote || token.slice(1, -1).includes(quote)) return null;
+      return token.slice(1, -1);
+    }
+    return /['"]/.test(token) ? null : token;
+  };
+  let tools;
+  if (value) {
+    const scalar = unquote(value);
+    if (scalar === null) return invalid("unbalanced tools quoting");
+    tools = scalar.split(",").map((tool) => tool.trim());
+  } else {
+    tools = [];
+    for (const item of continuation) {
+      const match = item.match(/^[ \t]+-[ \t]+(.+)$/);
+      if (!match) return invalid("malformed tools list item");
+      const token = unquote(match[1]);
+      if (token === null) return invalid("unbalanced tools list quoting");
+      tools.push(token);
+    }
+  }
+  if (!tools.length || tools.some((tool) => !tool)) return invalid("empty tools inventory or empty element");
+  return { tools, error: null };
+}
+
+function parseReadonlySpecialists(root) {
+  const roster = readReadonlyRoster(root);
+  return roster.names ?? null;
 }
 
 function checkReadonlySpecialistTools(root) {
   const id = "readonly-specialist-tools";
+  const source_rule = "agents.md § Verify Specialist Tool Inventory";
   const results = [];
-  const names = parseReadonlySpecialists(root);
-  if (names === null) {
-    return {
-      id,
-      source_rule: "agents.md § Verify Specialist Tool Inventory",
-      results: [{ artifact: "rules/agents.md", status: STATUS.SKIP, detail: "could not parse read-only specialist list" }],
-    };
-  }
-  for (const name of names) {
-    const f = findAgentFile(root, name);
-    if (!f) {
-      results.push({ artifact: `agents/**/${name}.md`, status: STATUS.SKIP, detail: "agent file not found" });
+  const roster = readReadonlyRoster(root);
+  if (!roster.names) return { id, source_rule, results: [{ ...roster, status: STATUS.FAIL }] };
+  const files = listMarkdown(join(root, ".claude", "agents"));
+  for (const name of roster.names) {
+    const matches = files.filter((file) => basename(file) === `${name}.md`);
+    if (matches.length !== 1) {
+      results.push({ artifact: `.claude/agents/**/${name}.md`, status: STATUS.FAIL, reason: "not-run:agent-missing", detail: `NOT RUN: specialist '${name}' has ${matches.length} matching agent files; expected one` });
       continue;
     }
-    const rel = relative(root, f);
-    const { fields } = parseFrontmatter(safeRead(f) || "");
-    const tools = parseToolList(fields.tools);
+    const f = matches[0];
+    const artifact = relative(root, f);
+    const text = safeRead(f);
+    if (text === null) {
+      results.push({ artifact, status: STATUS.FAIL, reason: "not-run:agent-unreadable", detail: `NOT RUN: specialist '${name}' agent file unreadable` });
+      continue;
+    }
+    const inventory = parseAgentToolInventory(text);
+    const tools = inventory.tools;
+    if (inventory.error || tools.some((tool) => !CANONICAL_CC_TOOLS.has(tool))) {
+      results.push({ artifact, status: STATUS.FAIL, reason: "not-run:tools-unparseable", ...(inventory.error_code ? { error_code: inventory.error_code } : {}), detail: `NOT RUN: ${inventory.error ?? `specialist '${name}' needs complete frontmatter and a nonempty canonical tools inventory`}` });
+      continue;
+    }
     const forbidden = tools.filter((t) => READONLY_FORBIDDEN_TOOLS.has(t));
     if (forbidden.length === 0) {
-      results.push({ artifact: rel, status: STATUS.PASS, detail: `tools: ${tools.join(", ") || "(none)"}` });
+      results.push({ artifact, status: STATUS.PASS, detail: `tools: ${tools.join(", ")}` });
     } else {
-      results.push({
-        artifact: rel,
-        status: STATUS.FAIL,
-        detail: `read-only specialist '${name}' declares implementation tools: ${forbidden.join(", ")} (agents.md classifies it read-only)`,
-      });
+      results.push({ artifact, status: STATUS.FAIL, reason: "implementation-tools", detail: `read-only specialist '${name}' declares implementation tools: ${forbidden.join(", ")} (roster authority: ${roster.artifact})` });
     }
   }
-  return { id, source_rule: "agents.md § Verify Specialist Tool Inventory", results };
+  return { id, source_rule, results };
 }
 
 // =======================================================================
@@ -636,12 +749,22 @@ function checkToolCanonicality(root) {
       results.push({ artifact: rel, status: STATUS.SKIP, detail: "unreadable" });
       continue;
     }
+    const keyScan = scanAgentFrontmatterKeys(text);
+    if (keyScan.error) {
+      results.push({ artifact: rel, status: STATUS.FAIL, reason: "not-run:tools-unparseable", error_code: keyScan.error_code, detail: `NOT RUN: ${keyScan.error}` });
+      continue;
+    }
     const { fields } = parseFrontmatter(text);
-    if (fields.tools === undefined) {
+    if (fields.tools === undefined && keyScan.declarations.length === 0) {
       results.push({ artifact: rel, status: STATUS.SKIP, detail: "no tools: frontmatter" });
       continue;
     }
-    const tools = parseToolList(fields.tools);
+    const inventory = parseAgentToolInventory(text);
+    if (inventory.error) {
+      results.push({ artifact: rel, status: STATUS.FAIL, reason: "not-run:tools-unparseable", detail: `NOT RUN: ${inventory.error}` });
+      continue;
+    }
+    const tools = inventory.tools;
     const bad = tools.filter((t) => !CANONICAL_CC_TOOLS.has(t));
     if (bad.length === 0) {
       results.push({ artifact: rel, status: STATUS.PASS });
@@ -783,7 +906,7 @@ function emitFresh(root) {
   try {
     execFileSync(
       "node",
-      [join(root, ".claude", "bin", "emit-cli-artifacts.mjs"), "--out", dir],
+      [join(root, ".claude", "bin", "emit-cli-artifacts.mjs"), "--profile", "auto", "--out", dir],
       // timeout bounds a hung emitter so it cannot wedge /sync (R1 security L2,
       // same-class hardening as checkCodexPoliciesFresh).
       { cwd: root, encoding: "utf8", timeout: 60000, stdio: ["ignore", "ignore", "pipe"] },
@@ -900,7 +1023,8 @@ function checkMirrorExclusion(root, opts) {
       (a) => a.kind === "skill" && !a.rel.startsWith("agents/management/"),
     );
     for (const cli of ["codex", "gemini"]) {
-      const excl = exclusions[cli] || [];
+      const localAuthoring = cli === "codex" && resolveEmissionProfile({ repo: root, cli }) === "local-authoring";
+      const excl = localAuthoring ? [] : exclusions[cli] || [];
       for (const a of arts) {
         const tag = `${cli}:${a.rel}`;
         if (excl.some((g) => matchesGlob(a.rel, g))) {
@@ -1569,6 +1693,17 @@ const LOOM_ONLY_TIER_CARVEOUTS = new Set([
   // carries the full measurement. Its read-half lib `hooks/lib/landing-window-read.js`
   // is NOT carved out — it ships (append-sink.js requires it on a live write path).
   "hooks/landing-window-guard.js",
+  // 2026-10-07 — the template delivery-freshness SessionStart surface. Its SUBJECT
+  // is loom's own delivery targets: a BUILD/USE consumer has no USE templates to be
+  // behind and no loom main to be behind them by, and its one dependency
+  // (`.claude/bin/template-freshness.mjs`) is OFF the F1030d fail-closed
+  // consumer-runtime allowlist, so shipping the hook would hand every consumer a
+  // MODULE_NOT_FOUND at SessionStart for a measurement it has no subject for. Under
+  // the synced `hooks/**` tier → LOAD-BEARING carve-out, the same class as the
+  // landing-window-guard sibling above; the matching `loom_only:` entry in
+  // sync-manifest.yaml carries the full reasoning, and the hook_delivery row
+  // records the cc-only lane.
+  "hooks/template-freshness-surface.js",
   // loom#1930 — the `--json` write-guard fixtures. The runner imports
   // `tools/cli-drift-audit.mjs`, which is loom_only, so shipping the fixture without
   // its module is ERR_MODULE_NOT_FOUND on load for every community consumer;
@@ -1834,7 +1969,7 @@ function checkLoomOnlyMutualExclusion(root) {
   // (c) loom_only x ALWAYS_INCLUDE. The pre-existing arms compare loom_only
   // against TIER globs only, which leaves the OTHER ship surface unchecked: a
   // path may sit on BOTH `loom_only` and `ALWAYS_INCLUDE`, and because
-  // `classifyFile` tests loom_only FIRST (sync-tier-aware.mjs:4043-4055) the
+  // `classifyFile` tests loom_only FIRST (.claude/bin/sync-tier-aware.mjs:4545-4548) the
   // ALWAYS_INCLUDE entry is INERT — it ships nothing while ASSERTING to every
   // later reader that it does. That is worse than absent, and it is exactly how a
   // shipped tool came to statically import a never-shipped module: the author
@@ -2041,7 +2176,7 @@ function checkEditionCommunityCompleteness(root, opts = {}) {
 // The HONESTY-LEDGER negative complement of the edition machinery (spec
 // `edition-separation.md` §"Protection model"; brief §"Protection model"):
 //   "loom has NO runtime license check and MUST NOT gain one. … Any optional
-//    soft entitlement check lives in the enterprise loom-command edition, NEVER
+//    soft entitlement check lives in the enterprise edition, NEVER
 //    in loom. `coordination.enabled` is a plain behavioral boolean with zero
 //    license/billing semantics — it is NOT the enforcement point."
 // Enterprise is gated by ACCESS + LICENSE (BSL-1.1) + BUNDLING — NOT by a runtime
@@ -2112,7 +2247,7 @@ function checkEditionNoRuntimeLicense(root, opts = {}) {
               `runtime license/entitlement enforcement surface in loom code (matched \`${m[0]}\`) — ` +
               "loom MUST NOT gain a runtime license/DRM check (§Protection model; protection = " +
               "ACCESS + BSL-1.1 LICENSE + kailash-rs BUNDLING). Any soft entitlement check belongs " +
-              "in the enterprise loom-command edition, NEVER in loom. If this is a false match, the " +
+              "in the enterprise edition, NEVER in loom. If this is a false match, the " +
               "token is not an enforcement point — rename it (e.g. `coordination.enabled` is fine).",
           });
         }
@@ -3670,18 +3805,30 @@ function checkCocArtifactIds(root) {
     // must still be gated here. This is a CORPUS question, not a distribution
     // one; narrowing it to one lane would silently un-gate the other lane's ids.
     const r = emitCoc({ outDir: tmp, lane: "all" });
+    const detail =
+      `${r.records} artifacts (rules=${r.counts.rules} agents=${r.counts.agents} ` +
+      `skills=${r.counts.skills} commands=${r.counts.commands})` +
+      (r.largeFiles.length > 0
+        ? ` — ${r.largeFiles.length} above emit-coc's 61440B report threshold ` +
+          `(metric, not a finding; size budget of record is budget-gate.mjs)`
+        : "");
+    // COUNT CHECK, not just a count in the detail string (operator-ratified Gate-1
+    // port, 2026-10-06). This row was an unconditional PASS whose record count
+    // appeared only as prose, so an emit producing ZERO artifacts reported
+    // "PASS — 0 artifacts". emit-coc guards each source dir with `existsSync`, so a
+    // missing or unreadable `.claude/rules/` silently yields an empty emit — the
+    // empty-denominator shape, in the validator that CERTIFIES the emit
+    // (`verification-gate-integrity.md` MUST-2: absence of a result is not a pass).
     const results = [
-      {
-        artifact: ".coc/",
-        status: STATUS.PASS,
-        detail:
-          `${r.records} artifacts (rules=${r.counts.rules} agents=${r.counts.agents} ` +
-          `skills=${r.counts.skills} commands=${r.counts.commands})` +
-          (r.largeFiles.length > 0
-            ? ` — ${r.largeFiles.length} above emit-coc's 61440B report threshold ` +
-              `(metric, not a finding; size budget of record is budget-gate.mjs)`
-            : ""),
-      },
+      r.records === 0
+        ? {
+            artifact: ".coc/",
+            status: STATUS.FAIL,
+            detail:
+              `emit produced ZERO artifacts — ${detail}. An empty emit and a broken ` +
+              `source tree are indistinguishable downstream; this is not a pass.`,
+          }
+        : { artifact: ".coc/", status: STATUS.PASS, detail },
     ];
     return { id, source_rule, results };
   } catch (err) {
@@ -4041,7 +4188,12 @@ function checkTrustRootFresh(root) {
   return {
     id,
     source_rule,
-    results: [{ artifact: tag, status: STATUS.OK, detail: "matches a fresh derivation from the roster" }],
+    // STATUS has NO `OK` member (PASS/FAIL/FIXTURE_NEEDED/SKIP) — this site read
+    // `STATUS.OK` = undefined on the SUCCESS path until 2026-10-05, so a fresh
+    // trust root reported `status: undefined`: neither blocking (isBlocking)
+    // nor a real verdict, exactly the absence-renders-as-success class the
+    // report exists to avoid. `PASS` is the enum's success member.
+    results: [{ artifact: tag, status: STATUS.PASS, detail: "matches a fresh derivation from the roster" }],
   };
 }
 
@@ -5043,7 +5195,7 @@ function checkTargetOwnedIntegrity(root, opts = {}) {
   // and the ordering is the whole point of it.
   //
   // `buildPlan` runs the SAME `rejectUnsafeTargetOwned` gate and answers a defect
-  // with `fail(1, …)` → `process.exit(1)` (sync-tier-aware.mjs:3787-3793). That is
+  // with `fail(1, …)` (.claude/bin/sync-tier-aware.mjs:4280-4286; `fail` exit .claude/bin/sync-tier-aware.mjs:7892-7894). That exits, which is
   // right for the DISTRIBUTOR — refuse to apply a declaration it cannot read — and
   // fatal for this VALIDATOR: `process.exit` is not an exception, so the `try`
   // below never catches it, `laneError` is never set, and the process dies mid-run.
@@ -5457,32 +5609,60 @@ function checkWiringDetectionCanonical(root) {
   // own validate-emit (M-5). Scanning only canon made loom's gate weaker than the
   // surface it governs.
   const surfaces = [{ label: "rules", dir: join(root, ".claude", "rules") }];
+  const results = [];
+  const variantsDir = join(root, ".claude", "variants");
   let variantRoots = [];
+  let variantsPresent = false;
   try {
-    variantRoots = readdirSync(join(root, ".claude", "variants"));
-  } catch { /* no variants tree — canon-only checkout */ }
+    _require("node:fs").lstatSync(variantsDir);
+    variantsPresent = true;
+    // README.md is namespace documentation (.claude/variants/README.md:1-17).
+    variantRoots = readdirSync(variantsDir, { withFileTypes: true })
+      .filter((entry) => entry.name !== "README.md" || !entry.isFile()).map((entry) => entry.name);
+  } catch (e) {
+    // Optional ordinary absence inherits canon (.claude/bin/emit.mjs:3544-3555);
+    // present/dangling paths and every other I/O error are NOT RUN, never omission.
+    if (variantsPresent || e.code !== "ENOENT") results.push({
+      artifact: ".claude/variants/", status: STATUS.FAIL,
+      reason: "not-run:variants-directory-unreadable",
+      detail: `NOT RUN/UNKNOWN: .claude/variants/: ${String(e)}`,
+    });
+  }
   for (const v of variantRoots) {
-    const d = join(root, ".claude", "variants", v, "rules");
+    const d = join(variantsDir, v, "rules");
+    let variantReadable = false;
+    let overlayPresent = false;
     try {
-      if (statSync(d).isDirectory()) surfaces.push({ label: `variants/${v}/rules`, dir: d });
-    } catch { /* this variant declares no rules overlay */ }
+      if (!statSync(join(variantsDir, v)).isDirectory())
+        throw Object.assign(new Error(`ENOTDIR: variant root is not a directory: ${v}`), { code: "ENOTDIR" });
+      variantReadable = true;
+      _require("node:fs").lstatSync(d);
+      overlayPresent = true;
+      if (!statSync(d).isDirectory())
+        throw Object.assign(new Error(`ENOTDIR: rules overlay is not a directory: ${d}`), { code: "ENOTDIR" });
+      surfaces.push({ label: `variants/${v}/rules`, dir: d });
+    } catch (e) {
+      // No path-mirror overlay is intentional (.claude/bin/lib/variant-overlay.mjs:167-173).
+      if (!variantReadable || overlayPresent || e.code !== "ENOENT") results.push({
+        artifact: `.claude/variants/${v}/rules/`, status: STATUS.FAIL,
+        reason: "not-run:rules-directory-unreadable",
+        detail: `NOT RUN/UNKNOWN: .claude/variants/${v}/rules/: ${String(e)}`,
+      });
+    }
   }
 
-  const results = [];
   let blocksSeen = 0;
   let filesSeen = 0;
   for (const surface of surfaces) {
    let files;
    try {
      files = readdirSync(surface.dir).filter((f) => f.endsWith(".md")).sort();
-   } catch {
-     if (surface.label === "rules") {
-       return {
-         id,
-         source_rule,
-         results: [{ artifact: ".claude/rules/", status: STATUS.SKIP, detail: "rules directory unreadable or absent" }],
-       };
-     }
+   } catch (e) {
+     results.push({
+       artifact: `.claude/${surface.label}/`, status: STATUS.FAIL,
+       reason: "not-run:rules-directory-unreadable",
+       detail: `NOT RUN/UNKNOWN: .claude/${surface.label}/: ${String(e)}`,
+     });
      continue;
    }
    filesSeen += files.length;
@@ -5493,9 +5673,16 @@ function checkWiringDetectionCanonical(root) {
     // would contribute ZERO Wiring blocks while this check stayed green, which
     // is the same vacuous-pass shape this file's own header already names for
     // the marker-tolerance case (`instrument-discipline.md` MUST-3(a)).
-    const text = readGovernanceSurface(join(surface.dir, f)).text;
+    const governance = readGovernanceSurface(join(surface.dir, f));
+    const text = governance.text;
     if (text === null) {
-      results.push({ artifact: `${surface.label}/${f}`, status: STATUS.SKIP, detail: "unreadable" });
+      const artifact = `${surface.label}/${f}`;
+      results.push({
+        artifact,
+        status: STATUS.FAIL,
+        reason: "not-run:governance-surface-unreadable",
+        detail: `NOT RUN/UNKNOWN: ${artifact}: ${governance.error}`,
+      });
       continue;
     }
     const blocks = wiringBlocksIn(text, deps);

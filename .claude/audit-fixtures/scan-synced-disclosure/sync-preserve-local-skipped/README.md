@@ -12,6 +12,6 @@ MUST skip it even though it embeds an operator-home-path token.
 | `sync-preserve.local.yaml` is skipped by `isNeverSynced` (unconditional, like `settings.local.json`): a planted `operator-home-path` token does NOT flag → exit 0, clean. |
 
 Synthetic content per the dir's README convention: invented home paths only
-(`/Users/fakeuser/fake-repos`) — NO real operator coordinates. The complement
+(`<operator-home>/fake-repos`) — NO real operator coordinates. The complement
 fixture `sync-preserve-yaml-scanned` locks the narrowness (the template-carried
 `sync-preserve.yaml`, no `.local`, IS scanned).

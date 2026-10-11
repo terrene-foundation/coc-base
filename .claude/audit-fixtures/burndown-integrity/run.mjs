@@ -25,6 +25,7 @@
  * that accepts either cannot tell a refusal from a stale-block report.
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -2820,7 +2821,7 @@ check("projected/compliant-a-committed-SHEBANG-script-runs-as-command-0", () => 
       // the case vacuous on some host.
       "burndown/q.sh.mjs":
         "#!/usr/bin/env node\n" +
-        'const want = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/home/linuxbrew/.linuxbrew/bin", "/snap/bin"];\n' +
+        materializeFixtureText('const want = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "{{FIXTURE_HOME_V1:LINUX}}linuxbrew/.linuxbrew/bin", "/snap/bin"];\n') +
         'const got = String(process.env.PATH || "").split(":");\n' +
         "if (want.some((w, i) => got[i] !== w)) {\n" +
         '  process.stderr.write("PATH was " + process.env.PATH + ", expected the declared list\\n");\n' +

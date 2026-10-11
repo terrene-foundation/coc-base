@@ -17,9 +17,17 @@
  *
  * Reads the host's payload once, selects the detectors `dispatch-registry.json`
  * lists for <Event> whose matcher admits this call (the host's own matcher rule,
- * against the payload field the host matches at that event), runs each
- * IN-PROCESS under `lib/hook-engine.js` — one after another in registry order, or
- * all at once where the registry says `isolation: "parallel"` (SessionEnd) — and
+ * against the payload field the host matches at that event), runs them through
+ * `lib/hook-engine.js` in WORKER THREADS of this one process — one after another
+ * in registry order, or all at once where the registry says `isolation:
+ * "parallel"` (SessionEnd); a row declaring `on_incomplete: "deny"` gets a worker
+ * of its own, so no SHARED-BATCH row's realm mutation — or git answer — can reach
+ * its verdict (hook-consolidation S3, the per-row boundary; round-6 SEC R1-F2:
+ * the engine keeps per-realm-kind git-answer pools, and a deny row may read only
+ * answers written by DENY rows — it shares that one isolated pool with the other
+ * deny rows BY DESIGN; a shared-batch row's answers never reach it, and its
+ * answers never reach a shared batch), and a deny row that does not COMPLETE
+ * refuses at PreToolUse (§ FAIL-CLOSED FOR INCOMPLETE DENY ROWS below) — and
  * writes ONE merged reply, its parts in registry order. See `lib/hook-engine.js`
  * for the per-detector sandbox contract (stdin / stdout / exit / argv / crash /
  * timeout) and the merge rule (any deny wins; every reason is handed back in one
@@ -31,7 +39,11 @@
  *     non-zero exit other than 2 without a JSON reply) is shown to the USER as
  *     the host showed a non-blocking hook error, and a killed one contributes
  *     nothing (the host shows a timeout only at UserPromptSubmit) —
- *     hook-engine.js § FAILED DETECTORS. That is a detector killed on its OWN
+ *     hook-engine.js § FAILED DETECTORS. THE ONE EXCEPTION is a row declaring
+ *     `on_incomplete: "deny"` (round-6 SEC R1-F3): its crash / own-budget
+ *     overrun / non-JSON non-zero exit REFUSES at PreToolUse, fail-closed —
+ *     the declaration is a contract, and an unrun deny-capable guard must not
+ *     read as one that passed. That is a detector killed on its OWN
  *     budget. One the EVENT deadline kept from starting, or stopped before its own
  *     budget ran out, is STARVED — a guard that could not run, which the host never
  *     did to a hook: refused at PreToolUse like an engine fault (same repair hatch),
@@ -235,6 +247,27 @@ function repairHatch(payload, file) {
   }
 }
 
+/**
+ * The ONE shared delivery-instruction block (`instruct-and-wait.js::DELIVERY_INSTRUCTION`)
+ * — composed into every refusal reason THIS file renders, never a hand-rolled copy
+ * (R2 L2: the constant is the channel a report is owed on, and a divergent copy is
+ * exactly the drift one shared source exists to stop). Loaded LAZILY: a fault path
+ * must not be made to throw by the require (the first refusal is the first time it
+ * is needed), and a failed load returns "" — the refusal still refuses.
+ */
+let deliveryInstructionCache;
+function deliveryInstruction() {
+  if (deliveryInstructionCache === undefined) {
+    try {
+      const v = require(path.join(HOOKS_DIR, "lib", "instruct-and-wait.js")).DELIVERY_INSTRUCTION;
+      deliveryInstructionCache = typeof v === "string" ? v : "";
+    } catch {
+      deliveryInstructionCache = "";
+    }
+  }
+  return deliveryInstructionCache;
+}
+
 const GRACE_MS = 750;
 // The longest REPO-OWNED matcher this thread decides itself (a plain list, split
 // once per distinct string). Longer ones go to the supervisor with the regex ones:
@@ -319,6 +352,9 @@ const MAX_FRAME_CHARS = Math.min(MAX_FRAME_CHARS_DEFAULT, Number(process.env.COC
  */
 function runLocalSupervised(job, raw, deadlineAt /* monotonic: monoNow() */, hostDeadlineAt /* monotonic: monoNow() */) {
   const { spawn } = require("child_process");
+  // The directory every detector of this job is spawned in: the SESSION's (the payload's
+  // cwd), or null for "this process's own cwd". See the note in `input()`.
+  const localCwd = job && typeof job.cwd === "string" && job.cwd ? job.cwd : null;
   return new Promise((resolve) => {
     const nonce = require("crypto").randomBytes(24).toString("hex");
     const select = job.select || null;
@@ -329,6 +365,12 @@ function runLocalSupervised(job, raw, deadlineAt /* monotonic: monoNow() */, hos
     let ended = false; // the end frame was accepted
     let running = null; // pgid of the detector the supervisor declared started
     let launcher = null;
+    // Whether the pool child ever LAUNCHED. A fault then separates two dispositions the
+    // dispatcher must not conflate: a pool that never started is a LOCAL-REGISTRY fault
+    // whose refusal carries the repair hatch (the registry is a repo-owned file the agent
+    // may need to Read to repair), while a pool that RAN and left rows unreported owes
+    // those rows the per-row incomplete contract.
+    let launched = false;
     let buf = "";
     let errText = "";
     let expect = "hello";
@@ -374,7 +416,7 @@ function runLocalSupervised(job, raw, deadlineAt /* monotonic: monoNow() */, hos
       const lost = entries
         ? `repo-owned detectors after ${outcomes.length} of ${entries.length} did NOT report`
         : "no repo-owned detector ran (their regex matchers were not decided)";
-      resolve({ outcomes, plan, fault: new Error(`the supervisor running this repo's own detectors ${why}${tail} — ${lost}`) });
+      resolve({ outcomes, plan, launched, fault: new Error(`the supervisor running this repo's own detectors ${why}${tail} — ${lost}`) });
     };
     // One anchor, the supervisor's own: its receipt, plus the budget it anchored
     // there, is the deadline it is working to — so the backstop is always
@@ -411,6 +453,12 @@ function runLocalSupervised(job, raw, deadlineAt /* monotonic: monoNow() */, hos
       const i = outcomes.length; // the only index a frame may speak for
       if (expect === "hello") {
         if (f.t !== "hello") return fault(`opened with ${JSON.stringify(f.t)}, not hello (protocol violation)`);
+        // THE POOL IS RUNNING. `hello` is the supervisor's own first frame, so this — not
+        // the launcher's spawn — is the fact the two fault dispositions turn on: a missing
+        // or unreadable supervisor file still lets the SHELL start, and only the frame
+        // tells apart "the pool never ran" (a local-registry fault, hatch intact) from
+        // "the pool ran and left rows unreported" (the per-row incomplete contract).
+        launched = true;
         expect = select ? "match" : "next";
         return undefined;
       }
@@ -480,7 +528,11 @@ function runLocalSupervised(job, raw, deadlineAt /* monotonic: monoNow() */, hos
     };
 
     try {
-      const opts = { stdio: ["ignore", "pipe", "pipe", "pipe"], cwd: process.cwd(), env: process.env, windowsHide: true };
+      // THE POOL RUNS IN THE SESSION'S DIRECTORY, not the dispatcher's: a legacy row that
+      // resolves git (or reads a relative path) from its cwd must see what its standalone
+      // launch saw. MEASURED as a fail-open otherwise — three kailash-py guards DENY
+      // standalone in a non-git cwd and ALLOWED under a dispatcher-rooted pool.
+      const opts = { stdio: ["ignore", "pipe", "pipe", "pipe"], cwd: localCwd || process.cwd(), env: process.env, windowsHide: true };
       launcher =
         process.platform === "win32"
           ? spawn(process.execPath, [SUPERVISOR_FILE], opts)
@@ -488,6 +540,9 @@ function runLocalSupervised(job, raw, deadlineAt /* monotonic: monoNow() */, hos
     } catch (e) {
       return fault(`could not be started (${e && e.message ? e.message : e})`);
     }
+    // NOT here: a successful SHELL spawn is not the pool running — a missing or
+    // unreadable supervisor file still starts the launcher, which then fails. The flag is
+    // set on the pool's own `hello` frame (see the frame handler).
     launcher.on("error", (e) => fault(`could not be started (${e && e.message ? e.message : e})`));
     launcher.stdio[3].on("error", () => {});
     // A stream 'error' with no listener is thrown on this thread — the whole event
@@ -528,7 +583,11 @@ function runLocalSupervised(job, raw, deadlineAt /* monotonic: monoNow() */, hos
       release();
       resolve({ outcomes, plan });
     });
-    const slim = (e) => ({ hook: e.hook, file: e.file, timeoutMs: e.timeoutMs });
+    // `mode` and `onIncomplete` travel with every row the pool is asked to run: the pool
+    // decides in-process (`mode:"legacy"`, in a worker of ITS OWN process) vs
+    // standalone-process from `mode`, and a deny-class row must be markable when the pool
+    // dies. h8-fixup flagged the earlier drop of these two fields on this path.
+    const slim = (e) => ({ hook: e.hook, file: e.file, timeoutMs: e.timeoutMs, mode: e.mode, onIncomplete: e.onIncomplete });
     // Undecided matchers travel ONCE each (`matchers`, indexed by a row's `mi`): a
     // group matcher is copied onto every row of its group, and a per-row copy would
     // multiply the input by the row count on this thread.
@@ -567,6 +626,12 @@ function runLocalSupervised(job, raw, deadlineAt /* monotonic: monoNow() */, hos
         nonce,
         dispatcherPid: process.pid,
         budgetMs: writtenBudgetMs,
+        // THE ROW'S SCOPE, handed to the supervisor so ITS spawn carries it: a detector
+        // that resolves git (or reads a relative path) from its cwd must see the SESSION's
+        // directory, which is the payload's cwd — never this process's. Null/absent when
+        // the payload names none, which leaves the supervisor inheriting this process's
+        // cwd, exactly as a host launch with no cwd change would.
+        ...(localCwd ? { cwd: localCwd } : {}),
         ...(select ? { select: selectInput } : { detectors: entries.map(slim) }),
         raw,
       });
@@ -601,8 +666,14 @@ function registryFaultReply(err, payload, file = "hooks/dispatch-registry.json",
   const starved = kind === "starved";
   const msg =
     starved
-      ? `dispatch.js ran out of the time budget for ${event} before loom's own detectors could finish (${why}). ` +
-        `A guard that could not run has not passed.`
+      ? `dispatch.js ran out of the time budget for ${event} before ` +
+        // A repo-owned starvation must NAME the repo's registry: the repair is often an
+        // edit of that file (drop or fix the row that overran), and an agent that is not
+        // told which file cannot act on the refusal.
+        (file === "hooks/dispatch-registry.json"
+          ? "loom's own detectors"
+          : `this repo's own detectors — see .claude/${file}`) +
+        ` could finish (${why}). A guard that could not run has not passed.`
       : kind === "fatal"
       ? `dispatch.js failed while dispatching ${event} — a fault in the dispatcher itself, not in a registry (${why}). ` +
         `Every verdict the detectors registered for ${event} reached on this call is lost unless it is repeated below.`
@@ -633,6 +704,25 @@ function registryFaultReply(err, payload, file = "hooks/dispatch-registry.json",
       const allowed =
         `Read/Grep/Glob, an Edit/Write of .claude/${file}, and an exact \`git checkout -- .claude/${file}\` / \`git restore\` of it are still allowed ` +
         "(unless a guard had already refused the call before the fault).\n";
+      const reportBlock =
+        starved
+          ? "  - Quote the detectors named above: the event's time budget ran out before they could run or finish.\n" +
+            "  - Usually a detector AHEAD of them used most of the budget (look for its timeout note), or the machine is " +
+            `overloaded. The budget is \`dispatcher.timeout\` for ${event} in .claude/hooks/dispatch-registry.json. Retrying may pass. ` +
+            allowed
+          : dispatcherFault
+          ? "  - The hook dispatcher itself failed (the registry is NOT the cause); quote the error above.\n" +
+            "  - The fault is in .claude/hooks/dispatch.js or a library under .claude/hooks/lib/ (the error above names where; a stall " +
+            "can also be a detector that blocked the dispatcher's thread). If a local change to those files caused it, the user " +
+            "restores them (e.g. `git checkout -- .claude/hooks/`); otherwise report the error to the maintainers. " +
+            allowed
+          : `  - The hook registry is unreadable; quote the error above.\n  - Repair it: restore .claude/${file} (e.g. \`git checkout -- .claude/${file}\`). ` +
+            allowed;
+      // The report's DELIVERY half is the ONE shared constant, composed the same
+      // way `instruct-and-wait.js` composes it after its own report block (R2 L2) —
+      // a refusal whose report has no stated channel is the defect that constant
+      // exists to close.
+      const delivery = deliveryInstruction();
       const reason =
         "STOP — Tool call blocked.\n\nWHAT HAPPENED: " + msg +
         "\nWHY: " +
@@ -645,19 +735,8 @@ function registryFaultReply(err, payload, file = "hooks/dispatch-registry.json",
           : "this repo's own guards could not run, so this call cannot be fully vetted. ") +
         "Refusing is the fail-closed disposition.\n\n" +
         "REPORT TO USER (do not skip any):\n" +
-        (starved
-          ? "  - Quote the detectors named above: the event's time budget ran out before they could run or finish.\n" +
-            "  - Usually a detector AHEAD of them used most of the budget (look for its timeout note), or the machine is " +
-            `overloaded. The budget is \`dispatcher.timeout\` for ${event} in .claude/hooks/dispatch-registry.json. Retrying may pass. ` +
-            allowed
-          : dispatcherFault
-          ? "  - The hook dispatcher itself failed (the registry is NOT the cause); quote the error above.\n" +
-            "  - The fault is in .claude/hooks/dispatch.js or a library under .claude/hooks/lib/ (the error above names where; a stall " +
-            "can also be a detector that blocked the dispatcher's thread). If a local change to those files caused it, the user " +
-            "restores them (e.g. `git checkout -- .claude/hooks/`); otherwise report the error to the maintainers. " +
-            allowed
-          : `  - The hook registry is unreadable; quote the error above.\n  - Repair it: restore .claude/${file} (e.g. \`git checkout -- .claude/${file}\`). ` +
-            allowed);
+        reportBlock +
+        (delivery ? "\n" + delivery + "\n" : "");
       return {
         stdout: JSON.stringify({
           hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason },
@@ -724,7 +803,11 @@ function lateFaultReply(err, kind) {
   // carry the detectors' own reasons too, not only the fault's.
   let verdicts = null;
   try {
-    verdicts = reached.filter((o) => o && reachedEngine.isRestrictive(o, event));
+    // An incomplete deny row reached before the fault is a fail-closed verdict
+    // too (R1-F3): the fault must not be the thing that opens the hatch for a
+    // call whose deny-capable guard never reached a verdict. PreToolUse ONLY,
+    // mirroring the normal-path conversion (applyIncompleteDenyRefusals).
+    verdicts = reached.filter((o) => o && (reachedEngine.isRestrictive(o, event) || (event === "PreToolUse" && o.incompleteDeny)));
   } catch {}
   if (verdicts && !verdicts.length) return fault; // nothing refused ⇒ the fault reply (hatch included) stands
   if (event !== "PreToolUse") {
@@ -748,8 +831,17 @@ function lateFaultReply(err, kind) {
   }
   const refusal = registryFaultReply(err, hostPayload, undefined, kind, { hatch: false });
   if (verdicts) {
+    // An incomplete deny row reached before the fault keeps its fail-closed
+    // refusal beside the fault's, NAMED (R1-F3). When the normal-path conversion
+    // already produced that refusal outcome, its text is among the verdicts and
+    // is not repeated — the dedup is by the generated text itself.
+    const already = new Set(verdicts.map((o) => (o && typeof o.stderr === "string" ? o.stderr : "")));
+    const denyOutcomes = verdicts
+      .filter((o) => o && o.incompleteDeny)
+      .map((o) => ({ hook: "dispatch.js", status: "exit", exitCode: 2, stdout: "", stderr: incompleteDenyRefusalText(o) }))
+      .filter((o) => !already.has(o.stderr));
     try {
-      return reachedEngine.mergeOutcomes(event, [...verdicts.map(askAsDeny), { hook: "dispatch.js", status: "exit", exitCode: 2, stdout: refusal.stdout, stderr: refusal.stderr }]);
+      return reachedEngine.mergeOutcomes(event, [...verdicts.map(askAsDeny), ...denyOutcomes, { hook: "dispatch.js", status: "exit", exitCode: 2, stdout: refusal.stdout, stderr: refusal.stderr }]);
     } catch {}
     try {
       return reachedEngine.restrictiveReply(event, verdicts, refusal.stderr);
@@ -793,6 +885,50 @@ function askAsDeny(o) {
   }
 }
 
+/**
+ * FAIL-CLOSED FOR INCOMPLETE DENY ROWS (round-6 SEC R1-F3; the seat's ruling).
+ *
+ * A registry row declaring `on_incomplete: "deny"` promises a fail-closed
+ * disposition — the field name, the registry `_doc` and the Codex C4 ruling all
+ * read it that way. Until this, the declaration bought only the per-row worker
+ * boundary: a deny row that did not COMPLETE (crash, own-budget overrun, or a
+ * non-zero exit with no JSON reply — marked by the engine at decision time)
+ * contributed NOTHING, so the call RAN with a deny-capable guard unrun. At
+ * PreToolUse each marked row now becomes a REFUSAL, unconditionally (no repair
+ * hatch: this is a DETECTOR fault, not a dispatcher fault). Security over
+ * availability — a crashing deny check WILL block; that is intended.
+ *
+ * SCOPE, so the rule is not over-read: only PreToolUse converts (the one event
+ * the ruling names); at every other event an incomplete deny row keeps the
+ * host's disposition for a failed/timed-out hook, exactly as before. The
+ * caller's array is also the live `reached` list a late-fault reply reads, so
+ * `.push` here is visible there too; lateFaultReply separately honours the raw
+ * mark for a fault that lands BEFORE this conversion runs.
+ */
+function applyIncompleteDenyRefusals(outcomes) {
+  if (event !== "PreToolUse") return;
+  for (const o of outcomes.filter((x) => x && x.incompleteDeny)) {
+    outcomes.push({ hook: "dispatch.js", status: "exit", exitCode: 2, stdout: "", stderr: incompleteDenyRefusalText(o) });
+  }
+}
+
+/** The refusal text naming ONE incomplete deny row (also read by lateFaultReply). */
+function incompleteDenyRefusalText(o) {
+  const name = o && typeof o.hook === "string" && o.hook ? o.hook : "(unnamed row)";
+  // Same ONE shared delivery constant as registryFaultReply (R2 L2).
+  const delivery = deliveryInstruction();
+  return (
+    `STOP — Tool call blocked.\n\nWHAT HAPPENED: ${name} declares on_incomplete:"deny" and did NOT complete on this call — it ` +
+    `${o && o.incompleteDeny ? o.incompleteDeny : "did not reach a verdict"}. The call was NOT vetted by this guard.\n` +
+    "WHY: the row's declaration is a fail-closed contract — an incomplete deny-capable check REFUSES rather than passing, " +
+    "because allowing the call would run it with a guard that can refuse having never reached a verdict.\n\n" +
+    "REPORT TO USER (do not skip any):\n" +
+    `  - Name the detector above (\`.claude/hooks/${name}\`) and quote this reason.\n` +
+    "  - Repair or fix that detector (and its own crash/timeout output in the dispatcher notes), then retry the call.\n" +
+    (delivery ? "\n" + delivery + "\n" : "")
+  );
+}
+
 async function main() {
   const raw = await readAllStdin();
   let payload = null;
@@ -811,14 +947,26 @@ async function main() {
   let pinNote = null;
   let pinNotice = null;
   let pinNoticeEvery = false;
+  let snapshotChoice = null;
+  // The session's identity, for the repo-local registry's pin. Read only when it is a
+  // usable string; a payload without one leaves the local registry read fresh on every
+  // event (the pre-pin behaviour) — the pin is a session-scoped guard, so with no
+  // session there is nothing to anchor it to.
+  const sessionId =
+    payload && typeof payload.session_id === "string" && payload.session_id.length > 0 && payload.session_id.length <= 512
+      ? payload.session_id
+      : null;
   try {
     registryLib = require(path.join(HOOKS_DIR, "lib", "dispatch-registry.js"));
     engine = require(path.join(HOOKS_DIR, "lib", "hook-engine.js"));
     if (pinArg !== null && !/^[0-9a-f]{64}$/.test(pinArg)) throw new Error("malformed --registry-sha256 argument");
+    // Resolved ONCE per event: it mkdir/lstat-probes the directory, and the local
+    // registry's SESSION pin uses the SAME choice as the template registry's copy.
+    snapshotChoice = registryLib.snapshotDirChoice(process.env);
     const resolved = registryLib.resolvePinnedRegistryText(
       HOOKS_DIR,
       pinArg,
-      registryLib.snapshotDirChoice(process.env),
+      snapshotChoice,
     );
     reg = registryLib.parseRegistryText(resolved.text);
     pinNote = resolved.note;
@@ -912,7 +1060,7 @@ async function main() {
     }
     if (seen.has(d.hook)) continue;
     seen.add(d.hook);
-    runnable.push({ hook: d.hook, file: path.join(HOOKS_DIR, d.hook), timeoutMs: budgetOf(d), mode: d.mode, origin: "loom" });
+    runnable.push({ hook: d.hook, file: path.join(HOOKS_DIR, d.hook), timeoutMs: budgetOf(d), mode: d.mode, onIncomplete: d.onIncomplete, origin: "loom" });
   }
 
   // REPO-OWNED rows (the local registry), in registry order — built only AFTER
@@ -925,8 +1073,11 @@ async function main() {
   // bounds with its backstop and kills as a group — a stall there is a supervisor
   // fault, never a lost loom verdict. With the file and row caps
   // (lib/dispatch-registry.js) the work done here is O(file size).
-  // A local row's `mode` is accepted and ignored: repo-owned detectors always run
-  // as their own processes under the supervisor, outside this process tree.
+  // A local row's `mode` decides WHERE it runs: "legacy" runs it IN-PROCESS, in a worker
+  // thread of this process (hook-engine.js § LEGACY ROWS — the process-shaped sandbox
+  // without the process), anything else (the default) under the supervisor, outside this
+  // process tree. The supervisor is the STRONGER isolation and stays the default: a
+  // repo-owned row that must not be able to signal the dispatcher keeps `mode:"process"`.
   const matchMemo = new Map();
   const existsMemo = new Map();
   const decideHere = (m) => {
@@ -948,6 +1099,12 @@ async function main() {
       match: decideHere(d.matcher),
       exists: existsHere(d.hook),
       loomRuns: seen.has(d.hook), // ADD-ONLY: a local row cannot re-run (or re-time) a hook loom runs
+      // `mode` and `onIncomplete` travel with the row: `mode:"legacy"` is run IN-PROCESS
+      // by the engine (hook-engine.js § LEGACY ROWS) instead of as its own process, and
+      // `on_incomplete:"deny"` earns the same fail-closed incomplete-execution contract
+      // it has on loom's side. Both are the row's own declarations, forwarded unchanged.
+      mode: d.mode,
+      onIncomplete: d.onIncomplete,
     }));
   const planNotes = (plan) =>
     plan.notes.map((n) =>
@@ -960,6 +1117,13 @@ async function main() {
   // enforced from this thread, so a detector stuck in synchronous code is
   // abandoned (the host-kill disposition it always had) without stalling the rest
   // or erasing decisions already made (lib/hook-engine.js::runDetectorsIsolated).
+  // A row carrying `onIncomplete: "deny"` (the registry's per-row declaration —
+  // its verdict can refuse a call) gets a worker of its own: the engine ends the
+  // shared batch before it and resumes after it, so no neighbour's realm state can
+  // reach that row's verdict — and, because the event's git-answer cache lives on
+  // THIS thread (outside any worker isolate), the engine seeds a deny row only
+  // from answers written by deny rows (per-realm-kind pools; round-6 SEC R1-F2),
+  // so a shared-batch neighbour cannot plant an answer a deny row reads.
   // `reached` is filled as each loom outcome is DECIDED, not when the run resolves:
   // a fatal throw or the watchdog landing mid-run must still deliver a deny an
   // earlier detector already reached (lateFaultReply).
@@ -996,10 +1160,23 @@ async function main() {
   // stopped before its OWN budget ran out (`deadlineCut`) is a guard that could not
   // run — not one that passed. At PreToolUse that is refused like an engine fault
   // (same repair hatch: Read/Grep/Glob and a repair of the loom registry); a note
-  // elsewhere. A detector killed on its OWN budget is not in this list: it keeps the
-  // host-kill disposition (contributes nothing, never a refusal) it always had.
+  // elsewhere — EXCEPT a starved row that declared `on_incomplete: "deny"`: the
+  // starved refusal then carries NO hatch (R2 M1; the seat's witness
+  // `denyhang-deadlinecut-read rc=0` — a Read past a hanging deny row was ADMITTED
+  // because the starved reply is the registry-fault shape, which the hatch
+  // admits). A guard that can refuse must not be bypassable by hanging past the
+  // event deadline. A detector killed on its OWN budget is not in this list: it
+  // keeps the host-kill disposition (contributes nothing) it always had — EXCEPT
+  // a row declaring `on_incomplete: "deny"`, whose own-budget overrun is marked
+  // by the engine and REFUSED by applyIncompleteDenyRefusals below (R1-F3).
   const starved = outcomes.filter((o) => o.status === "skipped" || o.deadlineCut === true);
   if (starved.length) {
+    // R2 M1: any starved row that declared `on_incomplete: "deny"` takes the
+    // refusal WITHOUT the repair hatch — otherwise hanging a deny row past the
+    // event deadline buys a Read/Grep/Glob past it (`denyhang-deadlinecut-read
+    // rc=0`). The declaration, not starvation, decides: a starved advisory row
+    // keeps the hatch it always had.
+    const denyStarved = starved.some((o) => o.denyRow === true);
     const fault = registryFaultReply(
       new Error(
         starved.map((o) => `${o.hook} ${o.status === "skipped" ? "was not started" : "was stopped at the event deadline"}`).join("; "),
@@ -1007,10 +1184,22 @@ async function main() {
       payload,
       undefined,
       "starved",
+      denyStarved ? { hatch: false } : {},
     );
     outcomes.push({ hook: "dispatch.js", status: "exit", exitCode: fault.exitCode === 2 ? 2 : 0, stdout: fault.exitCode === 2 ? fault.stdout : "", stderr: fault.exitCode === 2 ? fault.stderr : "" });
     if (fault.exitCode !== 2) engineNotes.push(fault.stderr.replace(/^\[dispatch\] /, ""));
   }
+  // FAIL-CLOSED FOR INCOMPLETE DENY ROWS (round-6 SEC R1-F3). A row declaring
+  // `on_incomplete: "deny"` that did not COMPLETE — it crashed, overran its OWN
+  // budget, or exited non-zero without a JSON reply (the engine marks exactly
+  // those at decision time, hook-engine.js::incompleteDenyReason) — REFUSES the
+  // call at PreToolUse. The declaration is a cross-lane contract (the registry
+  // _doc, the Codex C4 ruling) and its promise is fail-closed; before this, such
+  // a row contributed NOTHING and the call ran with a deny-capable guard unrun.
+  // Converted BEFORE the local-detector gate below, so the gate sees the refusal.
+  // Only PreToolUse converts — the one event the ruling names; every other event
+  // keeps the host's disposition for a failed/timed-out hook, unchanged.
+  applyIncompleteDenyRefusals(outcomes);
   // Repo-owned detectors run only when loom's detectors reached NO verdict a repo
   // detector could not outrank — a deny/block (any shape), a halt, an engine fault
   // or a starved guard (engine.closesLocalGate). A loom ASK does NOT close the gate
@@ -1038,7 +1227,16 @@ async function main() {
   let localFault = null;
   let supervisorFault = null;
   let budgetFault = null;
+  // Whether the repo-owned rows the event deadline starved include one that declared
+  // `on_incomplete:"deny"` — a guard that can refuse and could not run. Read where the
+  // fault becomes a reply, so its refusal carries NO repair hatch (R2 M1).
+  let budgetFaultDenyStarved = false;
   const localSelNotes = [];
+  // The repo-local registry's PIN bookkeeping (taken / served / refused) and its
+  // add-only and undispatchable-event notices. Its own failures are NOTICES, never
+  // refusals — the pin is the dispatcher's bookkeeping, and losing it must not cost the
+  // repo its detectors.
+  const localPinNotices = [];
   const gateNotes = [];
   const restrictive = engineFaults.length || outcomes.some((o) => engine.closesLocalGate(o, event));
   if (restrictive) {
@@ -1051,25 +1249,273 @@ async function main() {
     // The consumer-owned local registry (target_owned; loom never writes it). A
     // broken one must not silently switch the repo's OWN guards off, so it is
     // reported like a broken loom registry — refused at PreToolUse, loud elsewhere.
+    // The text is PINNED to this session's first read (resolveLocalRegistryText), so a row
+    // removed or re-pointed mid-session cannot switch a repo guard off under a running
+    // session; the pin's own failures are NOTICES, never refusals. The pin is an
+    // ACCEPTANCE RECORD: a pin that is gone, replaced or unanchored REFUSES rather than
+    // being re-taken (H8's closure 1 — before it, a deleted pin read as "first read" and
+    // an edited registry was silently re-pinned, and a self-consistent forgery was served
+    // with the note blaming the live file).
     let local = null;
     try {
-      local = registryLib.loadLocalRegistryIfPresent(HOOKS_DIR);
+      const resolvedLocal = registryLib.resolveLocalRegistryText(HOOKS_DIR, sessionId, snapshotChoice);
+      if (resolvedLocal.note) localPinNotices.push(`[dispatch] ${resolvedLocal.note}`);
+      if (resolvedLocal.notice) localPinNotices.push(`[dispatch] ${resolvedLocal.notice}\n`);
+      // Parsed into a LOCAL first: a registry the loader then refuses must not be left
+      // installed (`local`), or the refusal would ride beside rows that ran — the
+      // collision case measured exactly that (a repo row's own output delivered with the
+      // add-only refusal, reading as "the repo's guard ran").
+      const parsed = resolvedLocal.text === null ? null : registryLib.parseLocalRegistryText(resolvedLocal.text);
+      // ADD-ONLY (typed, loud): a local row naming a hook the template registry dispatches
+      // for this event is refused WHOLE — never ignored, never shadowed. `eligible` is
+      // passed so a template row THIS TREE does not run (absent file, or loom_only outside
+      // loom) shadows nothing: an ineligible loom row must not block the repo's own row of
+      // that name (the eligibility-before-de-dup rule above).
+      if (parsed) registryLib.assertAddOnly(parsed, reg, { isLive: eligible });
+      // The session's pin is taken only over ACCEPTED text: pinning a text this loader
+      // refuses would freeze the fault — the operator repairs the file, and the pinned
+      // (broken) copy keeps being served for the rest of the session.
+      if (resolvedLocal.pinPending) {
+        const c = registryLib.commitLocalRegistryPin(resolvedLocal.pinPending);
+        if (!c.ok) {
+          localPinNotices.push(`[dispatch] ${registryLib.localPinWriteNotice(resolvedLocal.pinPending.pinPath, c.problem)}\n`);
+        }
+      }
+      // Rows for an event this tree's registry does not dispatch can never run: named,
+      // with the event, rather than dropped in `withLocal`'s silence.
+      if (parsed) {
+        for (const e of Object.keys(parsed.events).filter((x) => !reg.events[x])) {
+          const rows = parsed.events[e].groups.flatMap((g) => g.hooks.map((h) => registryLib.hookBasename(h.command))).filter(Boolean);
+          localSelNotes.push(
+            `[dispatch] .claude/${registryLib.LOCAL_REGISTRY_BASENAME} declares ${rows.length} row(s) for ${e} (${rows.join(", ")}), ` +
+              `but .claude/hooks/dispatch-registry.json does not dispatch ${e} in this tree — those rows CANNOT run.\n`,
+          );
+        }
+      }
+      local = parsed;
     } catch (err) {
       localFault = err;
     }
     const localRows = local ? buildLocalRows(local) : [];
     let lr = null;
+    // § THE ROW'S SCOPE — AND WHY SOME ROWS CANNOT RUN IN-PROCESS AT ALL.
+    // A worker thread shares THIS process's cwd and cannot change it (`process.chdir` is
+    // ERR_WORKER_UNSUPPORTED_OPERATION — MEASURED), and neither `spawn`'s default cwd nor
+    // fs relative resolution follows a patched `process.cwd` (also MEASURED: both use the
+    // REAL cwd). So an in-process row sees THIS process's directory, while its standalone
+    // launch would have seen the SESSION's — the payload's `cwd`. MEASURED on the pinned
+    // corpora, that difference is a DENY→ALLOW fail-open: three kailash-py guards refuse
+    // standalone in a non-git cwd ("main checkout unidentifiable") and ALLOWED under the
+    // adapted path, because the dispatcher's tree IS a git repo and answered their check.
+    // The faithful rule is therefore: an in-process row is allowed ONLY when the two
+    // directories are the same. A mismatch does not run the row with the wrong scope — it
+    // DEMOTES it to the process path, where the supervisor spawns it with the payload's
+    // cwd (local-supervisor.js § THE DETECTOR'S SCOPE IS THE PAYLOAD'S), which is exactly
+    // what a host launch did. Named loudly: a demotion is a disposition, never a silent
+    // downgrade.
+    // `require("fs")` per call, as this file does everywhere else — it has no top-level
+    // fs binding, and a bare `fs` here throws inside the catch (MEASURED: the helper
+    // returned null for BOTH directories, which read as "the scopes match" and silently
+    // disabled the whole check — the swallowed-ReferenceError class this lane keeps
+    // meeting). A null from a directory that cannot be resolved is now REPORTED, never
+    // treated as agreement.
+    const canonicalDir = (p) => {
+      try {
+        return require("fs").realpathSync(p);
+      } catch {
+        return null;
+      }
+    };
+    const payloadCwd =
+      payload && typeof payload.cwd === "string" && payload.cwd && path.isAbsolute(payload.cwd) ? canonicalDir(payload.cwd) : null;
+    const processCwd = canonicalDir(process.cwd());
+    const inProcScopeOk = payloadCwd === null || processCwd === null || payloadCwd === processCwd;
+    // § REPEAT-CRASH DEMOTION (lib/pool-crash-ledger.js). A repo row that has repeatedly
+    // ended the pool is run as its own process from now on — the standalone-process path it
+    // would have had before the adapter — and the demotion is recorded (a durable ledger
+    // plus an audit line) and SAID here, once per event, never silently. It changes WHERE
+    // the row runs, never what it decides: the same input yields the same verdict on either
+    // side of the boundary (pinned by a fixture).
+    const ledger = (() => {
+      try {
+        return require(path.join(HOOKS_DIR, "lib", "pool-crash-ledger.js"));
+      } catch {
+        return null;
+      }
+    })();
+    const repoRoot = path.resolve(HOOKS_DIR, "..", "..");
+    const demotedRows = [];
+    if (ledger) {
+      for (const r of localRows) {
+        if (r.mode !== "legacy") continue;
+        try {
+          if (ledger.isDemoted(repoRoot, r.hook)) {
+            r.mode = "process";
+            demotedRows.push(r.hook);
+          }
+        } catch {}
+      }
+      if (demotedRows.length) {
+        localSelNotes.push(
+          `[dispatch] ${demotedRows.join(", ")}: run as its own PROCESS — this row repeatedly ended the repo pool and has been demoted ` +
+            `(recorded in .claude/learning/repo-pool-faults.json; see \`node .claude/hooks/lib/pool-crash-ledger.js --status\`). ` +
+            "The verdict is unchanged.\n",
+        );
+      }
+    }
+    // The event's repo-owned outcomes, ONE list whatever ran them: a `mode:"legacy"`
+    // row runs in this process's own workers, everything else under the supervisor
+    // outside the process tree, and the two sets are folded here so every downstream
+    // treatment (budget-cut accounting, the merged reply's order, the notes) is
+    // identical and each outcome appears EXACTLY ONCE. `legacyOut` is the in-process
+    // half only, and is read once, by the ordering merge below.
+    // The rows the plan SELECTED, whichever branch planned them: the pool-death marking
+    // below needs the planned set, not the reported one (a row the pool never reported has
+    // no outcome of its own to be found by).
+    let chosenRows = [];
+    let localOutcomes = [];
     if (localRows.some((r) => r.match === null)) {
-      lr = await runLocalSupervised({ select: { event, value: matchValue, rows: localRows } }, raw, t0 + deadlineMs, hostDeadlineAt);
-      if (lr.plan) localSelNotes.push(...planNotes(lr.plan));
+      lr = await runLocalSupervised({ select: { event, value: matchValue, rows: localRows }, cwd: payloadCwd }, raw, t0 + deadlineMs, hostDeadlineAt);
+      if (lr.plan) {
+        localSelNotes.push(...planNotes(lr.plan));
+        // A regex matcher must be decided IN THE SUPERVISOR (a catastrophic-backtracking
+        // pattern on the dispatcher's thread would stall it past the host's kill, losing
+        // every verdict) — and the supervisor runs the rows it selects. So for THIS
+        // event the legacy rows keep their process disposition. Named, never silent:
+        // the alternative is a note that says a detector did not run, which would claim
+        // something false.
+        const held = lr.plan.run.map((k) => localRows[k]).filter((r) => r && r.mode === "legacy");
+        if (held.length) {
+          localSelNotes.push(
+            `[dispatch] ${held.map((r) => r.hook).join(", ")}: a mode:"legacy" row ran as its own PROCESS for this event — ` +
+              "the local registry's matchers need a regular expression here, so every local row was decided and run by the " +
+              "supervisor. The verdict is unchanged; only the process count is.\n",
+          );
+        }
+      }
+      chosenRows = lr && lr.plan ? lr.plan.run.map((k) => localRows[k]).filter(Boolean) : [];
+      localOutcomes = lr && Array.isArray(lr.outcomes) ? lr.outcomes.slice() : [];
     } else if (localRows.length) {
       const plan = registryLib.planLocalRows(localRows, localRows.map((r) => r.match));
       localSelNotes.push(...planNotes(plan));
-      if (plan.run.length) lr = await runLocalSupervised({ entries: plan.run.map((k) => localRows[k]) }, raw, t0 + deadlineMs, hostDeadlineAt);
+      const chosen = plan.run.map((k) => localRows[k]);
+      // § ONE POOL, ONE CHILD, EVERY REPO ROW. The whole selection goes to the pool
+      // (lib/local-supervisor.js), which runs the `mode:"legacy"` rows in worker threads of
+      // ITS OWN process and the rest as standalone processes — the two-pool split, where
+      // the dispatcher's process is the TEMPLATE pool and the pool child is the REPO pool.
+      // Running legacy rows HERE instead would put every template verdict the dispatcher
+      // already reached behind one repo row's abort/OOM, which no JS-level guard can stop.
+      if (chosen.length) lr = await runLocalSupervised({ entries: chosen, cwd: payloadCwd }, raw, t0 + deadlineMs, hostDeadlineAt);
+      chosenRows = chosen;
+      // The pool reports in registry order (it walks the entries it was given), so its
+      // outcome list IS the plan's order; anything it returned for a row the plan did not
+      // select is still reported, never dropped.
+      localOutcomes = lr && Array.isArray(lr.outcomes) ? lr.outcomes.slice() : [];
     }
-    if (lr) {
-      outcomes.push(...lr.outcomes);
-      supervisorFault = lr.fault || null;
+    // § THE FAULT IS RECORDED, AND A ROW THAT KEEPS CAUSING IT IS DEMOTED (see the ledger
+    // note above). Recorded for the rows this event actually ASKED the pool to run: a row
+    // the plan did not select cannot have ended it.
+    if (ledger && lr && lr.fault) {
+      try {
+        const rec = ledger.recordPoolFault(repoRoot, chosenRows.map((r) => r.hook));
+        if (rec.problem) localSelNotes.push(`[dispatch] ${rec.problem}\n`);
+        if (rec.demoted.length) {
+          localSelNotes.push(
+            `[dispatch] ${rec.demoted.join(", ")}: DEMOTED to its own PROCESS — it has ended the repo pool ${ledger.DEMOTE_AFTER} times in ` +
+              `${Math.round(ledger.WINDOW_MS / 60000)} minutes. Recorded in .claude/learning/repo-pool-faults.json (+ the .jsonl audit ` +
+              "trail); `node .claude/hooks/lib/pool-crash-ledger.js --status` shows it. It runs from the next event on.\n",
+          );
+        }
+      } catch (e) {
+        localSelNotes.push(`[dispatch] the crash ledger could not be updated (${(e && e.message) || e}); no row was demoted\n`);
+      }
+    }
+    // § A DEAD POOL IS A SET OF UNRUN ROWS, NOT A SILENCE. The pool is a child process, so
+    // it can end without reporting — an abort, an OOM, or a signal (none of which a
+    // JS-level guard can stop). Every row the plan SELECTED that the pool never reported
+    // gets an outcome saying so; a deny-capable one is then marked incomplete below and
+    // REFUSES at PreToolUse. The dispatcher's own (template) verdicts were reached before
+    // the pool was ever started and are untouched by its death.
+    // BUT A POOL THAT NEVER STARTED IS THE FAULT'S, NOT A SET OF UNRUN ROWS. When the pool
+    // could not be launched at all (its file missing or unreadable, a spawn failure) it
+    // reports NOTHING, and the disposition the repo already has for that is a
+    // LOCAL-REGISTRY fault WITH the repair hatch — the pool file is a repo-owned file an
+    // agent must be able to Read to repair it. Marking its rows unrun here instead would
+    // hand a default-deny row a hatchless refusal and take that affordance away. The
+    // per-row marking below is therefore for a pool that RAN and left rows unreported.
+    const poolNeverStarted = !!(lr && lr.fault && lr.launched !== true);
+    if (!poolNeverStarted) {
+      const reported = new Set(localOutcomes.map((o) => o && o.hook));
+      for (const r of chosenRows) {
+        if (reported.has(r.hook)) continue;
+        localOutcomes.push({
+          hook: r.hook,
+          status: "engine-fault",
+          exitCode: null,
+          stdout: "",
+          stderr:
+            `[dispatch] ${r.hook} did not run: the repo pool ended before it reported. A repo row that ends the pool takes its own ` +
+            "rows with it; the template pool's verdicts were already reached and stand.\n",
+        });
+      }
+    }
+    // THE SAME PER-ROW INCOMPLETE-EXECUTION CONTRACT TEMPLATE ROWS CARRY, applied to the
+    // SUPERVISED repo-owned rows. A repo row is spawned as its own process by the
+    // supervisor, so the engine never marks it; without this loop a deny-class repo row
+    // that crashed, overran its OWN budget or exited non-zero without a JSON reply
+    // contributed NOTHING and the call RAN — a repo deny that silently did not happen
+    // (H8's FIX 2 class). `onIncompleteOf` normalizes the declaration (only an exact
+    // "continue" reads advisory; absent or unrecognized is deny, fail-closed), and the
+    // marking uses the ENGINE's own predicate so the two halves cannot drift.
+    {
+      const denyClass = new Map(localRows.map((r) => [r.hook, r.onIncomplete === "deny"]));
+      // Over the WHOLE repo-owned set, not only the pool's reports: a row the pool never
+      // reported has no `incompleteDenyReason` shape (its status is the dispatcher's
+      // `engine-fault`), so its incompleteness is stated here directly — for a deny row
+      // that is the refusal, for a continue row the loud note the outcome already carries.
+      for (const o of localOutcomes) {
+        if (!o || denyClass.get(o.hook) !== true) continue;
+        o.denyRow = true;
+        const why = engine.incompleteDenyReason(o);
+        if (why) o.incompleteDeny = why;
+        else if (o.status === "engine-fault") o.incompleteDeny = "the repo pool ended before it reported";
+      }
+    }
+    // FAIL-CLOSED FOR INCOMPLETE DENY ROWS, repo-owned half. A LEGACY row declaring
+    // `on_incomplete:"deny"` is the same contract as a loom row's: it runs in this
+    // process's workers, the engine marks its crash / own-budget overrun / non-JSON
+    // non-zero exit at decision time (hook-engine.js::incompleteDenyReason), and at
+    // PreToolUse that mark REFUSES. Converted HERE rather than by the loom-side call
+    // above, which ran before these rows existed; the conversion is applied to a COPY
+    // so it cannot double-count a loom row that call already converted.
+    if (localOutcomes.some((o) => o && o.incompleteDeny)) {
+      const converted = localOutcomes.slice();
+      applyIncompleteDenyRefusals(converted);
+      localOutcomes = converted;
+    }
+    // AN ENGINE FAULT ON THE REPO-OWNED HALF IS REFUSED TOO. A worker that dies with
+    // NOTHING running is `engine-fault` — the engine's own words: "a detector the engine
+    // failed to run is not a detector that found nothing". The loom-side conversion above
+    // ran BEFORE these rows existed, so without this a repo row that could not run (or an
+    // in-process legacy row whose worker died) merged as silence — a pass. Same
+    // disposition as loom's: refused at PreToolUse with the repair hatch, loud elsewhere.
+    const localEngineFaults = localOutcomes.filter((o) => o && o.status === "engine-fault");
+    if (localEngineFaults.length) {
+      const fault = registryFaultReply(
+        new Error(
+          `the detector engine failed before running ${localEngineFaults.map((o) => o.hook).join(", ")}: ${String(localEngineFaults[0].stderr || "").trim()}`,
+        ),
+        payload,
+        registryLib.LOCAL_REGISTRY_BASENAME,
+      );
+      outcomes.push({ hook: "dispatch.js", status: "exit", exitCode: fault.exitCode === 2 ? 2 : 0, stdout: fault.exitCode === 2 ? fault.stdout : "", stderr: fault.exitCode === 2 ? fault.stderr : "" });
+      if (fault.exitCode !== 2) localSelNotes.push(fault.stderr.replace(/^\[dispatch\] /, ""));
+    }
+    if (localOutcomes.length) outcomes.push(...localOutcomes);
+    {
+      // A supervisor fault is the SUPERVISOR's: an in-process legacy row cannot produce
+      // one (the engine reports its own faults per row, above).
+      if (lr) supervisorFault = lr.fault || null;
       // BUDGET MODEL (round-3 M1): the dispatcher's timeout is sized from LOOM's rows
       // only; repo-owned detectors get what loom's run left of the event deadline. A
       // repo detector that could not start before that deadline (`skipped`), or was
@@ -1078,17 +1524,34 @@ async function main() {
       // PreToolUse (same repair hatch), a note elsewhere. A repo detector killed on
       // its OWN timeout keeps the host-kill disposition (contributes nothing, not a
       // refusal) — and is named in a note, as the host named a timed-out hook.
-      const cut = lr.outcomes.filter((o) => o.status === "skipped" || o.deadlineCut);
+      // Both runners' outcomes are counted here: an in-process legacy row starved by
+      // the EVENT deadline is the same "could not run" fact as a supervised one.
+      const cut = localOutcomes.filter((o) => o.status === "skipped" || o.deadlineCut);
       if (cut.length) {
         budgetFault = new Error(
           `the event's time budget ran out before this repo's own detectors could finish — ${cut
             .map((o) => `${o.hook} ${o.status === "skipped" ? "was not started" : "was killed at the event deadline"}`)
             .join("; ")} (the dispatcher's timeout for ${event} is sized from loom's detectors; repo-owned ones get only what remains)`,
         );
+        // THE DECLARATION TRAVELS HERE TOO (R2 M1, the same rule the loom side applies):
+        // a starved row that declared `on_incomplete:"deny"` is a guard that can REFUSE
+        // and could not run, so its refusal must NOT carry the repair hatch — otherwise
+        // hanging a repo-owned deny row past the event deadline buys a Read/Grep/Glob
+        // past it. MEASURED by the correctness review: identical fixtures, the local half
+        // exited 0 with the hatch open where the loom half refused with no hatch. The
+        // engine marks `denyRow` on every outcome of a deny row; before this lane the
+        // declaration was not even forwarded to a local row, so forwarding it is what
+        // makes reading it here necessary.
+        budgetFaultDenyStarved = cut.some((o) => o && o.denyRow === true);
       }
-      for (const o of lr.outcomes) {
+      // A repo detector killed on ITS OWN timeout: the host-kill disposition
+      // (contributes nothing), named in a note as the host named a timed-out hook.
+      // A legacy row's budget is the engine's own timer, so it carries no `budgetMs`.
+      for (const o of localOutcomes) {
         if (o.status === "timeout" && !o.deadlineCut) {
-          gateNotes.push(`[dispatch] repo-owned detector ${o.hook} exceeded its own timeout (${o.budgetMs} ms) and was killed; it contributed nothing\n`);
+          gateNotes.push(
+            `[dispatch] repo-owned detector ${o.hook} exceeded its own timeout${Number.isFinite(o.budgetMs) ? ` (${o.budgetMs} ms)` : ""} and was killed; it contributed nothing\n`,
+          );
         }
       }
     }
@@ -1116,6 +1579,7 @@ async function main() {
   const notices = [];
   if (pinNote) notices.push(pinNote);
   if (pinNotice && (pinNoticeEvery || event === "SessionStart")) notices.push(pinNotice);
+  notices.push(...localPinNotices);
   if (eligible.repoClass === "unreadable" && eligible.ranLoomOnlyUnreadable.length) {
     localNotes.push(
       `.claude/VERSION is unreadable, so this tree could not be told apart from loom; these loom_only detectors were RUN anyway (enforcement side): ${[...new Set(eligible.ranLoomOnlyUnreadable)].join(", ")}. Restore .claude/VERSION.\n`,
@@ -1123,7 +1587,10 @@ async function main() {
   }
   for (const lf of [localFault, supervisorFault, budgetFault]) {
     if (!lf) continue;
-    const fault = registryFaultReply(lf, payload, registryLib.LOCAL_REGISTRY_BASENAME);
+    const fault =
+      lf === budgetFault && budgetFaultDenyStarved
+        ? registryFaultReply(lf, payload, registryLib.LOCAL_REGISTRY_BASENAME, "starved", { hatch: false })
+        : registryFaultReply(lf, payload, registryLib.LOCAL_REGISTRY_BASENAME);
     outcomes.push({ hook: registryLib.LOCAL_REGISTRY_BASENAME, status: "exit", exitCode: fault.exitCode === 2 ? 2 : 0, stdout: fault.exitCode === 2 ? fault.stdout : "", stderr: fault.exitCode === 2 ? fault.stderr : "" });
     if (fault.exitCode !== 2) localNotes.push(fault.stderr.replace(/^\[dispatch\] /, ""));
   }
@@ -1214,4 +1681,4 @@ function start(opts = {}) {
   return completion;
 }
 
-module.exports = { main, start, registryFaultReply, lateFaultReply, askAsDeny };
+module.exports = { main, start, registryFaultReply, lateFaultReply, askAsDeny, runLocalSupervised };

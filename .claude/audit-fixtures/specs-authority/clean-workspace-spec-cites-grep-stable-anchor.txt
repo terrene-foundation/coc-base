@@ -51,4 +51,4 @@ Checking the anchor resolves against the tree as it stands, not as it stood:
 One definition, one export, no second match to make the locator ambiguous.
 
 Gates: markdownlint clean, the cross-reference check resolves every path in the new file,
-two consecutive clean adversarial rounds with both payloads read.
+one clean adversarial round with both payloads read and a stop (D237).

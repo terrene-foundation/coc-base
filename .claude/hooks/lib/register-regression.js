@@ -120,14 +120,14 @@ const DELIVERED_MIN_RANK = 2;
 /**
  * Default-ignorable and invisible code points, stripped before the enum lookup.
  *
- * MEASURED EVASION this closes: `"Signed­off"` (SOFT HYPHEN), `"Signed​off"`
+ * MEASURED EVASION this closes: `"Signed\u00ADoff"` (SOFT HYPHEN), `"Signed\u200Boff"`
  * (ZWSP) and `"Signed‑off"` (NON-BREAKING HYPHEN) each returned rank `null`,
  * because JS `\s` excludes all three and the hyphen class held only `-`, `–`, `—`.
  * A `null` rank means "outside the vocabulary", which the guard skips — so an
  * invisible character bought a silent pass through the ladder. NFKC folds the
  * fullwidth and compatibility forms in the same step.
  */
-const INVISIBLE_RX = /[­​-‏⁠-⁤﻿]/g;
+const INVISIBLE_RX = /[\u00AD\u200B-\u200F\u2060-\u2064\uFEFF]/g;
 const HYPHEN_CLASS_RX = /[\s_\-‐‑‒–—―−]+/g;
 
 function normStatus(s) {
@@ -626,7 +626,7 @@ function guardA(oldReg, newReg) {
 
     // A-5 · a status OUTSIDE the closed vocabulary is surfaced, never skipped.
     // It used to `continue` silently, which was step 1 of the invisible-character
-    // chain: park the row on `"Signed­off"` (rank null, silent), commit, then
+    // chain: park the row on `"Signed\u00ADoff"` (rank null, silent), commit, then
     // demote from a rank the guard can no longer read. The generator refuses such
     // a status at exit 2, so this arm does not BLOCK — it says so and moves on.
     //

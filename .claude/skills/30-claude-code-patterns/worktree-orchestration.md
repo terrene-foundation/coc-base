@@ -502,7 +502,7 @@ Agents MUST NOT attempt integration work: across LANES they cannot see each othe
 
 ## Reviewer Prompts — Mechanical AST/Grep Sweep
 
-**Rule:** `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep".
+**Rule:** `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical Sweeps".
 
 ### Failure mode evidence
 

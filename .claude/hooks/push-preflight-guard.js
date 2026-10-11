@@ -105,6 +105,20 @@
  * `git push` in the repo behind whatever GitHub is doing.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Empty fs_writes re-verified against the header's own NOTHING-is-written claim: it reads .github/workflows and the transcript tail, and lib/push-preflight.js is a pure classifier with no writers. spawns: the LOCAL git rev-parse ref probe (spawnSync, routed through lib/git-subprocess-env.js). Its two git reads also make the absence claim discriminating rather than a truthiness test. No network: a gh PR read is deliberately absent because an execFileSync cannot be preempted by this hook's own timer."
+ * }
+ */
+
 const path = require("node:path");
 const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");

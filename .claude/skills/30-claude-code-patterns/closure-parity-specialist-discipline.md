@@ -1,6 +1,6 @@
 # Closure-Parity Specialist Discipline
 
-Procedural depth for the `agents.md` MUST clause "Audit/Closure-Parity Verification Specialist Has Bash + Read". The core MUST requirement lives in `.claude/rules/agents.md`; this sub-file carries the BLOCKED-rationalization corpus, the delegation-time detection signals the orchestrator scans pre-launch, the BLOCKED auto-promotion patterns, and the multi-incident Origin evidence.
+Procedural depth for the `agents.md` MUST clause "Closure-Parity Audit Specialist Has Bash + Read". The core MUST requirement lives in `.claude/rules/agents.md`; this sub-file carries the BLOCKED-rationalization corpus, the delegation-time detection signals the orchestrator scans pre-launch, the BLOCKED auto-promotion patterns, and the multi-incident Origin evidence.
 
 ## Why this lives in a skill (not the rule)
 
@@ -70,11 +70,11 @@ This preserves the read-only specialist's tool-inventory guarantees (it cannot m
 
 ## Cross-references
 
-- `.claude/rules/agents.md` § "MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read" — load-bearing MUST clause
-- `.claude/rules/agents.md` § "MUST: Verify Specialist Tool Inventory Before Implementation Delegation" — sibling MUST clause this one extends from IMPLEMENTATION to AUDIT delegation
+- `.claude/rules/agents.md` § "MUST: Closure-Parity Audit Specialist Has Bash + Read" — load-bearing MUST clause
+- `.claude/rules/agents.md` § "MUST: Verify Specialist Tool Inventory Before Delegation" — sibling MUST clause this one extends from IMPLEMENTATION to AUDIT delegation
 - `.claude/skills/30-claude-code-patterns/specialist-delegation-syntax.md` Examples 4 + 5 — CLI-specific dispatch syntax for closure-parity verification + delegation-time scan
 - `.claude/skills/30-claude-code-patterns/worktree-orchestration.md` — parallel-pattern precedent for skill-extension of agents.md MUST clause depth
 
 ## Provenance
 
-Extracted from the `agents.md` MUST clause "Audit/Closure-Parity Verification Specialist Has Bash + Read" during the F20 (M9.3 rs lane completion) cycle on 2026-05-22. See `journal/0143-DECISION-m9-3-closure-partial-py-rb-shipped-rs-deferred-2026-05-22.md` § "Deferred shard: rs lane (value-anchored)" for the originating value-anchor. The extraction closes the rs lane Codex/Gemini emission headroom-floor gap (8.76%/8.80% → ≥10% after extraction); rule MUST clause stays load-bearing in agents.md, procedural depth lives here.
+Extracted from the `agents.md` MUST clause "Closure-Parity Audit Specialist Has Bash + Read" during the F20 (M9.3 rs lane completion) cycle on 2026-05-22. See `journal/0143-DECISION-m9-3-closure-partial-py-rb-shipped-rs-deferred-2026-05-22.md` § "Deferred shard: rs lane (value-anchored)" for the originating value-anchor. The extraction closes the rs lane Codex/Gemini emission headroom-floor gap (8.76%/8.80% → ≥10% after extraction); rule MUST clause stays load-bearing in agents.md, procedural depth lives here.

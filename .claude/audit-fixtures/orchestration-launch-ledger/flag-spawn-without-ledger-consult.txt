@@ -17,7 +17,7 @@ in the brief with the STEP-0 check comparing the resolved toplevel against `pwd 
 Not asking the harness for its own isolation; that nests under the repo and the
 guard refuses it.
 
-    git worktree add /Users/me/repos/.example-repo-wt/store-adapter-2 -b feat/store-y-2
+    git worktree add {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/store-adapter-2 -b feat/store-y-2
 
 Dispatched W2-store-b against it, then appended the row so the launch is recorded on
 disk rather than living in this transcript:

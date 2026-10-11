@@ -21,7 +21,7 @@ goes through the helper.
 
 There is exactly one plain handle in the diff and it reads no record:
 
-    with open("/Users/me/scratch/store-timing.log", "a") as f:
+    with open("{{FIXTURE_HOME_V1:MAC}}me/scratch/store-timing.log", "a") as f:
         f.write(f"{record_id} {elapsed_ms}\n")
 
 That is a throwaway timing line under my own scratch dir while I chase the hot

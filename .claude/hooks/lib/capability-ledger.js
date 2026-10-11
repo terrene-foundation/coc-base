@@ -46,7 +46,7 @@ const {
 const coordinationLog = require("./coordination-log.js");
 const foldCapabilityLedger = require("./fold-capability-ledger.js");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 // Re-export the record-type Set + the closed-set constants from the SSOT in
 // fold-capability-ledger.js (single source so emit + registration + fold
@@ -137,7 +137,12 @@ function _appendToLedger(repoDir, record) {
   // (repairing a pre-existing 0o644). The cap check above stays HERE, before signing, so an
   // oversized record is refused rather than truncated-after-sign.
   const p = resolveCapabilityLedgerPath(repoDir);
-  const w = appendSinkLine({ repoDir, sinkPath: p, line });
+  const w = appendSinkLine({
+    repoDir,
+    additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+    sinkPath: p,
+    line,
+  });
   if (!w.ok)
     return {
       ok: false,

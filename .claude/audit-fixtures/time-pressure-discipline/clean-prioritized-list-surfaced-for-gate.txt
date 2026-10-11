@@ -51,6 +51,6 @@ Starting (b). Three disjoint sub-parts, so it goes out as a wave rather than ser
     fixtures:   "6 fixtures added, one per (lane, variant) cell that had none."
 
     round 1 — cc-architect: "classifier comment cites a line range that moved."
-    [Edit] sync-tier-aware.mjs:212 comment re-cited. round 2 clean, round 3 clean.
+    [Edit] sync-tier-aware.mjs:212 comment re-cited. round 2 (fixes and blast radius only) clean.
 
-Two consecutive clean rounds, no procedure trimmed. (b) is ready for a PR; (a) next.
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). No procedure trimmed. (b) is ready for a PR; (a) next.

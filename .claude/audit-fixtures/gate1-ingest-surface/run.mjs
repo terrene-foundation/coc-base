@@ -33,6 +33,7 @@
  */
 
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -57,7 +58,7 @@ const SCANNER = path.join(REPO, ".claude", "bin", "scan-synced-disclosure.mjs");
 //     skip does not apply, and the RED pole keeps its real `[SHAPE:operator-home-path]`
 //     identity rather than going vacuous.
 //
-// MEASURED two-pole, not assumed: `/Users/jdoe/repos/kailash-py` at
+// MEASURED two-pole, not assumed: `<fixture-home-prefix>jdoe/repos/kailash-py` at
 // `.claude/rules/plain.md` exits 1 with one `[SHAPE:operator-home-path]` finding;
 // the identical string at `.claude/audit-fixtures/demo/run.mjs` exits 0 with
 // "Scanned: 1 files — 0 findings".
@@ -66,7 +67,7 @@ const SCANNER = path.join(REPO, ".claude", "bin", "scan-synced-disclosure.mjs");
 // either way, and a non-allowlisted one makes THIS FILE a disclosure finding. Do NOT
 // add a new name to SYNTHETIC_FIXTURE_USERS to make a scan go green; that is the #264
 // leak the scanner exists to prevent and it is BLOCKED.
-const TOKEN = "/Users/jdoe/repos/kailash-py";
+const TOKEN = materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}jdoe/repos/kailash-py");
 
 let failures = 0;
 const log = (s) => process.stdout.write(s + "\n");

@@ -107,10 +107,29 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: one local `git remote get-url origin` via lib/upflow-self-repo.js. Read-only: one stdin read, one `.claude/VERSION` read (lib/version-utils.js::readLocalVersion — the sibling bootstrap write in that module is NOT reachable from here), predicate in lib/triage-routing.js."
+ * }
+ */
+
 // Bounded timer per `cc-artifacts.md` Rule 7, deliberately under the registered
-// 8s timeout so this hook's OWN fallback fires first and emits a well-formed
-// passthrough. The only subprocess is a local `git remote get-url`.
-const TIMEOUT_MS = 6000;
+// This hook's OWN fallback fires first and emits a well-formed passthrough. The
+// only subprocess is a local `git remote get-url`. 20000, raised from 6000
+// (2026-10-09, Codex policy-timeout audit): the hook holds a Codex
+// `shell`/`unified_exec` policy entry with `can_deny`, and the Codex runtime
+// fails EVERY policy closed, so a load-induced timeout refuses the call; the
+// registered row moves with this constant (the +1s engine grace covers the
+// former internal<registered slack).
+const TIMEOUT_MS = 20000;
 let fallback = null;
 
 const path = require("node:path");

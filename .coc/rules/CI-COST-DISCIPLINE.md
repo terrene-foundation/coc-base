@@ -103,6 +103,8 @@ When a push would trigger CI and the self-hosted pool **that this repo's own wor
 
 **Saturation is ZERO idle in the REQUESTED pool.** Not "few idle", and not an org-wide count: an org-wide tally reads _capacity available_ off idle runners in a pool the job cannot use, which is silence on exactly the saturation this clause exists to catch (`instrument-discipline.md` MUST-4 — an instrument is scoped to the question it was BUILT for).
 
+**A hosted fleet has no pool to exhaust.** Where a repo's CI runs on GitHub-hosted runners — elastic and billed rather than pooled — this clause's pool-capacity half does not apply: there is no idle-runner supply for a push to exhaust, and the cost that replaces it is billed minutes rather than a wait. On a pooled fleet, that half IS the contract. (Folded 2026-10-07 from the py USE template's copy under the ratified Gate-1 intake, where the sentence was true of that repo and false of loom's.)
+
 **A grant is bounded or it is not a grant.** A session-level blanket MUST carry an expiry — explicit, or a bounded default — and MUST state a reason; an empty file is not a grant, an unparseable expiry fails CLOSED, and an expired one stops working. It clears the ASKING only: it authorizes no `runs-on` edit and no other spend.
 
 **A hosted switch carries a revert obligation, tracked.** Changing `runs-on` lands on the default branch unless reverted, silently moving every future run onto billed minutes. And a job pinned to a self-hosted pool may be pinned for a REASON — read the pin's comment before proposing the move.
@@ -123,7 +125,28 @@ Every session on a shared machine spends from one CPU pool, as every push spends
 
 **Why:** A load reproduction proves nothing a forced budget does not — both show the failure recurs when time runs short, and only the forced budget does it deterministically and for free. The load itself is paid by every other session on the machine, invisibly from inside the one generating it.
 
+### 8. A New PR-Reachable CI Job Is A DECLARED Act
+
+The clauses above govern how often a run is SPENT. This governs how much a run COSTS by construction. Any change that adds a job reachable from a `pull_request` trigger MUST declare it with exactly one disposition — **required** (it provides a branch-protection required context — it IS the gate), **relevance-gated** (a job-level `if:` or a trigger-level `paths:` filter keeps it off PRs it cannot bear on, and it provides no required context), or **budgeted** (neither of the above, but explicitly accepted, with a DATED rationale). Adding a job is legitimate; adding one silently is BLOCKED. Widening matrix fan-out is the same act — the census counts demand, not job rows. `ci-job-budget.md` owns the declaration surface and the fuller budget contract this clause states at authoring time.
+
+```text
+# DO — the job lands together with its disposition
+jobs.lint added  +  a declaration entry {disposition: relevance-gated, rationale: "..."}
+# DO NOT — the job lands alone, and nothing anywhere says the footprint grew
+jobs.lint added  →  every future PR silently pays it
+```
+
+**BLOCKED rationalizations:** "it is one small job" (every accreted job was one small job) · "it only runs on PRs that touch X" (then it is relevance-gated; declare it as that) · "the declaration is bureaucracy" (it is the only artifact that makes the footprint legible) · "I will declare it once the job stabilizes" · "GitHub-hosted runners are elastic, so there is no ceiling to hit" · "the audit passed" (the audit checks DECLARATION completeness; it cannot tell you a declared job is worth its cost — that judgment is yours, and the declaration is where it goes).
+
+**Why:** CI footprints grow one unremarkable job at a time, and nothing in the loop says anything at the moment each is added — which is precisely when the decision is cheapest to make and cheapest to reverse. Enforced by `.claude/bin/ci-job-budget-audit.mjs` (the census engine; its `--selftest` is the negative control) and surfaced at edit time by `.claude/hooks/ci-job-budget-guard.js` (advisory).
+
+**Scope, stated rather than assumed.** This is a METER, not a cure: it measures and names the per-PR footprint, it does not reduce it. The pool-capacity half of the contract is `ci-job-budget.md`'s MUST-3/MUST-4.
+
 ## MUST NOT
+
+- Add a PR-reachable job, or widen a matrix, without a declared disposition in the job budget
+
+**Why:** an undeclared job is paid by every future PR while no artifact records that anyone chose it.
 
 - Fold a wave onto one branch without having measured BOTH preconditions in THIS repo
 
@@ -209,6 +232,20 @@ Applies to **MUST-7** ONLY (added 2026-09-12, co-owner-directed origination, rec
 - **Violation scope:** MUST-7 ONLY (clause-scoped) — synthetic CPU load generated on a shared machine for any purpose; a heavy run started while the load average exceeded the core count; a duplicate pre-run of a gate that must run again anyway. Every `violations.jsonl` row names the command or pid and which half fired. MUST-1..6 keep their scope under the blocks above.
 - **Origin:** See § Origin (MUST-7).
 
+## Trust Posture Wiring — MUST-8 (job budget / accretion axis)
+
+Applies to **MUST-8** ONLY — ported into this rule 2026-10-06 by the P17 Gate-1 intake, the operator-ratified CLAUSE-MERGE of the py USE template's `ci-cost-discipline.md` MUST-6 (the census clause); the clause's own origin is loom#1877, adapted template-side 2026-08-21. MUST-1..7 keep the blocks above — the clause-scoped precedent `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge set.
+
+- **Severity:** `block` at the CI layer WHEREVER the census audit is invoked — `.claude/bin/ci-job-budget-audit.mjs` exits non-zero on an undeclared PR-reachable job, a structural fact read from parsed workflow YAML and a parsed declaration, the narrow class `hook-output-discipline.md` MUST-2 reserves `block` for. **MEASURED at loom 2026-10-06: no workflow under `.github/` invokes it** (a search for the `job-budget` token under `.github/` returns nothing, against a control finding the same token in this rule's registered probe suites), so at loom the `block` half is armed but NOT dispatched, and the live layers here are `halt-and-report` at gate-review (reviewer at `/implement` + cc-architect at `/codify` confirm a workflow diff that adds a job carries the matching disposition) and `advisory` at the hook layer — `.claude/hooks/ci-job-budget-guard.js` emits `continue: true` unconditionally, because adding a job is legitimate and the hook's job is to name it at edit time, never to refuse the edit.
+- **Grace period:** 7 days from this clause's placement in THIS rule (2026-10-06 → 2026-10-13); the underlying obligation has been in force at loom since 2026-08-21 via `ci-job-budget.md`, whose own grace long elapsed.
+- **Cumulative posture impact:** same-class violations (a PR-reachable job added with no declared disposition; a matrix widened without re-declaring; a `budgeted` row carrying no dated rationale; a declaration row left behind for a job that no longer exists) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause key. Named deviation per `trust-posture.md` Rule 8, with this clause's own reason rather than the rule-wide one: the census gate refuses the violating state structurally wherever it runs, so the residual at loom is review-layer judgment over a workflow diff.
+- **Receipt requirement:** SessionStart soft-gate `[ack: ci-cost-discipline]` IFF `posture.json::pending_verification` includes the `ci-cost-discipline` rule_id (shared rule_id; one ack covers MUST-1..8).
+- **Detection mechanism:** structural + review. The authority is `.claude/bin/ci-job-budget-audit.mjs` (generic engine — deployment values read from its declaration; exit 0 = VALID, 1 = findings, 2 = could not run, an explicit UNKNOWN that is never green), whose `--selftest` is the negative control this clause's family requires. The edit-time layer is `.claude/hooks/ci-job-budget-guard.js` (`PostToolUse` `Edit|Write|NotebookEdit`, advisory; its engine-absent path is LOUD rather than silent). Fixtures `.claude/audit-fixtures/ci-job-budget-guard/`; the fuller binding — probe suites, registries, consumer distribution — is `ci-job-budget.md`'s Trust Posture Wiring and is cited there rather than duplicated here. **Owed, stated rather than implied: (a)** no `.github/` workflow invokes the audit at loom (measured above), so the CI-layer `block` is armed but undispatched; **(b)** this clause carries NO probe pair yet — the registered `ci-cost-discipline.probes.json` suite covers MUST-1..7 — so a MUST-8 covering pair, or a DATED `deferred` row in the clause-coverage baseline, is OWED: `check-clause-coverage.mjs` reds R1 on MUST-8 until one lands.
+- **Invoker class:** `runtime` AND `agent-mid-procedure`. `runtime` is backed by `.claude/hooks/ci-job-budget-guard.js` (advisory, `PostToolUse` — it names an undeclared job at edit time with no command typed). Gate-review per § Severity is the `agent-mid-procedure` half; at the `platform` role the `/implement`+`/codify` review pair is REACHABLE-BUT-UNINVOKABLE, the same verdict this file's other blocks record, so the block does NOT discharge.
+- **Violation scope:** MUST-8 ONLY (clause-scoped) — an undeclared PR-reachable job, an undeclared matrix widening, an unjustified `budgeted` row, or a stale declaration row. Every `violations.jsonl` row names the workflow, the job, and which of the four applies.
+- **Origin:** 2026-10-06 — ported into this rule by the P17 Gate-1 intake as the operator-ratified clause-merge of the py USE template's `ci-cost-discipline.md` MUST-6, under the ratification "Ratify all as proposed". The clause itself originated at loom#1877 (BUILD stream, adapted from a BUILD sibling) and landed template-side 2026-08-21. **Deliberately NOT ported, and it stays template-side:** the template copy's scope sentence asserting that ITS repo runs on GitHub-hosted runners — elastic and billed rather than pooled, so the pool-capacity half was not adopted there. That sentence is true of that repo and false of loom's pooled fleet, where the capacity half IS the contract (`ci-job-budget.md` MUST-3/MUST-4).
+
 ## Distinct From / Cross-References
 
 - **Extends** `git.md` § "Pre-FIRST-Push CI Parity Discipline — SCOPED By Default" from the first push to every subsequent push on an open PR. That clause owns the per-language command sets AND the diff-scoped default; this one owns the obligation's reach.
@@ -217,6 +254,7 @@ Applies to **MUST-7** ONLY (added 2026-09-12, co-owner-directed origination, rec
 - **Composes with** `agents.md` § Triad — parallelizing work is unaffected; what MUST-2 bounds is how many PRs the parallel wave lands as.
 - **Distinct from** `testing.md` § "Never Assert An UPPER Bound On Real Elapsed Time" — that governs how a timing assertion is WRITTEN; MUST-7 governs how a timing failure is REPRODUCED, and what the machine pays for it.
 - **Distinct from** `skills/30-claude-code-patterns/background-process-discipline.md` and `.claude/hooks/orphan-forest-guard.js` — those govern whether a launched process is REAPED; MUST-7 governs whether the load is launched at all, so a self-terminating burner is still BLOCKED.
+- **Composes with** `ci-job-budget.md` — that rule owns the budget CONTRACT (the three-state disposition, the pool ratchet, capacity provenance, the census audit); MUST-8 here is the same obligation stated where a job is AUTHORED, in the rule about what a run costs. Where the two overlap, that rule is the fuller account.
 
 ## Origin
 

@@ -283,7 +283,31 @@ function buildValidationBody({
   // through to the same advisory head an unrecognized severity already got, so
   // the rendered bytes are identical to pre-fix. That is measured across the
   // full 7-event × 6-severity matrix in ci-cost-reach.test.mjs, not reasoned.
-  const isPreAction = severity === "pre-action" && hookEvent === "PreToolUse";
+  // loom GAPS-v4 REVIEW item 1 — the fate gate is EVENT ∧ SEVERITY
+  // (2026-10-06). The v3 revision gated on the EVENT ALONE, so at PreToolUse
+  // EVERY non-block severity — `advisory` and `post-mortem` included — printed
+  // "has NOT run yet. Read this, then decide." That over-reached in the
+  // direction no test in this file could see, and it was MEASURED red on a
+  // sibling surface: the stranded-artifacts fixture's pair15 contract reads the
+  // fate head as finding weight, so `pair15-unresolvable-target-is-weaker-than-
+  // a-finding` went 116p/1f against a 117p/0f base — an INDETERMINATE result
+  // was presenting with the same register as a real finding. The fate word is
+  // the HALT REGISTER's word; the weaker headings are deliberate and belong to
+  // their own severities at every event.
+  //
+  // WHAT THE v3 ROOT FIX GOT RIGHT, AND THIS KEEPS: at PreToolUse
+  // `halt-and-report` joins `pre-action` on the true head. That is the case the
+  // v3 change existed for — validate-bash-command's deferral merge collapses
+  // every mixed-severity group to `halt-and-report`, so `gh pr create` (PCF
+  // finding + CI-cost delivery) rendered the false ALREADY-RAN head on a call
+  // that had not run. The v4 gate still covers it: the collapsed group is
+  // `halt-and-report` at PreToolUse, which still reads "has NOT run yet".
+  // Every other cell (all six non-PreToolUse events; PreToolUse advisory,
+  // post-mortem and unknown severities) is byte-identical to the pre-v3
+  // renderer, which ci-cost-reach.test.mjs asserts per cell.
+  const isPreAction =
+    hookEvent === "PreToolUse" &&
+    (severity === "halt-and-report" || severity === "pre-action");
   // loom FINDING-F — the SAME lifecycle-gating the `pre-action` clause above
   // establishes, applied to the opposite end of the register. A STOP_LIKE event
   // CANNOT block a tool call: the branch below returns `{continue:true}` and exit
@@ -329,10 +353,17 @@ function buildValidationBody({
         ? // Kept verbatim: it is the one head that means "did not run", and
           // settings-deny-edit-guard.test.mjs pins this exact string.
           "STOP — Tool call blocked."
-        : severity === "halt-and-report"
-          ? "NOT BLOCKED — the action ALREADY RAN. Report it and wait."
-          : isPreAction
-            ? "NOT BLOCKED — the action has NOT run yet. Read this, then decide."
+        : isPreAction
+          ? // EVENT ∧ SEVERITY (2026-10-06, gaps-v4 review item 1 — the
+            // event-only revision this replaces over-reached; the gate's own
+            // comment above records the pair15 measurement). At PreToolUse the
+            // halt register — `halt-and-report`, and `pre-action` before it —
+            // reads the true fate; `advisory` and `post-mortem` fall through to
+            // their own weaker headings below, at every event, exactly as the
+            // pre-v3 renderer did.
+            "NOT BLOCKED — the action has NOT run yet. Read this, then decide."
+          : severity === "halt-and-report"
+            ? "NOT BLOCKED — the action ALREADY RAN. Report it and wait."
             : severity === "post-mortem"
               ? "POST-MORTEM — already happened; recorded for next session."
               : "ADVISORY — the action proceeded. Acknowledge in next message.";

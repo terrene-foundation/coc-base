@@ -1,6 +1,9 @@
 ---
 name: rules-reference
-description: "Path-scoped project rules index for Codex/Gemini (no path-glob loader): find which rule governs the file you are editing, then read the cited .claude/rules/<name>.md."
+description: "Path-scoped project rules index: find which rule governs the file you are editing, then read the cited .claude/rules/<name>.md."
+emission_cli: gemini
+emission_lang: base
+emission_profile: distribution
 ---
 
 # Rules Reference — Path-Scoped Project Rules (on-demand index)
@@ -9,9 +12,12 @@ description: "Path-scoped project rules index for Codex/Gemini (no path-glob loa
      (#408 AC#5-b). Source of truth: .claude/rules/*.md frontmatter.
      DO NOT edit by hand — regenerated on every emit. -->
 
-Claude Code auto-loads each rule below when you edit a file matching its
-`paths:` globs. **Codex and Gemini have no path-glob rule loader** — so this
-index IS your delivery channel. Find the rule(s) whose globs match the file or
+Claude Code loads rules using its native path scopes. Codex can inject matching
+canonical rule bodies for typed file operations through the installed, trusted
+native-policy hook and emitted rule catalog; shell-derived reads and hosted tools
+are outside that activation path (`.claude/hooks/lib/codex-rule-context.js:98-154`,
+`.claude/hooks/lib/codex-native-policy.js::evaluateNative`). Gemini and other operations
+use this on-demand index. Find the rule(s) whose globs match the file or
 domain you are working on, then **read the cited `.claude/rules/<name>.md`**
 (the canonical rule body, shared verbatim across all CLIs) before proceeding.
 A path-scoped rule you have not read is a rule you are not honoring.
@@ -27,7 +33,7 @@ A path-scoped rule you have not read is a rule you are not honoring.
 | Burndown Integrity — The Block Is Generated, And It Is The Only Quote | `**/workspaces/**`, `**/.session-notes*`, `**/.session-notes.d/**`, `journal/**`, `**/*REGISTER*`, `**/*BURNDOWN*`, `**/burndown/**` | `.claude/rules/burndown-integrity.md` |
 | Burndown Traceability — A Status With No Path Back Is Not A Status | `**/burndown/**`, `**/*BURNDOWN*`, `**/*REGISTER*`, `**/.session-notes.shared.md` | `.claude/rules/burndown-traceability.md` |
 | CI Cost Discipline — A Gate Run Is A Purchased Resource, And The Dominant Waste Is Re-Pushing | `**/todos/**`, `**/.wave-tracker*`, `**/.wave-tracker.d/**`, `**/.github/workflows/**` | `.claude/rules/ci-cost-discipline.md` |
-| CI Job Budget — A Per-PR Job Must Gate Something Or Be Declared | `.github/workflows/**`, `scripts/ci/**`, `.claude/hooks/ci-job-budget-guard.js` | `.claude/rules/ci-job-budget.md` |
+| CI Job Budget — A Per-PR Job Must Gate Something Or Be Declared, Never Silently Added | `.github/workflows/**`, `scripts/ci/**`, `.claude/hooks/ci-job-budget-guard.js`, `.claude/bin/ci-job-budget-audit.mjs`, `.github/job-budget.json`, `.github/scripts/job-budget-audit.py` | `.claude/rules/ci-job-budget.md` |
 | CI Runner Rules | `.github/workflows/**`, `**/ci/**`, `**/.github/**` | `.claude/rules/ci-runners.md` |
 | Command-Skill Parity — A Command And Its Paired Skill Move Together, Never Drift Or Orphan | `.claude/commands/**`, `.claude/skills/**` | `.claude/rules/command-skill-parity.md` |
 | Completion Criterion — Done Is A Stated List Reached, Never An Absence Of Findings | `**/todos/**`, `**/specs/**`, `**/briefs/**`, `**/.session-notes*`, `**/.session-notes.d/**` | `.claude/rules/completion-criterion.md` |

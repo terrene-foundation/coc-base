@@ -68,6 +68,20 @@
  * this lane has not measured it.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/load-authz/synthetic-load-allow"],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: one `git rev-parse --path-format=absolute --show-toplevel --git-common-dir` (via lib/event-git.js) on the block path, to find the MAIN checkout for receipt lookup. The write is a DELETE only: lib/override-receipt.js::consumeReceipt unlinks a non-empty one-shot receipt at `.claude/load-authz/synthetic-load-allow` in the invoking tree or a resolved root (the delete IS the one-shot property, so a second run finds nothing to remove). The write happens only when a block finding exists AND a receipt is present."
+ * }
+ */
+
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
@@ -108,17 +122,38 @@ function mainCheckoutRoots(cwd, env) {
   if (typeof e.CLAUDE_PROJECT_DIR === "string" && e.CLAUDE_PROJECT_DIR) roots.push(e.CLAUDE_PROJECT_DIR);
   try {
     const { resolveGitBinary, gitEnv } = require(path.join(__dirname, "lib", "git-subprocess-env.js"));
+    const { askOnce, eventGitKey } = require(path.join(__dirname, "lib", "event-git.js"));
+    // THE canonical common-dir question (git-cache-design-memo.md §3.2 / §5.1 D1):
+    // one argv for every asker, so event-git's question key shares one spawn per
+    // event. Output order follows argv — the common dir is the LAST line.
+    const CANONICAL = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
     const bin = resolveGitBinary();
     if (bin) {
-      const out = execFileSync(bin, ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-        cwd,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 1500,
-        killSignal: "SIGKILL",
-        env: gitEnv(),
-      });
-      const common = String(out || "").trim();
+      const probe = askOnce(
+        eventGitKey({ gitBin: bin, cwd, args: CANONICAL, envelope: "gitEnv" }),
+        () => {
+          try {
+            const out = execFileSync(bin, CANONICAL, {
+              cwd,
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+              timeout: 1500,
+              killSignal: "SIGKILL",
+              env: gitEnv(),
+            });
+            return { ok: true, value: String(out || "").trim() };
+          } catch (err) {
+            return { ok: false, reason: String((err && err.message) || err) };
+          }
+        },
+      );
+      const lines = probe.ok
+        ? String(probe.value || "")
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      const common = lines.length ? lines[lines.length - 1] : "";
       if (common && path.basename(common) === ".git") roots.push(path.dirname(common));
     }
   } catch {

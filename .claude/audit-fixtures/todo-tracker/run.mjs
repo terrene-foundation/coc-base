@@ -161,12 +161,20 @@ function enrol(d) {
   return d;
 }
 
+/**
+ * The LOGICAL event log — the tracked `burndown/events.jsonl`, then the gitignored
+ * pending stream the producer actually appends to — read through the library's own
+ * reader, so these cases observe what production folds.
+ */
+function logText(d) {
+  const r = events.readEventLog(d);
+  if (!r.ok) throw new Error(`readEventLog refused: ${r.error}: ${r.reason}`);
+  return r.text;
+}
+
 /** The event log the producer now writes, read back as parsed records. */
 function eventsIn(d) {
-  const p = path.join(d, "burndown", "events.jsonl");
-  if (!fs.existsSync(p)) return [];
-  return fs
-    .readFileSync(p, "utf8")
+  return logText(d)
     .split("\n")
     .filter((l) => l.trim())
     .map((l) => JSON.parse(l));
@@ -705,12 +713,29 @@ check("idempotence/three transitions append THREE events that FOLD to ONE row", 
     return `three transitions produced ${ids.size} distinct item_ids — the join key MOVED with status, and a duplicate id makes burndown-build.mjs::parseLedger REFUSE the whole tracker`;
   }
   const { foldEvents } = require(path.join(LIB, "burndown-events.js"));
-  const fold = foldEvents(fs.readFileSync(path.join(d, "burndown", "events.jsonl"), "utf8"));
+  const fold = foldEvents(logText(d));
   if (fold.rows.size !== 1) return `three events folded to ${fold.rows.size} rows, expected 1`;
   if (evs[2].status !== "todo:completed") return `the last event does not carry the final status: '${evs[2].status}'`;
   // LAST WRITE WINS in FILE ORDER — the ordering decision, asserted rather than assumed.
   const row = fold.rows.get([...ids][0]);
   if (row.line !== 3) return `the fold took line ${row.line}, not the LAST line — file order is not deciding the winner`;
+  return true;
+});
+
+// THE SINK, asserted at the FILE level rather than through the logical-log reader the
+// cases above use (which folds both files and so cannot tell them apart). A hook writing
+// the tracked `burndown/events.jsonl` dirties the checkout a `dev-preflight` receipt
+// binds to, so the producer appends to the gitignored pending stream only.
+check("sink/a landed event is in the PENDING stream and the tracked log is never written", () => {
+  const d = mkRepo({ enrolled: true });
+  runHook(d, todoPayload(NEW_TODO));
+  const pending = path.join(d, events.PENDING_REL);
+  if (!fs.existsSync(pending)) return `no ${events.PENDING_REL} — the event did not land where appends go`;
+  const lines = fs.readFileSync(pending, "utf8").split("\n").filter((l) => l.trim());
+  if (lines.length !== 1) return `expected 1 pending line, got ${lines.length}`;
+  if (fs.existsSync(path.join(d, events.EVENTS_REL))) {
+    return `the producer wrote the TRACKED ${events.EVENTS_REL}; a hook must never write a tracked file`;
+  }
   return true;
 });
 
@@ -775,11 +800,7 @@ check("mutation/always-halt — reaches the code AND vacuates the GREEN pole", (
 // the case would have gone permanently green while testing nothing.
 check("mutation/id-includes-status — reaches the code AND splits one item into two", () => {
   const { foldEvents } = require(path.join(LIB, "burndown-events.js"));
-  const foldedRows = (d) => {
-    const p = path.join(d, "burndown", "events.jsonl");
-    if (!fs.existsSync(p)) return 0;
-    return foldEvents(fs.readFileSync(p, "utf8")).rows.size;
-  };
+  const foldedRows = (d) => foldEvents(logText(d)).rows.size;
   const two = [
     todoPayload([{ content: "Land the todo tracker producer", status: "pending" }]),
     todoPayload([{ content: "Land the todo tracker producer", status: "completed" }]),
@@ -886,7 +907,7 @@ check("chain/the EVENT resolves LINK-2 and LINK-3 the way the gate reads them", 
   // The fold must produce `parseLedger`'s exact row shape, or the projection this
   // log exists to feed cannot be built from it.
   const { foldEvents } = require(path.join(LIB, "burndown-events.js"));
-  const row = foldEvents(fs.readFileSync(path.join(d, "burndown", "events.jsonl"), "utf8")).rows.get(e.item_id);
+  const row = foldEvents(logText(d)).rows.get(e.item_id);
   if (!row) return "the event does not fold back to its own item_id";
   for (const k of ["id", "anchorRaw", "item", "line"]) {
     if (!(k in row)) return `the folded row lacks '${k}' — it is not parseLedger's shape`;

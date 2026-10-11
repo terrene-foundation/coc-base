@@ -42,7 +42,9 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 const { spawnSync } = require("node:child_process");
+const { capabilityMetadata, classifyPolicyOutcome } = require("./policy-outcome");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -63,14 +65,13 @@ const HERE = __dirname;
 // __dirname via fs.realpath so HERE always points to the real directory,
 // not the symlink. Both layouts converge on COC_ROOT = `<root>/.claude/`.
 function resolveCocRoot(here) {
-  const loomDev = path.resolve(here, "..");
-  if (fs.existsSync(path.join(loomDev, "hooks"))) return loomDev;
-  const useTemplate = path.resolve(here, "..", ".claude");
-  if (fs.existsSync(path.join(useTemplate, "hooks"))) return useTemplate;
-  // Neither layout matches — fall back so HOOKS_DIR still points
-  // somewhere; the startup existence check (logged via self-check
-  // diagnostics, line ~305) will surface the failure loudly.
-  return loomDev;
+  // Select the declared delivery shape, not an arbitrary directory named
+  // hooks. Trestle has unrelated repo-root hooks; those must never shadow the
+  // delivered .claude/hooks. Node has already resolved __dirname's symlinks.
+  const parent = path.resolve(here, "..");
+  return path.basename(parent) === ".claude"
+    ? parent
+    : path.join(parent, ".claude");
 }
 const COC_ROOT = resolveCocRoot(HERE);
 const HOOKS_DIR = path.join(COC_ROOT, "hooks");
@@ -120,14 +121,8 @@ const CODEX_TO_CC_TOOL = Object.freeze({
   apply_patch: "Edit",
 });
 
-// Upper bound on per-target gate fan-out for a single apply_patch call. A
-// crafted patch with thousands of `*** Update File:` markers would otherwise
-// spawn (policies × targets) serial subprocesses. Beyond the cap the overflow
-// targets are NOT gated per-target; the call is forwarded with a surfaced
-// halt-and-report advisory (fail-direction = surface, never silent-allow) +
-// a `codex_mcp_guard_target_cap` breadcrumb (R2 security LOW-R2-2). Realistic
-// Codex patches touch tens of files; 256 is well above that and below any
-// spawn-storm threshold.
+// Bound policy subprocess fan-out; oversized requests must be split before retrying.
+// Overflow refusal: .claude/codex-mcp-guard/server.js:776-788.
 const MAX_GATE_TARGETS = 256;
 
 // ---------------------------------------------------------------------------
@@ -330,31 +325,46 @@ function logViolation(entry) {
 // ---------------------------------------------------------------------------
 // Hook subprocess invocation — exact CC PreToolUse contract
 // ---------------------------------------------------------------------------
-// Exit code semantics per .claude/hooks/*.js convention:
-//   0 = allow, 2 = block (deny). A clean non-zero non-2 exit splits (F-CGUARD-EXIT1):
-//   `warn` (advisory-forward) IF stdout carried a parseable decision — the Rule-7
-//   timeout-fallback advisory — else `crash` (fail-closed, a load-crash with no decision).
-// Synthesizes the CC-shaped stdin payload from MCP args. Each policy entry is a
-// separate process. A `warn` verdict (the hook RAN, returned a clean non-2 exit, AND
-// emitted a parseable decision) is advisory-forward. But a hook that could NOT be
-// evaluated — `timeout` (hung), `error` (spawn failure), `missing` (no source file for a
-// gated tool), or `crash` (node launched it, it threw / failed to load, and it exited
-// non-zero with NO parseable stdout decision) — FAILS CLOSED at evaluatePolicies (#411
-// compliance-bus posture): the guard denies rather than silently forward. This guard is a
-// security policy-ENFORCEMENT surface, NOT a session-continuation hook, so cc-artifacts.md
-// Rule 7's session-hook fail-open (don't wedge the session on a buggy hook) does
-// NOT apply to an un-evaluable enforcement verdict here.
+// Completed invocations return raw subprocess and parsed-record facts. Mechanical
+// failures retain their named status; consumers supply capability to the ONE
+// classifier (.claude/codex-mcp-guard/policy-outcome.js:44-68).
+function resolveHookFile(hookFile, hooksDir = HOOKS_DIR) {
+  if (typeof hookFile !== "string" || !hookFile || path.isAbsolute(hookFile)) {
+    throw new Error("hook source must be a nonempty relative path");
+  }
+  // Resolve BOTH sides so a symlink cannot escape a lexical containment check.
+  // This validates the selected target; it does not eliminate filesystem races.
+  const root = fs.realpathSync(hooksDir);
+  const candidate = fs.realpathSync(path.resolve(root, hookFile));
+  const relative = path.relative(root, candidate);
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error("hook source escapes the hooks directory");
+  }
+  if (!fs.statSync(candidate).isFile()) {
+    throw new Error("hook source is not a regular file");
+  }
+  fs.accessSync(candidate, fs.constants.R_OK);
+  return candidate;
+}
+
 function invokeHook({ hookFile, payload, timeoutMs = SUBPROCESS_TIMEOUT_MS }) {
-  const hookPath = path.join(HOOKS_DIR, hookFile);
-  if (!fs.existsSync(hookPath)) {
+  let hookPath;
+  try {
+    hookPath = resolveHookFile(hookFile);
+  } catch (error) {
     return {
       verdict: "missing",
       exitCode: -1,
       stdout: "",
-      stderr: `hook script not found: ${hookPath}`,
+      stderr: `hook script unavailable: ${hookFile}: ${error.message}`,
     };
   }
-  const r = spawnSync("node", [hookPath], {
+  const r = spawnSync(process.execPath, [hookPath], {
     input: JSON.stringify(payload),
     encoding: "utf8",
     timeout: timeoutMs,
@@ -392,75 +402,15 @@ function invokeHook({ hookFile, payload, timeoutMs = SUBPROCESS_TIMEOUT_MS }) {
   const stdout = r.stdout || "";
   const { validation, continueFlag, permissionDecision } =
     extractHookValidation(stdout);
-  let verdict;
-  let surfaceValidation = null;
-  if (code === 2 || continueFlag === false || permissionDecision === "deny") {
-    // exit 2 (the PreToolUse block contract) OR an explicit continue:false
-    // even at exit 0 OR the modern hookSpecificOutput.permissionDecision:"deny"
-    // (#820 R1 LOW-1 — a pure-modern-shape deny at exit 0 with no `continue`).
-    // A continue:false-with-exit-0 (or deny-at-exit-0) hook is contradictory;
-    // the guard honors the MORE-RESTRICTIVE block intent defensively rather than
-    // forwarding a tool the hook signaled to block. translateDeny re-parses
-    // stdout for the message.
-    verdict = "deny";
-  } else if (permissionDecision === "ask") {
-    // #820 follow-up (CGUARDask): the modern CC PreToolUse "ask" decision
-    // (hookSpecificOutput.permissionDecision:"ask" at exit 0, no continue:false)
-    // requests INTERACTIVE user confirmation before the tool proceeds. The Codex
-    // enforcement lane has no interactive confirm channel at the guard, so "ask"
-    // collapses to SURFACE — forward the tool BUT surface the reason — mirroring
-    // CC's non-auto-approve → human-visible prompt. Silent ALLOW (the pre-fix
-    // fall-through) drops the signal entirely: the Codex operator loses the
-    // advisory a CC user would be prompted with (the #442 cross-CLI parity class,
-    // #820 LOW-1's sibling on the "ask" verb). Hard-DENY would over-block — "ask"
-    // is explicitly NOT "deny" (a deny is caught by the branch above). The reason
-    // rides permissionDecisionReason, which extractHookValidation already folds
-    // into `validation`; surface it even when it carries no
-    // ACTIONABLE_VALIDATION_HEADS head (an ask reason is a free-form string, not a
-    // canonical halt-and-report body, so isActionableValidation would gate it out).
-    verdict = "surface";
-    surfaceValidation =
-      validation ||
-      'Hook requested user confirmation (permissionDecision:"ask"); ' +
-        "no interactive confirm on the Codex lane — policy request permitted, review before relying on it.";
-  } else if (code === 0) {
-    // Exit 0 is allow — BUT a HALT-AND-REPORT hook also exits 0 (it emits
-    // { continue:true, hookSpecificOutput:{validation} } per
-    // hook-output-discipline.md MUST-2; the lexical signal cannot carry block,
-    // so the server-side GitHub rejection is the structural defense).
-    // Distinguish the two by an ACTIONABLE validation head — NOT the mere
-    // presence of a validation field. instruct-and-wait.js emits an
-    // all-clear sentinel ("Validated" / "Not a deployment file") through the
-    // SAME { continue:true, hookSpecificOutput:{validation} } shape, so keying
-    // on presence alone would surface a spurious advisory on EVERY clean call.
-    // Only a genuine halt-and-report/advisory body (carrying an instructAndWait
-    // head) is "surface" (forward the tool BUT surface the message, mirroring
-    // CC's continue:true + surfaced-message); everything else is plain "allow".
-    if (isActionableValidation(validation)) {
-      verdict = "surface";
-      surfaceValidation = validation;
-    } else {
-      verdict = "allow";
-    }
-  } else {
-    // Clean non-zero non-2 exit (most commonly exit 1). F-CGUARD-EXIT1 (journal/0535):
-    // distinguish a DELIBERATE cc-artifacts.md Rule-7 timeout-fallback advisory (wrote a
-    // parseable {continue:true} to stdout THEN exited 1 — 45 real hooks do this) from a
-    // LOAD-CRASH (node launched the hook, it threw / failed to parse, exited non-zero
-    // having written NO parseable decision to stdout). The advisory is advisory-forward
-    // ("warn", byte-behavior-unchanged); the crash is UN-EVALUABLE on this enforcement
-    // surface and MUST fail closed (deny) — the same #411 posture the timeout/error/missing
-    // trio takes, matching the guard's own "crash fails closed" contract. extractHookValidation
-    // cannot tell them apart (a bare {continue:true} returns all-nulls, like a crash), so the
-    // discriminator keys on hasParseableHookDecision(stdout).
-    verdict = hasParseableHookDecision(stdout) ? "warn" : "crash";
-  }
   return {
-    verdict,
     exitCode: code,
     stdout,
     stderr: r.stderr || "",
-    validation: surfaceValidation,
+    validation,
+    continueFlag,
+    permissionDecision,
+    hasParseableDecision: hasParseableHookDecision(stdout),
+    actionableValidation: isActionableValidation(validation),
   };
 }
 
@@ -583,27 +533,8 @@ function extractHookValidation(hookStdout) {
   return { validation, continueFlag, permissionDecision };
 }
 
-// Crash-vs-advisory discriminator for a clean non-zero-non-2 hook exit (F-CGUARD-EXIT1,
-// journal/0535). A hook that DELIBERATELY exits non-zero as a cc-artifacts.md Rule-7
-// timeout-fallback advisory FIRST writes a canonical decision to stdout
-// (`{"continue":true}` — the shape 45 real hooks emit, e.g. posture-gate.js:44) and THEN
-// exits 1. A hook that node LAUNCHED but that CRASHED (uncaught throw / syntax / load
-// error) exits non-zero having written NO parseable decision to stdout (its stack trace
-// goes to stderr). This predicate returns true iff stdout carries an intentional decision:
-//   true  => honor as advisory-forward ("warn");
-//   false => a load-crash the enforcement lane MUST fail closed on (same #411 posture as
-//            the timeout/error/missing trio).
-// NOTE: extractHookValidation alone cannot discriminate — a bare `{"continue":true}` (no
-// validation body, `continue !== false`) returns all-nulls, identical to a crash that
-// emitted nothing — hence this dedicated presence check over the recognized decision keys.
-// The key-set is EXACTLY what the guard actually consumes downstream: `continue`
-// (extractHookValidation continueFlag + the code===2/continue:false deny branch),
-// `hookSpecificOutput` (permissionDecision deny/ask + validation/additionalContext), and
-// `systemMessage` (Stop-class advisory). A hook's TOP-LEVEL `decision` field is NOT read
-// anywhere in this guard, so it is deliberately EXCLUDED — recognizing a key the guard
-// cannot act on would let a `{"decision":...}`-then-crash read as an advisory instead of
-// failing closed (R1 security-reviewer, resolved by construction: fail-closed on any stdout
-// carrying no guard-consumable decision).
+// Raw recognized-record presence only; the contextual classifier owns its verdict
+// (.claude/codex-mcp-guard/policy-outcome.js:44-68).
 function hasParseableHookDecision(hookStdout) {
   const lines = (hookStdout || "")
     .split("\n")
@@ -639,7 +570,7 @@ function hasParseableHookDecision(hookStdout) {
 // head ("STOP — Tool call blocked.") is exit-2 → the deny path, never surface;
 // it is intentionally absent here. Coupling to instruct-and-wait.js is locked by
 // the force-push (surface) + clean (no-surface) assertions in test-server.mjs.
-// loom#1590 — these three MUST stay byte-identical to the non-block heads in
+// loom#1590 — these four MUST stay byte-identical to the non-block heads in
 // lib/instruct-and-wait.js::buildValidationBody. They were reworded there so an
 // agent can tell a DENIED call from one that ALREADY RAN without inspecting the
 // transport (both classes previously opened "STOP — "). Because the head is the
@@ -647,8 +578,21 @@ function hasParseableHookDecision(hookStdout) {
 // mislabel — every halt-and-report would fall through `isActionableValidation`
 // as a clean confirmation and be SILENTLY SWALLOWED on the Codex lane, which is
 // strictly worse than the annotation defect #1590 set out to fix.
+//
+// THE FATE HEAD (gaps-v4 item 1, 2026-10-06) — and it is the list's own hazard
+// made real. When `instruct-and-wait.js` began keying the fate head on the
+// EVENT (gaps-v3), every PreToolUse halt-and-report/pre-action finding rendered
+// "has NOT run yet" — which was NOT in this list, so the guard classified it as
+// a clean confirmation and swallowed it. MEASURED on this tree vs base
+// 4a402ac2e, driving this file's own `npm test`: base 1 failure, the lane bytes
+// 4, the three deltas all this cause — `flag-shell-force-push-main.json`
+// ("warning text missing 'force-push'"), its MCP parity row, and the
+// apply_patch multi-target posture fence (`posture-gate`'s halt never
+// surfaced). The fate head is a NON-BLOCK head and belongs here; the remaining
+// base failure (L3 composition) is pre-existing and NOT this class.
 const ACTIONABLE_VALIDATION_HEADS = Object.freeze([
-  "NOT BLOCKED — the action ALREADY RAN. Report it and wait.", // halt-and-report
+  "NOT BLOCKED — the action has NOT run yet. Read this, then decide.", // fate register @ PreToolUse (halt-and-report / pre-action)
+  "NOT BLOCKED — the action ALREADY RAN. Report it and wait.", // halt-and-report @ every other event
   "ADVISORY — the action proceeded. Acknowledge in next message.", // advisory
   "POST-MORTEM — already happened; recorded for next session.", // post-mortem (defensive; Stop-class)
 ]);
@@ -777,6 +721,42 @@ function synthesizePolicyInputs(tool, input) {
   return [{ command }];
 }
 
+function policyRegistrations() {
+  return require(path.join(HOOKS_DIR, "lib", "dispatch-registry.js"))
+    .readExpandedSettings(REPO_ROOT).hooks?.PreToolUse || [];
+}
+
+function policyCapability(hookFile, groups) {
+  try {
+    const { hookBasename } = require(path.join(HOOKS_DIR, "lib", "dispatch-registry.js"));
+    const declarations = (groups || policyRegistrations()).flatMap(group =>
+      (group.hooks || []).filter(hook => hookBasename(hook.command) === hookFile)
+        .map(hook => hook.on_incomplete));
+    const fd = fs.openSync(resolveHookFile(hookFile), fs.constants.O_RDONLY |
+      fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error("policy source is not a bounded ordinary file");
+      return capabilityMetadata(declarations, fs.readFileSync(fd, "utf8"));
+    } finally { fs.closeSync(fd); }
+  } catch (error) {
+    return { ...capabilityMetadata([], null), reason: error.message };
+  }
+}
+
+function toolCanDeny(tool) {
+  try {
+    const { matcherMatchesWithoutRegex } = require(path.join(HOOKS_DIR, "lib", "hook-engine.js"));
+    const { hookBasename } = require(path.join(HOOKS_DIR, "lib", "dispatch-registry.js"));
+    const groups = policyRegistrations();
+    const names = tool === "apply_patch" ? ["Edit", "Write"] : [CODEX_TO_CC_TOOL[tool] || tool];
+    const files = groups.filter(group => names.some(name => matcherMatchesWithoutRegex(group.matcher, name, "PreToolUse") !== false))
+      .flatMap(group => (group.hooks || []).map(hook => hookBasename(hook.command)));
+    if (!files.length || files.some(file => !file)) return true;
+    return files.some(file => policyCapability(file, groups).can_deny);
+  } catch { return true; }
+}
+
 // ---------------------------------------------------------------------------
 // Policy execution — the load-bearing function
 // ---------------------------------------------------------------------------
@@ -787,11 +767,11 @@ function synthesizePolicyInputs(tool, input) {
 function evaluatePolicies({ tool, input, session_id, cwd }) {
   const list = POLICIES[tool] || [];
   if (list.length === 0) {
-    // No policies for this tool — but POLICIES_POPULATED gate above
-    // guarantees at least one wrapped tool has policies. Empty per-
-    // tool array means "no enforcement on this specific tool"; the
-    // call forwards (allow). This matches CC behavior where a tool
-    // matcher with zero hooks does not block the call.
+    if (toolCanDeny(tool)) return {
+      allow: false, decisions: [],
+      mcpResponse: failClosedDeny({ hookFile: tool, verdict: "empty-policy-list",
+        stderr: "Deny-capable or unknown tool has no delivered policy entries." }),
+    };
     return { allow: true, warnings: [], decisions: [] };
   }
   // Present the CC-native tool name + tool_input shape to the CC hooks so
@@ -806,22 +786,20 @@ function evaluatePolicies({ tool, input, session_id, cwd }) {
   // to the Codex agent so it receives the same advisory a CC agent would —
   // closing the cross-cli-parity.md MUST-1 gap (#442).
   const warnings = [];
-  // Cap the per-target fan-out (R2 security LOW-R2-2). Overflow targets are
-  // NOT silently allowed: surface a halt-and-report advisory + log a breadcrumb.
-  let ccToolInputs = allInputs;
   if (allInputs.length > MAX_GATE_TARGETS) {
-    ccToolInputs = allInputs.slice(0, MAX_GATE_TARGETS);
-    warnings.push({
-      source_file: "codex-mcp-guard",
-      validation: `apply_patch touches ${allInputs.length} targets; only the first ${MAX_GATE_TARGETS} were gated per-target — review the remaining ${allInputs.length - MAX_GATE_TARGETS} manually.`,
-    });
     logViolation({
       kind: "codex_mcp_guard_target_cap",
       tool,
       target_count: allInputs.length,
       cap: MAX_GATE_TARGETS,
     });
+    return {
+      allow: false, decisions,
+      mcpResponse: failClosedDeny({ hookFile: tool, verdict: "target-cap",
+        stderr: `Request touches ${allInputs.length} targets; maximum ${MAX_GATE_TARGETS}. Split the request before retrying.` }),
+    };
   }
+  const ccToolInputs = allInputs;
   for (const policy of list) {
     // Run each policy against EVERY projected target; first-deny across all
     // (policy, target) pairs short-circuits the whole chain.
@@ -833,7 +811,9 @@ function evaluatePolicies({ tool, input, session_id, cwd }) {
         session_id: session_id || null,
         cwd: cwd || process.cwd(),
       };
-      const result = invokeHook({ hookFile: policy.source_file, payload });
+      const capability = policyCapability(policy.source_file);
+      const facts = invokeHook({ hookFile: policy.source_file, payload });
+      const result = classifyPolicyOutcome(facts, { canDeny: capability.can_deny });
       decisions.push({ source_file: policy.source_file, ...result });
       if (result.verdict === "deny") {
         const mcpResponse = translateDeny({
@@ -846,16 +826,13 @@ function evaluatePolicies({ tool, input, session_id, cwd }) {
           tool,
           source_file: policy.source_file,
           cwd: payload.cwd,
-          // Which projected target tripped the gate — the durable audit row
-          // is otherwise lossy on a multi-target patch (R2 security LOW-R2-3).
-          // A shell `command` may carry secret values, so slice it to 120 chars
-          // for parity with validate-bash-command.js's truncation discipline
-          // (R3 security LOW-R3-1); a file_path is not secret-bearing.
-          target:
-            ccToolInput.file_path ||
-            (typeof ccToolInput.command === "string"
-              ? ccToolInput.command.slice(0, 120)
-              : null),
+          target: ccToolInput.file_path || null,
+          command_sha256: typeof ccToolInput.command === "string"
+            ? createHash("sha256").update(ccToolInput.command, "utf8").digest("hex")
+            : undefined,
+          command_bytes: typeof ccToolInput.command === "string"
+            ? Buffer.byteLength(ccToolInput.command, "utf8")
+            : undefined,
         });
         return { allow: false, mcpResponse, decisions };
       }
@@ -877,11 +854,8 @@ function evaluatePolicies({ tool, input, session_id, cwd }) {
         continue;
       }
       if (result.verdict === "warn") {
-        // The hook RAN and returned a clean non-2, non-zero exit — an advisory
-        // deviation, NOT a guard failure. The hook successfully evaluated the
-        // policy and chose not to deny, so the call proceeds (advisory-forward).
-        // This is the only non-deny verdict that does NOT fail closed below: a
-        // ran-and-warned hook is distinct from a hook that could not be evaluated.
+        // Only a known advisory row reaches this branch; policy-outcome.js:44-68
+        // applies the registry/source capability union before this transport acts.
         logViolation({
           kind: "codex_mcp_guard_warn",
           tool,
@@ -890,28 +864,15 @@ function evaluatePolicies({ tool, input, session_id, cwd }) {
         });
         continue;
       }
-      // FAIL-CLOSED (#411 compliance-bus posture). A verdict of `timeout` (hook
-      // hung), `error` (hook failed to spawn), `missing` (the policy source file is
-      // absent for a tool the POLICIES_POPULATED gate says HAS policies), or `crash`
-      // (F-CGUARD-EXIT1: the hook node LAUNCHED then threw / failed to load, exiting
-      // non-zero with NO parseable stdout decision) means the guard COULD NOT EVALUATE
-      // the policy — it has no basis to allow. On a governance/compliance bus a guard
-      // that cannot evaluate MUST DENY, never silently forward (the #411 "fail-open on
-      // hook crash" gap: a crashed enforcement hook silently disabling Codex policy
-      // enforcement defeats the "the model cannot bypass" guarantee). This is DISTINCT
-      // from `cc-artifacts.md` Rule 7's session-hook fail-open: that governs a
-      // session-CONTINUATION hook (a buggy hook must not wedge the whole session,
-      // so its instructAndWait fallback emits {continue:true}); THIS is a security
-      // policy-ENFORCEMENT guard whose whole purpose is to gate the call. The `crash`
-      // discriminator (hasParseableHookDecision) is what lets that same Rule-7
-      // {continue:true}-then-exit-1 advisory be HONORED (verdict `warn`) while a
-      // decision-less load-crash fails closed here. First un-evaluable hook
-      // short-circuits the chain, same as a deny.
+      // Incomplete deny-capable checks and unconfirmed asks are refused by the
+      // shared classifier (.claude/codex-mcp-guard/policy-outcome.js:44-68).
       if (
         result.verdict === "timeout" ||
         result.verdict === "error" ||
         result.verdict === "missing" ||
-        result.verdict === "crash"
+        result.verdict === "crash" ||
+        result.verdict === "warn-denied" ||
+        result.verdict === "ask-denied"
       ) {
         logViolation({
           kind: "codex_mcp_guard_failclosed_" + result.verdict,
@@ -1077,7 +1038,7 @@ function runProvenanceCapture({ tool, input, session_id, cwd }) {
       session_id: session_id || null,
       cwd: cwd || process.cwd(),
     };
-    const r = invokeHook({ hookFile: CAPTURE_HOOK, payload });
+    const r = classifyPolicyOutcome(invokeHook({ hookFile: CAPTURE_HOOK, payload }), { canDeny: false });
     if (r.verdict !== "allow") {
       // The capture hook exits 0 on every path; a non-allow verdict means the
       // hook is missing/buggy/slow — log the degradation, never block the call.
@@ -1105,6 +1066,7 @@ function runProvenanceCapture({ tool, input, session_id, cwd }) {
 // ---------------------------------------------------------------------------
 function selfCheck() {
   const lines = [];
+  const invalidTargets = [];
   lines.push(`POLICIES_POPULATED=${POLICIES_POPULATED}`);
   lines.push(`POLICIES_SOURCE=${POLICIES_SOURCE || "(none)"}`);
   for (const t of WRAPPED_TOOLS) {
@@ -1112,13 +1074,22 @@ function selfCheck() {
     lines.push(
       `tool=${t} entries=${list.length} files=[${list.map((e) => e.source_file).join(",")}]`,
     );
+    for (const entry of list) {
+      try {
+        resolveHookFile(entry.source_file);
+      } catch (error) {
+        invalidTargets.push(`${t}:${entry.source_file}: ${error.message}`);
+      }
+    }
   }
   lines.push(
     `HOOKS_DIR=${HOOKS_DIR} hooks_dir_exists=${fs.existsSync(HOOKS_DIR)}`,
   );
   lines.push(`SUBPROCESS_TIMEOUT_MS=${SUBPROCESS_TIMEOUT_MS}`);
+  lines.push(`POLICY_TARGETS_VALID=${invalidTargets.length === 0}`);
+  for (const failure of invalidTargets) lines.push(`INVALID_POLICY_TARGET=${failure}`);
   process.stdout.write(lines.join("\n") + "\n");
-  process.exit(POLICIES_POPULATED ? 0 : 2);
+  process.exit(POLICIES_POPULATED && invalidTargets.length === 0 ? 0 : 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -1283,6 +1254,9 @@ module.exports = {
   SUBPROCESS_TIMEOUT_MS,
   evaluatePolicies,
   invokeHook,
+  classifyPolicyOutcome,
+  policyCapability,
+  toolCanDeny,
   translateDeny,
   ccHookSpecificOutput,
   extractHookValidation,
@@ -1303,4 +1277,6 @@ module.exports = {
   CODEX_TO_CC_TOOL,
   MAX_GATE_TARGETS,
   HOOKS_DIR,
+  resolveCocRoot,
+  resolveHookFile,
 };

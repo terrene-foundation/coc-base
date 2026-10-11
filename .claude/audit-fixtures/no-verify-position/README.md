@@ -3,13 +3,12 @@
 Regression lock for the `--no-verify` fence's **argv-position** predicate at
 `.claude/hooks/validate-bash-command.js`.
 
-Runner: `run.mjs` (34 cases). Registered `mode: run`, `min_cases: 34` in
-`.claude/test-harness/ci-audit-fixtures.json` by the landing orchestrator, whose
-floor note records its own run rather than this suite's authoring report. (An
-earlier revision of this line read "not yet registered", which was true when
-written and is now false.) The floor rises **with** the suite:
-`run-audit-fixtures.mjs:221` warns the anti-vacuity check goes INERT when a floor
-drops, so a stale-low floor silently stops covering the cases it names.
+Runner: `run.mjs`. Executed totals come from
+`.claude/audit-fixtures/no-verify-position/run.mjs:729-735`.
+The registered floor and dated producing-state receipt belong to the
+`no-verify-position` row in `.claude/test-harness/ci-audit-fixtures.json`,
+maintained by the landing orchestrator after its actual run. A past green is not
+current evidence when its input bytes have changed.
 
 ## What it locks
 
@@ -20,6 +19,82 @@ drops, so a stale-low floor silently stops covering the cases it names.
 | `NO_VERIFY_VALUE_FLAGS` (which flags eat the next word) | same file, module scope                   |
 | `parseGitInvocation`'s `argv` (tokens, not a string)    | `hooks/lib/git-command-parse.js`          |
 | the fence's PLACEMENT after the destructive-op lanes    | `hooks/validate-bash-command.js`          |
+
+## Parsed config and environment bypasses
+
+The hook reports parsed `core.hooksPath` overrides from separated/attached
+`-c` and `--config-env`, effective `HUSKY=0`, and indexed Git config
+environment overrides on commit, push and merge. Unresolved effective HUSKY,
+config keys or indexed environment metadata produce a distinct NOT RUN/UNKNOWN
+finding, retaining halt-and-report severity and `git.md § Discipline` by name
+(`.claude/hooks/validate-bash-command.js:2671-2694`;
+`.claude/hooks/lib/git-command-parse.js:3882-3929`). Substitutions are never
+executed to resolve these controls.
+
+Tokenizer expansion provenance and effective prefix operations remain private
+metadata; enumerable invocation fields retain their existing shape. Prefix
+metadata distinguishes real assignments from launcher command operands, records
+exec environment clearing and command lookup-only modes, and supports later
+literal overwrites or env clearing/unsetting
+(`.claude/hooks/lib/git-command-parse.js:1671-1709`, `:2187-2259`, `:3425-3435`).
+Shell prefix `+=` concatenates known prior values; explicit clearing/unsetting
+establishes known absence, while ambient or opaque prior values retain UNKNOWN.
+Env/sudo assignment operands do not acquire shell append semantics. Sudo setters
+require a known wrapper prefix position; ambiguous wrapper transitions retain
+UNKNOWN, while proven command/nice executable operands remain quiet. Exec flags
+are interpreted only before the value-taking `-a` operand boundary
+(`.claude/hooks/lib/git-command-parse.js:2101-2125`, `:2187-2259`, `:3882-3907`).
+Hook-surface mode retains group/stdin receiver handling, while ordinary parser
+callers retain their default mode
+(`.claude/hooks/lib/git-command-parse.js:621-641`, `:3931-3971`).
+
+Named firing/quiet controls cover unresolved states, literal discharges,
+launcher modes and indexed config environment inputs. Current mutation controls
+compile in-memory copies, prove each changed branch ran, and observe named
+assertion failures; they never replace tracked source
+(`.claude/audit-fixtures/no-verify-position/run.mjs:389-723`). The older
+in-place mutation account below is historical.
+
+Scope: deterministic decisions over parsed candidate commands, not live hook
+efficacy or full shell parity. Indexed config traversal is bounded; opaque
+controls, malformed COUNT, empty KEY and incomplete indexed inputs report UNKNOWN.
+This does not validate other raw config-key grammar. Ambient environment,
+persistent shell exports, additional hook-framework variable families and
+unknown producer output are outside this change
+(`.claude/hooks/lib/git-command-parse.js:585-620`, `:3909-3925`).
+
+## Cheap input freshness check
+
+Pass the exact producing source commit recorded in the registered receipt,
+not a newly chosen HEAD. This compares committed expected bytes with the four
+direct input files and emits CURRENT or STALE per file; errors emit NOT RUN.
+It does not certify transitive dependencies or native efficacy. The README
+contains no expected self-hash, avoiding a circular receipt.
+
+```bash
+check_no_verify_inputs() {
+  if [ "$#" -ne 1 ]; then echo "NOT RUN: producing commit argument required"; return 2; fi
+  local producer_commit="$1" probe_tmp expected_line current_line source_path
+  probe_tmp=$(mktemp -d) || { echo "NOT RUN: scratch allocation failed"; return 2; }
+  for source_path in .claude/hooks/validate-bash-command.js \
+      .claude/hooks/lib/git-command-parse.js \
+      .claude/audit-fixtures/no-verify-position/run.mjs \
+      .claude/audit-fixtures/no-verify-position/README.md; do
+    if ! git show "$producer_commit:$source_path" > "$probe_tmp/expected"; then
+      echo "NOT RUN: missing committed input $source_path"; return 2
+    fi
+    expected_line=$(shasum -a 256 "$probe_tmp/expected") || { echo "NOT RUN: expected input unreadable"; return 2; }
+    current_line=$(shasum -a 256 "$source_path") || { echo "NOT RUN: current input unreadable"; return 2; }
+    if [ "${expected_line%% *}" = "${current_line%% *}" ]; then
+      echo "CURRENT $source_path"
+    else
+      echo "STALE $source_path"
+    fi
+  done
+  rm "$probe_tmp/expected"
+  rmdir "$probe_tmp"
+}
+```
 
 ## The defect, as measured before the fix
 
@@ -105,7 +180,7 @@ consistent rather than opposed:
 An unresolvable **verb** is a third case entirely and is handled in
 `carriesNoVerifyFlag`, not by this set — see the `FC/*` poles.
 
-## The measured mutation run
+## The historical measured mutation run
 
 Run with a scratch harness (deliberately not named by path here — it is an
 untracked session artefact, and a README citing a path that does not ship is a

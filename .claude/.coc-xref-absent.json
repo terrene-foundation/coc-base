@@ -11,12 +11,6 @@
         ".claude/skills/16-validation-patterns/validate-workflow-structure.md"
       ]
     },
-    "../../skills/31-error-troubleshooting/SKILL.md": {
-      "why": "tier_not_subscribed",
-      "sources": [
-        ".claude/agents/implementation/build-fix.md"
-      ]
-    },
     "../01-core-sdk/SKILL.md": {
       "why": "tier_not_subscribed",
       "sources": [
@@ -573,12 +567,6 @@
       "why": "tier_not_subscribed",
       "sources": [
         ".claude/agents/gemini-architect.md"
-      ]
-    },
-    ".claude/skills/31-error-troubleshooting/": {
-      "why": "directory_not_shipped",
-      "sources": [
-        ".claude/agents/implementation/build-fix.md"
       ]
     },
     ".claude/skills/project/": {
@@ -1510,6 +1498,12 @@
         ".claude/skills/12-testing-strategies/gate-runner-economics.md",
         ".claude/skills/30-claude-code-patterns/ci-cost-discipline-evidence.md",
         ".claude/skills/32-trust-posture/wiring/autonomous-execution.md"
+      ]
+    },
+    "hooks/template-freshness-surface.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/sweep/SKILL.md"
       ]
     },
     "journal/0006-DECISION-wrapper-emission-disposition-strip.md": {

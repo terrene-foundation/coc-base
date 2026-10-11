@@ -36,7 +36,7 @@ is, so nothing new is introduced at the wiring layer.
       registration), testing-specialist (Tier 2 against the live model server, no mocking),
       reviewer (the agent-reference doc). Each brief inlines specs/kaizen/retrieval.md
       § Reranking, pins the absolute sibling worktree
-      /Users/someoperator/repos/.kailash-kaizen-wt/reranker with the STEP-0 resolved-toplevel
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kailash-kaizen-wt/reranker with the STEP-0 resolved-toplevel
       assertion, and asks for the result in its final message. Tool inventory checked
       before dispatch: tdd-implementer and testing-specialist both declare Edit and Bash;
       reviewer declares Read and Bash.
@@ -52,6 +52,6 @@ is, so nothing new is introduced at the wiring layer.
       round 1 — reviewer: "the k=40/k=8 constants are undocumented." security-reviewer
                 clean. analyst clean.
       [Edit] support_retrieval.py — constants named and documented at lines 44-47
-      round 2 — all three clean. round 3 — all three clean.
+      round 2 reviewed only the fix and its blast radius — all three clean.
 
-Two consecutive clean rounds, every payload read. Reranking is live on #1409.
+Round 2 reviewed only the fixes and their blast radius — clean, every payload read, and the review stopped there (D237). Reranking is live on #1409.

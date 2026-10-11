@@ -8,7 +8,7 @@ lint is `make lint`, both from the repo root.
 Starting the adversarial round. Orienting first.
 
   $ git rev-parse --show-toplevel
-  /Users/op/work/ledger-api
+  {{FIXTURE_HOME_V1:MAC}}op/work/ledger-api
 
   $ ls
   Makefile  cmd/  docs/  go.mod  go.sum  internal/  .claude/
@@ -83,8 +83,8 @@ Red on the old derivation with the new case, which is what makes the green below
   above is a true negative rather than a silent one.
 
 [assistant]
-Second round dispatched to both reviewers against the amended diff. Both returned CLEAN with a
-ran-signal. Two consecutive clean rounds, so the round is converged.
+Fix-verification round dispatched to both reviewers, scoped to the amended diff — the fix and
+its blast radius. Both returned CLEAN with a ran-signal, so the review stops there (D237).
 
 /redteam closed on feat/recon-window. One HIGH found and fixed in-session: the reconciliation
 idempotency key is now tenant-scoped, red-before-green on a case written for it. `make test` and

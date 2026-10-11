@@ -96,6 +96,68 @@ const SPAWN_BOUND = Object.freeze({
 });
 
 /**
+ * Temp-homedir ROOT selection — the gpg-agent socket must fit sun_path.
+ *
+ * gpg-agent binds unix sockets INSIDE the homedir (`S.gpg-agent`, plus
+ * `S.gpg-agent.extra` / `.ssh` / `.browser` when those are enabled), so the
+ * whole homedir path participates in AF_UNIX's sun_path limit. MEASURED
+ * (2026-10-07, the M3 CI red): with the CI runner's ambient tmpdir
+ * (`<home>/actions-runners/<runner>/_work/_temp/job-tmp.*`), the
+ * `coc-sign-gpg-vfy-*` homedir landed at ~104 chars and `gpg --import` exited 2,
+ * which fail-closes every verification into INVALID. The same band, measured by
+ * the probe fix: <=92 chars works; 96-102 fail `IPC connect call failed`; >=104
+ * `File name too long`. So pick the FIRST candidate root whose projected
+ * WORST-CASE socket path stays within budget — os.tmpdir() first (a no-op on
+ * every host where it already fits, i.e. the status quo wherever this worked),
+ * then /tmp, short on every POSIX host. Only if NO candidate fits (or every
+ * candidate fails to mkdtemp) does this fall back to the ambient root — legacy
+ * behavior rather than a new failure mode.
+ */
+const GPG_SOCKET_PATH_BUDGET = 92;
+const GPG_SOCKET_SUFFIX_MAX = 20; // "/S.gpg-agent.browser" — longest agent socket name
+
+function _createHomedir(prefix) {
+  const ambient = os.tmpdir();
+  const roots = ambient === "/tmp" ? [ambient] : [ambient, "/tmp"];
+  for (const root of roots) {
+    if (!root) continue;
+    const projected =
+      Buffer.byteLength(root) +
+      1 +
+      Buffer.byteLength(prefix) +
+      6 +
+      GPG_SOCKET_SUFFIX_MAX;
+    if (projected > GPG_SOCKET_PATH_BUDGET) continue;
+    try {
+      return fs.mkdtempSync(path.join(root, prefix));
+    } catch {
+      // unwritable or unavailable root — try the next candidate
+    }
+  }
+  // No budget-fitting candidate worked (each too long, or its mkdtemp failed).
+  // Fall back to the ambient root UNCONDITIONALLY: where it is too-long but
+  // writable this reproduces the legacy behaviour exactly, and where it is
+  // unwritable the throw is the same one the legacy code would have raised.
+  return fs.mkdtempSync(path.join(ambient, prefix));
+}
+
+/**
+ * Bounded stderr for a failure reason, HEAD AND TAIL. A head-only slice keeps the
+ * context (which homedir, which keybox) but can drop the fatal line — measured
+ * 2026-10-07: the M3 CI red's real error sat beyond the first 256 bytes, leaving
+ * the reason string byte-identical to a successful import's prefix. A tail-only
+ * slice drops the context instead, and gpg states the ACTIONABLE cause last
+ * (`agent_genkey failed: ...`) with the context first, so both halves are kept.
+ * (Same head+tail shape as the test-side gpg helper's boundedText.)
+ */
+function _boundedStderr(stderr, max = 256) {
+  const s = (stderr == null ? "" : String(stderr)).trim();
+  if (s.length <= max) return s;
+  const half = Math.floor((max - 24) / 2);
+  return `${s.slice(0, half)}…[${s.length - 2 * half} chars elided]…${s.slice(-half)}`;
+}
+
+/**
  * Did a spawn fail to produce a VERDICT at all?
  *
  * `spawnSync` reports a binary that could not be executed (ENOENT), a kill from
@@ -663,7 +725,7 @@ function _signSsh(content, keyPath) {
   // the armored signature to stdout when -O write-stdout is set, or to
   // <file>.sig otherwise. Use a temp file because ssh-keygen on macOS
   // does not accept stdin reliably across versions.
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-ssh-in-"));
+  const tmpDir = _createHomedir("coc-sign-ssh-in-");
   writeFoldPidFile(tmpDir); // #867 pid-liveness ownership marker
   const inFile = path.join(tmpDir, "payload");
   // M9.1 R3 Sec-R3-S-06 — owner-only mode on temp files. Defense-in-depth
@@ -689,7 +751,7 @@ function _signSsh(content, keyPath) {
         // LOW-6 (M0 security review): cap stderr substring to bound the
         // returned error reason. Unbounded stderr can carry arbitrary
         // user-controlled key paths / hostnames into log lines.
-        reason: `ssh-keygen exit ${r.status}: ${(r.stderr || "").trim().slice(0, 256)}`,
+        reason: `ssh-keygen exit ${r.status}: ${_boundedStderr(r.stderr)}`,
       };
     }
     const sigPath = `${inFile}.sig`;
@@ -744,7 +806,7 @@ function _verifySsh(content, sig, pubKey) {
   // then verify the signature was produced by THAT principal. If verify
   // exits non-zero the signature did not validate against the pubkey.
   const principal = "coc@signer";
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-ssh-vfy-"));
+  const tmpDir = _createHomedir("coc-sign-ssh-vfy-");
   writeFoldPidFile(tmpDir); // #867 pid-liveness ownership marker
   const inFile = path.join(tmpDir, "payload");
   const sigFile = path.join(tmpDir, "payload.sig");
@@ -792,7 +854,7 @@ function _verifySsh(content, sig, pubKey) {
     return {
       ok: true,
       valid: false,
-      reason: `ssh-keygen verify exit ${r.status}: ${(r.stderr || "").trim().slice(0, 256)}`,
+      reason: `ssh-keygen verify exit ${r.status}: ${_boundedStderr(r.stderr)}`,
     };
   } finally {
     try {
@@ -839,7 +901,7 @@ function _signGpg(content, keyId, gpgHome) {
     return {
       ok: false,
       error: "sign failed",
-      reason: `gpg exit ${r.status}: ${(r.stderr || Buffer.alloc(0)).toString().trim().slice(0, 256)}`,
+      reason: `gpg exit ${r.status}: ${_boundedStderr(r.stderr)}`,
     };
   }
   return { ok: true, sig: r.stdout.toString("utf8") };
@@ -1225,8 +1287,9 @@ function _ringStat(home) {
  *      optimization — would have every other signer reported as forged. So the
  *      caller must ASSERT the precondition (`keyringIsTrustSet`), not have it
  *      inferred from a path being present.
- *   2. THE KEYRING IS NO LONGER WHAT WE BUILT. A shared homedir lives under
- *      `os.tmpdir()`; if it is removed mid-fold (a reaper, a cleanup script, an
+ *   2. THE KEYRING IS NO LONGER WHAT WE BUILT. A shared homedir lives under a
+ *      temp root (`os.tmpdir()`, or `/tmp` when the ambient root is too long for
+ *      the agent socket); if it is removed mid-fold (a reaper, a cleanup script, an
  *      operator), gpg RECREATES it EMPTY on the next call and then reports every
  *      record's issuer absent — turning one filesystem event into a whole log
  *      accused of forgery. `fs.existsSync(home)` cannot see this, because gpg
@@ -1267,8 +1330,7 @@ function _verifyGpgViaSubprocess(
   keyringIsTrustSet,
 ) {
   // Build a transient keyring containing the supplied pubkey, then verify.
-  const home =
-    gpgHome || fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-gpg-vfy-"));
+  const home = gpgHome || _createHomedir("coc-sign-gpg-vfy-");
   const ownsHome = !gpgHome;
   if (ownsHome) {
     writeFoldPidFile(home); // #867 pid-liveness ownership marker
@@ -1296,7 +1358,7 @@ function _verifyGpgViaSubprocess(
         return {
           ok: false,
           error: "verify failed",
-          reason: `gpg --import exit ${r1.status}: ${(r1.stderr || "").trim().slice(0, 256)}`,
+          reason: `gpg --import exit ${r1.status}: ${_boundedStderr(r1.stderr)}`,
         };
       }
     }
@@ -1401,12 +1463,12 @@ function _verifyGpgViaSubprocess(
           ? `gpg --verify exit ${r.status}: the ISSUING KEY is absent from the caller-supplied keyring, ` +
             `which was built from the roster — so this record was signed by a key the roster does not ` +
             `carry, while naming a signer it does. That is a fact about the RECORD, not the verifier: ` +
-            `${(r.stderr || "").trim().slice(0, 256)}`
+            `${_boundedStderr(r.stderr)}`
           : isRecordVerdict
-            ? `gpg --verify exit ${r.status}: ${(r.stderr || "").trim().slice(0, 256)}`
+            ? `gpg --verify exit ${r.status}: ${_boundedStderr(r.stderr)}`
             : `gpg --verify exit ${r.status} with no BADSIG/NODATA status line and no issuer-absent ` +
               `status on a caller-supplied keyring, so gpg reached no verdict about this signature: ` +
-              `${(r.stderr || "").trim().slice(0, 256)}`,
+              `${_boundedStderr(r.stderr)}`,
       };
     }
     // Identity binding: when the caller names the expected signer key, the
@@ -1608,7 +1670,7 @@ function createVerifyHomedir(pubKeys) {
   }
   let home;
   try {
-    home = fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-gpg-fold-"));
+    home = _createHomedir("coc-sign-gpg-fold-");
   } catch (err) {
     return {
       ok: false,
@@ -1638,7 +1700,7 @@ function createVerifyHomedir(pubKeys) {
         ok: false,
         reason: _spawnDidNotRun(r)
           ? `gpg unavailable: ${_noVerdictReason(r)}`
-          : `gpg --import exit ${r.status}: ${(r.stderr || "").trim().slice(0, 256)}`,
+          : `gpg --import exit ${r.status}: ${_boundedStderr(r.stderr)}`,
       };
     }
   }
@@ -1792,7 +1854,21 @@ function verify(content, sig, pubKey, opts) {
   // A short `expectedFpr` is a BROKEN INPUT, not a bad signature: it is refused
   // with `ok:false` so `signed-log.js` classifies it INDETERMINATE and points
   // the operator at the roster, rather than at a signer who did nothing wrong.
-  if (o.expectedFpr !== undefined && o.expectedFpr !== null) {
+  //
+  // GPG-ONLY, its documented scope (the `expectedFpr` @param above): the floor
+  // gates the field the GPG path CONSUMES. An SSH record's fingerprint is
+  // SSH-SHAPED ("SHA256:<b64>"), which the hex-only normalizer collapses well
+  // under the floor — so an ssh-keyed caller that sets this field (the fold's
+  // genesis re-verify binds EVERY signer) had every verify refused with
+  // "invalid expected fingerprint" and NO signature checked. MEASURED
+  // 2026-10-08: genesis-materializer's trust-root fold refused every fetched
+  // chain until this was gated. The SSH path never reads `expectedFpr`, so a
+  // floor over it validated nothing.
+  if (
+    keyType === "gpg" &&
+    o.expectedFpr !== undefined &&
+    o.expectedFpr !== null
+  ) {
     const want = _normalizeExpectedFpr(o.expectedFpr);
     if (want.length < MIN_EXPECTED_FPR_CHARS) {
       return {

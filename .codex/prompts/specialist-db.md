@@ -119,3 +119,8 @@ Per delegation, emit a concise advisory:
 ## Origin
 
 2026-05-06 v2.21.0 base-variant Phase 1. Stack-agnostic counterpart to `dataflow-specialist`. Phase 2 will deepen per-stack ORM / pool / migration advice.
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Write, Edit, Bash, Grep, Glob. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Write: apply_patch or an explicitly permitted write command; Edit: apply_patch; Bash: exec_command and write_stdin; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command. These are role instructions, not a native tool permission boundary. Parent policy still applies.

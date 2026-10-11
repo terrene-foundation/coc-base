@@ -88,6 +88,20 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Header states WRITES NOTHING and it holds: one bounded stdin read plus one governed-surface file read; lib/kp-prefix.js is a pure parser and the finding surfaces as additionalContext on stdout — no sink, no subprocess, no network."
+ * }
+ */
+
 // Bounded timer per `cc-artifacts.md` Rule 7, deliberately under the registered
 // 5s timeout so this hook's OWN fallback fires first and emits a well-formed
 // passthrough. There is no subprocess; the only I/O is one file read.

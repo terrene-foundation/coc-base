@@ -153,6 +153,7 @@ const PCF_CAUSES = Object.freeze({
   BODY_TEXT_MISSING: "BODY_TEXT_MISSING",
   /** `--body-file` was present with an empty value */
   BODY_FILE_PATH_EMPTY: "BODY_FILE_PATH_EMPTY",
+  BODY_FILE_DIRECTORY_UNKNOWN: "BODY_FILE_DIRECTORY_UNKNOWN",
   /** the path resolves outside the root this hook resolves against */
   BODY_FILE_OUTSIDE_ROOT: "BODY_FILE_OUTSIDE_ROOT",
   /** the path is inside the root but its SYMLINK TARGET escapes it */
@@ -588,7 +589,7 @@ function canonicalizeThroughExistingAncestor(target) {
   const tail = [];
   for (let i = 0; i < 64; i++) {
     try {
-      const real = fs.realpathSync(cur);
+      const real = fs.realpathSync.native(cur);
       return tail.length ? path.join(real, ...tail) : real;
     } catch {
       const parent = path.dirname(cur);
@@ -740,7 +741,7 @@ function readBodyFileDiagnosed(filePath, repoRoot, command, opts = {}) {
 
   let root;
   try {
-    root = fs.realpathSync(repoRoot);
+    root = fs.realpathSync.native(repoRoot);
   } catch (err) {
     return fail(
       PCF_CAUSES.ROOT_UNRESOLVABLE,
@@ -748,38 +749,31 @@ function readBodyFileDiagnosed(filePath, repoRoot, command, opts = {}) {
     );
   }
 
-  // WHERE A RELATIVE `--body-file` IS RESOLVED FROM — the loom#1990 defect.
-  //
-  // `repoRoot` is the hook payload's `cwd`, which is the SESSION directory. In
-  // this repo's own workflow that is the MAIN CHECKOUT, while the command runs
-  // in a linked worktree it reaches with a `cd <wt> &&` prefix. Resolving the
-  // body file against the session directory therefore looked for it in a tree
-  // the command never enters: MEASURED, every `gh pr create --body-file <rel>`
-  // issued from a worktree reported NOT_VERIFIED / BODY_FILE_MISSING, which is
-  // essentially every PR opened here.
-  //
-  // The base is now the directory the command ACTUALLY runs in, tracked by the
-  // shared `resolveCdTrailDir` walk. When that walk cannot know the directory it
-  // returns `known: false` and this falls back to `root` — today's behaviour,
-  // hence today's NOT_VERIFIED. It never invents a root, and an unreadable body
-  // can never become a "categorized" pass by this route: the base only decides
-  // WHICH file is looked at, and every failure below still returns `text: null`.
+  // An unknown command directory cannot identify a relative body file. Preserve
+  // raw argument components until native resolution; cd-L normalization does
+  // not apply to file arguments. Source: .claude/hooks/lib/pcf-category.js:755-838.
   const trail =
     typeof opts.invocationDir === "string" && opts.invocationDir
       ? { dir: opts.invocationDir, known: true }
-      : resolveCdTrailDir(command, root, {
+      : resolveCdTrailDir(command, repoRoot, {
           stopWhen: (seg) => !!findGhSubcommand(seg, "pr", "create"),
         });
-  let base = root;
-  if (trail.known && trail.dir) {
-    try {
-      base = fs.realpathSync(trail.dir);
-    } catch {
-      base = root;
-    }
+  if (!trail.known || !trail.dir) {
+    return fail(
+      PCF_CAUSES.BODY_FILE_DIRECTORY_UNKNOWN,
+      "the command directory could not be resolved; the body file was not read",
+    );
   }
-
-  const target = path.resolve(base, filePath);
+  let base;
+  try {
+    base = fs.realpathSync.native(trail.dir);
+  } catch (err) {
+    return fail(
+      PCF_CAUSES.BODY_FILE_DIRECTORY_UNKNOWN,
+      "the command directory " + shortPath(trail.dir) + " could not be resolved (" + (err && err.code ? err.code : "UNKNOWN") + "); the body file was not read",
+    );
+  }
+  const target = path.isAbsolute(filePath) ? filePath : base + path.sep + filePath;
 
   // CONTAINMENT — widened from ONE root to the SESSION'S OWN REPOSITORY, and no
   // further. A body file authored in a linked worktree is not inside the main
@@ -806,7 +800,7 @@ function readBodyFileDiagnosed(filePath, repoRoot, command, opts = {}) {
 
   let candidate;
   try {
-    candidate = fs.realpathSync(target);
+    candidate = fs.realpathSync.native(target);
   } catch (err) {
     const code = err && err.code ? err.code : "UNKNOWN";
     // The path did not resolve. Was it even AIMED inside the root? Answer it on
@@ -1031,6 +1025,8 @@ function causeSentence(cause) {
   switch (cause) {
     case PCF_CAUSES.BODY_FILE_PATH_EMPTY:
       return "no path followed --body-file";
+    case PCF_CAUSES.BODY_FILE_DIRECTORY_UNKNOWN:
+      return "the command directory is UNKNOWN, so the body file was not read";
     case PCF_CAUSES.BODY_FILE_OUTSIDE_ROOT:
       return "the path is OUTSIDE the root this guard reads against";
     case PCF_CAUSES.BODY_FILE_ESCAPES_CONTAINMENT:
@@ -1106,6 +1102,8 @@ function formatCategoryRemediation(v) {
     "create is verifiable.";
 
   switch (v.cause) {
+    case PCF_CAUSES.BODY_FILE_DIRECTORY_UNKNOWN:
+      return head + " CAUSE-SPECIFIC FIX: use a supported literal command directory, then verify the body file there; an UNKNOWN directory cannot be replaced with the session root.";
     case PCF_CAUSES.BODY_FILE_OUTSIDE_ROOT:
       return `${head} CAUSE-SPECIFIC FIX: the body file is outside the root this guard resolves \`--body-file\` against (the detail above names both). Relative vs absolute is NOT the axis — the ROOT is; a file authored in a linked worktree is not inside the main checkout either way. Put the body file under the named root, or open the PR from the checkout that root belongs to.`;
     case PCF_CAUSES.BODY_FILE_ESCAPES_CONTAINMENT:

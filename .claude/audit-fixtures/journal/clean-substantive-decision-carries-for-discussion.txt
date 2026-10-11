@@ -23,7 +23,7 @@ wave actually turned on.
       | shard A posture-store reads       | yes | 4c11ade               |
       | shard B envelope write path       | yes | 91b2f70               |
       | shard C violations.jsonl rotation | yes | e07c3d9               |
-      Two consecutive clean redteam rounds, all payloads read. Nothing deferred.
+      The redteam round closed clean — every dispatched reviewer ran, all payloads read, nothing CRITICAL/HIGH — and the review stopped there (D237). Nothing deferred.
 
     [Write] journal/0252-<handle>-DECISION-posture-store-write-placement.md
       ---

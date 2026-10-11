@@ -9,6 +9,16 @@
  * (issue #584 AC-1). It wires lib/cross-ecosystem-disclosure-guard.js into the
  * canonical instruct-and-wait emit shape (hook-output-discipline.md MUST-1).
  *
+ * @coc-codex-edit-gate — canon↔fork disclosure-isolation pre-write guard. The
+ *   policy extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). Activation is unchanged and
+ *   CLI-identical: absent a declared target the entry point passes through
+ *   before any ecosystem-config load, and a declared target is read from the
+ *   SAME `COC_XECO_TARGET_ECOSYSTEM` env channel on both CLIs (the env is
+ *   inherited by the Codex policy subprocess exactly as by the CC hook). The
+ *   scannable surface travels on `COC_XECO_SCAN_CONTENT`, likewise env-carried
+ *   and therefore CLI-independent.
+ *
  * REGISTERED (F3 Level-1, 2026-06-25, journal/0335) — ITS BLOCK BRANCH DORMANT:
  *   This file IS registered in settings.json on the Edit|Write|NotebookEdit
  *   PreToolUse matcher, so it RUNS live on every mutation — but its BLOCK branch
@@ -81,9 +91,25 @@
  *   COC_XECO_FINDINGS_JSON     — JSON array of injected disclosure findings.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": ["<os.tmpdir()>/xeco-scan-<rand>/"],
+ *     "network": false,
+ *     "spawns": ["node"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Both effects come from the lib's DEFAULT scanFn (lib/cross-ecosystem-disclosure-scanfn.js), reached only when COC_XECO_SCAN_CONTENT supplies a surface: it mkdtemp's a root under os.tmpdir(), stages the raw/normalized surfaces and a copied tenant denylist under it, runs the scanner through `--check --root <tmp>` via execFileSync, then removes it. The write target is OUTSIDE the repo root, hence the non-relative entry. This hook's own process opens no socket."
+ * }
+ */
+
 "use strict";
 
-const TIMEOUT_MS = 5000;
+// Raised 5000 -> 20000 (2026-10-08) with the registered budget (5s -> 20s): internal
+// and harness bind must move together or the guard self-kills mid-scan under load.
+const TIMEOUT_MS = 20000;
 
 let fallback = null;
 
@@ -355,6 +381,7 @@ module.exports = { hookMain };
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The
 // selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
   else hookMain();
 }

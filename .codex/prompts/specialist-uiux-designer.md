@@ -113,3 +113,8 @@ Verdict: PASS (0-2) / MARGINAL (3-4) / FAIL (5+). See `/i-audit`.
 
 - `skills/23-uiux-design-principles/SKILL.md` — design principles (CRITICAL)
 - `skills/25-ai-interaction-patterns/SKILL.md` — AI pattern catalog
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Write, Edit, Grep, Glob, Task. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Write: apply_patch or an explicitly permitted write command; Edit: apply_patch; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command; Task: spawn_agent, send_message and agent result collection. These are role instructions, not a native tool permission boundary. Parent policy still applies.

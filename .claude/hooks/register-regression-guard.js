@@ -4,6 +4,19 @@
  *
  * @hook-event: PreToolUse:Edit|NotebookEdit|Write (guard) — the subject is the CONTENT ABOUT TO BE WRITTEN to a declared register, and PreToolUse is the only event that can refuse it before the wrong row exists; the incoming content is reconstructible here because the subject is ONE declared JSON file.
  *
+ * @coc-codex-edit-gate — declared-register retraction gate. The policy
+ *   extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). Its subject — the RESULTING
+ *   register document — is computable on a Codex edit event: the native
+ *   bridge projects each patch section into the CC Write/Edit vocabulary this
+ *   guard already consumes (`hooks/lib/codex-native-policy.js::projectPayloads`
+ *   sets `content` for an Add section and `old_string`/`new_string` for a
+ *   change section), and the guard's existing Edit branch applies that one
+ *   deterministic replacement to the on-disk file in memory before judging.
+ *   On the compatibility-wrapper path, which projects only the target path,
+ *   the guard's existing unreconstructible-edit arm (fail-open, surfaced as
+ *   UNKNOWN) is unchanged.
+ *
  * WHY PreToolUse, when the sibling `burndown-quote-write-guard.js` deliberately
  * chose PostToolUse. That guard scans FREE PROSE on any durable surface, where the
  * written artefact is the only honest subject — an `Edit` result is a merge and
@@ -35,7 +48,23 @@
 
 "use strict";
 
-const TIMEOUT_MS = 4000;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git show HEAD:<register>` through lib/register-regression.js; every path is read-only (manifest/HEAD-blob reads) with findings emitted to stdout only — no durable write anywhere."
+ * }
+ */
+
+// Raised 4000 -> 20000 (2026-10-08) with the registered budget (5s -> 20s): internal
+// and harness bind must move together or the guard self-kills mid-scan under load.
+const TIMEOUT_MS = 20000;
 let fallback = null;
 
 const fs = require("node:fs");
@@ -48,7 +77,10 @@ function passthrough(context) {
   try {
     const out = { continue: true };
     if (context) {
-      out.hookSpecificOutput = { hookEventName: "PreToolUse", additionalContext: context };
+      out.hookSpecificOutput = {
+        hookEventName: "PreToolUse",
+        additionalContext: context,
+      };
     }
     process.stdout.write(JSON.stringify(out) + "\n");
   } catch {}
@@ -98,7 +130,8 @@ async function main() {
   const toolName = p.tool_name;
   if (toolName !== "Edit" && toolName !== "Write") return passthrough(null);
 
-  const input = (p.tool_input && typeof p.tool_input === "object" && p.tool_input) || {};
+  const input =
+    (p.tool_input && typeof p.tool_input === "object" && p.tool_input) || {};
   const filePath = input.file_path;
   if (typeof filePath !== "string" || !filePath) return passthrough(null);
 
@@ -107,7 +140,9 @@ async function main() {
   // every edit in the repo before any file is opened.
   if (!/\.json$/i.test(filePath)) return passthrough(null);
 
-  const rel = (path.isAbsolute(filePath) ? path.relative(PROJECT_DIR, filePath) : filePath).replace(/\\/g, "/");
+  const rel = (
+    path.isAbsolute(filePath) ? path.relative(PROJECT_DIR, filePath) : filePath
+  ).replace(/\\/g, "/");
   if (rel.startsWith("..")) return passthrough(null); // outside the project — not ours
 
   let lib;
@@ -126,10 +161,13 @@ async function main() {
 
   const manifest = lib.findManifest(PROJECT_DIR);
   if (!manifest) return passthrough(null); // no tracker-source convention to key on
-  if (!lib.isDeclaredRegister(manifest, rel, PROJECT_DIR)) return passthrough(null);
+  if (!lib.isDeclaredRegister(manifest, rel, PROJECT_DIR))
+    return passthrough(null);
 
   // FROM HERE the file IS a declared register, so silence is never neutral.
-  const abs = path.isAbsolute(filePath) ? filePath : path.join(PROJECT_DIR, filePath);
+  const abs = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(PROJECT_DIR, filePath);
   const next = incomingContent(toolName, input, abs);
   if (next === null) {
     return passthrough(
@@ -183,7 +221,9 @@ async function main() {
     const emitted = instructAndWait({
       hookEvent: "PreToolUse",
       severity,
-      rule_id: blocking.length ? "state-regression-integrity/MUST-1" : "state-regression-integrity",
+      rule_id: blocking.length
+        ? "state-regression-integrity/MUST-1"
+        : "state-regression-integrity",
       what_happened:
         `This write to the declared burndown register '${rel}' carries ${res.findings.length} ` +
         `state-regression finding(s) against the COMMITTED record at HEAD.`,
@@ -216,6 +256,7 @@ module.exports = { hookMain };
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The
 // selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
   else hookMain();
 }

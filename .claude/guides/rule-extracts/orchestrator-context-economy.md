@@ -21,7 +21,7 @@ important things with the human, consolidation, and work subagents cannot do.*
 
 `agents.md` is `priority: 0` **baseline** — emitted into every consumer's always-on prompt. At
 authoring, `check-rule-injection-budget.mjs` reported the `workspace-note` profile at **43 B** of
-margin against its ceiling (`floor(budget × 1.05)`); `loom-command-edit` had 853 B. A baseline
+margin against its ceiling (`floor(budget × 1.05)`); `codify-edit` had 853 B. A baseline
 amendment of any useful size was unaffordable, and the *whole point* of the corpus's path-scoped
 tier is that a rule which does not apply to a session should not be charged to it.
 
@@ -251,17 +251,17 @@ So the classes are enumerated rather than described, and a lane may never close 
 the severity**. That last clause is what makes it a floor rather than a ranking:
 
 - **security-critical findings** — `agents.md` § Correctness-Review-Clean's class, taken VERBATIM
-  rather than re-worded: **auth, signing, revocation, tenant-isolation, any fail-closed gate or trust
-  boundary**, PLUS **process-signalling (kill) paths**. The class is drawn on the SURFACE, not on a
+  rather than re-worded: **auth, signing, revocation, tenant-isolation, fail-closed gates, kill
+  paths, destructive ops, disclosure, and any trust boundary**. The class is drawn on the SURFACE, not on a
   severity label, because a lane cannot rate the blast radius of a surface whose consumers it cannot
-  see. **The process clause is not part of the quoted definition and is added deliberately**, and the
-  reason is worth carrying: the standing directive that reached this lane named "signalling", which
+  see. The process half is now part of the quoted definition (the canonical list names `kill paths`),
+  and the reason it is worth carrying survives the quote: the standing directive that reached this
+  lane named "signalling", which
   reads as a typo for "signing" and was mis-transcribed as one in the clause's first draft. The two
   are one letter apart and name unrelated classes — one cryptographic, one a kill path — so the
   mis-transcription silently swapped an operation class for a crypto class, i.e. it sent the wrong
-  findings to the wrong destination while reading as a faithful quote. Quoting the neighbouring rule
-  verbatim for the half it already defines, and ADDING the process half explicitly rather than
-  folding it into the quote, is what makes the two classes separable on the page.
+  findings to the wrong destination while reading as a faithful quote. Taking the neighbouring rule
+  verbatim is what makes the two classes separable on the page.
 - **disclosure findings** — a lane inside one ecosystem cannot see the other ecosystem the
   disclosure rule protects.
 - **cross-repo actions** — a lane's repo scope ends at its own tree.

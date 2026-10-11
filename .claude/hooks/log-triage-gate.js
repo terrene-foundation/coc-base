@@ -31,6 +31,20 @@
  *   1 = hook error
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["find","grep","head","sh"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: the `find` enumeration via execSync (one shell pipeline) and one `grep` per scanned file via spawnSync. Log files are READ only (fs.readdirSync / fs.existsSync for nested-checkout pruning) and the summary renders to stdout as systemMessage — no sink, no markers, no state, so a repeat reports the same scan.; the pipeline is `find` piped to `head`, run through `sh`."
+ * }
+ */
+
 const { execSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -269,7 +283,13 @@ function triageLogs(cwd) {
     shortfalls.push(`${scan.unreadableFiles} file(s) could not be read`);
   }
   if (scan.enumFailed) {
-    shortfalls.push("the *.log enumeration itself failed or timed out");
+    const named =
+      scan.failedRoots && scan.failedRoots.length > 0
+        ? ` (${scan.failedRoots.join(", ")})`
+        : "";
+    shortfalls.push(
+      `the *.log enumeration failed or timed out for declared root(s)${named}`,
+    );
   }
 
   if (unique.length > 0) {
@@ -357,63 +377,112 @@ function findNestedGitCheckouts(cwd, maxDepth = 2) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// THE DECLARED LOG SURFACE (whole-tree find → declared enumeration)
+// ---------------------------------------------------------------------------
+// The enumeration used to be `find <cwd>` over the WHOLE tree (pruned): a full
+// walk of whatever checkout the Stop hook fired in. That is unbounded by
+// construction — the hook's cost was a function of the tree, not of the logs —
+// and it made the scan surface implicit, so a log appearing anywhere changed
+// what was scanned without anyone declaring it. The surface is now DECLARED,
+// and each root is walked only to its declared depth. MEASURED before choosing
+// the roots (loom, 2026-10-08): top-level *.log is where the harness fixtures
+// and build tools drop them; `.claude/logs/` is the repo's live log dir
+// (coc-telemetry-autocommit.log present); `logs/` is the consumer convention;
+// `workspaces/` carries the Rule-5 "recent workspace logs" (15 tracked *.log
+// under workspaces/codex-coc-parity/, plus lane evidence dirs).
+//
+// A MISSING declared root is a TRUE zero — the declaration says logs are not
+// there, and a clean scan of an absent surface is honest. A root that EXISTS
+// but cannot be enumerated (unreadable, timed out) is a FAILED scan and is
+// DISCLOSED BY NAME, never reported as clean (triaged via `failedRoots`).
+//
+// Per-repo extension: COC_LOG_TRIAGE_ROOTS="root[:depth],root2[:depth]"
+// (default depth 4 for overridden roots).
+const DECLARED_LOG_SURFACE = [
+  { root: ".", maxDepth: 1 },
+  { root: ".claude/logs", maxDepth: 8 },
+  { root: "logs", maxDepth: 8 },
+  { root: "workspaces", maxDepth: 6 },
+];
+
+function declaredLogSurface() {
+  const raw = process.env.COC_LOG_TRIAGE_ROOTS;
+  if (!raw || !raw.trim()) return DECLARED_LOG_SURFACE;
+  return raw
+    .split(",")
+    .map((s) => {
+      const [root, d] = s.trim().split(":");
+      const depth = Number.parseInt(d, 10);
+      return {
+        root,
+        maxDepth: Number.isInteger(depth) && depth > 0 ? depth : 4,
+      };
+    })
+    .filter((r) => r.root);
+}
+
 /**
- * Stage 1 — ENUMERATE recent *.log files. Shell pipeline (find + prune + head)
- * because that genuinely needs a shell. Returns the paths plus whether the
- * enumeration itself hit FILE_ENUM_CEILING, so a caller can say "500+" rather
- * than reporting a ceiling as a total.
+ * Stage 1 — ENUMERATE recent *.log files over the DECLARED surface. One
+ * `find` per declared root, each bounded by -maxdepth, the shared
+ * FILE_ENUM_CEILING and FIND_TIMEOUT_MS. Returns the paths plus whether the
+ * enumeration truncated (ceiling) or failed (a declared, existing root that
+ * could not be enumerated — named in `failedRoots`), so a caller can say
+ * "500+" / "root X unscanned" rather than reporting a partial scan as a total.
  */
 function enumerateRecentLogs(cwd) {
-  try {
-    // Build -prune expression for excluded tool-cache directories so we don't
-    // scan .playwright-mcp/, node_modules/, .venv/, etc. These dirs produce
-    // WARN+ entries that are not session-actionable and drown real signal.
-    const nameClauses = EXCLUDED_DIRS.map((d) => `-name '${d}'`).join(" -o ");
-    // Also prune nested git checkouts (BUILD/USE-template sibling repos that
-    // happen to be nested under cwd). Their logs are owned by their own
-    // session lifecycle, not loom's — surfacing them here is the documented
-    // false-positive class (session-notes 2026-05-27 trap).
-    const nestedRepos = findNestedGitCheckouts(cwd);
-    const pathClauses = nestedRepos
-      .map((p) => `-path '${p.replace(/'/g, "'\\''")}'`)
-      .join(" -o ");
-    const prune = pathClauses
-      ? `${nameClauses} -o ${pathClauses}`
-      : nameClauses;
-    // Filename-keyed exclusion for structured append-only audit logs
-    // (observability.md Rule 5a) — composes with the EXCLUDED_DIRS prune.
-    const fileExcludeClauses = EXCLUDED_FILES.map((f) => `! -name '${f}'`).join(
-      " ",
-    );
-    // find: prune tool cache dirs + nested git checkouts, then match *.log
-    // (excluding audit logs by filename) modified in last 120 min.
-    //
-    // This one genuinely needs a shell — it is a four-stage pipeline, not a
-    // single spawn — so the roots are QUOTED rather than the call rewritten.
-    // `cwd` used to sit in DOUBLE quotes unescaped while the nested-repo paths
-    // three lines up were already single-quoted with `'\''` escaping; a `"` or
-    // `$(...)` in a checkout's own path therefore broke out of the one and not
-    // the other. Same escaping for both now, so the asymmetry is gone.
-    const shq = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
-    // The pipeline stops at ENUMERATION. Matching used to be stapled on here
-    // as `| xargs -I{} grep … | head -200`: one shared, global line budget fed
-    // by sequential per-file greps, so the first high-volume file could
-    // consume all of it and later files were never read. Matching now happens
-    // per-file in stage 2, which removes the shared budget entirely.
+  // Build -prune expression for excluded tool-cache directories so we don't
+  // scan .playwright-mcp/, node_modules/, .venv/, etc. These dirs produce
+  // WARN+ entries that are not session-actionable and drown real signal.
+  const nameClauses = EXCLUDED_DIRS.map((d) => `-name '${d}'`).join(" -o ");
+  // Also prune nested git checkouts (BUILD/USE-template sibling repos that
+  // happen to be nested under cwd). Their logs are owned by their own
+  // session lifecycle, not loom's — surfacing them here is the documented
+  // false-positive class (session-notes 2026-05-27 trap).
+  const nestedRepos = findNestedGitCheckouts(cwd);
+  const pathClauses = nestedRepos
+    .map((p) => `-path '${p.replace(/'/g, "'\\''")}'`)
+    .join(" -o ");
+  const prune = pathClauses ? `${nameClauses} -o ${pathClauses}` : nameClauses;
+  // Filename-keyed exclusion for structured append-only audit logs
+  // (observability.md Rule 5a) — composes with the EXCLUDED_DIRS prune.
+  const fileExcludeClauses = EXCLUDED_FILES.map((f) => `! -name '${f}'`).join(
+    " ",
+  );
+  // Same single-quote escaping for every interpolated path — the consumer
+  // path asymmetry (cwd double-quoted while nested-repo paths were already
+  // single-quoted) was fixed once and is kept fixed here.
+  const shq = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
+  const files = [];
+  const failedRoots = [];
+  let truncated = false;
+  for (const { root, maxDepth } of declaredLogSurface()) {
+    if (files.length >= FILE_ENUM_CEILING) {
+      truncated = true;
+      break;
+    }
+    const abs = path.resolve(cwd, root);
+    if (!fs.existsSync(abs)) continue; // declared-missing ⇒ true zero
     const cmd =
-      `find ${shq(cwd)} \\( -type d \\( ${prune} \\) -prune \\) -o ` +
+      `find ${shq(abs)} -maxdepth ${maxDepth} \\( -type d \\( ${prune} \\) -prune \\) -o ` +
       `-type f -name '*.log' ${fileExcludeClauses} -mmin -120 -print 2>/dev/null ` +
-      `| head -${FILE_ENUM_CEILING}`;
-    const out = execSync(cmd, { encoding: "utf8", timeout: FIND_TIMEOUT_MS });
-    const files = out.split("\n").filter((l) => l.trim());
-    return { files, enumTruncated: files.length >= FILE_ENUM_CEILING, enumFailed: false };
-  } catch {
-    // The enumeration itself failed or timed out. Returning an empty list is
-    // correct, but reporting it as "no logs found" would be the defect this
-    // change exists to remove — a failed scan is not a clean scan, so the
-    // caller is told which one this was.
-    return { files: [], enumTruncated: false, enumFailed: true };
+      `| head -${FILE_ENUM_CEILING - files.length}`;
+    try {
+      const out = execSync(cmd, { encoding: "utf8", timeout: FIND_TIMEOUT_MS });
+      files.push(...out.split("\n").filter((l) => l.trim()));
+    } catch {
+      // The root EXISTS but could not be enumerated (unreadable, timeout).
+      // Naming it is the difference between "clean" and "never looked".
+      failedRoots.push(root);
+    }
   }
+  const enumTruncated = truncated || files.length >= FILE_ENUM_CEILING;
+  return {
+    files,
+    enumTruncated,
+    enumFailed: failedRoots.length > 0,
+    failedRoots,
+  };
 }
 
 /**
@@ -542,6 +611,7 @@ module.exports = { hookMain };
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The
 // selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
   else hookMain();
 }

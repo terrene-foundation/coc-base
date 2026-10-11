@@ -170,7 +170,7 @@ function statusOf(check, artifactSubstr) {
 // fixture-06 — check 3 read-only specialist tools
 // ----------------------------------------------------------------------
 {
-  const agentsRule = "Read-only specialists (`clean-agent`, `dirty-agent`) MUST NOT be delegated implementation tasks.\n";
+  const agentsRule = "Read-only specialists (`clean-agent`, `dirty-agent`)\nMUST NOT be delegated implementation tasks.\n";
   const root = buildFixtureRoot({
     ".claude/rules/agents.md": agentsRule,
     ".claude/agents/clean-agent.md": "---\nname: clean-agent\ntools: Read, Grep, Glob\n---\nbody\n",
@@ -241,7 +241,7 @@ function statusOf(check, artifactSubstr) {
 {
   const root = buildFixtureRoot({
     ".claude/rules/agents.md":
-      "Read-only specialists (`security-reviewer`, `analyst`, `reviewer`) MUST NOT be delegated implementation tasks.\n",
+      "Read-only specialists (`security-reviewer`, `analyst`, `reviewer`)\nMUST NOT be delegated implementation tasks.\n",
   });
   try {
     const names = parseReadonlySpecialists(root);

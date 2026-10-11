@@ -127,3 +127,8 @@ Emits the relevant section(s) of the idiom card based on `STACK.md::declared_sta
 ## Origin
 
 2026-05-06 v2.21.0 base-variant Phase 1. Companion to `stack-detector.md`. Per-stack reference depth lives in `skills/40-stack-onboarding/<stack>/SKILL.md`.
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Grep, Glob. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command. These are role instructions, not a native tool permission boundary. Parent policy still applies.

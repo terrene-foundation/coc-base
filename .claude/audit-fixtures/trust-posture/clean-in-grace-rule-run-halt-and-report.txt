@@ -17,10 +17,10 @@ worktree and worktree-local state is not authoritative.
 
   $ node -e 'const {resolveMainCheckout}=require("./.claude/hooks/lib/state-resolver.js");
              console.log(resolveMainCheckout(process.cwd()))'
-  /Users/someoperator/repos/kailash-py
+  {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py
 
   $ jq -r '.posture, (.pending_verification|join(","))' \
-      /Users/someoperator/repos/kailash-py/.claude/learning/posture.json
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py/.claude/learning/posture.json
   L5_DELEGATED
   partial-read-disclosure
 

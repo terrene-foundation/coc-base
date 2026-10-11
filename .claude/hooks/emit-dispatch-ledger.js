@@ -40,6 +40,20 @@
  * Origin: T1, runtime-enforcement-2026-08-14.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/dispatch-reconcile/<session-id>-<sha8>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git","ps"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "Appends one launch/delivery/declared row per invocation through lib/dispatch-ledger.js::appendRecord -> lib/append-sink.js, with no payload dedupe, so a repeat run appends another row (the reconciler then sees both). Spawns: git probes in lib/state-resolver.js::requireMainCheckout plus lib/dispatch-ledger.js::resolveDispatchLocation. A row is SKIPPED, with a stderr breadcrumb, when the main checkout cannot be confirmed; no prompt text is ever written."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7. Deliberately shorter than the registered 5s timeout

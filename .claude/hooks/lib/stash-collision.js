@@ -35,6 +35,8 @@
 "use strict";
 
 const path = require("path");
+const { resolveGitTargetContext, gitProbeArgs, gitTargetContextIsUnknown } = require("./git-target-context.js");
+
 const { dequote } = require(path.join(__dirname, "git-command-parse.js"));
 const { resolveGitBinary, gitEnv } = require(
   path.join(__dirname, "git-subprocess-env.js"),
@@ -174,10 +176,10 @@ function selectStashHazard(invocations) {
     // can produce, so no probe could answer "does THAT repo have linked
     // worktrees?". Skipped rather than failed closed — see the hook's call site
     // for why this lane does not take the destructive-op fences' disposition.
-    if (g.unresolvable === "dir") continue;
+    if (gitTargetContextIsUnknown(g)) continue;
     const c = classifyStashArgs(g.argv);
     if (!c.mutating) continue;
-    return { form: c.form, why: c.why, dir: g.dir || null };
+    return { form: c.form, why: c.why, dir: g.dir || null, invocation: g };
   }
   return null;
 }
@@ -192,14 +194,16 @@ function selectStashHazard(invocations) {
  * @returns {{ok: boolean, count: number}} `ok:false` = not measured. The caller
  *   MUST treat that as silent, never as a hit.
  */
-function countWorkingTrees(dir, cwd, spawn) {
+function countWorkingTrees(dir, cwd, spawn, invocation) {
+  const context = resolveGitTargetContext(invocation || { dir }, cwd || process.cwd());
+  if (!context.known) return { ok: false, count: 0 };
   try {
     const spawnSync = spawn || require("child_process").spawnSync;
     const gitBin = resolveGitBinary();
     if (!gitBin) return { ok: false, count: 0 };
     const r = spawnSync(
       gitBin,
-      ["-C", dir || cwd || ".", "worktree", "list", "--porcelain"],
+      gitProbeArgs(context, ["worktree", "list", "--porcelain"]),
       {
         // The SPAWN CWD, not just `-C`. A `-C` value may be RELATIVE
         // (`git -C . stash pop`, `git -C sub stash pop`), and git resolves it
@@ -210,7 +214,7 @@ function countWorkingTrees(dir, cwd, spawn) {
         // the loom checkout the runner was launched from. Pinning the spawn cwd
         // to the session cwd makes the relative form resolve where the operator
         // meant it.
-        cwd: cwd || undefined,
+        cwd: context.cwd,
         encoding: "utf8",
         // Bounded well inside the hook's own 5000ms budget, and deliberately
         // below the 2500ms the destructive-op porcelain probe uses: this lane
@@ -246,14 +250,16 @@ function countWorkingTrees(dir, cwd, spawn) {
  *
  * @returns {{ok: boolean, depth: number}}
  */
-function countStashEntries(dir, cwd, spawn) {
+function countStashEntries(dir, cwd, spawn, invocation) {
+  const context = resolveGitTargetContext(invocation || { dir }, cwd || process.cwd());
+  if (!context.known) return { ok: false, depth: 0 };
   try {
     const spawnSync = spawn || require("child_process").spawnSync;
     const gitBin = resolveGitBinary();
     if (!gitBin) return { ok: false, depth: 0 };
-    const r = spawnSync(gitBin, ["-C", dir || cwd || ".", "stash", "list"], {
+    const r = spawnSync(gitBin, gitProbeArgs(context, ["stash", "list"]), {
       // Same relative-`-C` resolution contract as countWorkingTrees above.
-      cwd: cwd || undefined,
+      cwd: context.cwd,
       encoding: "utf8",
       timeout: 2000,
       stdio: ["ignore", "pipe", "ignore"],

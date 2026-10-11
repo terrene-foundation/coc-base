@@ -79,7 +79,15 @@ const COC_SIGN_TMP_PREFIXES = [
 const GPGCONF_KILL_TIMEOUT_MS = 5000;
 
 // Daemons that bind to a GPG homedir and must be gone before it is removed.
-const GPG_HOMEDIR_DAEMONS = /\b(gpg-agent|scdaemon|gpg-connect-agent)\b/;
+// The NAME SET is the identity filter (see killDaemonsBoundToHomedir): a pid is
+// signalled only when its EXECUTABLE is one of these — the same daemon name
+// appearing as a WORD in another executable's argv proves nothing (MEASURED:
+// a `node gpg-agent --homedir <h>` process matched the old substring matcher).
+const TRUSTED_GPG_DAEMONS = new Set([
+  "gpg-agent",
+  "scdaemon",
+  "gpg-connect-agent",
+]);
 
 // FALLBACK cutoff (pidfile-ABSENT homedirs only): a legacy pre-pidfile leak
 // older than this is treated as orphaned. Homedirs that DO carry a coc-fold.pid
@@ -290,34 +298,269 @@ function writeEphemeralAgentConf(home) {
   }
 }
 
+/** The temp roots the create side can root a homedir under (`coc-sign.js::_createHomedir`). */
+function _gpgTempRoots() {
+  return [os.tmpdir(), "/tmp"];
+}
+
+const realpathOrSelf = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
+/**
+ * The homedir itself must be trustworthy BEFORE any candidate is matched: under
+ * a temp root this module itself creates in, owned by our uid, a real directory
+ * (not a symlink), with 0700 permissions. Returns the canonical home, or null
+ * when unverifiable — the caller then spares EVERY candidate.
+ */
+function validatedTempHomedir(home) {
+  const roots = _gpgTempRoots().map((r) => realpathOrSelf(r) + path.sep);
+  const homeReal = realpathOrSelf(home);
+  if (!roots.some((r) => homeReal.startsWith(r))) return null;
+  let lst;
+  try {
+    lst = fs.lstatSync(home);
+  } catch {
+    return null;
+  }
+  if (lst.isSymbolicLink() || !lst.isDirectory()) return null;
+  if ((lst.mode & 0o777) !== 0o700) return null;
+  try {
+    if (
+      typeof process.getuid === "function" &&
+      fs.statSync(home).uid !== process.getuid()
+    )
+      return null;
+  } catch {
+    return null;
+  }
+  return homeReal;
+}
+
+/**
+ * Does this argv carry the homedir as a WHOLE `--homedir` argument? Tokens are
+ * compared by canonical realpath equality, never substring: a sibling
+ * `...-fold-A` vs `...-fold-AB` differ at the token, and a `/tmp` vs
+ * `/private/tmp` spelling must not decide whether a real daemon dies.
+ */
+function argvBindsHomedir(argv, homeReal) {
+  for (let i = 0; i < argv.length; i++) {
+    const t = argv[i];
+    if (
+      t === "--homedir" &&
+      i + 1 < argv.length &&
+      realpathOrSelf(argv[i + 1]) === homeReal
+    )
+      return true;
+    if (
+      t.startsWith("--homedir=") &&
+      realpathOrSelf(t.slice("--homedir=".length)) === homeReal
+    )
+      return true;
+  }
+  return false;
+}
+
+/**
+ * DARWIN binding proof — fd-authoritative, from lsof's machine output: a pid
+ * holding a SERVER-SIDE record whose NAME is one of THIS home's sockets.
+ *
+ * TWO measured quirks decide this function's shape. (1) lsof's path selector
+ * matches only the LITERAL spelling a socket was bound with: MEASURED on macOS
+ * 26, `-- /var/folders/.../S.gpg-agent` finds the record while the same file's
+ * canonical `-- /private/var/.../S.gpg-agent` exits 1 with NO records — so
+ * EVERY spelling the caller could have used (`home` as given + its realpath)
+ * is queried and the results unioned. Without this the whole reaper is a
+ * no-op on darwin, failing CLOSED-looking (nothing found = nothing killed).
+ * (2) the NAME lsof prints is the literal bind spelling, so both sides of the
+ * comparison are realpath-normalized. Client connections render as peer pairs
+ * (`path->peer`), which never equal the bare socket path and are excluded by
+ * construction. lsof absent, unreadable, or holding no such record ⇒ NOT
+ * bound (spare).
+ */
+function pidsHoldingHomeSockets(homeReal, spellings) {
+  const pids = new Set();
+  let names;
+  try {
+    names = fs.readdirSync(homeReal).filter((n) => n.startsWith("S."));
+  } catch {
+    return pids; // nothing readable ⇒ spare
+  }
+  for (const name of names) {
+    const sockReal = path.join(homeReal, name);
+    const seen = new Set();
+    for (const spelling of spellings) {
+      const sock = path.join(spelling, name);
+      if (seen.has(sock)) continue;
+      seen.add(sock);
+      let out = "";
+      try {
+        out =
+          spawnSync("lsof", ["-w", "-n", "-Fp", "-Fn", "--", sock], {
+            encoding: "utf8",
+            timeout: GPGCONF_KILL_TIMEOUT_MS,
+          }).stdout || "";
+      } catch {
+        continue; // lsof absent/unreadable for THIS spelling ⇒ cannot prove ⇒ spare
+      }
+      let pid = null;
+      let bound = false;
+      for (const line of out.split("\n")) {
+        if (line.startsWith("p")) {
+          if (bound && Number.isInteger(pid)) pids.add(pid);
+          pid = Number.parseInt(line.slice(1), 10);
+          bound = false;
+        } else if (line.startsWith("n")) {
+          bound = realpathOrSelf(line.slice(1)) === realpathOrSelf(sockReal);
+        }
+      }
+      if (bound && Number.isInteger(pid)) pids.add(pid);
+    }
+  }
+  return pids;
+}
+
+/**
+ * DARWIN executable identity — path-authoritative, from `lsof -d txt`'s FIRST
+ * name record (MEASURED: the executable itself; library/dyld records follow).
+ * Used instead of `ps comm`, which on darwin is a 15-char truncation of the
+ * exec path for processes that do not set a title (MEASURED: `/opt/homebrew/Ce`
+ * for node) and would therefore misread a real homebrew gpg-agent. Returns null
+ * when the path cannot be proven.
+ */
+function darwinExecPath(pid) {
+  let out = "";
+  try {
+    out =
+      spawnSync(
+        "lsof",
+        ["-w", "-n", "-a", "-p", String(pid), "-d", "txt", "-Fn"],
+        {
+          encoding: "utf8",
+          timeout: GPGCONF_KILL_TIMEOUT_MS,
+        },
+      ).stdout || "";
+  } catch {
+    return null;
+  }
+  for (const line of out.split("\n")) {
+    if (line.startsWith("n")) return line.slice(1); // first name record = the executable
+  }
+  return null;
+}
+
+/**
+ * LINUX executable identity. Attempts the authoritative realpath(/proc/<pid>/exe)
+ * FIRST — when readable it decides alone, and a readable NON-match is a positive
+ * contradiction (spare). MEASURED on the CI host (GnuPG 2.4.4): `/proc/<pid>/exe`
+ * raises EACCES for a real gpg-agent even at the SAME uid, because gnupg hardens
+ * itself with PR_SET_DUMPABLE(0) — cmdline stays readable while exe does not, and
+ * a fail-closed read there would silently never kill anything. Only under that
+ * kernel refusal is the argv[0] basename consulted: a claim any process can make,
+ * which is why it is never used WITHOUT the exact `--homedir` token check
+ * alongside it.
+ */
+function linuxExecIdentity(pid, argv) {
+  try {
+    return TRUSTED_GPG_DAEMONS.has(path.basename(fs.realpathSync(`/proc/${pid}/exe`)));
+  } catch {
+    const argv0 = argv && argv.length > 0 ? path.basename(argv[0]) : "";
+    return TRUSTED_GPG_DAEMONS.has(argv0);
+  }
+}
+
 /**
  * SIGKILL any GPG daemon still bound to THIS homedir after gpgconf has had its
  * bounded chance. Required because once an agent is wedged, NO `gpgconf --kill`
  * variant can reach it (MEASURED: `--kill gpg-agent` also times out against a
  * wedged agent — every variant needs the same Assuan greeting).
  *
- * Targeted by construction: `home` is an mkdtemp-unique path, so this can never
- * reap a concurrent operator's or a sibling session's agent.
+ * Identity-grounded — NOT substring-grounded, and NOT "the path is
+ * mkdtemp-unique": `/tmp/x` is a PREFIX of the sibling `/tmp/x-AB`, and a
+ * template string can carry `gpg-agent --homedir <home>` as a WORD inside one
+ * argv element of an unrelated executable. A pid is signalled ONLY when ALL of:
+ *   (c) the HOMEDIR itself validates (validatedTempHomedir) — else spare all;
+ *   (a) EXECUTABLE identity — Linux: realpath(/proc/<pid>/exe) in the name set,
+ *       falling back to the argv[0] basename from the same cmdline ONLY under
+ *       the kernel's EACCES (the norm for gpg's PR_SET_DUMPABLE(0) hardening);
+ *       Darwin: the first `lsof -d txt` name record's basename in the name set;
+ *   (b) BINDING — Linux: a literal `--homedir <canonical home>` argv pair in
+ *       the NUL-split /proc/<pid>/cmdline; Darwin: a SERVER-SIDE lsof record
+ *       (fd NAME equals a socket of this home, realpath-normalized) so a
+ *       connected CLIENT never matches;
+ * plus a re-validation of (a)+(b) IMMEDIATELY before each kill, so a recycled
+ * pid must re-prove membership in the moment it is signalled. The residual
+ * pid-reuse race between that proof and the SIGKILL is NAMED here rather than
+ * claimed away — it is the same window every kill-by-pid carries. Any
+ * ambiguity whatever (unreadable /proc or lsof, absent ps, a parse that does
+ * not fit) SPARES the candidate: a missed wedged daemon is reaped by the next
+ * sweep, while a wrong kill is unrecoverable.
  *
  * @param {string} home - the ephemeral homedir whose daemons must die.
  */
 function killDaemonsBoundToHomedir(home) {
   if (!home || typeof home !== "string") return;
-  let out = "";
-  try {
-    out =
-      spawnSync("ps", ["-eo", "pid=,args="], {
-        encoding: "utf8",
-        timeout: GPGCONF_KILL_TIMEOUT_MS,
-      }).stdout || "";
-  } catch {
-    return; // no `ps` (or it hung) — the caller's rmSync still proceeds
+  const homeReal = validatedTempHomedir(home);
+  if (!homeReal) return; // (c) failed — target unverifiable; spare everything
+  const darwin = process.platform !== "linux";
+  const spellings = Array.from(new Set([home, homeReal]));
+  const candidates = [];
+  if (darwin) {
+    candidates.push(...pidsHoldingHomeSockets(homeReal, spellings));
+  } else {
+    let out = "";
+    try {
+      out =
+        spawnSync("ps", ["-eo", "pid="], {
+          encoding: "utf8",
+          timeout: GPGCONF_KILL_TIMEOUT_MS,
+        }).stdout || "";
+    } catch {
+      return; // no `ps` (or it hung) — the caller's rmSync still proceeds
+    }
+    for (const line of out.split("\n")) {
+      const pid = Number.parseInt(line.trim(), 10);
+      if (!Number.isInteger(pid) || pid <= 1) continue;
+      let argv;
+      try {
+        argv = fs
+          .readFileSync(`/proc/${pid}/cmdline`, "utf8")
+          .split("\0")
+          .filter(Boolean);
+      } catch {
+        continue; // unreadable argv ⇒ ambiguous ⇒ spare
+      }
+      // (a) EXECUTABLE identity, then (b) BINDING — exact `--homedir` token
+      // equality on the NUL-split argv.
+      if (!linuxExecIdentity(pid, argv)) continue;
+      if (!argvBindsHomedir(argv, homeReal)) continue;
+      candidates.push(pid);
+    }
   }
-  for (const line of out.split("\n")) {
-    if (!line.includes(home)) continue; // unique path — never a sibling's
-    if (!GPG_HOMEDIR_DAEMONS.test(line)) continue;
-    const pid = Number.parseInt(line.trim().split(/\s+/)[0], 10);
-    if (!Number.isInteger(pid) || pid <= 1) continue;
+  for (const pid of candidates) {
+    // Re-validate (a)+(b) IMMEDIATELY before the signal — a pid recycled since
+    // the scan above must not be killed on its predecessor's proof.
+    if (darwin) {
+      if (!pidsHoldingHomeSockets(homeReal, spellings).has(pid)) continue;
+      const exe = darwinExecPath(pid);
+      if (!exe || !TRUSTED_GPG_DAEMONS.has(path.basename(exe))) continue;
+    } else {
+      let argv;
+      try {
+        argv = fs
+          .readFileSync(`/proc/${pid}/cmdline`, "utf8")
+          .split("\0")
+          .filter(Boolean);
+      } catch {
+        continue;
+      }
+      if (!linuxExecIdentity(pid, argv)) continue;
+      if (!argvBindsHomedir(argv, homeReal)) continue;
+    }
     try {
       process.kill(pid, "SIGKILL");
     } catch {
@@ -361,8 +604,13 @@ function teardownGpgHomedir(home) {
 }
 
 /**
- * Reap leaked coc-sign GPG homedirs from os.tmpdir() by PID-LIVENESS: kill the
- * bound gpg-agent (gpgconf --homedir <h> --kill all) then remove the dir. A
+ * Reap leaked coc-sign GPG homedirs from EVERY temp root the create side can
+ * choose — os.tmpdir() and /tmp (`coc-sign.js::_createHomedir`) — by
+ * PID-LIVENESS: kill the bound gpg-agent (gpgconf --homedir <h> --kill all)
+ * then remove the dir. Reading only os.tmpdir() would leave a /tmp-rooted
+ * homedir (what every host with an over-long ambient root now produces) never
+ * seen, never aged, never reaped — the #867 leak class on exactly the hosts the
+ * sun_path fix targets. A
  * homedir whose coc-fold.pid marker names a LIVE process (verified by an
  * immutable start-token) is SPARED regardless of age — safe against a concurrent
  * sibling operator's live fold AND this repo's own in-flight #866 detached
@@ -377,38 +625,44 @@ function reapStaleGpgHomedirs(maxAgeMs) {
   const cutoff =
     now - (typeof maxAgeMs === "number" ? maxAgeMs : STALE_HOMEDIR_MS);
   const ceiling = now - PID_REUSE_CEILING_MS;
-  let entries;
-  try {
-    entries = fs.readdirSync(os.tmpdir(), { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const ent of entries) {
-    if (!ent.isDirectory()) continue;
-    if (!COC_SIGN_TMP_PREFIXES.some((p) => ent.name.startsWith(p))) continue;
-    const dir = path.join(os.tmpdir(), ent.name);
-    let st;
+  // Sweep EVERY root the create side can choose (`coc-sign.js::_createHomedir`:
+  // os.tmpdir() when it fits the sun_path budget, else /tmp); dedupe when they
+  // coincide so a single-root host does not stat the same tree twice.
+  const roots = Array.from(new Set(_gpgTempRoots()));
+  for (const root of roots) {
+    let entries;
     try {
-      st = fs.statSync(dir);
+      entries = fs.readdirSync(root, { withFileTypes: true });
     } catch {
-      continue;
+      continue; // unreadable root — the other root still sweeps
     }
-    const live = _foldHomedirLiveness(dir);
-    if (live.state === "alive-verified") {
-      continue; // genuinely running fold — spare regardless of age
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      if (!COC_SIGN_TMP_PREFIXES.some((p) => ent.name.startsWith(p))) continue;
+      const dir = path.join(root, ent.name);
+      let st;
+      try {
+        st = fs.statSync(dir);
+      } catch {
+        continue;
+      }
+      const live = _foldHomedirLiveness(dir);
+      if (live.state === "alive-verified") {
+        continue; // genuinely running fold — spare regardless of age
+      }
+      if (live.state === "alive-unverified") {
+        if (st.mtimeMs > ceiling) continue; // within the OUTER backstop — spare
+        // older than the ceiling AND unverifiable → fall through to reap.
+      } else if (live.state === "absent") {
+        if (st.mtimeMs > cutoff) continue; // too fresh, no marker — may be live; skip
+        // older than the fallback cutoff → fall through to reap.
+      }
+      // live.state === "dead", OR an unverified/absent homedir past its bound → reap.
+      // Bounded by construction: one wedged homedir can no longer halt the sweep
+      // over the rest — the failure that let 158 leaked homedirs accumulate while
+      // this very loop sat blocked on the first of them.
+      teardownGpgHomedir(dir);
     }
-    if (live.state === "alive-unverified") {
-      if (st.mtimeMs > ceiling) continue; // within the OUTER backstop — spare
-      // older than the ceiling AND unverifiable → fall through to reap.
-    } else if (live.state === "absent") {
-      if (st.mtimeMs > cutoff) continue; // too fresh, no marker — may be live; skip
-      // older than the fallback cutoff → fall through to reap.
-    }
-    // live.state === "dead", OR an unverified/absent homedir past its bound → reap.
-    // Bounded by construction: one wedged homedir can no longer halt the sweep
-    // over the rest — the failure that let 158 leaked homedirs accumulate while
-    // this very loop sat blocked on the first of them.
-    teardownGpgHomedir(dir);
   }
 }
 

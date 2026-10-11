@@ -35,6 +35,29 @@
  *       the verifier returns the roster-resolved person record so the
  *       gate-matrix consumes a TRUSTED person, never the attacker claim.
  *
+ *   (5) ACTION BINDING + EXPIRY (2026-10-09, replay closure). The signed bytes
+ *       gained `command`, `target_sha` and `expires_at`, and the verifier
+ *       compares the first two against values derived from the CURRENT request
+ *       (the live command surface; the repo's HEAD), never from the payload:
+ *
+ *         - a signature that verifies for release X MUST NOT admit release Y.
+ *           Before this, a valid in-payload approval was replayable within its
+ *           24h window for ANY later release — measured: an approval naming
+ *           commit 157fe4d9… was ACCEPTED while HEAD was df4de438….
+ *         - `command` carries the ARGS, which `target_tool` cannot express (the
+ *           same row can target L4 or L5); it is normalized by ONE exported
+ *           helper so the minting side and the verifying side cannot drift.
+ *         - `expires_at` is explicit and CAPPED at `ts + TTL`, so a signer may
+ *           choose a shorter window but never a longer one; the pre-existing
+ *           `ts`-vs-now check stays as the clock-skew guard.
+ *
+ *       COMPATIBILITY, stated rather than discovered: this changes the signed
+ *       field set, so an approval signed under the pre-2026-10-09 six-field
+ *       contract no longer verifies. That break is the intended consequence —
+ *       and it invalidates no FOLDED record, because the fold signs a different
+ *       shape (`coordination-log.js::_coSignedBytes`); this module's canonical
+ *       bytes are used only by the in-payload path verified here.
+ *
  * Cross-shard contracts consumed:
  *   - lib/coc-sign.js::canonicalSerialize / verify — same crypto layer
  *     fold-rule-9b / 9c / coordination-log Rule 1 use; bytes are
@@ -73,6 +96,15 @@ const TARGET_TOOL_ALLOWLIST = Object.freeze({
   "posture-override": true,
   "roster-edit-add-contributor": true,
   "new-rule-codify": true,
+  // 2026-10-09 (hold-security round-2 R-1, run-verified): the owner-departure
+  // HOLD wires signing_context 'owner-quorum' so operator-gate REQUIRES a signed
+  // gate-approval for this row — but with the row absent here NO approval could
+  // ever verify (the allowlist rejects it before the signature check), i.e. the
+  // co-signer route the owner ruling approved was unreachable at a SECOND layer
+  // the matrix tests never touch. The row is added to BOTH this list and the
+  // fold mirror (coordination-log.js::_GATE_APPROVAL_TARGET_TOOL_ALLOWLIST);
+  // gate-matrix.test.js asserts the two stay equal and name this row.
+  "owner-departure-roster-removal": true,
 });
 
 /**
@@ -100,16 +132,56 @@ function canonicalGateApprovalBytes(fields) {
   const f = fields || {};
   const obj = {
     target_tool: f.target_tool,
+    // 2026-10-09 (replay closure) — `command` and `target_sha` bind the
+    // approval to ONE exact action, and `expires_at` to one explicit window.
+    // See invariant (5) in this file's header.
+    command: f.command,
+    target_sha: f.target_sha,
     requester_person_id: f.requester_person_id,
     requester_verified_id: f.requester_verified_id,
     approver_verified_id: f.approver_verified_id,
     consumed_nonce: f.consumed_nonce,
     ts: f.ts,
+    expires_at: f.expires_at,
   };
   // canonicalSerialize validates undefined/NaN/Infinity and sorts keys;
   // it throws on shape violation. Caller's catch path surfaces as
   // {ok:false, reason:"canonicalSerialize failed: ..."} via verifyGateApproval.
   return cocSign.canonicalSerialize(obj);
+}
+
+/**
+ * THE canonical form of a gated command surface — ONE normalizer, exported, so
+ * the minting side (what an approver signs over) and the verifying side (what
+ * the gate derives from the live invocation) cannot drift.
+ *
+ * Rules: the command NAME is stripped of a leading `/`, trimmed, lowercased and
+ * reduced to its first token; the ARGS are trimmed with internal whitespace runs
+ * collapsed to single spaces, case preserved. The two are joined by one space
+ * when args are present.
+ *
+ *   ("release", "")                     -> "release"
+ *   ("posture", "upgrade  --to L5")     -> "posture upgrade --to L5"
+ *   ("/whoami", "--register")           -> "whoami --register"
+ *
+ * Why args are bound at all: `target_tool` names the §6.4 ROW, and one row can
+ * carry materially different actions (posture upgrade --to L4 vs --to L5). A
+ * signature over the row alone would admit either.
+ *
+ * @param {string} name
+ * @param {string} [args]
+ * @returns {string}
+ */
+function normalizeGateCommand(name, args) {
+  const n = String(name == null ? "" : name)
+    .trim()
+    .replace(/^\//, "")
+    .split(/[\s/]+/)[0]
+    .toLowerCase();
+  const a = String(args == null ? "" : args)
+    .trim()
+    .replace(/\s+/g, " ");
+  return a ? `${n} ${a}` : n;
 }
 
 /**
@@ -205,8 +277,49 @@ function verifyGateApproval(payload, ctx) {
   if (typeof payload.ts !== "string" || !payload.ts) {
     return { ok: false, reason: "gate_approval.ts required (MED-2)" };
   }
+  // 2026-10-09 (replay closure) — the action-binding + expiry fields.
+  if (typeof payload.command !== "string" || !payload.command) {
+    return {
+      ok: false,
+      reason:
+        "gate_approval.command required (replay closure): the approval must be bound to the exact command it authorizes",
+    };
+  }
+  if (
+    typeof payload.target_sha !== "string" ||
+    !/^[0-9a-f]{40}$/.test(payload.target_sha)
+  ) {
+    return {
+      ok: false,
+      reason:
+        "gate_approval.target_sha required as a full 40-hex commit sha (replay closure): the approval must be bound to the commit it authorizes",
+    };
+  }
+  if (typeof payload.expires_at !== "string" || !payload.expires_at) {
+    return {
+      ok: false,
+      reason: "gate_approval.expires_at required (replay closure)",
+    };
+  }
   if (typeof ctx.gate !== "string" || !ctx.gate) {
     return { ok: false, reason: "ctx.gate required" };
+  }
+  if (typeof ctx.command !== "string" || !ctx.command) {
+    return {
+      ok: false,
+      reason:
+        "ctx.command required (replay closure): the gate must derive the live command surface for the approval to be bound against",
+    };
+  }
+  if (
+    typeof ctx.target_sha !== "string" ||
+    !/^[0-9a-f]{40}$/.test(ctx.target_sha)
+  ) {
+    return {
+      ok: false,
+      reason:
+        "ctx.target_sha required as a full 40-hex commit sha (replay closure): the gate must derive the CURRENT commit for the approval to be bound against",
+    };
   }
   if (typeof ctx.requester_person_id !== "string" || !ctx.requester_person_id) {
     return { ok: false, reason: "ctx.requester_person_id required" };
@@ -236,6 +349,28 @@ function verifyGateApproval(payload, ctx) {
     return {
       ok: false,
       reason: `target_tool mismatch: gate_approval signed for '${payload.target_tool}'; current invocation is '${ctx.gate}' (MED-2 cross-surface replay defense)`,
+    };
+  }
+
+  // ---- ACTION BINDING (2026-10-09 replay closure) --------------------------
+  // A signature that verifies for release X MUST NOT admit release Y. BOTH
+  // sides are compared against values the GATE derived from the current
+  // request (ctx), never against anything the payload supplies twice: the
+  // command from the live Skill invocation, the sha from the repo's HEAD.
+  // This is the check the pre-fix gate lacked — measured, an approval naming
+  // commit 157fe4d9… was ACCEPTED while HEAD was df4de438….
+
+  if (payload.command !== ctx.command) {
+    return {
+      ok: false,
+      reason: `command mismatch: gate_approval is bound to '${payload.command}'; the current invocation is '${ctx.command}' (replay closure — the approval authorizes a different action)`,
+    };
+  }
+
+  if (payload.target_sha !== ctx.target_sha) {
+    return {
+      ok: false,
+      reason: `target_sha mismatch: gate_approval is bound to commit '${payload.target_sha}'; the repo is at '${ctx.target_sha}' (replay closure — the approval authorizes a different commit)`,
     };
   }
 
@@ -270,6 +405,30 @@ function verifyGateApproval(payload, ctx) {
     return {
       ok: false,
       reason: `gate_approval.ts is in the future by ${Math.floor(-ageMs / 1000)}s (MED-2)`,
+    };
+  }
+
+  // ---- EXPLICIT EXPIRY (2026-10-09 replay closure) -------------------------
+  // `expires_at` is the signer's declared end of validity. It may be SHORTER
+  // than the TTL but never longer: an approver must not be able to mint a
+  // window wider than the policy the TTL check above already enforces.
+  const expiresMs = Date.parse(payload.expires_at);
+  if (!Number.isFinite(expiresMs)) {
+    return {
+      ok: false,
+      reason: `gate_approval.expires_at '${payload.expires_at}' not a parseable timestamp (replay closure)`,
+    };
+  }
+  if (expiresMs < now) {
+    return {
+      ok: false,
+      reason: `gate_approval expired at ${payload.expires_at} (${Math.floor((now - expiresMs) / 1000)}s ago) (replay closure)`,
+    };
+  }
+  if (expiresMs - tsMs > GATE_APPROVAL_TTL_MS) {
+    return {
+      ok: false,
+      reason: `gate_approval.expires_at is ${Math.floor((expiresMs - tsMs) / 1000)}s after ts, beyond the ${GATE_APPROVAL_TTL_MS / 1000}s TTL (replay closure — a signer may choose a SHORTER window, never a longer one)`,
     };
   }
 
@@ -308,11 +467,17 @@ function verifyGateApproval(payload, ctx) {
   try {
     canonicalBytes = canonicalGateApprovalBytes({
       target_tool: payload.target_tool,
+      // Re-derived from the PAYLOAD's own fields (never from ctx): the signature
+      // must be checked against what the APPROVER signed, and the ctx-vs-payload
+      // comparison above is what binds that to the current request.
+      command: payload.command,
+      target_sha: payload.target_sha,
       requester_person_id: ctx.requester_person_id,
       requester_verified_id: ctx.requester_verified_id,
       approver_verified_id: payload.approver_verified_id, // iter-2 Sec-MED-2
       consumed_nonce: payload.consumed_nonce,
       ts: payload.ts,
+      expires_at: payload.expires_at,
     });
   } catch (err) {
     return {
@@ -364,7 +529,7 @@ function verifyGateApproval(payload, ctx) {
  * coordination-log `gate-approval` record from already-collected ceremony
  * pieces. This helper does NOT run the multi-party ceremony (the off-loom broker
  * issues the presence proofs, the approvers produce their co-sigs + presence
- * proofs, the approval UX orchestrates it — all loom-command's) — it ASSEMBLES
+ * proofs, the approval UX orchestrates it — all the off-loom enterprise product's) — it ASSEMBLES
  * the collected pieces into the record content the emitter signs.
  *
  * @param {object} fields
@@ -408,7 +573,7 @@ function buildGateApprovalRecord(fields) {
  * HONEST SHARD BOUNDARY (journal/0509, `zero-tolerance.md` Rule 2 carve-out): the
  * LIVE `/release` runtime cutover — making `/release` actually CALL this to emit
  * a folded gate-approval demanding a REAL broker proof — is the workstream
- * ENDPOINT and fires when loom-command's off-loom presence broker lands (always-on
+ * ENDPOINT and fires when the off-loom presence broker lands (always-on
  * ⇒ no advisory staging window). This shard ships the PLUMBING; `operator-gate.js`
  * keeps the live in-payload `/release` verify untouched until then.
  *
@@ -453,6 +618,9 @@ module.exports = {
   GATE_APPROVAL_TTL_MS,
   TARGET_TOOL_ALLOWLIST,
   canonicalGateApprovalBytes,
+  // ONE normalizer for the bound command surface, exported so the documenting
+  // side (what an approver signs over) and the verifying side cannot drift.
+  normalizeGateCommand,
   verifyGateApproval,
   buildGateApprovalRecord,
   emitGateApproval,

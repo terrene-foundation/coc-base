@@ -18,6 +18,23 @@
  *   other = non-blocking error (warn and continue)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<edited-file>",
+ *       "<npm-cache>/_npx/<hash>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["black","node","npx","ruff"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "`<edited-file>` is the EDITED file itself, rewritten in place (.py via black/ruff; .js/.jsx/.ts/.tsx/.json/.yaml/.yml via prettier). `<npm-cache>/_npx/<hash>/` is the prettier install the spawned npx performs on a cache miss, outside the repo root. The hook's own process opens no socket, but the spawned `npx --yes prettier@<pin>` MAY fetch from the npm registry on a cache miss and install into the npm cache. Formatters rewrite only the edited file, already contained under the resolved cwd; re-running on an already-formatted file is a no-op."
+ * }
+ */
+
 const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");

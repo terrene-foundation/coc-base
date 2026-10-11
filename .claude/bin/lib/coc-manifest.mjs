@@ -12,24 +12,14 @@
  * (same behavior, byte-identical emit) — only the file location + the
  * sibling import paths (`./lib/X` → `./X`) and REPO's depth changed.
  *
- * Symbols (24): REPO, safeWriteFileSync, ensureTrailingNewline,
- *   writeTextArtifactSync, safeReadFileSync, globToRegex,
- *   matchesAnyGlob, loadExclusions, loadLoomOnly, loadFlatList,
- *   loadUniversalExclude, loadLaneExclusions, loadVariantOnly, loadTiers,
- *   loadTargetTierSubscriptions, loadTargetVariant, buildTierFilter,
- *   composeArtifactBody, rewriteClaudePathsForCli, walkFiles,
- *   loadSurfaceRoles, loadTargetRole, surfaceRolesAllow, deliveryVerdict.
- *
- * The count is produced STRUCTURALLY — `Object.keys(await import(...)).length`,
- * imported in place so the `./slot-parser.mjs` sibling resolves. A grep or a
- * hand-count is not the instrument: this header read 14 against an actual 17
- * before loom#1684 touched it, and 16 against 19 after, because the three
- * surface-role symbols were never listed. Re-measure; do not increment.
- *
  * Node ESM, zero external deps (mirrors emit.mjs / emit-cli-artifacts.mjs).
  */
 
 import fs from "node:fs";
+import artifactGlob from "../../hooks/lib/artifact-glob.js";
+const { globToRegex } = artifactGlob;
+import ruleMetadata from "../../hooks/lib/rule-metadata.js";
+const { parseManifestCliExclusions } = ruleMetadata;
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -177,47 +167,6 @@ function safeReadFileSync(filePath, encoding) {
 // (nesting works); a group with no top-level comma (`{x}`) stays literal, as in a
 // shell. Kept byte-identical between coc-manifest.mjs and
 // check-rule-injection-budget.mjs, and pinned by that tool's mirror-parity test.
-function expandBraces(glob) {
-  const m = /\{([^{}]*,[^{}]*)\}/.exec(glob);
-  if (!m) return [glob];
-  const head = glob.slice(0, m.index);
-  const tail = glob.slice(m.index + m[0].length);
-  return m[1].split(",").flatMap((alt) => expandBraces(head + alt + tail));
-}
-
-// `?` is ONE non-`/` character (2026-09-25), as in Claude Code's matcher. It
-// was escaped to a literal, so `**/?*` matched no real path and a rule using it
-// charged nothing. Measured: no emitted-artifact or manifest glob changes
-// verdict (emit-cli-artifacts --out diffs clean against the parent).
-function globBody(glob) {
-  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  return escaped
-    .replace(/\?/g, "__ONECHAR__")
-    .replace(/(^|\/)\*\*\//g, "$1__ANYSEGS__")
-    .replace(/\*\*/g, "__DOUBLESTAR__")
-    .replace(/\*/g, "[^/]*")
-    .replace(/__DOUBLESTAR__/g, ".*")
-    .replace(/__ANYSEGS__/g, "(?:.*/)?")
-    .replace(/__ONECHAR__/g, "[^/]");
-}
-
-function globSource(glob) {
-  const bodies = expandBraces(glob.replace(/^\.\//, "")).map(globBody);
-  return bodies.length === 1 ? `^${bodies[0]}$` : `^(?:${bodies.join("|")})$`;
-}
-
-function globToRegex(glob) {
-  // Escape regex metacharacters, then re-expand glob tokens. `?` is one non-`/`
-  // character (never a regex 0-or-1 quantifier) — see globBody().
-  // A `**/` at the START of the pattern OR immediately after a `/` matches ZERO
-  // or more path segments, so it compiles to `(?:.*/)?` — which keeps the `/`
-  // boundary (a bare `.*` would substring-match `yx` for `**/x`). Measured
-  // against Claude Code 2.1.226: the LEADING case 2/2 (loom#1597), the INTERIOR
-  // case 2/2 on three glob shapes (S21-GLOB-INTERIOR.md). Both positions are
-  // zero-or-more in CC; treating the interior as >=1 silently defeated 12 corpus
-  // globs' stated intent. Brace sets and a leading `./`: see expandBraces().
-  return new RegExp(globSource(glob));
-}
 
 function matchesAnyGlob(relPath, globs) {
   for (const g of globs) {
@@ -263,47 +212,7 @@ function loadExclusions() {
   // to over-emit.
   const src = readManifestSource(REPO) ?? readCliEmitProjection(REPO);
   if (src == null) return { codex: [], gemini: [] };
-  const lines = src.split("\n");
-
-  const result = { codex: [], gemini: [] };
-  let inStanza = false;
-  let currentCli = null;
-
-  for (const line of lines) {
-    if (/^cli_emit_exclusions:\s*$/.test(line)) {
-      inStanza = true;
-      continue;
-    }
-    if (!inStanza) continue;
-
-    // End of stanza: a new top-level key (column 0, ends with :)
-    if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
-      break;
-    }
-
-    // CLI key (2-space indent)
-    const cliMatch = line.match(/^ {2}([a-z]+):\s*$/);
-    if (cliMatch) {
-      currentCli = cliMatch[1];
-      if (!(currentCli in result)) result[currentCli] = [];
-      continue;
-    }
-
-    // List entry (4-space indent, leading dash)
-    const entryMatch = line.match(/^ {4}-\s*(.+?)\s*$/);
-    if (entryMatch && currentCli) {
-      // Strip surrounding quotes, THEN inline ` # ...` comments — matching
-      // loadTiers/loadLoomOnly. Closes a latent footgun (W4 redteam R-LOW): the
-      // prior asymmetry meant an inline comment on a cli_emit_exclusions entry
-      // would corrupt the glob, so rationale had to live on full comment lines
-      // only. Behavior-preserving for current data (no entry carries a ` #`).
-      const val = entryMatch[1].replace(/^["']|["']$/g, "");
-      const cleaned = val.replace(/\s+#.*$/, "").trim();
-      if (cleaned) result[currentCli].push(cleaned);
-    }
-  }
-
-  return result;
+  return parseManifestCliExclusions(src);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -316,12 +225,12 @@ function loadExclusions() {
 // list of `- <glob>` entries (NO nested CLI sub-keys). Bare source-relative
 // globs (`agents/management/coc-sync.md`) matched against the manifest-
 // relative path the emit functions build (`agents/...`).
-function loadLoomOnly() {
+function loadLoomOnly(sourceRoot = REPO) {
   // D1 DISTRIBUTION-DECLARATION (loom#1386). `loom_only` is a POSITIVE
   // never-sync list — artifacts loom keeps for itself. A consumer holds no such
   // list because it fans nothing out; the empty set is exact, and it is what the
   // stanza-absent path below already returns.
-  return loadFlatList("loom_only");
+  return loadFlatList("loom_only", sourceRoot);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -339,16 +248,16 @@ function loadLoomOnly() {
 // declared. `normalizeFateEntry` is deliberately NOT applied: it exists to
 // reconcile the repo-ROOT-relative purge lists, and no `exclude:` entry uses
 // that convention.
-function loadUniversalExclude() {
-  return loadFlatList("exclude");
+function loadUniversalExclude(sourceRoot = REPO) {
+  return loadFlatList("exclude", sourceRoot);
 }
 
 // Read a top-level FLAT list stanza (`<key>:` followed by `  - <entry>` lines).
 // The shape `loom_only:` / `exclude:` / `use_exclude:` / `obsoleted:` and their
 // lane siblings all share. Returns [] when the manifest is EXPECTED-absent
 // (D1 DISTRIBUTION-DECLARATION, loom#1386) or the stanza is missing.
-function loadFlatList(key) {
-  const src = readManifestSource(REPO);
+function loadFlatList(key, sourceRoot = REPO) {
+  const src = readManifestSource(sourceRoot);
   if (src === null) return [];
   const lines = src.split("\n");
 
@@ -948,7 +857,7 @@ function surfaceRolesAllow(surfaceRoles, manifestRel, targetRole) {
 // Returns `{ delivered, reason }`. When withheld, `reason` is one of
 // "loom_only", "exclude", "lane_exclude", "surface_role" or "no_tier_match";
 // otherwise "delivered". Those six are the function's own return sites,
-// immediately below (coc-manifest.mjs:884-910).
+// in `deliveryVerdict` (.claude/bin/lib/coc-manifest.mjs:921-947).
 //
 // That is NOT classifyFile's reason vocabulary. An earlier revision of this
 // paragraph claimed it was — "the same vocabulary classifyFile reports, so a
@@ -956,10 +865,10 @@ function surfaceRolesAllow(surfaceRoles, manifestRel, targetRole) {
 // and that was measured FALSE and is withdrawn. The two sets INTERSECT in
 // exactly three strings ("loom_only", "exclude", "no_tier_match"); the other
 // three emitted here appear NOWHERE as a reason in classifyFile
-// (sync-tier-aware.mjs:4017):
+// (`classifyFile`, .claude/bin/sync-tier-aware.mjs:4509-4516):
 //   - "lane_exclude" COLLAPSES a distinction the distributor KEEPS. classifyFile
 //     is invoked per-lane and reports "use_exclude" or "build_exclude" off the
-//     `mode` ternary at sync-tier-aware.mjs:4122; this predicate is
+//     `classifyFile`'s `mode` ternary (.claude/bin/sync-tier-aware.mjs:4612-4615); this predicate is
 //     lane-BLIND and only tests the caller-supplied `laneExclude` list, so it
 //     cannot name which lane withheld the file.
 //   - "surface_role" and "delivered" have no classifyFile counterpart at all.
@@ -1074,10 +983,11 @@ function deliveryVerdict({
 //   - manifest-explicit + file missing → halt (manifest defect)
 //   - manifest-null                    → skip overlay for this axis
 //   - manifest-explicit / path-mirror  → apply if file exists
-function composeArtifactBody(category, relPath, cli, lang, { rewritePaths = true } = {}) {
-  const globalPath = path.join(REPO, ".claude", category, relPath);
+function composeArtifactBody(category, relPath, cli, lang, { rewritePaths = true, preserveInternalReferences = false, sourceRoot = REPO, includeContributors = false } = {}) {
+  const globalPath = path.join(sourceRoot, ".claude", category, relPath);
   if (!fs.existsSync(globalPath)) return null;
   let composed = safeReadFileSync(globalPath, "utf8");
+  const contributors = [path.relative(sourceRoot, globalPath).split(path.sep).join("/")];
   let destRelPath = relPath;
 
   const axes = [];
@@ -1086,13 +996,14 @@ function composeArtifactBody(category, relPath, cli, lang, { rewritePaths = true
   if (lang && cli) axes.push(`${lang}-${cli}`);
 
   for (const axis of axes) {
-    const res = resolveOverlay(category, relPath, axis);
+    const res = resolveOverlay(category, relPath, axis, sourceRoot);
     if (res.kind === "manifest-null") continue;
     if (!fs.existsSync(res.path)) {
       if (res.kind === "manifest-explicit") {
+        if (includeContributors) throw new Error(`declared artifact overlay is missing: ${path.relative(sourceRoot, res.path)}`);
         process.stderr.write(
           `emit-cli-artifacts: sync-manifest.yaml::variants declares overlay ` +
-            `'${path.relative(REPO, res.path)}' for ${category}/${relPath} ` +
+            `'${path.relative(sourceRoot, res.path)}' for ${category}/${relPath} ` +
             `axis '${axis}', but the file is missing — halt (manifest defect).\n`,
         );
         process.exit(2);
@@ -1100,6 +1011,7 @@ function composeArtifactBody(category, relPath, cli, lang, { rewritePaths = true
       continue;
     }
     const overlay = safeReadFileSync(res.path, "utf8");
+    contributors.push(path.relative(sourceRoot, res.path).split(path.sep).join("/"));
     if (overlay.includes("<!-- slot:")) {
       // Slot-keyed: compose via slot-parser
       const { composed: c } = applyOverlay(composed, overlay);
@@ -1121,7 +1033,7 @@ function composeArtifactBody(category, relPath, cli, lang, { rewritePaths = true
   // transform is idempotent; running on already-clean content is a
   // no-op. See .claude/bin/lib/strip-build-internal.mjs for the
   // codified pattern set + audit fixtures.
-  const { stripped } = stripBuildInternalReferences(composed);
+  const stripped = preserveInternalReferences ? composed : stripBuildInternalReferences(composed).stripped;
   // CLI-aware path rewrite: at loom the source body references
   // .claude/{skills,commands,agents}/ because that IS where CC stores
   // them. For codex / gemini emissions the consumer's CLI looks under
@@ -1133,7 +1045,47 @@ function composeArtifactBody(category, relPath, cli, lang, { rewritePaths = true
   // rules, guides, codex-mcp-guard) stay `.claude/` since they're
   // consumed identically across all three CLIs.
   const rewritten = rewritePaths ? rewriteClaudePathsForCli(stripped, cli, { sourcePath: relPath }) : stripped;
-  return { body: rewritten, destRelPath };
+  return { body: rewritten, destRelPath, ...(includeContributors ? { contributors } : {}) };
+}
+
+export function parseArtifactFrontmatter(source) {
+  const match = source.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (!match) return { frontmatter: {}, body: source };
+  const fm = {};
+  for (const line of match[1].split("\n")) {
+    const m = line.match(/^([a-zA-Z_][\w-]*):\s*(.*)$/);
+    if (!m) continue;
+    let val = m[2].trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1);
+    fm[m[1]] = val;
+  }
+  return { frontmatter: fm, body: match[2] };
+}
+
+export function artifactDestinations({ category, relPath, cli, body = "", destRelPath = relPath }) {
+  for (const value of [relPath, destRelPath]) {
+    if (typeof value !== "string" || !value || /[\\\x00]/.test(value) || value.startsWith("/") || value.split("/").some(part => part === "." || part === ".." || !part)) throw new Error(`invalid artifact relative path: ${value}`);
+  }
+  if (!["codex", "gemini"].includes(cli)) throw new Error(`unknown artifact CLI: ${cli}`);
+  const skillRoot = cli === "codex" ? ".agents/skills" : ".gemini/skills";
+  if (category === "skills") {
+    const skill = relPath.split("/")[0];
+    const below = destRelPath.startsWith(`${skill}/`) ? destRelPath.slice(skill.length + 1) : destRelPath;
+    return { tree: `${skillRoot}/${skill}`, resource: `${skillRoot}/${skill}/${below}` };
+  }
+  const name = category === "agents"
+    ? parseArtifactFrontmatter(body).frontmatter.name || path.posix.basename(relPath, ".md")
+    : path.posix.basename(destRelPath, ".md");
+  if (!name || /[\/\\\x00]/.test(name) || name === "." || name === "..") throw new Error(`${category === "agents" && cli === "codex" ? "invalid Codex agent name" : "invalid artifact destination identity"}: ${name}`);
+  if (category === "commands") return cli === "codex"
+    ? { name, prompt: `.codex/prompts/${name}.md`, tree: `${skillRoot}/coc-${name}`, entry: `${skillRoot}/coc-${name}/SKILL.md`, policy: `${skillRoot}/coc-${name}/agents/openai.yaml`, ...(name === "cost-audit" ? { program: ".codex/bin/codex-cost.py" } : {}) }
+    : { name, command: `.gemini/commands/${name}.toml` };
+  if (category !== "agents") throw new Error(`unknown artifact category: ${category}`);
+  const shortName = name.endsWith("-specialist") ? name.slice(0, -"-specialist".length) : name;
+  const promptName = `specialist-${shortName}`;
+  return cli === "codex"
+    ? { name, shortName, promptName, agent: `.codex/agents/${name}.toml`, prompt: `.codex/prompts/${promptName}.md` }
+    : { name, agent: `.gemini/agents/${name}.md` };
 }
 
 // CLI-aware path rewrite — see composeArtifactBody for rationale.
@@ -1259,12 +1211,13 @@ function buildTierFilter(target) {
 // ────────────────────────────────────────────────────────────────
 // Directory walker — yields { absPath, relPath } for files only
 // ────────────────────────────────────────────────────────────────
-function* walkFiles(root, rel = "") {
+function* walkFiles(root, rel = "", skipRelative = () => false) {
   const full = rel ? path.join(root, rel) : root;
   for (const entry of fs.readdirSync(full, { withFileTypes: true })) {
     const entryRel = rel ? path.join(rel, entry.name) : entry.name;
+    if (skipRelative(entryRel)) continue;
     if (entry.isDirectory()) {
-      yield* walkFiles(root, entryRel);
+      yield* walkFiles(root, entryRel, skipRelative);
     } else if (entry.isFile()) {
       yield {
         absPath: path.join(full, entry.name),

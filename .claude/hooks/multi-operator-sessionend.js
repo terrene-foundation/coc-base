@@ -51,6 +51,31 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/coordination-log.jsonl",
+ *       ".claude/learning/.session-end-cache",
+ *       ".claude/learning/observations.jsonl",
+ *       ".claude/learning/observations.archive/",
+ *       ".claude/learning/sessionend-release-lease-<verified_id-fingerprint>.json",
+ *       ".claude/learning/.tmp-sereleaselease-<pid>-<hex>",
+ *       ".claude/learning/sessionend-release-lease-<verified_id-fingerprint>.json.reap-<pid>-<hex>",
+ *       ".session-notes.d/<display_id>.md",
+ *       ".session-notes.shared.md",
+ *       "<os.tmpdir()>/coc-sign-<mkdtemp-suffix>"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","gpgconf","node","ps","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "Every repo target resolves against the MAIN checkout (lib/state-resolver.js folds a linked worktree onto <main>/.claude/learning; the state dir is CLAUDE_TRUST_STATE_DIR-overridable). Release/checkpoint rows are signed then appended via lib/coc-emit.js + lib/append-sink.js; the lease family (staging sibling + reap tombstone) is lib/sessionend-release-lease.js; the .session-notes writes go through lib/session-notes-layout.js, which lands them via .<name>.tmp.<pid>.<hex> + rename. spawns: the #857 detached teardown worker (lib/coord-background.js) plus ssh-keygen/gpg signing and git probes under lib/coc-sign.js / lib/state-resolver.js / lib/operator-id.js. Ephemeral signing homedirs are created under the OS tmp root and removed."
+ * }
+ */
+
 const TIMEOUT_MS = 5000;
 // Armed by hookMain(), not at load: require() of this file has no side effects,
 // so the in-process hook engine can load it once per worker and run it per event.
@@ -127,7 +152,13 @@ function resolveIdentitySafely(repoDir) {
     const { resolveIdentity } = require(
       path.join(__dirname, "lib", "operator-id.js"),
     );
-    return resolveIdentity(repoDir, {});
+    // Align the STAMP with the SIGNER (round-1 security F4 companion): this
+    // writer signs with COC_OPERATOR_KEY_PATH; resolving identity from the
+    // git-config key alone could stamp a different verified_id, which the
+    // emission bind now refuses. Resolve against the same key we sign with.
+    return resolveIdentity(repoDir, {
+      signingKeyPath: process.env.COC_OPERATOR_KEY_PATH || undefined,
+    });
   } catch {
     return null;
   }

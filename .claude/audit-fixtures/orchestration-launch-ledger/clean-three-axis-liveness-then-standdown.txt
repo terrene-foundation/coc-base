@@ -16,7 +16,7 @@ the liveness check from the main checkout, not from inside the tree:
 
     ps -eo pid,lstart,command  (rc 0)  | grep -F .example-repo-wt/codec  ->  0
     lsof -a -d cwd -w -p $$                                              ->  1 line
-    lsof -a -d cwd -w +D /Users/me/repos/.example-repo-wt/codec  (rc 1)  ->  0 lines
+    lsof -a -d cwd -w +D {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec  (rc 1)  ->  0 lines
 
 lsof reports this shell's own cwd, so it works here; rc 1 from the sweep means it
 LOCATED NOTHING — that tool returns 1 for not-found as well as error, so reading
@@ -33,7 +33,7 @@ know is there, before reading any silence as "nothing was written":
 
     touch -t 202609060830 /tmp/ref.w3          (45 minutes back)
     find <scratch>/ctl -newer /tmp/ref.w3  ->  inside found, outside not
-    root=$(realpath /Users/me/repos/.example-repo-wt/codec)    (resolves the symlink)
+    root=$(realpath {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec)    (resolves the symlink)
     find "$root" -type f -newer /tmp/ref.w3    ->  3 paths, rc 0
 
 Those control files show the predicate discriminates here, and the sweep root is

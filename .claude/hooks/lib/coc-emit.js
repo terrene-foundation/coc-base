@@ -48,12 +48,12 @@
 const fs = require("fs");
 const path = require("path");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 const cocSign = require(path.join(__dirname, "coc-sign.js"));
 const coordinationLog = require(path.join(__dirname, "coordination-log.js"));
 const { resolveLogPath } = require(path.join(__dirname, "state-io.js"));
-const { resolveIdentity, _discoverSigningKey } = require(
+const { resolveIdentity, _discoverSigningKey, _fingerprintFromKey, _makeRosterGpgResolver, _gpgFingerprint } = require(
   path.join(__dirname, "operator-id.js"),
 );
 const actuationTypes = require(path.join(__dirname, "actuation-types.js"));
@@ -192,40 +192,9 @@ function _defaultAppend(repoDir, record) {
   //
   // `repoDir` stays the value stamped into the signed record; only the boundary widens.
   //
-  // Resolved through `requireMainCheckout` — the FAIL-CLOSED accessor — not the legacy
-  // `resolveMainCheckout`, because what is being declared here is a CONTAINMENT ROOT. The legacy
-  // accessor silently returns its own `cwd` argument when git cannot identify a main checkout
-  // (`state-resolver.js` § INDETERMINATE), so a caller that widens a trust boundary with it widens
-  // it with an unverified value. State the equivalence honestly rather than over-claiming a fix:
-  // at THIS call site the argument is `repoDir`, which `appendSinkLine` already declares as root[0]
-  // and `_resolveRoots` realpath-dedupes, so the indeterminate branch contributed a NO-OP DUPLICATE
-  // and the boundary never actually widened. Measured on a non-git dir: `indeterminate=true`,
-  // legacy path `=== repoDir` argument, `requireMainCheckout().ok === false`.
-  //
-  // The migration is therefore behaviour-preserving TODAY, and is made anyway for two reasons the
-  // no-op does not cover. (1) That safety holds only by the coincidence that the value passed in
-  // equals the value fallen back to — a two-hop invariant no reader re-derives, which silently
-  // breaks the moment this call is handed a session cwd instead of `repoDir`. (2) The alternative
-  // was a `LEGACY_ALLOWED` entry in
-  // `tests/integration/multi-operator/trust-resolver-fail-closed-1471.test.js`, which would have
-  // recorded the weakness in a ledger meant to SHRINK rather than removing it.
-  //
-  // The `!ok` branch declares NOTHING, which is the same fail-closed shape as the catch below: a
-  // sink outside `repoDir` is refused rather than written somewhere unverified, while a sink INSIDE
-  // `repoDir` — the legitimate non-git / unresolvable-git case — still lands. Refusing the whole
-  // append on `!ok` would over-block that path; both halves are pinned by
-  // `append-sink-worktree-state.test.js` § "git cannot answer".
-  const boundaryRoots = [];
-  try {
-    const { requireMainCheckout } = require(
-      path.join(__dirname, "state-resolver.js"),
-    );
-    const mainCheckout = requireMainCheckout(repoDir);
-    if (mainCheckout.ok) boundaryRoots.push(mainCheckout.repoDir);
-  } catch {
-    // Resolver unavailable — `repoDir` remains the only root and a main-checkout sink fails
-    // CLOSED (loudly, to the caller) rather than being written somewhere unverified.
-  }
+  // Containment roots for a state-dir sink: derived by the ONE helper in
+  // append-sink.js (see its doc for the fail-closed resolver rationale).
+  const boundaryRoots = mainCheckoutBoundaryRoots(repoDir);
   const w = appendSinkLine({
     repoDir,
     additionalRoots: boundaryRoots,
@@ -298,7 +267,16 @@ function _foldDelta(liveRecords, roster, record) {
   // caches+forks it (guard over-refuses), verify rule-1-rejects it (guard
   // admits). Skip can therefore only make the guard OVER-refuse a legitimate
   // emit, NEVER admit a record a read-time fold would reject. Fail-closed.
-  const foldOpts = { skipSignatureVerify: true };
+  // VERIFY the candidate (verified-fold, 2026-10-09): the old skip rested on
+  // the premise "the candidate is freshly self-signed, so rule-1 always
+  // passes" — a premise nothing enforced, and the wBL8jr anomaly class is
+  // exactly its negation (a stamp/sign-divergent candidate folded ACCEPTED
+  // under the skip and was appended). The premise is now ENFORCED here AND
+  // bound at the emission site; the historic per-emit GPG cost this skip
+  // avoided is bounded today by checkpoint coverage + in-process SSH
+  // fingerprints (measured warm full-verify on the 1072-record log: 623-805ms
+  // per fold, median 759 — and this guard runs TWO folds, so ~1.3s per emit).
+  const foldOpts = {};
   const before = coordinationLog.foldLog(liveRecords, roster, foldOpts);
   const after = coordinationLog.foldLog(
     liveRecords.concat([record]),
@@ -556,7 +534,7 @@ function emitSignedRecord(opts) {
       return {
         ok: false,
         error: "presence proof required",
-        reason: `actuation record type '${o.type}' requires a PROVEN per-record presence proof in content.presence_proof (verifier status: ${verdict.status}${verdict.reason ? ` — ${verdict.reason}` : ""}) — holding the signing key is NOT sufficient (#583 §C4). The proof is produced by the off-loom loom-command hardware-presence broker; an in-process/agent emission without a fresh, broker-signed proof is the identity-≠-intent hole #583 closes.`,
+        reason: `actuation record type '${o.type}' requires a PROVEN per-record presence proof in content.presence_proof (verifier status: ${verdict.status}${verdict.reason ? ` — ${verdict.reason}` : ""}) — holding the signing key is NOT sufficient (#583 §C4). The proof is produced by the off-loom hardware-presence broker; an in-process/agent emission without a fresh, broker-signed proof is the identity-≠-intent hole #583 closes.`,
         step: "presence-gate",
       };
     }
@@ -614,6 +592,45 @@ function emitSignedRecord(opts) {
     };
   }
   const record = Object.assign({}, recordCore, { sig: signResult.sig });
+
+  // ---- Sign/Stamp BIND (verified-fold, 2026-10-09) --------------------------
+  // The stamp (`identity.verified_id`) and the signing key (opts or
+  // `git config user.signingkey`) are resolved INDEPENDENTLY and nothing bound
+  // them — the MEASURED anomaly class: a record stamped to one persona's ssh
+  // key but SIGNED by another rostered key (the whole 27-record chain then
+  // fails a verifying fold's rule-1). Bind them here: derive the signing key's
+  // fingerprint and REFUSE on a mismatch, naming both in FORM (prefixes only).
+  // Only when WE resolved the key - an injected `o.sign` carries no keyPath.
+  if (!o.sign && signOpts.keyPath) {
+    // Compose the SAME resolver resolveIdentity uses (roster suffix-match
+    // FIRST, ambient gpg fingerprint as FALLBACK): the roster suffix-match
+    // structurally cannot resolve a signing-SUBKEY id or an email/name
+    // user-id, and for those selectors a bare roster resolver returns the
+    // VERBATIM selector — refusing a legitimate emit and mis-labelling a
+    // selector issue as a key mismatch (round-1 security F1).
+    const rosterResolver = roster ? _makeRosterGpgResolver(roster) : null;
+    const bindResolver = rosterResolver
+      ? (keyId) => rosterResolver(keyId) || _gpgFingerprint(keyId)
+      : undefined;
+    const fp = _fingerprintFromKey(signOpts.keyPath, signOpts.keyType, bindResolver);
+    const claimed = String(record.verified_id || "");
+    if (!fp) {
+      return {
+        ok: false,
+        error: "sign/key unbound",
+        reason: `cannot derive the signing key's fingerprint (${signOpts.keyType}) to bind against verified_id ${claimed.slice(0, 16)}…; refusing an unbound emission`,
+        step: "bind",
+      };
+    }
+    if (String(fp) !== claimed) {
+      return {
+        ok: false,
+        error: "sign/key mismatch",
+        reason: `REFUSING a sign/key mismatch: the record is stamped verified_id ${claimed.slice(0, 16)}… but the signing key resolves to ${String(fp).slice(0, 16)}… — sign and stamp must name the same key`,
+        step: "bind",
+      };
+    }
+  }
 
   // ---- Fold-validation (fail-closed recurrence guard, COC-CHAIN) ----------
   // Re-fold [live chain + candidate] and refuse to append unless the

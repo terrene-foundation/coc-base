@@ -17,7 +17,7 @@ Authoring a new hook script under `.claude/hooks/`. Auditing an existing hook fo
 | CLI    | Registration                                               | Event surface                                                              | Path env                               |
 | ------ | ---------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------- |
 | CC     | `.claude/hooks/dispatch-registry.json` (run in-process by `dispatch.js <Event>`) | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`    | `$CLAUDE_PROJECT_DIR` exported         |
-| Codex  | `.codex/hooks.json` (repo) or `~/.codex/hooks.json` (user) | Shared core names; native Bash, patch, MCP, and local-tool events   | NOT exported; resolve via cwd-relative |
+| Codex  | `.codex/hooks.json` (repo) or `~/.codex/hooks.json` (user) | Shared core names; native Bash, patch, MCP, and local-tool events   | Wrapper resolves the canonical checkout root |
 | Gemini | `.gemini/settings.json` `hooks` object                     | `BeforeTool` / `AfterTool` / `BeforeAgent` / `SessionStart` / `SessionEnd` | `$GEMINI_PROJECT_DIR` exported         |
 
 | Constraint                | Value                                                                                                                 |
@@ -35,7 +35,7 @@ Authoring a new hook script under `.claude/hooks/`. Auditing an existing hook fo
 The authoritative copy of every hook lives at `.claude/hooks/<name>.js`. All three CLIs reference the same file by path; what differs is the registration manifest:
 
 - CC reads `.claude/settings.json` `hooks` → command list. Working directory at hook launch is the project root; CC exports `CLAUDE_PROJECT_DIR`.
-- Codex reads `.codex/hooks.json` and invokes each registered native hook through the COC_RUNTIME-delivery wrapper: `node "$(git rev-parse --show-toplevel)/.claude/hooks/lib/codex-hook-runtime.js" ./.claude/hooks/<name>.js` (the wrapper stamps `COC_RUNTIME=codex` + `CLAUDE_PROJECT_DIR`, then delegates to the hook as a native child process — see § The COC_RUNTIME Contract). Codex does NOT export a project-dir env var; the wrapper's `CLAUDE_PROJECT_DIR` stamp AND the hook's own `cwd` extraction from the stdin payload both resolve the project root.
+- Codex reads `.codex/hooks.json`. Preserve the canonical template launchers: they clear Node injection variables, discover the checkout through filesystem markers, and select `--native-policy` or `--native-event <Event>` before parsing input. Add detectors to the shared source registry; the adapter selects and supervises them. The wrapper supplies `COC_RUNTIME=codex` and project context; Codex does not export a project-directory variable (`.claude/codex-templates/hooks.json:1-137`, `.claude/hooks/lib/codex-native-events.js:143-190`).
 - Gemini reads `.gemini/settings.json` `hooks` (the `hooks` object) and renames events to its own taxonomy (`BeforeTool`, `AfterTool`). Gemini exports `GEMINI_PROJECT_DIR`.
 
 The single-source contract means every hook MUST work under all three runtimes without per-CLI source forks. The shared library `lib/runtime.js::parseHook()` validates the `COC_RUNTIME` env var (closed enum: `cc` / `codex` / `gemini`) and returns a canonical payload shape regardless of source.
@@ -226,7 +226,7 @@ Hook author skips the `setTimeout` block "because the work is fast." First runti
 
 ### 5. `$CODEX_PROJECT_DIR` Referenced In Hook Registration
 
-Codex does not export a project-dir env var; `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` (MODULE_NOT_FOUND). Fix: register through the wrapper — `node "$(git rev-parse --show-toplevel)/.claude/hooks/lib/codex-hook-runtime.js" ./.claude/hooks/<name>.js` (Git-root-resolved, no invented env var; the wrapper stamps `CLAUDE_PROJECT_DIR` + `COC_RUNTIME`) — and rely on `payload.cwd` from stdin as the in-script fallback.
+Codex does not export a project-dir env var. Use the event-bound canonical template registration rather than constructing a launcher from an assumed variable or Git environment. Filesystem-marker discovery and the runtime establish project context; detector code consumes the normalized payload (`.claude/codex-templates/hooks.json:1-137`, `.claude/hooks/lib/codex-hook-runtime.js:414-483`).
 
 ### 6. Gemini Event Names As CC Aliases
 

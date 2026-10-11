@@ -9,9 +9,10 @@
  * wrong slice reports CLEAN. That is the failure class both guards exist to
  * catch, so the constants ship as NAMED exports and the reader has one home.
  *
- * Behaviour is byte-for-byte the pre-extraction implementation; the extraction
- * changed no logic. Pinned by `.claude/audit-fixtures/transcript-read-extraction/`,
- * which compares this module against the PRE-extraction source read out of git.
+ * The default path-reader behavior is pinned by
+ * `.claude/audit-fixtures/transcript-read-extraction/`. Payload selection and
+ * opt-in burndown compatibility are checked in
+ * `.claude/test-harness/tests/codex-stop-text.test.mjs`.
  */
 
 // --- Stop-event final-text recovery -------------------------------------
@@ -143,7 +144,7 @@ function warnOpenGuardsUnavailable(simulated) {
 
 // Returns { text, reason }: reason is null when text was recovered, and a
 // human-readable cause when it was not (driving the one-time WARN above).
-function readFinalAssistantText(transcriptPath) {
+function readFinalAssistantText(transcriptPath, { allowRoleAssistant = false, allowToolOnly = false } = {}) {
   try {
     // These two cases are DIFFERENT and must not collapse into one silent
     // return. Nothing offered is the ordinary no-op (warning there would train
@@ -247,7 +248,8 @@ function readFinalAssistantText(transcriptPath) {
         } catch {
           continue; // truncated / malformed row — skip it, never throw
         }
-        if (!entry || entry.type !== "assistant") continue;
+        if (!entry || (entry.type !== "assistant" &&
+          !(allowRoleAssistant && entry.message?.role === "assistant"))) continue;
         if (++assistantsSeen > TRANSCRIPT_MAX_ASSISTANT_ENTRIES) {
           cappedOut = true;
           break;
@@ -261,6 +263,9 @@ function readFinalAssistantText(transcriptPath) {
           .map((b) => b.text)
           .join("\n");
         if (text) return { text, reason: null };
+      }
+      if (allowToolOnly && assistantsSeen > 0 && !cappedOut) {
+        return { text: "", reason: null };
       }
       return {
         text: "",
@@ -281,6 +286,41 @@ function readFinalAssistantText(transcriptPath) {
   }
 }
 
+function readAssistantTextFromPayload(payload, {
+  runtime = process.env.COC_RUNTIME,
+  requireSource = false,
+  allowRoleAssistant = false,
+  allowToolOnly = false,
+} = {}) {
+  const unavailable = (reason) => ({ text: "", reason });
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return unavailable("Stop payload is not an object; reply was NOT read");
+  }
+  const own = (key) => Object.prototype.hasOwnProperty.call(payload, key);
+  const aliases = ["last_assistant_message", "last_assistant_text"];
+  for (const key of aliases) {
+    if (own(key) && typeof payload[key] !== "string") {
+      return unavailable(`${key} present but unusable (${typeof payload[key]}); reply was NOT read`);
+    }
+  }
+  if (aliases.every(own) && payload[aliases[0]] !== payload[aliases[1]]) {
+    return unavailable("conflicting last_assistant_message and last_assistant_text; reply was NOT read");
+  }
+  const inline = own("last_assistant_message") ? payload.last_assistant_message : payload.last_assistant_text;
+  if (typeof inline === "string" && (inline.trim() || (runtime === "codex" && aliases.some(own)))) {
+    return { text: inline, reason: null };
+  }
+  if (runtime === "codex") {
+    return unavailable("Codex inline assistant message unavailable; native transcript format is not a Claude transcript fallback");
+  }
+  const child = payload.hook_event_name === "SubagentStop";
+  const transcript = child ? payload.agent_transcript_path : payload.transcript_path;
+  if (transcript == null && (requireSource || child)) {
+    return unavailable(`${child ? "agent_transcript_path" : "transcript_path"} missing; reply was NOT read`);
+  }
+  return readFinalAssistantText(transcript, { allowRoleAssistant, allowToolOnly });
+}
+
 // NAMED exports — the constants are exported, not just the function, because the
 // drift this extraction closes is a drift of the CONSTANTS. A second consumer
 // that imports the reader but re-declares its own window has reintroduced the
@@ -289,5 +329,6 @@ module.exports = {
   TRANSCRIPT_TAIL_BYTES,
   TRANSCRIPT_MAX_ASSISTANT_ENTRIES,
   readFinalAssistantText,
+  readAssistantTextFromPayload,
   warnTranscriptRecovery,
 };

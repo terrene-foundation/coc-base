@@ -21,7 +21,7 @@ import {
   getScopeAtDate,
   RULE10_ANCHORS,
 } from "../../bin/validate-extraction-history.mjs";
-import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, mkdtempSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -554,6 +554,60 @@ date: 2026-05-20
     hits,
     `extended-corpus hits=${hits}`,
   );
+}
+
+// ------------------------------------------------------------------
+// fixture-20-unlistable-journal-dir-fails-closed
+// ------------------------------------------------------------------
+// Ratified 2026-10-06 (operator-ratified Gate-1 port). `listJournalEntries` used to
+// `return []` on a readdir failure, so a fault on a journal dir that EXISTS reported
+// "scanned 0 journal entries; 0 Rule-11-mandated" and EXITED 0 — a clean Rule-11
+// verdict over a corpus the validator never read. ABSENCE is the `existsSync` guard's
+// case (also exit 2); this is the harder pole, because the directory is THERE.
+// BIPOLAR: the same tree with a LISTABLE journal dir must still exit 0, so a build
+// that refused every run fails the control rather than passing this.
+if (process.getuid && process.getuid() === 0) {
+  check(
+    "fixture-20-unlistable-journal-dir-fails-closed",
+    true,
+    "SKIPPED (not a pass): root bypasses EACCES, so the unlistable-dir pole cannot be constructed",
+  );
+} else {
+  const tmp = mkdtempSync(join(tmpdir(), "f25-fix-20-"));
+  const journalDir = join(tmp, "journal");
+  try {
+    mkdirSync(journalDir, { recursive: true });
+    writeFileSync(join(journalDir, "0001-DECISION-x.md"), "---\ndate: 2026-05-20\n---\n\nbody\n");
+    // ESM: no `__filename` global (fixture-10 above declares its own for the same reason).
+    const selfPath = fileURLToPath(import.meta.url);
+    const script = join(
+      selfPath.replace(/\/audit-fixtures\/.*$/, "/bin/validate-extraction-history.mjs"),
+    );
+    const run = () => {
+      try {
+        const out = execFileSync(
+          "node",
+          [script, "--rule", "rules/foo.md", "--proposal-date", "2026-05-30", "--journal-dir", journalDir],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        );
+        return { code: 0, out };
+      } catch (e) {
+        return { code: e.status, out: (e.stdout || "") + (e.stderr || "") };
+      }
+    };
+    const control = run(); // listable dir → a normal (clean) verdict
+    chmodSync(journalDir, 0o000);
+    const locked = run(); // unlistable dir → refuse to speak
+    chmodSync(journalDir, 0o755);
+    check(
+      "fixture-20-unlistable-journal-dir-fails-closed",
+      control.code === 0 && locked.code === 2 && /could not be listed/.test(locked.out),
+      `control exit ${control.code} (want 0); locked exit ${locked.code} (want 2); refusal named=${/could not be listed/.test(locked.out)}`,
+    );
+  } finally {
+    try { chmodSync(journalDir, 0o755); } catch { /* best-effort restore before removal */ }
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 // ------------------------------------------------------------------

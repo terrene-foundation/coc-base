@@ -6,7 +6,7 @@ validator-13 hook-predicate extractor that emits `policies.json`
 tool). These fixtures lock the **FF-AC6-1** scope-restriction
 predicates added when Codex `apply_patch` (file-edit) gating landed.
 
-## Predicates under test (11)
+## Predicates under test (27)
 
 | ID  | Predicate                             | Asserts                                                                         |
 | --- | ------------------------------------- | ------------------------------------------------------------------------------- |
@@ -21,11 +21,42 @@ predicates added when Codex `apply_patch` (file-edit) gating landed.
 | 09  | settings.json is a **symlink**        | RED — typed refusal `matcher-map-settings-unreadable` (O_NOFOLLOW → ELOOP)      |
 | 10  | well-formed settings.json             | GREEN — still builds a **populated** table; fence spares the happy path         |
 | 11  | explicit `requireMatcherMap: false`   | GREEN — the narrow opt-out validator-13 depends on still returns cleanly        |
+| 12  | single-hook dispatcher group          | GREEN — the live consolidated shape: registry groups injected, dispatcher consumed |
+| 13  | dispatcher + co-resident hook, ONE group | GREEN pole — registry groups STILL injected AND the co-resident hook keeps its own policy |
+| 14  | two dispatcher commands, one group    | registry groups injected ONCE — one `onIncomplete` declaration, not two         |
+| 15  | mixed group + **absent** registry     | RED pole — typed refusal `matcher-map-registry-unreadable`                      |
+| 16  | edit guard, undeclared exclusions     | RED — typed refusal `policy-coverage-gap` naming the guard (2026-10-09 ruling)  |
+| 17  | dual-registered marker-less (PARTIAL) | RED — `policy-coverage-gap` on ZERO **apply_patch** entries, shell coverage kept |
+| 18  | same partial shape, declared row      | GREEN — silent; shell coverage retained, apply_patch omission recorded          |
+| 19  | exclusions file not valid JSON        | RED — typed `policy-exclusions-malformed` (row validation, R3-security F1)      |
+| 20  | 19-char `reason`                      | RED — typed `policy-exclusions-malformed` (length floor)                        |
+| 21  | empty `compensating_control`          | RED — typed `policy-exclusions-malformed`                                       |
+| 22  | exactly-20-char `reason`              | GREEN boundary — row accepted; declared edit-only guard stays out of apply_patch |
+| 23  | whitespace-only `reason` (27 pre-trim)| RED — trim pole for the length floor (silent-direction residual)                |
+| 24  | whitespace-only `compensating_control`| RED — trim pole for the empty-control arm                                       |
+| 25  | empty `hook` in a row                 | RED — pole for the hook arm of the row conjunct                                 |
+| 26  | exclusions file with NO `exclusions` key | RED — typed `policy-exclusions-malformed` (non-array file)                   |
+| 27  | `exclusions: null`                    | RED — non-array pole for the same `Array.isArray` guard                         |
 
 Cases 06–11 are the **bipolar pole pair** for the matcher-map fail-closed
 fence (loom#S73-M5). The RED poles assert the **refusal identity** — the
 typed `HookMatcherMapError` and its `code` — never merely that something
 threw, so an unrelated `TypeError` cannot score as the fence firing.
+Cases 12–15 are the pole pair for the dispatcher-expansion class (below),
+with 13/15 the GREEN/RED poles run by this same runner. Cases 16–18 lock the
+**policy-coverage refusal**: an edit-matcher hook whose predicate can refuse
+must either reach the Codex `apply_patch` lane or be declared in
+`codex-mcp-guard/policy-exclusions.json`; 17/18 are the RED/GREEN poles for
+the PARTIAL shape (a Bash+edit dual registration whose apply_patch entry is
+marker-gated away), which the union-over-all-tools check could not see.
+The synthetic roots therefore declare their marker-less edit-capable fixtures
+— the declaration is the accepted-omission record, not a weakening.
+Cases 19–27 lock the **exclusions-file row validation** behind that
+declaration (`readPolicyExclusions`): every refusal arm has a RED pole and
+the exactly-20-char row is the GREEN boundary. Each of 19–27 asserts the
+typed `code`, which discriminates even when a mutant falls through to the
+NEXT refusal class (an accepted bad row leaves the guard undeclared, so the
+run then throws `policy-coverage-gap` — a different typed code).
 
 ## Why these predicates matter
 
@@ -53,6 +84,38 @@ threw, so an unrelated `TypeError` cannot score as the fence firing.
   `O_NOFOLLOW` specifically so a swapped symlink raises `ELOOP`, and the
   former `catch { return map; }` swallowed that ELOOP into an empty
   table, defeating the guard it was paired with.
+
+## Dispatcher expansion — the multi-hook collapse (P12–P15)
+
+`extract-policies.mjs::expandDispatcherEntries` recognizes a settings group
+as the CONSOLIDATED dispatcher registration — its hooks live behind
+`<settings dir>/hooks/dispatch-registry.json` — when a command in the group
+invokes `dispatch.js <Event>`. The pre-fix gate required that command to be
+the group's SOLE hook (`hs.length === 1`): a group that ALSO carried a
+directly-registered hook fell to the pass-through arm, injected zero
+registry groups, and the extraction still exited 0 — collapsing the whole
+registry cohort out of the Codex policy table (shell/unified_exec down to
+the non-registry entries, apply_patch to zero) with no refusal anywhere.
+Latent, not active, while every live dispatch group holds exactly one hook;
+the `matcher-map-empty` fence cannot see it, because a SHORT table is not an
+empty one.
+
+- **P12** is the UNCHANGED control — the live single-hook shape; it must
+  stay green before and after the fix.
+- **P13** is the GREEN pole — dispatcher + co-resident hook in ONE group:
+  the registry groups ARE injected and the co-resident hook keeps its own
+  policy (a residual group carrying the original matcher).
+- **P14** locks the dedupe contract — multiple dispatcher commands in one
+  group inject the registry groups ONCE; `onIncomplete` is the observable,
+  since `buildHookMatcherMap` appends one declaration per registered
+  occurrence, so a double injection would list `["deny","deny"]`.
+- **P15** is the RED pole — the same mixed shape with an ABSENT registry
+  MUST refuse with the typed `matcher-map-registry-unreadable` identity
+  rather than pass the collapsed table through silently.
+
+Both poles failed against the pre-fix gate when this pair was added (12 of
+the then-15 cases passed; the runner has since grown to 27 cases), which is
+the pair this set exists to keep closed.
 
 ## Invocation
 

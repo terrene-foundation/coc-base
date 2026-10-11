@@ -53,6 +53,20 @@
  *   COC_OPERATOR_REPO_DIR — test injection of the repo root.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns git read-only (lib/repo-dir-override.js + lib/state-resolver.js::requireMainCheckout) to identify the main checkout; the gate itself is read-only (readdirSync/statSync) and emits to stdout only."
+ * }
+ */
+
 "use strict";
 
 const TIMEOUT_MS = 5000;

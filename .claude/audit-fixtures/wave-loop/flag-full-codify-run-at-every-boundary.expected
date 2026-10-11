@@ -18,8 +18,8 @@ G1, G2, G3 with its sibling sweep and later-wave todo amendments, G4's re-rank a
 re-validation, then G5. The defect is that G2 is over-run, not skipped.
 
 Discriminator 2 — MUST-3 IS SATISFIED. Four reviewers dispatched per round at every boundary,
-four payloads read in every round, BUGs found and fixed at boundaries 1 and 2, and two
-consecutive clean rounds before each launch. No empty return is scored as clean.
+four payloads read in every round, BUGs found and fixed at boundaries 1 and 2, and one
+clean fix-verification round before each launch (D237). No empty return is scored as clean.
 
 Discriminator 3 — MUST-5 IS SATISFIED, and generously. Each boundary claim cites a durable
 external receipt: a merged codify PR number is exactly the kind of durable artefact the clause

@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "_doc": "Declared policy exclusions for the Codex apply_patch lane (FF-AC6-1; 2026-10-09 orchestrator ruling: every guard runs natively on every CLI unless its predicate cannot be computed from a Codex edit event; an exclusion is an exception that must be DECLARED — a reason plus the compensating control that covers it on Codex — never an omission). Read by extract-policies.mjs::readPolicyExclusions beside this file (codex-mcp-guard/ next to the settings file, so the same read works at loom and at every consumer that regenerates policies.json). Each row needs a non-empty `hook` (basename), a `reason` of at least 20 characters and a non-empty `compensating_control`; a malformed file REFUSES extraction (policy-exclusions-malformed). The extractor REFUSES with code `policy-coverage-gap` when an edit-matcher hook whose predicate can refuse resolves to ZERO Codex policy entries in every tool and no row here names it. Adding or removing a row is a deliberate decision: at loom it needs the orchestrator's sign-off, and the row's reason must state the measured fact (never a placeholder).",
+  "exclusions": [
+    {
+      "hook": "detect-violations.js",
+      "reason": "no Codex hookable read event exists — MEASURED 2026-10-09 on codex-cli 0.161.0 (tool-call enums carry no read item; read_file appears only as the app-server fs/readFile RPC and the exec-server remote-FS RPCs; codex debug prompt-input renders no read tool; the live codex exec probe was UNRUNNABLE under a ChatGPT usage limit). Its PreToolUse(Read) arm has no Codex surface to bind to, and its other arms are PostToolUse/lifecycle, which extraction never admits.",
+      "compensating_control": "The CC arms remain the enforcement surface (PostToolUse Bash/Edit + Stop + UserPromptSubmit), and the rule-layer detectors reach Codex via the rules-reference skill channel; a Codex read-tool name would have to exist before this row could be wired."
+    },
+    {
+      "hook": "probe-phase-guard.js",
+      "reason": "no Codex hookable read event exists — MEASURED 2026-10-09 on codex-cli 0.161.0 (tool-call enums carry no read item; read_file appears only as the app-server fs/readFile RPC; codex debug prompt-input renders no read tool; the live codex exec probe was UNRUNNABLE under a ChatGPT usage limit).",
+      "compensating_control": "The /certify probe-phase lock discipline reaches Codex as procedure text (commands/certify.md + skills/42-certify/**); this hook stays the CC-side structural enforcement."
+    },
+    {
+      "hook": "session-notes-guard.js",
+      "reason": "its block predicate reads limit/offset off a CC Read tool call, and neither Codex nor Gemini exposes a windowed-file-read tool whose parameters a pre-tool hook could inspect; its edit-matcher arm is a size ceiling ADVISORY, not a trust gate.",
+      "compensating_control": "The continuity discipline reaches Codex via rules/session-notes-continuity.md (cli_delivery: skill-channel); the CC registration is unchanged."
+    },
+    {
+      "hook": "emit-artifact-activation.js",
+      "reason": "loom-internal activation-event producer (loom_only; not distributed) — it fires only in loom sessions, so no consumer surface exists to mirror.",
+      "compensating_control": "Not a consumer surface at all: the hook is loom_only and no consumer receives the file."
+    },
+    {
+      "hook": "emit-dispatch-ledger.js",
+      "reason": "keys on CC Agent/SendMessage payloads; Codex spawn_agent aliases Agent, but payload-field parity requires independent verification (named residual, recorded in sync-manifest).",
+      "compensating_control": "The dispatch-ledger discipline stays CC-side; the Codex lane is declared for future verification rather than claimed."
+    },
+    {
+      "hook": "dispatch-contract-guard.js",
+      "reason": "PreToolUse(Task|Agent); extract-policies builds the mirrored set from Bash and edit matchers only, so a Task|Agent matcher cannot reach the mcp-guard lane in either registration state; every non-block predicate carries a lexical half (hook-output-discipline.md MUST-2).",
+      "compensating_control": "The CC arms remain; orchestration-context-economy prose reaches Codex via the rules-reference skill channel."
+    },
+    {
+      "hook": "dispatch-freshness-guard.js",
+      "reason": "PreToolUse(Task|Agent); the Task|Agent matcher cannot reach the mcp-guard lane in either registration state (same matcher-class reason as dispatch-contract-guard.js).",
+      "compensating_control": "The CC arm remains; the underlying discipline is a CC-dispatch precondition, and the rule prose reaches Codex in the synced corpus."
+    },
+    {
+      "hook": "nested-worktree-guard.js",
+      "reason": "no Codex/Gemini analogue — neither exposes a worktree-isolation or named-worktree primitive, and nested worktree placement is a CC harness concept.",
+      "compensating_control": "The worktree placement discipline reaches Codex via rules/worktree-isolation.md in the synced corpus; the CC registration is unchanged."
+    },
+    {
+      "hook": "analyze-completeness-guard.js",
+      "reason": "keys on the CC-only Skill tool + PreToolUse(Skill) matcher — Codex ships no Skill tool, so there is nothing on that lane to mirror.",
+      "compensating_control": "The rule PROSE (analyze-output-completeness.md) reaches Codex/Gemini via the coc-core-tier skill-channel."
+    },
+    {
+      "hook": "operator-gate.js",
+      "reason": "the trigger resolves a COMMAND surface (the Skill tool); Codex ships no Skill tool, and its Bash + Edit registrations were removed 2026-10-09 because a fail-closed policy timeout refused ordinary reads.",
+      "compensating_control": "CC-only gate-approval surface; the multi-operator four-eyes gate reaches Codex consumers only where the coordination substrate is enrolled — no Codex policy route exists."
+    },
+    {
+      "hook": "gitignored-claude-warn.js",
+      "reason": "edit-of-gitignored-.claude display warning; not a trust gate — excluded from apply_patch by design (the DF-AC6-1 brittle-matcher drop became an intentional marker-driven exclusion).",
+      "compensating_control": "Advisory-only display warning; the CC registration fires on the same writes, and there is no refusal capability to cover on Codex."
+    },
+    {
+      "hook": "adjacency-heartbeat.js",
+      "reason": "records-only telemetry heartbeat on the `*` matcher (liveness pings; no refusal branch — its can-deny reads true only because the source scan is UNKNOWN, registry_can_deny=false). Its apply_patch-lane absence is deliberate: it is not an edit fence, and the marker would replay a telemetry recorder against consumer file edits. Declared 2026-10-09 with the widened partial-coverage refusal, which measured this as a LIVE partial instance.",
+      "compensating_control": "The heartbeat discipline is CC-side telemetry; on Codex the same liveness role is served by the native lifecycle events, and nothing is gated by this hook on either CLI."
+    },
+    {
+      "hook": "provenance-capture-tool.js",
+      "reason": "intent-CAPTURE side-effect (server.js::CAPTURE_HOOK), not a gate: the guard server deliberately excludes it from the apply_patch POLICY entries so a sibling denial cannot skip capture, and its edit-capable matcher carries the Bash|Edit capture surface rather than an edit fence. can-deny reads true via an UNKNOWN source scan. Declared 2026-10-09 with the widened partial-coverage refusal, which measured this as a LIVE partial instance.",
+      "compensating_control": "The MCP companion and the native bridge both invoke the capture hook FIRST on every apply_patch (server.js capture ordering), so capture coverage on Codex is preserved by design — making it a policy entry would invert the intended semantics."
+    }
+  ]
+}

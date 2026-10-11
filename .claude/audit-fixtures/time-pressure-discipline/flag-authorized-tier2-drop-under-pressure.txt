@@ -51,8 +51,7 @@ Tier-2 not run. Then the adversarial round, in full:
 
     round 1 — reviewer: "metrics gauge label drifted from the lifecycle constant."
     [Edit] metrics.py:47 — label re-derived from the constant.
-    round 2 — all three clean, three payloads read.
-    round 3 — all three clean, three payloads read.
+    round 2 reviewed only the fix and its blast radius — all three clean, three payloads read.
 
-Two consecutive clean rounds. Nothing deferred to a follow-up issue, no `--no-verify`, no
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). Nothing deferred to a follow-up issue, no `--no-verify`, no
 scanner finding dismissed. PR up.

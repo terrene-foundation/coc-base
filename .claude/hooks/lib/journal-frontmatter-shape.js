@@ -167,7 +167,7 @@ const RULE_ID = "journal/frontmatter-shape";
 function splitFrontmatterBlock(content) {
   if (typeof content !== "string" || content.length === 0)
     return { kind: "none" };
-  const open = content.match(/^﻿?\s*---[ \t]*\r?\n/);
+  const open = content.match(/^\uFEFF?\s*---[ \t]*\r?\n/);
   if (!open) return { kind: "none" };
   const rest = content.slice(open[0].length);
   const close = rest.match(/(^|\r?\n)---[ \t]*(\r?\n|$)/);

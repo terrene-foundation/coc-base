@@ -1,0 +1,646 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://terrene.foundation/schemas/loom.hook-registry.v1.schema.json",
+  "title": "loom.hook-registry/v1 — the per-repo hook integrity contract loom emits",
+  "description": "Shape of an emitted `.claude/hook-registry.json` (a DISTRIBUTED artifact at that fixed path; its sibling `.claude/hook-registry.json.sig` carries the signature when the signing path is available). Consumed by the emitter (`.claude/bin/emit-hook-registry.mjs`), the vendored validator (`.claude/hooks/lib/hook-registry-contract.js::validateManifest`, which loads THIS file rather than restating it) and csq's reader. THREE FIELD DISCIPLINES, marked per property below: [D] mechanically derived by the emitter; [A] DECLARED BY THE AUTHOR in an `@hook-contract` block comment in the hook file, never a measured value (see `side_effects.declared_by`); [M] MEASURED, legal only with a named platform + method and omitted entirely when unmeasured. TAMPER-EVIDENCE, stated precisely: `content_sha256` makes the document INTERNALLY consistent — it detects an edit to the document itself. It does NOT tie the document to the bytes on disk or to any authority; THAT tie is the consumer's obligation, out of band, via the `.sig` fingerprint pin and by re-verifying every `file_sha256` / `deps[].sha256` / `runtimes[].deps[].sha256` against the tree before dispatching. NUMBERS ARE INTEGERS ONLY, and the document is hashed with RFC 8785 JCS (`content_sha256_scheme`): cross-language number serialization is the documented interop hazard, so the schema closes it at the shape level rather than trusting every consumer's number formatting. This schema checks SHAPE; the cross-field invariants a schema cannot express (content_sha256 recomputes under JCS, version major equals the $id major, every row id is the stable derivation of its own row, order is unique per event, a null on_incomplete is only legal where the manifest default and the dispatcher's fail-closed default agree, on_crash/on_timeout are never weaker than on_incomplete without a declared exemption, pool is the derivation of source) live in `hook-registry-contract.js::validateManifest` and MUST be run together with this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$id",
+    "version",
+    "content_sha256",
+    "content_sha256_scheme",
+    "source_sha",
+    "generated_by",
+    "unknown_major_policy",
+    "default_on_incomplete",
+    "precedence",
+    "runtimes",
+    "hooks"
+  ],
+  "properties": {
+    "$id": {
+      "type": "string",
+      "const": "loom.hook-registry/v1",
+      "description": "The document's identity INCLUDING its major. A consumer that does not know this exact $id MUST refuse the document (see unknown_major_policy) rather than read the fields it recognizes and ignore the rest — a partial read of a contract is how an unknown-major document gets obeyed anyway."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "[D] Semantic version of the emitted document. Its MAJOR MUST equal the $id's major (cross-field check in validateManifest; a mismatch is refused, not warned)."
+    },
+    "content_sha256_scheme": {
+      "type": "string",
+      "const": "RFC 8785 JCS",
+      "description": "[D] NAMES the canonicalization this hash is taken over, so a consumer never has to guess which of the several 'canonical JSON' dialects was meant. RFC 8785 (JSON Canonicalization Scheme): UTF-8, object members sorted by UTF-16 code units, no insignificant whitespace. The implementation is `.claude/hooks/lib/weft-jcs.js` (this repo's ONE canonicalizer), which additionally REJECTS floats and unsafe integers — the schema's integer-only numbers are the same decision expressed in shape."
+    },
+    "content_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "[D] sha256 over the RFC 8785 JCS form of this document with this field removed. See the top-level TAMPER-EVIDENCE note: this is internal consistency, and the consumer's out-of-band pin is what makes it evidence about the world."
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "[D] The 40-hex emitting commit. PER-ROW PROVENANCE IS `hooks[].file_sha256` + `hooks[].deps[]` + `runtimes[]`, NOT THIS FIELD: source_sha names the commit the emit ran against, and a row's source is `loom-template` only when its bytes MATCH that commit's blob (see `source`)."
+    },
+    "generated_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "[D] The emitter that produced this document, as a repo-relative path."
+    },
+    "unknown_major_policy": {
+      "type": "string",
+      "const": "fail-closed",
+      "description": "[D] Fixed by spec, asserted rather than merely documented: a consumer that meets a $id major it does not implement MUST refuse the document."
+    },
+    "default_on_incomplete": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "PreToolUse",
+        "PostToolUse",
+        "UserPromptSubmit",
+        "Stop",
+        "SubagentStop",
+        "SessionStart",
+        "SessionEnd",
+        "PreCompact"
+      ],
+      "description": "[D] Per-event outcome for a row that does NOT complete (crash, own-budget timeout, or a non-zero exit with no JSON reply). PreToolUse is deny because an unanswered permission question must never become an allow; every other event degrades to an advisory miss. A row may override with its own `on_incomplete`, and `on_crash`/`on_timeout` are never WEAKER than it without a declared `timeout_exemption`.",
+      "properties": {
+        "PreToolUse": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "continue"
+          ]
+        },
+        "PostToolUse": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "continue"
+          ]
+        },
+        "UserPromptSubmit": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "continue"
+          ]
+        },
+        "Stop": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "continue"
+          ]
+        },
+        "SubagentStop": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "continue"
+          ]
+        },
+        "SessionStart": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "continue"
+          ]
+        },
+        "SessionEnd": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "continue"
+          ]
+        },
+        "PreCompact": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "continue"
+          ]
+        }
+      }
+    },
+    "precedence": {
+      "type": "string",
+      "const": "deny > conflicting-rewrite refusal > single rewrite; advise never downgrades a deny",
+      "description": "[D] The FULL combine rule a consolidating consumer MUST implement: a deny refuses the call; two rows rewriting the same call refuse it (they cannot both win); a single rewrite is applied; and an advisory line never softens any of the above. `may_rewrite_input` on a row is what makes the middle clause reachable, and an UNDECLARED rewrite makes the row INCOMPLETE (see its description)."
+    },
+    "runtimes": {
+      "type": "array",
+      "minItems": 3,
+      "description": "[D] The RUNTIME entries this manifest's verdicts flow through, each pinned by the same static local-require closure the rows use. Pinning hooks while leaving the dispatcher or the CLI adapter loose is a transitive-integrity hole: the adapter decides how every verdict is produced and read. A consumer MUST verify these before trusting any row's verdict.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entry",
+          "deps"
+        ],
+        "properties": {
+          "entry": {
+            "type": "string",
+            "pattern": "^\\.claude/hooks/[A-Za-z0-9._/-]+\\.js$",
+            "description": "[D] The runtime file itself (repo-relative)."
+          },
+          "deps": {
+            "type": "array",
+            "minItems": 0,
+            "description": "[D] Every file in `entry`'s transitive static local-require closure, path + sha256, sorted by path. The entry file's OWN sha256 is `entry_sha256`.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))(?!\\/)[A-Za-z0-9._@+/-]+$",
+                  "description": "[D] Repo-relative POSIX path of a file in this runtime entry's static local-require closure. SAME containment invariant as hooks[].deps[].path, and it must be the same pattern: the two arrays are produced by one walker and carry one trust, so a gate on one of them is a gate on nothing. A hand-built manifest that smuggled an escaping runtime dep used to pass validate."
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "entry_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "[D] sha256 of the entry file's exact bytes."
+          },
+          "dynamic_require_exemptions": {
+            "type": "array",
+            "minItems": 1,
+            "description": "[D] The dynamic-load sites inside this RUNTIME closure that were DECLARED rather than resolved — same shape and same policy as the top-level list: an un-exempted dynamic load in a runtime closure REFUSES the emit, because an incomplete runtime pin verifies clean over code it never covered. Carried per-entry so a consumer can see which runtime's closure has a declared hole.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "file",
+                "line",
+                "reason"
+              ],
+              "properties": {
+                "file": {
+                  "type": "string",
+                  "pattern": "^\\.claude/[A-Za-z0-9._/-]+\\.(js|cjs|mjs)$"
+                },
+                "line": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000000
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 10,
+                  "description": "Why this site's closure is complete WITHOUT resolving it — the coverage argument a reviewer can disagree with."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "hooks": {
+      "type": "array",
+      "minItems": 1,
+      "description": "[D] The registration rows of ONE repo, sorted by (canonical event order, order within the event, then id) so a re-emit over an unchanged tree is byte-identical. minItems 1: a zero-row manifest is refused — an empty registry and a registry whose rows were all dropped are indistinguishable to a consumer, and the second is an integrity failure (conservation-gate.md MUST-4).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event",
+          "matcher",
+          "file",
+          "file_sha256",
+          "id",
+          "order",
+          "on_incomplete",
+          "on_crash",
+          "on_timeout",
+          "timeout",
+          "source",
+          "pool",
+          "surfaces",
+          "deps",
+          "contract"
+        ],
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "PreToolUse",
+              "PostToolUse",
+              "UserPromptSubmit",
+              "Stop",
+              "SubagentStop",
+              "SessionStart",
+              "SessionEnd",
+              "PreCompact"
+            ],
+            "description": "[D] The host event this row is registered for. An event outside this enum is refused by the emitter, not emitted with a guessed default."
+          },
+          "matcher": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "[D] The tool-name matcher this row runs under, or null for EVENT-WIDE. Both a `*` matcher and an omitted matcher normalize to null. An EMPTY string is refused (minLength 1): it would collide with null in the id derivation while meaning something else to a consumer."
+          },
+          "file": {
+            "type": "string",
+            "pattern": "^\\.claude/hooks/[A-Za-z0-9._-]+\\.js$",
+            "description": "[D] Repo-relative path of the hook. Restricted to the top-level hooks tree: everything else under .claude/hooks is a lib the hook loads, and a row pointing at one would give a consumer a dispatch target the host never runs."
+          },
+          "file_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "[D] sha256 of the hook file's RAW BYTES at emission (no decode/re-encode). This is one of the fields a consumer verifies before dispatching, failing closed on mismatch."
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^hk_[0-9a-f]{16}$",
+            "description": "[D] Stable id = sha256(event + \"\\n\" + matcher + \"\\n\" + file), first 16 hex, `hk_` prefix. Excludes order, timeout and every contract field: an id that moved when a timeout was tuned would be useless as a join key."
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "description": "[D] 1-based position within the row's event — the linearization the dispatcher runs the event's rows in. UNIQUE per event: the emitter refuses a tie and `validateManifest` refuses a document carrying one."
+          },
+          "on_incomplete": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "deny",
+              "continue",
+              null
+            ],
+            "description": "[D] The row's incomplete-run contract, or null to defer to `default_on_incomplete`. A null is only legal where the manifest default and the dispatcher's fail-closed default AGREE."
+          },
+          "on_crash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "deny",
+              "continue",
+              null
+            ],
+            "description": "[D] Resolved by the emitter: the row's `on_incomplete` unless the row declares otherwise. It is NEVER WEAKER: `continue` under a `deny` row is refused by `validateManifest`."
+          },
+          "on_timeout": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "deny",
+              "continue",
+              null
+            ],
+            "description": "[D] Resolved by the emitter: the row's `on_incomplete` unless the ROW declares otherwise. A timeout weaker than the row's own contract requires a `timeout_exemption` — without one the emitter refuses, and `validateManifest` refuses the document."
+          },
+          "timeout_exemption": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "reason"
+            ],
+            "description": "[A] Present ONLY when the row's `on_timeout` is weaker than its `on_incomplete`, and it is what makes that weakening legal. Declared, never silent: `validateManifest` emits it as a WARNING naming the row, so an operator reading the emit output sees every place a guard can time out into a weaker answer.",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 10,
+                "description": "[A] Why the weaker timeout is safe for THIS hook. A sentence a reviewer can disagree with."
+              }
+            }
+          },
+          "timeout": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 3600,
+            "description": "[D] The row's budget in SECONDS, as the registration surface carries it. null means the surface declares none."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "loom-template",
+              "repo-local",
+              "third-party"
+            ],
+            "description": "[D] WHERE THE BYTES COME FROM, not where the row was declared: `loom-template` only when the file's bytes equal loom's own blob at source_sha. A row the repo added (or a hook whose bytes have moved from the template's) is `repo-local`; a hook the repo does not own is `third-party` and takes its [A] declaration from a `<hook>.contract.json` sidecar."
+          },
+          "pool": {
+            "type": "string",
+            "enum": [
+              "template",
+              "repo"
+            ],
+            "description": "[D] The execution pool a two-pool consumer routes this row to, DERIVED from `source` and never hand-set: loom-template ⇒ template; repo-local|third-party ⇒ repo. The split exists so a crash in a repo-added row cannot mark a template row incomplete."
+          },
+          "surfaces": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "codex",
+                "gemini"
+              ]
+            },
+            "description": "[D] The CLIs whose registration surface references this hook file, derived at FILE level from .claude/settings.json (expanded through dispatch-registry.json), .codex/hooks.json plus the native-policy handler list, and .gemini/settings.json. FILE-level, not matcher-level: a surface naming the file is recorded even when its own tool-name matcher differs from this row's."
+          },
+          "deps": {
+            "type": "array",
+            "minItems": 0,
+            "description": "[D] Every file in this hook's TRANSITIVE STATIC LOCAL-REQUIRE CLOSURE, path + sha256, sorted by path. Verify these together with file_sha256: a hook can be byte-identical while a lib it requires now returns the opposite verdict. The closure covers relative requires only (a node builtin or npm package is not in this repo and is not pinned); a dynamic require makes the closure incomplete, so the EMITTER REFUSES unless the specifier is named in the emitter's declared exemption list.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))(?!\\/)[A-Za-z0-9._@+/-]+$",
+                  "description": "[D] Repo-relative POSIX path of a file in this hook's static local-require closure. The pattern REFUSES a path that escapes the repo root (no leading slash, no `..` segment) — the walker already resolves BOTH the candidate and the boundary root through the same resolver and fails closed on an escape, and this pattern is the schema-side statement of the same invariant so a hand-built document cannot smuggle one through."
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          "contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "payload_stdin",
+              "protocol",
+              "form",
+              "runtime",
+              "cwd_scope",
+              "side_effects",
+              "idempotent",
+              "may_rewrite_input"
+            ],
+            "description": "Everything a consumer needs to decide whether two rows may share a process, and what the row's answer means once it arrives.",
+            "properties": {
+              "payload_stdin": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": false,
+                "properties": {
+                  "claude": {
+                    "type": "string",
+                    "enum": [
+                      "cc-hook-json"
+                    ]
+                  },
+                  "codex": {
+                    "type": "string",
+                    "enum": [
+                      "codex-hook-json"
+                    ]
+                  },
+                  "gemini": {
+                    "type": "string",
+                    "enum": [
+                      "gemini-hook-json"
+                    ]
+                  }
+                },
+                "description": "[D] Per surface: the stdin dialect this row receives. Keyed BY SURFACE because one hook file can be registered on several CLIs and the translation happens outside it (the Codex adapter normalizes at the boundary; the hook still reads CC field names)."
+              },
+              "protocol": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "exit_codes",
+                  "exit_codes_computed",
+                  "decision_fields",
+                  "severity"
+                ],
+                "description": "[D] How the row answers, and what that answer MEANS at its event.",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "permission-decision",
+                      "context-injection",
+                      "prompt-gate",
+                      "handback-decision",
+                      "advisory",
+                      "failure-report",
+                      "compaction-instructions"
+                    ],
+                    "description": "[D] Derived from the EVENT, per hook-engine.js § HOST SEMANTICS PER EVENT: PreToolUse=permission-decision, PostToolUse=context-injection, UserPromptSubmit=prompt-gate, Stop/SubagentStop=handback-decision, SessionStart=advisory (exit 2 there is a user-facing error, NOT a refusal), SessionEnd=failure-report, PreCompact=compaction-instructions (raw stdout becomes the instructions). Two rows with different kinds may never be merged into one decision."
+                  },
+                  "exit_codes": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "description": "[D] The LITERAL exit codes present in the hook's source, lexed, sorted, deduped. BLIND SPOT, and it matters: a computed exit (`process.exit(out)`) is NOT represented — read `exit_codes_computed` before concluding anything from this array."
+                  },
+                  "exit_codes_computed": {
+                    "type": "boolean",
+                    "description": "[D] True when the hook also calls the exit primitive with a non-literal argument, so `exit_codes` is INCOMPLETE for this row."
+                  },
+                  "decision_fields": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "continue",
+                        "hookSpecificOutput",
+                        "permissionDecision",
+                        "decision",
+                        "additionalContext",
+                        "systemMessage",
+                        "reason",
+                        "suppressOutput",
+                        "stopReason",
+                        "refuseHandback",
+                        "updatedInput"
+                      ]
+                    },
+                    "description": "[D] The reply keys the hook WRITES, lexed as object keys and member accesses. Blind spots: a reply assembled inside a lib helper, or a computed key, is invisible — an empty array means 'this file constructs no host-read reply field directly', never 'this hook answers nothing'."
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "block",
+                      "advise"
+                    ],
+                    "description": "[D] `block` when the hook's source lexes a refusal token, gated by event — at SessionStart a refusal token is NOT a refusal, so such a row is `advise`. An UNLEXABLE source is refused by the emitter rather than defaulting to `advise`."
+                  }
+                }
+              },
+              "form": {
+                "type": "string",
+                "enum": [
+                  "in-process",
+                  "legacy"
+                ],
+                "description": "[D] in-process = the file exports `hookMain`, so the dispatcher can run it in a worker of its own process. legacy = it must be spawned as its own process. Derived from the file's own export shape AND the row's local-registry `mode`, which is what actually decides how the dispatcher runs a repo-owned row."
+              },
+              "runtime": {
+                "type": "string",
+                "enum": [
+                  "hook-engine-worker",
+                  "node-subprocess"
+                ],
+                "description": "[D] The route the row runs under on the Claude Code lane: `hook-engine-worker` for an in-process row the dispatcher runs, `node-subprocess` otherwise. The Codex lane's extra hop through lib/codex-hook-runtime.js is recorded by `surfaces` and pinned by `runtimes[]`."
+              },
+              "cwd_scope": {
+                "type": "string",
+                "enum": [
+                  "payload",
+                  "process"
+                ],
+                "description": "[D] `process` when the hook's source reads the process working directory anywhere — including a `CLAUDE_PROJECT_DIR || process.cwd()` fallback, because the entry records what the code CAN depend on, not what it prefers. `payload` otherwise. Blind spot: a cwd read inside a lib helper."
+              },
+              "side_effects": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "fs_writes",
+                  "network",
+                  "spawns",
+                  "declared_by"
+                ],
+                "description": "[A] DECLARED BY THE AUTHOR in the hook's `@hook-contract` block (or a sidecar for third-party hooks). Never measured — `declared_by` says so in-band. Conservative direction: a conditional capability is declared.",
+                "properties": {
+                  "fs_writes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "[A] Write targets the hook can create, append to, rewrite or delete. Repo-relative POSIX paths; an external target uses a locator prefix from a closed set (`<os.tmpdir()>`, `~`, `<git-common-dir>`, `<npm-cache>`, `<sibling-worktree-path>`, `<main-checkout>`, `<edited-file>`). SHAPE ONLY — the emitter validates the entry's form and locator name, never that the path is really written."
+                  },
+                  "network": {
+                    "type": "boolean",
+                    "description": "[A] True when the hook's OWN process opens a socket/DNS/HTTP connection. A spawned child that reaches the network is covered by `spawns`, not here."
+                  },
+                  "spawns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "description": "[A] The PROGRAMS this hook starts, as basenames ([\"git\"], [\"git\",\"gh\"], [\"npx\",\"black\",\"ruff\"]). A LIST rather than a boolean because a consumer deciding whether two rows may share a process needs to know WHICH child — `true` answers nothing about whether two rows collide on one process, and the list also never weakens a row silently. `[]` means it spawns nothing, and the emitter refuses `[]` when the source calls a spawn primitive or requires `child_process`."
+                  },
+                  "declared_by": {
+                    "type": "string",
+                    "const": "author",
+                    "description": "[A] Constant, emitted by the emitter, never written by hand: the manifest's own marker that these values are a declaration."
+                  }
+                }
+              },
+              "idempotent": {
+                "type": "boolean",
+                "description": "[A] True when re-running the row with the same payload leaves the durable state unchanged (a repeat makes no further write). The decision MAY differ only as a consequence of state the first run changed — a consumed one-shot receipt is therefore NOT idempotent. Declared by the author, never measured."
+              },
+              "may_rewrite_input": {
+                "type": "boolean",
+                "description": "[A] True when this hook can return `hookSpecificOutput.updatedInput` — a REWRITE of the tool input rather than a verdict. This is not a label: per `precedence`, two DECLARED rewrites on one call refuse it, a single rewrite is applied, and an UNDECLARED rewrite (the source rewrites, the declaration says false) makes the WHOLE ROW INCOMPLETE per its own `on_incomplete` — so a deny-class row DENIES rather than silently dropping the rewrite an allow was conditional on. The emitter cross-checks the declaration against the source and refuses a contradiction."
+              },
+              "cost": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "p50_ms",
+                  "p95_ms",
+                  "platform",
+                  "method"
+                ],
+                "description": "[M] MEASURED cost, present ONLY when actually measured; a partial or guessed cost FAILS the emit. Integers only (milliseconds), like every number in this document. A consumer may treat presence as a measurement and absence as unknown — never as zero.",
+                "properties": {
+                  "p50_ms": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3600000
+                  },
+                  "p95_ms": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 3600000
+                  },
+                  "platform": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "[M] The machine, CI image or OS the numbers were taken on. A cost with no named platform is not comparable and is refused rather than recorded."
+                  },
+                  "method": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "[M] How it was measured (the harness/command), so a reader can judge whether the number applies to their situation."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "dynamic_require_exemptions": {
+      "type": "array",
+      "minItems": 1,
+      "description": "[D] The dynamic-require sites this emit DECLARED rather than resolved, keyed to the SITE (file + line). Present only when the walker met a non-literal specifier that an exemption covers; a dynamic site with no exemption is a REFUSAL, not an omission. Carried in-document because a declared hole must be visible to the consumer, not merely recorded in the emitter's configuration.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file",
+          "line",
+          "reason"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "pattern": "^\\.claude/[A-Za-z0-9._/-]+\\.(js|cjs|mjs)$"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Why this site's closure is complete WITHOUT resolving it — the coverage argument a reviewer can disagree with."
+          }
+        }
+      }
+    }
+  }
+}

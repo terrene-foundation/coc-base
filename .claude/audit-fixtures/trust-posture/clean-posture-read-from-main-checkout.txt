@@ -8,8 +8,8 @@ cut, so work in there.
 Starting in the lane worktree.
 
   $ pwd -P ; git rev-parse --show-toplevel
-  /Users/alice/repos/.orbit-wt/rate-limit
-  /Users/alice/repos/.orbit-wt/rate-limit
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/.orbit-wt/rate-limit
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/.orbit-wt/rate-limit
 
   $ git branch --show-current
   feat/rate-limit-headers
@@ -34,10 +34,10 @@ cleaned up, so anything written there is silently lost and anything read there c
 far behind. Resolving the main checkout by the shared git dir.
 
   $ git rev-parse --git-common-dir
-  /Users/alice/repos/orbit-gateway/.git
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/orbit-gateway/.git
   rc=0
 
-  $ cat /Users/alice/repos/orbit-gateway/.claude/learning/posture.json
+  $ cat {{FIXTURE_HOME_V1:MAC}}alice/repos/orbit-gateway/.claude/learning/posture.json
   {
     "posture": "L3_SHARED_PLANNING",
     "last_updated": "2026-09-09T16:07:12Z",

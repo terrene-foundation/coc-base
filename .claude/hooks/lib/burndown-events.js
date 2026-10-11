@@ -42,6 +42,50 @@
  * cannot do — every surviving signature still verifies after a middle record is
  * removed). Gate wiring: `burndown-build.mjs`'s `event-log` branch.
  *
+ * ── WHERE AN APPEND LANDS: THE PENDING STREAM, NOT THE TRACKED FILE ──────────
+ *
+ * `appendEvent` writes `PENDING_REL` (`.claude/learning/burndown-events.pending.jsonl`),
+ * a GITIGNORED per-checkout stream, and never the tracked file. The tracked file is
+ * extended only by `flushPendingEvents`, which deliberate commit-time steps run — the
+ * train (`burndown-build.mjs --flush-events`), a forest-ledger regeneration
+ * (`forest-ledger-project.mjs`, which must fold the session's own events) and the owner
+ * tools after their own appends — and whose result is then committed.
+ *
+ * The reason is the tree, not the log. Every hook that records a transition fires
+ * inside some session's checkout, so an append to a TRACKED file dirtied that checkout
+ * mid-session: `dev-preflight` binds its receipt to the head AND the tree digest, and a
+ * hook line sitting in `burndown/events.jsonl` made every green un-bindable until
+ * somebody committed it. `git status --untracked-files=all`, which that digest is
+ * computed from, does not list an ignored file, so a pending line costs the tree nothing.
+ *
+ * THE LOGICAL LOG is the tracked file followed by the pending stream, in that order —
+ * byte for byte what the tracked file will hold after the next flush. Every reader that
+ * needs CURRENT state reads it through `readEventLog`; every reader of COMMITTED state
+ * (`burndown-build.mjs`, the forest-ledger projection, CI) reads the tracked file alone,
+ * which is the only version a clone, a reviewer or CI can see.
+ *
+ * ONE LOCK serializes every write to the logical log (`acquirePendingLock`): an append
+ * computes its chain position over the whole logical log and writes under the same
+ * lock the flush holds while it moves lines and shrinks the stream. Without it a flush
+ * reading the stream and an append landing before the stream is shrunk would lose the
+ * append, and two concurrent appends by one emitter would both take `seq = N + 1`. The
+ * lock is judged by its holder's LIVENESS, never by age alone — an age bound once let a
+ * waiting hook steal a long flush's lock and lose the record it then appended.
+ *
+ * THE STREAM KEEPS A MOVED LINE UNTIL HEAD CARRIES IT. A flush leaves the tracked file
+ * modified and uncommitted; dropping the stream at that moment made an ordinary
+ * `git restore` before the commit destroy the records outright.
+ *
+ * THE FLUSH IS A TRUST BOUNDARY: it turns a locally writable, gitignored file into the
+ * committed signed log, so it runs the committed-state gate's own signature and
+ * authority checks on the lines it moves before moving any (`_verifyForCommit`).
+ *
+ * THIS IS NOT THE SPOOL THE LANDING-WINDOW CLAUSE REJECTS (§ T68 clause 3 in
+ * `appendEvent`). That rejection is of a FALLBACK — relocating a REFUSED row to a side
+ * file while telling the caller it was recorded. Here the pending stream is the one
+ * declared sink, the caller is told that is where the event went, every live reader
+ * folds it, and the flush is the named step that makes it committed.
+ *
  * ── THE JOIN KEY ─────────────────────────────────────────────────────────────
  *
  * `checkLinks` joins on PURE `id` STRING EQUALITY — no ordering, no time — and
@@ -211,11 +255,21 @@
 "use strict";
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 
 const { appendStamped } = require(path.join(__dirname, "coc-append.js"));
 const signedLog = require(path.join(__dirname, "signed-log.js"));
+// The pending stream is read and the tracked file extended through the SAME hardened
+// primitives every other sink uses (containment, no-follow, FIFO refusal, landing
+// window), never a local `fs.appendFileSync` — see `flushPendingEvents`. The main-checkout
+// root is imported only to strip it from refusal text (`_clean`), never as a write root.
+// ONE require of the module, on one line: fixture harnesses rebase it by that exact text.
+const appendSink = require(path.join(__dirname, "append-sink.js"));
+const { appendSinkLine, readSinkFile, escapeControlChars, mainCheckoutBoundaryRoots } = appendSink;
+const { readFileHardened } = require(path.join(__dirname, "state-io.js"));
 // The SHARED subprocess envelope, never a local re-implementation. An un-enveloped
 // `git show` inherits the operator's `GIT_*` steering, and an ambient `GIT_DIR` would
 // make the roster read answer about ANOTHER repository — i.e. the trust root would be
@@ -225,6 +279,10 @@ const { resolveGitBinary, gitEnvForArgs } = require(path.join(__dirname, "git-su
 // + the per-context role floor). Delegated to rather than re-implemented: a fourth
 // inlined `host_role === "ci"` is the drift class MED-3 consolidated.
 const { isEligibleSigner } = require(path.join(__dirname, "eligibility.js"));
+// The one in-process ssh fingerprint, shared with `operator-id.js::resolveIdentity`, which
+// derives `verified_id` from the same function — so the append's own-key check binds a
+// roster key to the id by the computation that produced the id (`_ownKeyVerifier`).
+const { fingerprintFromPubText } = require(path.join(__dirname, "ssh-pubkey-fingerprint.js"));
 
 /**
  * ── THE GENERATION LINEAGE ───────────────────────────────────────────────────
@@ -267,8 +325,76 @@ const SCHEMAS = Object.freeze({
   [SCHEMA]: Object.freeze({ generation: 2, declaresSigAlg: true, requiresChain: true }),
 });
 
-/** Repo-relative sink. Under `burndown/`, off `.session-notes*` — C4. */
+/** Repo-relative TRACKED log. Under `burndown/`, off `.session-notes*` — C4. Extended only by a flush. */
 const EVENTS_REL = "burndown/events.jsonl";
+
+/**
+ * Repo-relative PENDING stream — where every `appendEvent` lands (see the header,
+ * § WHERE AN APPEND LANDS).
+ *
+ * Under `.claude/learning/` because that directory is already this repo's home for
+ * per-checkout signed append logs and is fenced twice: loom's `.gitignore` (the
+ * `.claude/learning/**` catch-all plus a pattern naming this file) and the consumer
+ * mirror in `sync-manifest.yaml::gitignore_additions`, which
+ * `validate-emit.mjs::checkGitignoreLearningParity` holds to a SUPERSET of loom's own
+ * learning fences. The records carry `verified_id` and `person_id`, the same disclosure
+ * class as `coordination-log.jsonl`, so a stream a consumer could `git add -A` would leak
+ * exactly what the fence exists for.
+ *
+ * PER CHECKOUT, not resolved to the main checkout: the stream extends THIS checkout's
+ * tracked file, so the chain base and the flush target are one file by construction. A
+ * session rooted in a linked worktree therefore records into that worktree's stream, and
+ * the stream dies with the worktree unless it is flushed first. For `todo-durable-guard`
+ * that costs nothing durable — its transitions are re-derived from the tracked todo tree
+ * by the primary's next sweep. For `todo-tracker-guard` it does: that producer advances
+ * its own context file once a record is PENDED, so a deleted stream loses its
+ * transitions for good. So the teardown path refuses instead: `worktree-reap.mjs` (which
+ * the unattended SessionEnd pass also runs) holds every tree whose stream carries a line
+ * HEAD does not (`pendingEventsStatus(...).uncommitted`). A hand-typed `git worktree
+ * remove` is not covered — git deletes an ignored file without complaint.
+ */
+const PENDING_REL = ".claude/learning/burndown-events.pending.jsonl";
+
+/** The lock serializing every write to one checkout's logical log. Fenced by the same pattern. */
+const PENDING_LOCK_REL = `${PENDING_REL}.lock`;
+
+/**
+ * When a held lock may be taken over. LIVENESS FIRST, age only as a backstop.
+ *
+ * A lock is stolen when its holder is DEAD — same host, and `process.kill(pid, 0)`
+ * reports ESRCH — and otherwise only once its embedded `ts` is older than this
+ * backstop. Age ALONE was the first design and it was wrong: a flush is linear in the
+ * lines it moves (one `appendSinkLine`, and so one `git worktree list`, per line), so a
+ * large flush outlived a 30 s bound, a waiting hook stole the LIVE flush's lock, appended
+ * a record, and the flush then retired the stream with that record in it. A live holder
+ * is never stolen from; a long-running one keeps its `ts` fresh (`refresh`, called by
+ * the flush every `FLUSH_HEARTBEAT_LINES`), so the backstop only fires on a holder that
+ * is hung, or whose pid has been reused.
+ */
+const PENDING_LOCK_BACKSTOP_MS = 10 * 60_000;
+
+/** The flush re-stamps its lock this often, so a long flush never ages into the backstop. */
+const FLUSH_HEARTBEAT_LINES = 50;
+
+/**
+ * How long an append waits for the lock when its caller names no budget. The hooks pass
+ * their REMAINING append deadline instead, so a wait cannot outrun the hook's own timeout.
+ */
+const APPEND_LOCK_WAIT_MS = 1500;
+
+/** How long a flush waits for the lock. A train-time step, not a hook. */
+const FLUSH_LOCK_WAIT_MS = 10_000;
+
+/**
+ * A pending stream larger than this is refused by every reader EXCEPT the flush. The
+ * last append that crosses it lands — the read that gates an append happens before the
+ * write — so the flush reads under `MAX_TRACKED_BYTES` instead: a stream the appends can
+ * no longer read is one the flush can still drain, and an over-cap refusal says so.
+ */
+const MAX_PENDING_BYTES = 64 * 1024 * 1024;
+
+/** The tracked log is read through the same hardened reader, under a ceiling it cannot plausibly reach. */
+const MAX_TRACKED_BYTES = 256 * 1024 * 1024;
 
 /**
  * The closed kind vocabulary. An unrecognized kind is REFUSED at both ends.
@@ -1357,7 +1483,17 @@ function signerIndex(roster) {
       if (!k || typeof k.fingerprint !== "string" || !k.fingerprint) continue;
       if (typeof k.pubkey !== "string" || typeof k.type !== "string") continue;
       if (byFpr.has(k.fingerprint)) continue;
-      byFpr.set(k.fingerprint, { person_id: pid, role: person.role, host_role: person.host_role });
+      // KEY MATERIAL IS CARRIED, as `trustRootIndex` carries it and for its reason: the
+      // flush verifies signatures against this index (`_verifyForCommit`) and resolves
+      // roles from it, so one read of the roster answers both questions.
+      byFpr.set(k.fingerprint, {
+        person_id: pid,
+        role: person.role,
+        host_role: person.host_role,
+        pubkey: k.pubkey,
+        keyType: k.type,
+        fingerprint: k.fingerprint,
+      });
     }
   }
   return byFpr;
@@ -1633,15 +1769,1023 @@ function verifyAuthorityBindings(text, resolveSigner) {
   return { ok: findings.length === 0, indeterminate, checked, findings, unbackedCount, indeterminateCount };
 }
 
+// ── THE PENDING STREAM: lock, logical-log read, flush ────────────────────────
+
+/** JSONL text → its non-blank lines, each without its terminator (a CR is dropped too). */
+function _jsonlLines(text) {
+  return String(text == null ? "" : text)
+    .split("\n")
+    .map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l))
+    .filter((l) => l.trim());
+}
+
+/** Block the calling thread. Hooks and the flush are synchronous end to end; there is no loop to yield to. */
+function _sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
- * THE ONE APPEND PATH.
+ * Make a primitive's reason safe to return. The hardened readers and writers name the
+ * absolute paths they refuse, and these refusals land in agent context, an operator's
+ * terminal or a CI log — none of which needs the operator's tree. A record field can
+ * reach a reason verbatim (a chain finding quotes `verified_id`), so control characters
+ * are escaped too: a raw ESC printed to a terminal is an injection surface.
+ *
+ * THREE roots are stripped, not one. The checkout (raw and resolved) becomes a relative
+ * path; the MAIN checkout — which a linked worktree's reasons name whenever a primitive
+ * contains against it or reads a landing-window marker there — becomes
+ * `<main checkout>`; and the home directory, which every other absolute path an operator
+ * owns sits under, becomes `~`. Longest root first, so a nested one is not half-replaced
+ * by its parent.
+ */
+function _clean(repoDir, s) {
+  let out = String(s == null ? "" : s);
+  const roots = [];
+  const add = (p, label) => {
+    if (typeof p === "string" && p.length > 1 && !roots.some((r) => r.p === p)) roots.push({ p, label });
+  };
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return null; // unresolvable: the raw form is still stripped
+    }
+  };
+  add(repoDir, null);
+  add(real(repoDir), null);
+  if (out.includes(path.sep)) {
+    for (const m of mainCheckoutBoundaryRoots(repoDir)) {
+      add(m, "<main checkout>");
+      add(real(m), "<main checkout>");
+    }
+  }
+  roots.sort((a, b) => b.p.length - a.p.length);
+  for (const { p, label } of roots) {
+    out = out
+      .split(p + path.sep)
+      .join(label ? `${label}${path.sep}` : "")
+      .split(p)
+      .join(label || "<checkout>");
+  }
+  const home = os.homedir();
+  if (home && home.length > 1) out = out.split(home + path.sep).join(`~${path.sep}`).split(home).join("~");
+  return escapeControlChars(out);
+}
+
+/**
+ * Create the pending stream's directory, refusing one that resolves outside the checkout.
+ *
+ * The deepest EXISTING ancestor is resolved BEFORE the mkdir and the directory again
+ * after it, the order `append-sink.js` uses for its own sinks: a symlinked `.claude/`
+ * must not carry the mkdir — or the lock created in it — out of the tree. The walk uses
+ * `lstat`, so a DANGLING symlink stops it and is resolved (and refused) rather than
+ * stepped over as though nothing were there.
+ */
+function _ensurePendingDir(repoDir) {
+  const rel = path.dirname(PENDING_REL);
+  const dir = path.join(repoDir, rel);
+  let root;
+  try {
+    root = fs.realpathSync(repoDir);
+  } catch (err) {
+    return bad("pending stream unavailable", `the checkout root does not resolve (${(err && err.code) || String(err)})`);
+  }
+  const inside = (p) => p === root || p.startsWith(root + path.sep);
+  let probe = dir;
+  for (;;) {
+    try {
+      fs.lstatSync(probe);
+      break;
+    } catch (err) {
+      if (!err || err.code !== "ENOENT") break;
+    }
+    const up = path.dirname(probe);
+    if (up === probe) break;
+    probe = up;
+  }
+  try {
+    if (!inside(fs.realpathSync(probe))) {
+      return bad("containment failed", `'${rel}' resolves outside the checkout; refusing to create the pending-stream lock there`);
+    }
+    fs.mkdirSync(dir, { recursive: true });
+    if (!inside(fs.realpathSync(dir))) {
+      return bad("containment failed", `'${rel}' resolves outside the checkout once created; refusing to lock there`);
+    }
+  } catch (err) {
+    return bad("pending stream unavailable", `'${rel}' could not be prepared (${(err && err.code) || String(err)})`);
+  }
+  return { ok: true };
+}
+
+/**
+ * What a waiter finds at the lock path. Four answers:
+ *
+ *   gone      nothing there — the next create decides.
+ *   live      a lock this module wrote, whose holder is alive (or on another host, or
+ *             not yet past the backstop).
+ *   dead      a lock this module wrote whose holder is gone (same host, ESRCH), or one
+ *             past `PENDING_LOCK_BACKSTOP_MS`. Stealable.
+ *   occupied  something this module could not have written: a FIFO, a directory, a
+ *             symlink, an unreadable or oversized file, or a FUTURE timestamp. No wait
+ *             can clear it, so the caller refuses at once and names what is there —
+ *             calling it contention would send the operator to wait for a writer that
+ *             does not exist.
+ */
+function _lockState(lockPath) {
+  let st;
+  try {
+    st = fs.lstatSync(lockPath);
+  } catch (err) {
+    if (err && err.code === "ENOENT") return { kind: "gone" };
+    return { kind: "occupied", detail: `an entry that cannot be inspected (${(err && err.code) || String(err)})` };
+  }
+  if (!st.isFile()) {
+    const what = st.isDirectory() ? "a directory" : st.isSymbolicLink() ? "a symlink" : "an entry that is not a regular file";
+    return { kind: "occupied", detail: what };
+  }
+  const r = readFileHardened(lockPath, { maxBytes: 4096 });
+  if (!r.ok) {
+    if (r.code === "ENOENT") return { kind: "gone" };
+    return { kind: "occupied", detail: `a file that cannot be read as a lock (${r.code || "unreadable"})` };
+  }
+  const body = r.value.toString("utf8");
+  const pid = Number((body.match(/\bpid=(\d+)\b/) || [])[1]);
+  const host = (body.match(/\bhost=(\S+)/) || [])[1];
+  const ts = Date.parse((body.match(/\bts=(\S+)/) || [])[1] || "");
+  if (!Number.isInteger(pid) || pid <= 0 || !Number.isFinite(ts)) {
+    // A create that died before its body was written leaves an empty file. Its mtime is
+    // the only clock it carries, and only the backstop can bound it.
+    const age = Date.now() - st.mtimeMs;
+    if (age < 0) return { kind: "occupied", detail: "a lock with no holder and a FUTURE mtime" };
+    return age > PENDING_LOCK_BACKSTOP_MS ? { kind: "dead", body } : { kind: "live", body, pid: null };
+  }
+  if (ts > Date.now()) return { kind: "occupied", detail: "a lock carrying a FUTURE timestamp" };
+  if (host === os.hostname()) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      // ESRCH is death. EPERM is a process that exists and may not be signalled: alive.
+      if (err && err.code === "ESRCH") return { kind: "dead", body };
+    }
+  }
+  return Date.now() - ts > PENDING_LOCK_BACKSTOP_MS ? { kind: "dead", body } : { kind: "live", body, pid };
+}
+
+/**
+ * Take the lock that serializes every write to `repoDir`'s logical log.
+ *
+ * The O_EXCL protocol of `roster-write.js::acquireRosterLock` and
+ * `session-notes-layout.js::_acquireMigrateLock` — the kernel arbitrates the create —
+ * with three changes the event log needs:
+ *
+ *   - it WAITS, bounded by `opts.waitMs`, because two sessions' sweeps firing together
+ *     is the ordinary case here, and refusing at the first contention would defer one of
+ *     them every time;
+ *   - a holder is judged by LIVENESS, not age (see `PENDING_LOCK_BACKSTOP_MS` for the
+ *     record a pure age bound lost), and a long holder re-stamps itself with `refresh`;
+ *   - the body carries a nonce, so `owns()`, `refresh()` and `release()` act only while
+ *     the lock still holds THIS body, and a steal removes only the body it judged dead.
+ *
+ * RESIDUAL, narrowed and named: two waiters that judge the SAME dead lock can both
+ * remove it, the second removing the first's fresh lock in the instant between its
+ * re-read and its unlink. It needs a dead holder and two contenders inside that window.
+ *
+ * @returns {{ok:true, owns:() => boolean, refresh:() => boolean, release:() => void}
+ *          | {ok:false, error:string, reason:string}}
+ */
+function acquirePendingLock(repoDir, opts) {
+  const o = opts || {};
+  const waitMs = Number.isFinite(o.waitMs) && o.waitMs >= 0 ? o.waitMs : APPEND_LOCK_WAIT_MS;
+  const ready = _ensurePendingDir(repoDir);
+  if (!ready.ok) return ready;
+  const lockPath = path.join(repoDir, PENDING_LOCK_REL);
+  const nonce = crypto.randomBytes(8).toString("hex");
+  const stamp = () => `pid=${process.pid} host=${os.hostname()} ts=${new Date().toISOString()} nonce=${nonce}\n`;
+  let body = stamp();
+  const deadline = Date.now() + waitMs;
+  let stole = false;
+  let holder = null;
+  for (;;) {
+    let fd = null;
+    try {
+      fd = fs.openSync(
+        lockPath,
+        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0),
+        0o600,
+      );
+    } catch (err) {
+      if (!err || err.code !== "EEXIST") {
+        return bad("pending lock failed", `'${PENDING_LOCK_REL}' could not be created (${(err && err.code) || String(err)})`);
+      }
+    }
+    if (fd !== null) {
+      try {
+        fs.writeSync(fd, body);
+        fs.closeSync(fd);
+      } catch (err) {
+        // A created-but-unwritten lock would block every writer until the backstop, so
+        // the entry THIS call created is removed before refusing.
+        try {
+          fs.closeSync(fd);
+        } catch {
+          /* already closed */
+        }
+        try {
+          fs.unlinkSync(lockPath);
+        } catch {
+          /* nothing left to remove */
+        }
+        return bad("pending lock failed", `'${PENDING_LOCK_REL}' could not be written (${(err && err.code) || String(err)})`);
+      }
+      let released = false;
+      const owns = () => {
+        if (released) return false;
+        const cur = readFileHardened(lockPath, { maxBytes: 4096 });
+        return cur.ok && cur.value.toString("utf8") === body;
+      };
+      return {
+        ok: true,
+        owns,
+        /** Re-stamp `ts` while still the holder. `false` means the lock is no longer ours. */
+        refresh() {
+          if (!owns()) return false;
+          const next = stamp();
+          let wfd = null;
+          try {
+            wfd = fs.openSync(lockPath, fs.constants.O_WRONLY | fs.constants.O_TRUNC | (fs.constants.O_NOFOLLOW || 0));
+            fs.writeSync(wfd, next);
+          } catch {
+            return false;
+          } finally {
+            if (wfd !== null) {
+              try {
+                fs.closeSync(wfd);
+              } catch {
+                /* the write already landed or already failed */
+              }
+            }
+          }
+          body = next;
+          return true;
+        },
+        release() {
+          if (!owns()) {
+            released = true;
+            return; // not ours any more: a successor's lock is left alone
+          }
+          released = true;
+          try {
+            fs.unlinkSync(lockPath);
+          } catch {
+            /* already gone; the next writer's O_EXCL create arbitrates either way */
+          }
+        },
+      };
+    }
+    const state = _lockState(lockPath);
+    if (state.kind === "gone") continue;
+    if (state.kind === "occupied") {
+      return bad(
+        "pending lock path occupied",
+        `'${PENDING_LOCK_REL}' holds ${state.detail}, which is not a lock this module writes, so no wait can ` +
+          `clear it. Nothing was written. Look at it, then remove it by hand.`,
+      );
+    }
+    if (state.kind === "dead" && !stole) {
+      stole = true;
+      // Re-read immediately before removing, and remove only the body judged dead: a
+      // racer that has already replaced it holds a LIVE lock that must not be deleted.
+      const again = readFileHardened(lockPath, { maxBytes: 4096 });
+      if (again.ok && again.value.toString("utf8") === state.body) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch {
+          /* a racer removed it first; the next create decides */
+        }
+      }
+      continue;
+    }
+    holder = state.pid || holder;
+    if (Date.now() >= deadline) {
+      return bad(
+        "pending lock busy",
+        `${holder ? `process ${holder}` : "another writer"} holds '${PENDING_LOCK_REL}' and did not release it ` +
+          `within ${waitMs} ms. Nothing was written: a hook's transition is re-detected on its next fire, and a ` +
+          `flush can be re-run.`,
+      );
+    }
+    _sleepMs(10);
+  }
+}
+
+/**
+ * The tracked log's text, through the same hardened reader as the stream. Absent is
+ * EMPTY; any other failure refuses — read as empty it would restart every chain.
+ *
+ * Not a plain `readFileSync`: that FOLLOWS a symlinked log, and every chain position
+ * would then be computed from whatever the link points at, while the write path refuses
+ * the same link — the asymmetric hardening `append-sink.js` warns against.
+ */
+function _readTracked(repoDir, o) {
+  const abs = path.join(repoDir, EVENTS_REL);
+  if (o && typeof o.readLog === "function") {
+    try {
+      return { ok: true, text: o.readLog(abs) };
+    } catch (err) {
+      if (err && err.code === "ENOENT") return { ok: true, text: "" };
+      return bad("log unreadable", `'${EVENTS_REL}' could not be read (${(err && err.code) || String(err)})`);
+    }
+  }
+  const r = readSinkFile({ repoDir, sinkPath: abs, maxBytes: MAX_TRACKED_BYTES });
+  if (r.ok) return { ok: true, text: r.text };
+  if (r.absent) return { ok: true, text: "" };
+  return bad(
+    "log unreadable",
+    `'${EVENTS_REL}' could not be read (${_clean(repoDir, `${r.error}: ${r.reason}`)}). An unreadable log read ` +
+      `as EMPTY would restart this emitter's chain at seq 1 and forge a fork.`,
+  );
+}
+
+/**
+ * The pending stream's text, through the hardened sink reader. Absent is EMPTY; anything
+ * else refuses. `o.maxBytes` raises the cap above `MAX_PENDING_BYTES` for the one reader
+ * that must always be able to drain the stream — the flush.
+ */
+function _readPending(repoDir, o) {
+  const pendingAbs = path.join(repoDir, PENDING_REL);
+  if (o && typeof o.readLog === "function") {
+    try {
+      return { ok: true, text: o.readLog(pendingAbs) };
+    } catch (err) {
+      if (err && err.code === "ENOENT") return { ok: true, text: "" };
+      return bad("pending stream unreadable", `'${PENDING_REL}' could not be read (${(err && err.code) || String(err)})`);
+    }
+  }
+  const maxBytes = o && Number.isInteger(o.maxBytes) && o.maxBytes > 0 ? o.maxBytes : MAX_PENDING_BYTES;
+  const r = readSinkFile({ repoDir, sinkPath: pendingAbs, maxBytes });
+  if (r.ok) return { ok: true, text: r.text };
+  if (r.absent) return { ok: true, text: "" };
+  if (r.overCap) {
+    return bad(
+      "pending stream over cap",
+      `'${PENDING_REL}' is larger than ${maxBytes} bytes, so it is not read here; nothing proceeds on it. The ` +
+        `flush reads it under a larger cap — run \`node .claude/bin/burndown-build.mjs --flush-events --repo <checkout>\` ` +
+        `and commit, which drains it.`,
+    );
+  }
+  return bad(
+    "pending stream unreadable",
+    `'${PENDING_REL}' could not be read (${_clean(repoDir, `${r.error}: ${r.reason}`)}). Read as empty it would ` +
+      `restart this emitter's chain and forge a fork, so nothing proceeds on it.`,
+  );
+}
+
+/**
+ * Read one checkout's LOGICAL log: the tracked file, then every pending line it does not
+ * already hold — exactly what the tracked file will contain after the next flush.
+ *
+ * THE STREAM IS READ FIRST. A flush that moves lines between the two reads can then only
+ * make a line appear in BOTH — which the de-duplication absorbs — never in NEITHER, which
+ * would hand a hook a known state missing its own last transition.
+ *
+ * The de-duplication is what makes that safe, and it serves a second state: a flush
+ * leaves its moved lines in the stream until HEAD carries them (`_retireCommitted`). A
+ * record line is unique by construction (a random `id`, a signature), so a byte-identical
+ * line already in the tracked file IS that record, and the logical log holds it once.
+ *
+ * A fold of `text` numbers its lines through the tracked file first and then on into the
+ * pending lines, so a line number past the tracked file's length names a PENDING line.
+ * `pendingTorn` reports a stream whose last line has no terminator — a write interrupted
+ * inside it; `appendEvent` refuses to append behind one.
+ *
+ * `opts.readLog(absPath)` is the fixtures' seam and serves BOTH files; it throws ENOENT
+ * for an absent one, as `fs.readFileSync` does.
+ *
+ * `opts.verifyPending: true` is for a reader that ADJUDICATES on what it reads — an owner
+ * tool deciding whether a proposal is still pending, say. The stream is gitignored and
+ * writable without a signing key, so such a reader must not take a pending line on
+ * trust: every pending line is checked against the committed trust surface (the flush's
+ * own check, `_verifyPendingLines`), the ones that do not verify are LEFT OUT of `text`
+ * and `pendingLines`, and each is reported in `unverifiedPending` with its stream line
+ * number and why. Off by default, because most readers' decisions are re-derived later
+ * from a durable source and the check costs a verifier spawn per line; see the header of
+ * `todo-durable-guard.js` for that reader's case.
+ *
+ * @returns {{ok:true, text:string, logText:string, pendingLines:string[], pendingTorn:boolean,
+ *            unverifiedPending?:Array<{line:number, why:string}>}
+ *          | {ok:false, error:string, reason:string}}
+ */
+function readEventLog(repoDir, opts) {
+  const o = opts || {};
+  // Only the fixtures' seam reaches the readers: the stream's cap is not a caller's to
+  // raise, and the one reader that may (the flush) asks `_readPending` directly.
+  const seam = { readLog: o.readLog };
+  const pend = _readPending(repoDir, seam);
+  if (!pend.ok) return pend;
+  const log = _readTracked(repoDir, seam);
+  if (!log.ok) return log;
+  const held = new Set(_jsonlLines(log.text));
+  let pendingLines = _jsonlLines(pend.text).filter((l) => !held.has(l));
+  let unverifiedPending;
+  if (o.verifyPending === true && pendingLines.length > 0) {
+    const v = _verifyPendingLines(repoDir, pendingLines);
+    const all = _jsonlLines(pend.text);
+    unverifiedPending = v.rejected.map((r) => ({ line: all.indexOf(pendingLines[r.index]) + 1, why: r.why }));
+    const out = new Set(v.rejected.map((r) => r.index));
+    pendingLines = pendingLines.filter((_, i) => !out.has(i));
+  }
+  const sep = log.text && !log.text.endsWith("\n") ? "\n" : "";
+  const text = pendingLines.length ? log.text + sep + pendingLines.map((l) => `${l}\n`).join("") : log.text;
+  const pendingTorn = pend.text !== "" && !pend.text.endsWith("\n");
+  const r = { ok: true, text, logText: log.text, pendingLines, pendingTorn };
+  if (unverifiedPending) r.unverifiedPending = unverifiedPending;
+  return r;
+}
+
+/**
+ * What this checkout's stream holds that is not durable yet. Read-only; takes no lock.
+ *
+ *   pending      stream lines the tracked FILE does not hold — what a flush would move.
+ *   uncommitted  stream lines the tracked file AT HEAD does not hold — what removing this
+ *                checkout would destroy. A flush moves lines into the working file but
+ *                leaves them in the stream until HEAD carries them, so after a flush
+ *                `pending` is 0 while `uncommitted` is not, until the commit. A teardown
+ *                decision reads `uncommitted`: the working file is no safer than the
+ *                stream (an index flag can hide its edits from `git status`), HEAD is.
+ *
+ * An absent or empty stream answers 0 and 0 without reading anything else, so a caller
+ * sweeping many checkouts (`worktree-reap.mjs`) pays one stat for each quiet one. A HEAD
+ * that carries the log but cannot be read REFUSES rather than guessing.
+ */
+function pendingEventsStatus(repoDir, opts) {
+  const o = opts || {};
+  const pend = _readPending(repoDir, { readLog: o.readLog });
+  if (!pend.ok) return pend;
+  if (pend.text === "") return { ok: true, pending: 0, uncommitted: 0, path: PENDING_REL };
+  const r = readEventLog(repoDir, o);
+  if (!r.ok) return r;
+  const head = _headBlob(repoDir, EVENTS_REL);
+  if (!head.ok && head.damaged) {
+    return bad(
+      "committed log unreadable",
+      `HEAD carries '${EVENTS_REL}' but it could not be read, so how many of '${PENDING_REL}'s lines HEAD lacks is ` +
+        `UNKNOWN — not zero.`,
+    );
+  }
+  const committed = new Set(head.ok ? _jsonlLines(head.text) : []);
+  const uncommitted = _jsonlLines(pend.text).filter((l) => !committed.has(l)).length;
+  return { ok: true, pending: r.pendingLines.length, uncommitted, path: PENDING_REL };
+}
+
+/**
+ * `git show HEAD:<rel>` through the shared subprocess envelope.
+ *
+ * `{ok:true, text}` when HEAD carries the path; `{ok:false}` when it does not (no HEAD,
+ * no such path, not a repository); `{ok:false, damaged:true}` when the path EXISTS at
+ * HEAD and still could not be read — existence is asked separately first, so damage is
+ * never mistaken for absence (`readCommittedTrustRoot` records why that matters).
+ */
+function _headBlob(repoDir, rel) {
+  const gitBin = resolveGitBinary();
+  if (!gitBin) return { ok: false };
+  const existsArgs = ["cat-file", "-e", `HEAD:${rel}`];
+  try {
+    execFileSync(gitBin, existsArgs, { cwd: repoDir, stdio: ["ignore", "ignore", "ignore"], env: gitEnvForArgs(existsArgs) });
+  } catch {
+    return { ok: false };
+  }
+  const args = ["show", `HEAD:${rel}`];
+  try {
+    const text = execFileSync(gitBin, args, {
+      cwd: repoDir,
+      encoding: "utf8",
+      maxBuffer: MAX_TRACKED_BYTES,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: gitEnvForArgs(args),
+    });
+    return { ok: true, text };
+  } catch {
+    return { ok: false, damaged: true };
+  }
+}
+
+/**
+ * The committed-state gate's own checks, run on the lines a flush is about to move.
+ *
+ * The flush is the one step that turns a gitignored, locally writable file into the
+ * COMMITTED signed log, so it is a trust boundary. Without this, a line written into the
+ * stream by hand — no signing key needed — rode the flush into the commit, and the gate
+ * refused it only after the fact (a log red until history is rewritten). These are
+ * `burndown-build.mjs::verifySignedLog`'s checks over the same surfaces: the suite the
+ * COMMITTED manifest declares, keys and roles from the committed trust root where one is
+ * committed and the committed roster otherwise, and three states — INDETERMINATE refuses
+ * as firmly as FAILED.
+ *
+ * Built once per check by `_committedVerifier`, which an adjudicating reader
+ * (`readEventLog`'s `verifyPending`) shares, so the two decisions made about OTHER signers'
+ * pending lines rest on one surface, not two. The append's predecessor check is not one of
+ * them: it asks whether a line is the appender's OWN, and answers that from the appender's
+ * own key (`_ownKeyVerifier`).
+ */
+function _committedVerifier(repoDir) {
+  const pol = signedLog.loadSuitePolicy(repoDir, "burndown-manifest.json", {
+    readFile: () => {
+      const h = _headBlob(repoDir, "burndown-manifest.json");
+      if (!h.ok) throw Object.assign(new Error("not committed"), { code: h.damaged ? "EIO" : "ENOENT" });
+      return h.text;
+    },
+  });
+  if (!pol.ok) {
+    return bad(
+      "pending stream unverified",
+      `the COMMITTED suite declaration could not be read (${_clean(repoDir, pol.reason)}), so nothing can say which ` +
+        `algorithm verifies these lines and none is trusted. Commit 'burndown-manifest.json' first.`,
+    );
+  }
+  const tr = readCommittedTrustRoot(repoDir, {});
+  if (tr.ok !== true && tr.absent !== true) {
+    return bad(
+      "pending stream unverified",
+      `the committed trust root is present but unusable (${_clean(repoDir, tr.reason)}). Falling back to the roster ` +
+        `would be the downgrade the gate refuses, so no line is trusted.`,
+    );
+  }
+  let index;
+  let signerSurface;
+  if (tr.ok === true) {
+    index = tr.index;
+    signerSurface = { trustRootIndex: tr.index };
+  } else {
+    const ro = readCommittedRoster(repoDir, {});
+    if (!ro.ok) {
+      return bad("pending stream unverified", `no committed trust surface resolves a signer (${_clean(repoDir, ro.reason)}).`);
+    }
+    index = signerIndex(ro.roster);
+    signerSurface = { roster: ro.roster };
+  }
+  return {
+    ok: true,
+    policy: pol.policy,
+    resolveKey: (vid) => index.get(vid) || null,
+    resolveSigner: makeRosterSignerResolver(repoDir, signerSurface),
+  };
+}
+
+function _verifyForCommit(repoDir, movedText) {
+  const v = _committedVerifier(repoDir);
+  if (!v.ok) return v;
+  const show = (findings) =>
+    findings
+      .slice(0, 3)
+      .map((f) => `pending line ${f.line}: [${f.kind}] ${_clean(repoDir, f.why)}`)
+      .join("; ");
+  const sigs = signedLog.verifyLogSignatures(movedText, v.policy, { resolveKey: v.resolveKey });
+  if (!sigs.ok) {
+    return Object.assign(
+      bad(
+        "pending stream unverified",
+        (sigs.indeterminate
+          ? `signature verification could not RUN over ${sigs.findings.length} line(s) — INDETERMINATE, not clean: `
+          : `${sigs.findings.length} line(s) FAILED signature verification: `) +
+          `${show(sigs.findings)}. Nothing was moved.`,
+      ),
+      sigs.indeterminate ? { indeterminate: true } : {},
+    );
+  }
+  const authz = verifyAuthorityBindings(movedText, v.resolveSigner);
+  if (!authz.ok) {
+    return Object.assign(
+      bad("pending stream unverified", `${authz.findings.length} authority finding(s): ${show(authz.findings)}. Nothing was moved.`),
+      authz.indeterminate ? { indeterminate: true } : {},
+    );
+  }
+  return { ok: true };
+}
+
+/**
+ * The same checks, answered PER LINE: which of `lines` the committed trust surface backs.
+ *
+ * `rejected` holds `{index, why}` for every line that does not verify — a bad or missing
+ * signature, an unknown signer, an authority its role does not back, or a check that
+ * could not RUN (INDETERMINATE is not a pass here either). A finding about the whole run
+ * rather than one line (the verifier could not start) rejects every line. Authority is
+ * judged only for lines whose signature verified: a role read off an unverified
+ * `verified_id` means nothing.
+ */
+function _verifyPendingLines(repoDir, lines) {
+  const all = () => lines.map((_, index) => index);
+  const v = _committedVerifier(repoDir);
+  if (!v.ok) return { rejected: all().map((index) => ({ index, why: _clean(repoDir, `${v.error}: ${v.reason}`) })) };
+  const rejected = new Map();
+  const judge = (subset, findings) => {
+    // A finding's `line` is its 1-based ordinal in the text it was handed; 0 names the run.
+    for (const f of findings) {
+      const why = _clean(repoDir, `[${f.kind}] ${f.why}`);
+      const hit = f.line >= 1 && f.line <= subset.length ? [subset[f.line - 1]] : subset;
+      for (const index of hit) if (!rejected.has(index)) rejected.set(index, why);
+    }
+  };
+  const text = (subset) => subset.map((i) => `${lines[i]}\n`).join("");
+  const everyLine = all();
+  const sigs = signedLog.verifyLogSignatures(text(everyLine), v.policy, { resolveKey: v.resolveKey });
+  if (!sigs.ok) judge(everyLine, sigs.findings);
+  const signed = everyLine.filter((i) => !rejected.has(i));
+  if (signed.length > 0) {
+    const authz = verifyAuthorityBindings(text(signed), v.resolveSigner);
+    if (!authz.ok) judge(signed, authz.findings);
+  }
+  return { rejected: [...rejected].map(([index, why]) => ({ index, why })).sort((a, b) => a.index - b.index) };
+}
+
+/**
+ * Shrink the stream to the lines HEAD does not carry yet.
+ *
+ * A flush leaves its moved lines in the tracked file UNCOMMITTED, and the stream was
+ * their only other copy: retiring it at once meant an ordinary `git restore` or `git
+ * stash` before the commit destroyed the records outright. So a line leaves the stream
+ * only once the COMMITTED tracked file holds it. Until then it stays, every reader
+ * de-duplicates it against the working file, and a discarded flush is simply flushed
+ * again. Where HEAD carries no such file — no commit yet, not a repository — nothing is
+ * committed, so nothing is retired; a damaged HEAD blob retires nothing either.
+ */
+function _retireCommitted(repoDir, pendingLines) {
+  const head = _headBlob(repoDir, EVENTS_REL);
+  const committed = head.ok ? new Set(_jsonlLines(head.text)) : new Set();
+  const keep = pendingLines.filter((l) => !committed.has(l));
+  if (keep.length === pendingLines.length) return { ok: true, retained: keep.length };
+  const streamAbs = path.join(repoDir, PENDING_REL);
+  if (keep.length === 0) {
+    try {
+      fs.unlinkSync(streamAbs);
+    } catch (err) {
+      if (!err || err.code !== "ENOENT") {
+        return bad("pending stream not retired", `'${PENDING_REL}' could not be removed (${(err && err.code) || String(err)})`);
+      }
+    }
+    return { ok: true, retained: 0 };
+  }
+  // Tmp + rename in the SAME directory: under the lock no appender is mid-write, and the
+  // rename leaves either the old stream or the new one, never a torn mixture.
+  const tmp = `${streamAbs}.tmp.${process.pid}.${crypto.randomBytes(4).toString("hex")}`;
+  try {
+    const fd = fs.openSync(
+      tmp,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0),
+      0o600,
+    );
+    try {
+      fs.writeSync(fd, keep.map((l) => `${l}\n`).join(""));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, streamAbs);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* never created, or already renamed */
+    }
+    return bad("pending stream not retired", `'${PENDING_REL}' could not be rewritten (${(err && err.code) || String(err)})`);
+  }
+  return { ok: true, retained: keep.length };
+}
+
+/**
+ * Move every pending line into the tracked log, in order.
+ *
+ * THE ONE WRITER that extends `EVENTS_REL` with appended events. It runs at train time
+ * and its result is committed by the caller; a hook must never call it, or the dirty
+ * tree this split exists to prevent comes straight back.
+ *
+ * Fails CLOSED and moves NOTHING when a pending line is unreadable, is not a well-formed
+ * record, or belongs to a CLOSED generation; when the stream ends mid-line; when the
+ * tracked file ends mid-line (the first moved record would fuse onto its last line);
+ * when the move would add a chain finding; or when a moved line fails the
+ * committed-state gate's signature or authority check (`_verifyForCommit`).
+ *
+ * A chain finding the tracked prefix already carries does not block BY ITSELF — that is
+ * the gate's business — with one exception that matters: a FORK at an emitter's tracked
+ * tail makes every later record of that emitter a NEW chain-break (`chainFieldsFor`
+ * chains from the first max-seq record, `verifyChain` from the last in file order), so
+ * a stream behind a fork refuses until the fork is reconciled by an owner. The refusal
+ * names the emitter and the line; there is no automatic choice of which history wins.
+ *
+ * Crash-safe by idempotence, not by a transaction: each line goes through
+ * `appendSinkLine` as one O_APPEND write, and a line already in the tracked file byte for
+ * byte is counted `alreadyPresent` and not moved again, so a flush interrupted between
+ * lines is finished by running it again. (A write interrupted INSIDE a line leaves the
+ * tracked file unterminated, and the re-run refuses rather than fusing onto it.) Going
+ * through `appendSinkLine` also means a live landing window REFUSES the flush, as does a
+ * symlinked or hard-linked log.
+ *
+ * The stream is not deleted here: `_retireCommitted` drops only the lines HEAD carries.
+ * The lock is re-stamped every `FLUSH_HEARTBEAT_LINES`, and nothing is retired unless
+ * this flush still holds it AND the stream is byte-identical to what it read.
+ *
+ * @param {string} repoDir
+ * @param {{lockWaitMs?: number}} [opts]
+ * @returns {{ok:true, moved:number, alreadyPresent:number, retained:number}
+ *          | {ok:false, error:string, reason:string, moved?:number, alreadyPresent?:number}}
+ */
+function flushPendingEvents(repoDir, opts) {
+  const o = opts || {};
+  const lock = acquirePendingLock(repoDir, {
+    waitMs: Number.isFinite(o.lockWaitMs) ? o.lockWaitMs : FLUSH_LOCK_WAIT_MS,
+  });
+  if (!lock.ok) return lock;
+  try {
+    // Under the TRACKED file's cap, not the stream's: the flush is how an over-cap stream
+    // is drained, so it must read one the appends can no longer read (`MAX_PENDING_BYTES`).
+    const drainCap = { maxBytes: MAX_TRACKED_BYTES };
+    const pend = _readPending(repoDir, drainCap);
+    if (!pend.ok) return pend;
+    if (pend.text === "") return { ok: true, moved: 0, alreadyPresent: 0, retained: 0 };
+    if (!pend.text.endsWith("\n")) {
+      return bad(
+        "pending stream torn",
+        `the last line of '${PENDING_REL}' has no terminating newline, so a write was interrupted inside it. ` +
+          `Nothing was moved; inspect that line rather than flushing a partial record.`,
+      );
+    }
+    const log = _readTracked(repoDir, {});
+    if (!log.ok) return log;
+    if (log.text && !log.text.endsWith("\n")) {
+      return bad(
+        "log unterminated",
+        `'${EVENTS_REL}' does not end in a newline, so the first moved record would fuse onto its last line. ` +
+          `Nothing was moved.`,
+      );
+    }
+    const held = new Set(_jsonlLines(log.text));
+    const pending = _jsonlLines(pend.text);
+    const toMove = [];
+    let alreadyPresent = 0;
+    for (let i = 0; i < pending.length; i++) {
+      let rec;
+      try {
+        rec = JSON.parse(pending[i]);
+      } catch (err) {
+        return bad(
+          "pending line unreadable",
+          `line ${i + 1} of '${PENDING_REL}' is not JSON (${_clean(repoDir, (err && err.message) || String(err))}). ` +
+            `Nothing was moved.`,
+        );
+      }
+      const v = validateRecord(rec);
+      if (!v.ok) {
+        return bad(
+          "pending line malformed",
+          `line ${i + 1} of '${PENDING_REL}' is not a well-formed record (${v.error}: ${_clean(repoDir, v.reason)}). ` +
+            `Nothing was moved.`,
+        );
+      }
+      // ONLY THE CURRENT GENERATION MOVES. `appendEvent` stamps nothing else, and a closed
+      // generation never grows (`signed-log.js::verifyClosedGenerationAppends`) — a stream
+      // line claiming one is not this module's output.
+      if (rec.schema !== SCHEMA) {
+        return bad(
+          "pending line from a closed generation",
+          `line ${i + 1} of '${PENDING_REL}' carries schema ${JSON.stringify(rec.schema)}, but only the current ` +
+            `generation '${SCHEMA}' is ever appended. Nothing was moved.`,
+        );
+      }
+      if (held.has(pending[i])) alreadyPresent++;
+      else toMove.push(pending[i]);
+    }
+    if (toMove.length > 0) {
+      const movedText = toMove.map((l) => `${l}\n`).join("");
+      // THE CHAIN first — cheap and deterministic. The tracked text ends in "\n", so its
+      // split carries one trailing "": the moved lines begin at the ordinal after `base`.
+      const base = log.text ? log.text.split(/\r?\n/).length - 1 : 0;
+      const after = signedLog.verifyChain(log.text + movedText, SCHEMA);
+      const fresh = after.findings.filter((f) => f.line > base);
+      if (fresh.length > 0) {
+        return bad(
+          "pending stream breaks the chain",
+          `moving it would add ${fresh.length} chain finding(s) to '${EVENTS_REL}': ` +
+            fresh
+              .slice(0, 3)
+              .map((f) => `${f.kind} at line ${f.line} (${_clean(repoDir, f.why)})`)
+              .join("; ") +
+            `. Nothing was moved. The tracked file changed under the stream — a merge, or another checkout's ` +
+            `appends for the same emitter — and an owner must reconcile the named emitter's records (keep one ` +
+            `history, re-issue the other's transitions) before this stream can join it.`,
+        );
+      }
+      // THEN THE GATE'S OWN CHECKS, on exactly the lines that are about to be committed.
+      const gate = _verifyForCommit(repoDir, movedText);
+      if (!gate.ok) return gate;
+    }
+    const logAbs = path.join(repoDir, EVENTS_REL);
+    let moved = 0;
+    for (const line of toMove) {
+      if (moved > 0 && moved % FLUSH_HEARTBEAT_LINES === 0 && !lock.refresh()) {
+        return Object.assign(
+          bad(
+            "flush lost its lock",
+            `${moved} of ${toMove.length} line(s) were moved before '${PENDING_LOCK_REL}' stopped being this ` +
+              `flush's. The pending stream is intact; re-run the flush — a line already in the tracked file is not ` +
+              `moved twice.`,
+          ),
+          { moved, alreadyPresent },
+        );
+      }
+      // `additionalRoots: []` — the tracked log is PER CHECKOUT and lives under `repoDir`;
+      // the main-checkout root `mainCheckoutBoundaryRoots` adds is for `.claude/learning`
+      // state that deliberately escapes a worktree, which this file never does.
+      const w = appendSinkLine({ repoDir, additionalRoots: [], sinkPath: logAbs, line });
+      if (!w.ok) {
+        return Object.assign(
+          bad(
+            "flush interrupted",
+            `${moved} of ${toMove.length} line(s) were moved before '${EVENTS_REL}' refused the next ` +
+              `(${_clean(repoDir, `${w.error}: ${w.reason}`)}). The pending stream is intact; re-run the flush — a ` +
+              `line already in the tracked file is recognised and not moved twice.`,
+          ),
+          { moved, alreadyPresent },
+        );
+      }
+      moved++;
+    }
+    // RETIRE only while still the holder, and only the bytes that were read. Under a held
+    // lock neither check can fail; both are here so that if one ever does, the stream is
+    // kept rather than a concurrent append deleted with it.
+    if (!lock.owns()) {
+      return Object.assign(
+        bad("flush lost its lock", `${moved} line(s) were moved; the stream is kept, and the next flush completes it.`),
+        { moved, alreadyPresent },
+      );
+    }
+    const now = _readPending(repoDir, drainCap);
+    if (!now.ok || now.text !== pend.text) {
+      return Object.assign(
+        bad(
+          "pending stream changed during the flush",
+          `${moved} line(s) were moved; '${PENDING_REL}' changed while this flush held its lock, so it is kept as is ` +
+            `and the next flush completes it.`,
+        ),
+        { moved, alreadyPresent },
+      );
+    }
+    const r = _retireCommitted(repoDir, pending);
+    if (!r.ok) return Object.assign(r, { moved, alreadyPresent });
+    return { ok: true, moved, alreadyPresent, retained: r.retained };
+  } finally {
+    lock.release();
+  }
+}
+
+/**
+ * Lines THIS process appended, byte for byte. A predecessor that is one of them was
+ * signed here a moment ago and needs no verifier spawn; any other pending line does —
+ * including one at the same position whose bytes were altered after it was written.
+ */
+const _OWN_LINES = new Set();
+
+/**
+ * The pending line an append is about to chain onto, or null when its predecessor is in
+ * the tracked file (or it has none).
+ *
+ * Identified by the chain's own answer rather than by re-deriving which record wins: the
+ * line at `seq - 1` for this emitter in this generation whose canonical hash IS the
+ * `prev_hash` `chainFieldsFor` returned. A pending line at that position with other
+ * bytes is a fork the flush refuses; it is not what this record would be chained onto.
+ */
+function _pendingPredecessor(pendingLines, verifiedId, schema, chain) {
+  if (!chain || chain.prev_hash === null || chain.seq <= 1) return null;
+  for (let i = 0; i < pendingLines.length; i++) {
+    let e;
+    try {
+      e = JSON.parse(pendingLines[i]);
+    } catch {
+      continue; // cannot be this emitter's record; the flush reports it
+    }
+    if (!e || e.verified_id !== verifiedId || e.schema !== schema || e.seq !== chain.seq - 1) continue;
+    const h = signedLog.canonicalRecordHash(e);
+    if (h.ok && h.hash === chain.prev_hash) return { line: pendingLines[i], index: i };
+  }
+  return null;
+}
+
+/**
+ * The appender's OWN key, as the only `resolveKey` a predecessor check needs.
+ *
+ * A predecessor is this appender's own previous record — `_pendingPredecessor` returns only
+ * a line carrying its `verified_id` — so the question is "did THIS key sign it?", and the
+ * key that answers it is the one this append is about to sign with. It is NOT the
+ * committed trust surface, which the flush and an adjudicating reader need because they
+ * judge other signers' lines. Asking HEAD here refused every cross-process append wherever
+ * HEAD did not carry the appender yet — a repository before its first commit, an operator
+ * whose roster entry is still in review — and a hook does not retry a refused transition,
+ * so the refusal LOST the record (MEASURED: the `todo-tracker` fixture recorded one event
+ * for three transitions, `appended 1 event(s), expected 3`).
+ *
+ * The key is read from the WORKING roster, the surface `operator-id.js::resolveIdentity`
+ * attributed this appender from, and anyone who can write the pending stream can write
+ * that file too. So the key is BOUND TO THE ID, not taken on the file's word:
+ *   - ssh: the entry's `pubkey` must fingerprint to exactly `verified_id`, by the function
+ *     that derived `verified_id`. `ssh-keygen -Y verify` binds a signature to the key it is
+ *     handed and nothing else (`coc-sign.js`: the SSH path never reads `expectedFpr`), so
+ *     without this a key swapped in under the appender's fingerprint would verify a line
+ *     that key signed.
+ *   - gpg: `signed-log.js::verifyLogSignatures` binds every OpenPGP signature to the
+ *     resolved `fingerprint` through gpg's own VALIDSIG line, so a swapped key's signature
+ *     names another fingerprint and is refused there.
+ * Every failure REFUSES. A key shape the in-process fingerprint defers on (it answers
+ * ed25519 and RSA, the two ssh suites `signed-log.js::SUITES` declares) is INDETERMINATE.
+ */
+function _ownKeyVerifier(repoDir, identity) {
+  const vid = identity && identity.verified_id;
+  const rd = readFileHardened(path.join(repoDir, ROSTER_REL), { maxBytes: MAX_ROSTER_BYTES });
+  if (!rd.ok) {
+    return unresolved(
+      "own key unresolved",
+      `the working roster '${ROSTER_REL}' could not be read (${rd.reason}), so this emitter's own key is unknown.`,
+    );
+  }
+  let roster;
+  try {
+    roster = JSON.parse(rd.value.toString("utf8"));
+  } catch (err) {
+    return unresolved("own key unresolved", `the working roster '${ROSTER_REL}' is not JSON (${(err && err.message) || err}).`);
+  }
+  const entry = signerIndex(roster).get(vid);
+  if (!entry) {
+    return unresolved(
+      "own key unresolved",
+      `the working roster '${ROSTER_REL}' carries no key with this emitter's fingerprint, so nothing here can say ` +
+        `the line is its own.`,
+    );
+  }
+  if (entry.keyType === "ssh") {
+    const fpr = fingerprintFromPubText(entry.pubkey);
+    if (fpr === null) {
+      return unresolved(
+        "own key unresolved",
+        `the working roster's ssh key for this emitter is not a shape whose fingerprint can be computed here ` +
+          `(ed25519 or RSA, one line), so it cannot be bound to the emitter's verified_id.`,
+      );
+    }
+    if (fpr !== vid) {
+      return bad(
+        "own key mismatch",
+        `the working roster files a key under this emitter's fingerprint whose own fingerprint is ${fpr}. A key that ` +
+          `does not hash to the id it is filed under is not this emitter's key, and no line is verified with it.`,
+      );
+    }
+  }
+  return { ok: true, resolveKey: (who) => (who === vid ? entry : null) };
+}
+
+/** Does `line` verify as a record signed by `identity`'s own key, under `policy`? */
+function _verifyOwnLine(repoDir, line, identity, policy) {
+  const own = _ownKeyVerifier(repoDir, identity);
+  if (!own.ok) return own;
+  const sigs = signedLog.verifyLogSignatures(`${line}\n`, policy, { resolveKey: own.resolveKey });
+  if (sigs.ok) return { ok: true };
+  const shown = sigs.findings
+    .slice(0, 3)
+    .map((f) => `[${f.kind}] ${f.why}`)
+    .join("; ");
+  return Object.assign(
+    bad(
+      "not this emitter's record",
+      sigs.indeterminate
+        ? `its signature could not be checked against this emitter's own key — INDETERMINATE, not clean: ${shown}`
+        : `it does not verify under this emitter's own key: ${shown}`,
+    ),
+    sigs.indeterminate ? { indeterminate: true } : {},
+  );
+}
+
+/**
+ * THE ONE APPEND PATH. It writes the PENDING stream (`PENDING_REL`); the tracked
+ * `EVENTS_REL` is extended only by `flushPendingEvents`.
  *
  * `opts.append` exists so the fixtures can drive every refusal branch without a
  * signing key or a repo on disk. It defaults to the real `appendStamped`, and a
  * caller that omits it gets the signed, hardened, refuse-on-overflow write — there
- * is no unsigned production path to reach.
+ * is no unsigned production path to reach. `opts.lockWaitMs` bounds the wait for the
+ * log lock (default `APPEND_LOCK_WAIT_MS`).
+ *
+ * `opts.verifyPredecessor(line)` replaces the check of a pending predecessor
+ * (`_verifyOwnLine`, against this emitter's own key) for fixtures that sign with a stub.
+ * With an injected `opts.append` and no `verifyPredecessor`, there is nothing a real
+ * verifier could accept, so the check is skipped — a fixture seam, never reachable from a
+ * production caller, all of which omit both.
+ *
+ * Every refusal's `reason` leaves through `_clean`: the primitives below name absolute
+ * paths (a landing-window marker, a containment root), and the hooks print what comes
+ * back into agent context.
  */
 function appendEvent(repoDir, partial, opts) {
+  const r = _appendEvent(repoDir, partial, opts);
+  if (r && r.ok === false && typeof r.reason === "string") r.reason = _clean(repoDir, r.reason);
+  return r;
+}
+
+function _appendEvent(repoDir, partial, opts) {
   const o = opts || {};
   const v = validateEvent(partial);
   if (!v.ok) return v;
@@ -1736,34 +2880,36 @@ function appendEvent(repoDir, partial, opts) {
   const suite = signedLog.decideAppendSuite(partial, pol.policy, o.signOpts);
   if (!suite.ok) return bad(suite.error, suite.reason);
 
-  // ── THE CHAIN (D2, the schema half) ────────────────────────────────────────
+  // ── THE SINK IS THE PENDING STREAM (header, § WHERE AN APPEND LANDS) ───────
   //
-  // Per-emitter `seq` + `prev_hash`, the model `coordination-log.js` already
-  // implements. Computed over the CURRENT generation only, so generation 0's 534
-  // chainless records neither participate nor need re-emitting. Costs one O(n) read of
-  // the log per append — the objection the prior design raised, kept and measured
-  // rather than waved away.
-  const abs = path.join(repoDir, EVENTS_REL);
+  // Never the tracked file: a hook appending there is what dirtied the checkout every
+  // preflight binds to. The tracked file is extended by `flushPendingEvents` only.
+  const abs = path.join(repoDir, PENDING_REL);
 
   // ── T68 CLAUSE 3: THE OWNER'S OWN GUARDED WRITES ARE COVERED TOO ───────────
   //
   // THIS is the instance that forced the clause. `todo-durable-guard`, a HOOK doing
-  // exactly what it is designed to do, appended a signed, hash-chained transition here
-  // because a `todos/` file was edited — and the append landed on a TRACKED file inside
-  // a live `dev-preflight` window, costing a GREEN run:
+  // exactly what it is designed to do, appended a signed, hash-chained transition to the
+  // then-sink — the TRACKED `burndown/events.jsonl` — because a `todos/` file was edited,
+  // inside a live `dev-preflight` window, costing a GREEN run:
   //   `dev-preflight --import-receipt: REFUSED — this clone's tree is DIRTY; a green
   //    cannot be bound to it`.
   //
-  // There is NO OWNER EXEMPTION and no SPOOL. Exempting the owner would exempt the
-  // window's own session — whose hooks are the ones that fire during its own preflight.
-  // Spooling the row to a side file would be the silent fallback `zero-tolerance.md`
-  // Rule 3 forbids: `burndown-build.mjs` folds THIS path, so a row written elsewhere is
-  // invisible to every projection while the caller is told it was recorded.
+  // The sink is now the gitignored pending stream, which cannot void a receipt. The
+  // check STAYS because `append-sink.js::appendSinkLine` freezes EVERY sink under the
+  // primary while a window is live, ignored or not, so the append would be refused there
+  // anyway; refusing here first spares a frozen append the O(n) chain read below.
+  //
+  // There is NO OWNER EXEMPTION: the window's own session is the one whose hooks fire
+  // during its preflight. And a refused row is NOT relocated: re-routing a REFUSAL to a
+  // side file while telling the caller it was recorded is the silent fallback
+  // `zero-tolerance.md` Rule 3 forbids. (The pending stream is not that — it is the one
+  // declared sink for every append, not a fallback for a refused one.)
   //
   // The refusal is TYPED and arrives through the `bad()` channel every caller already
   // handles — `todo-durable-guard.js` collects it into its `refused` list and reports
   // "N transition(s) REFUSED by the append gate", so the loss is stated rather than
-  // dropped. Placed BEFORE the chain read so a frozen append costs no O(n) log read.
+  // dropped.
   let frozen = null;
   try {
     frozen = require("./landing-window-read.js").windowCovers(repoDir, abs);
@@ -1774,57 +2920,106 @@ function appendEvent(repoDir, partial, opts) {
   if (frozen && frozen.covered) {
     return bad(
       "landing window",
-      `a LANDING WINDOW is live over this working tree, so '${EVENTS_REL}' is FROZEN and this event was ` +
-        `NOT recorded. window: ${frozen.description}; marker: ${frozen.path}. A \`dev-preflight\` receipt ` +
-        `binds to the head AND the tree digest, so any tracked change inside the window makes the run ` +
-        `un-bindable. Re-issue this transition after the window closes (the todo edit itself is also ` +
-        `refused by \`.claude/hooks/landing-window-guard.js\` while the window is open).`,
+      `a LANDING WINDOW is live over this working tree, so '${PENDING_REL}' is FROZEN and this event was ` +
+        `NOT recorded. window: ${frozen.description}; marker: ${frozen.path}. The append primitive freezes ` +
+        `every sink under the primary while a window is live. Re-issue this transition after the window ` +
+        `closes (the todo edit itself is also refused by \`.claude/hooks/landing-window-guard.js\` while ` +
+        `the window is open).`,
     );
   }
 
-  const stamped = Object.assign({}, partial, { schema: suite.schema, sig_alg: suite.sig_alg });
-  if (pol.policy.requiresChain) {
-    let text = "";
-    try {
-      text = (o.readLog ? o.readLog(abs) : fs.readFileSync(abs, "utf8"));
-    } catch (err) {
-      // ENOENT is the FIRST append and is not an error; anything else is, and is
-      // refused rather than silently treated as an empty log — an unreadable log read
-      // as empty would restart every emitter's chain at seq 1 and forge a fork.
-      if (!err || err.code !== "ENOENT") {
+  // ── THE CHAIN (D2, the schema half), UNDER THE LOG LOCK ────────────────────
+  //
+  // Per-emitter `seq` + `prev_hash`, the model `coordination-log.js` already
+  // implements. Computed over the CURRENT generation only, so generation 0's 534
+  // chainless records neither participate nor need re-emitting. Computed over the
+  // LOGICAL log — tracked file then pending stream — because that is the order the flush
+  // will leave them in, and `verifyChain` reads a chain in file order. Costs one O(n)
+  // read per append, the objection the prior design raised, kept and measured rather
+  // than waved away.
+  //
+  // The read and the write happen under ONE lock (header, § ONE LOCK): a chain position
+  // read outside it is a position another append or a flush can take first.
+  const lock = acquirePendingLock(repoDir, { waitMs: o.lockWaitMs });
+  if (!lock.ok) return lock;
+  try {
+    const stamped = Object.assign({}, partial, { schema: suite.schema, sig_alg: suite.sig_alg });
+    if (pol.policy.requiresChain) {
+      // An absent file is the FIRST append and reads empty; any other failure REFUSES —
+      // an unreadable log read as empty would restart every emitter's chain at seq 1.
+      const cur = readEventLog(repoDir, { readLog: o.readLog });
+      if (!cur.ok) return bad(cur.error, cur.reason);
+      // A stream whose last line was torn would fuse this record onto it: the signed
+      // bytes would survive only as half of an unparseable line.
+      if (cur.pendingTorn) {
         return bad(
-          "log unreadable",
-          `'${EVENTS_REL}' could not be read to compute this emitter's chain position ` +
-            `(${(err && err.code) || (err && err.message) || String(err)}). An unreadable log read as EMPTY ` +
-            `would restart the chain at seq 1 and forge a fork.`,
+          "pending stream torn",
+          `the last line of '${PENDING_REL}' has no terminating newline, so a write was interrupted inside it, and ` +
+            `this record would fuse onto it. Nothing was written; inspect that line.`,
         );
       }
+      const chain = signedLog.chainFieldsFor(cur.text, o.identity.verified_id, suite.schema);
+      if (!chain.ok) return bad(chain.error, chain.reason);
+      // THE PREDECESSOR IS VERIFIED BEFORE IT IS CHAINED ONTO. `chainFieldsFor` takes this
+      // emitter's highest `seq` from whatever the log holds, and the stream is a gitignored
+      // file anyone with write access can extend without a key. A forged line there at
+      // `seq = N` would otherwise be signed INTO this record as its `prev_hash`, and every
+      // later record of this emitter would chain onto the forgery too — so the flush that
+      // refuses the forgery would strand all of them with it. A predecessor in the TRACKED
+      // file is not checked here: that file is visible to `git diff` and the gate verifies it.
+      // The check is against this emitter's OWN key, not the committed trust surface: the
+      // predecessor carries this emitter's id, so only that key can have signed it, and HEAD
+      // need not carry the emitter yet (`_ownKeyVerifier` says what that refusal cost).
+      const pred = _pendingPredecessor(cur.pendingLines, o.identity.verified_id, suite.schema, chain);
+      if (pred && !_OWN_LINES.has(pred.line)) {
+        const check =
+          typeof o.verifyPredecessor === "function"
+            ? o.verifyPredecessor
+            : typeof o.append === "function"
+              ? null
+              : (line) => _verifyOwnLine(repoDir, line, o.identity, pol.policy);
+        const verdict = check ? check(pred.line) : { ok: true };
+        if (!verdict || verdict.ok !== true) {
+          return Object.assign(
+            bad(
+              "chain predecessor unverified",
+              `this record would chain onto seq ${chain.seq - 1} of its emitter, which sits in '${PENDING_REL}' ` +
+                `and does not verify as that emitter's own record (${(verdict && verdict.error) || "no verdict"}: ` +
+                `${(verdict && verdict.reason) || "no reason"}). Nothing was written: signing this record's prev_hash ` +
+                `over that line would bind it — and every later record of this emitter — to a line the flush will ` +
+                `refuse. Inspect that line; a forged or damaged one is removed by hand, never chained onto.`,
+            ),
+            verdict && verdict.indeterminate ? { indeterminate: true } : {},
+          );
+        }
+      }
+      stamped.seq = chain.seq;
+      stamped.prev_hash = chain.prev_hash;
     }
-    const chain = signedLog.chainFieldsFor(text, o.identity.verified_id, suite.schema);
-    if (!chain.ok) return bad(chain.error, chain.reason);
-    stamped.seq = chain.seq;
-    stamped.prev_hash = chain.prev_hash;
-  }
 
-  const rec = validateRecord(Object.assign({ id: "pre", sig: "pre" }, stamped));
-  if (!rec.ok) return bad(rec.error, `the stamped envelope is invalid before writing: ${rec.reason}`);
+    const rec = validateRecord(Object.assign({ id: "pre", sig: "pre" }, stamped));
+    if (!rec.ok) return bad(rec.error, `the stamped envelope is invalid before writing: ${rec.reason}`);
 
-  const append = typeof o.append === "function" ? o.append : appendStamped;
-  let r;
-  try {
-    r = append(repoDir, abs, stamped, { identity: o.identity, signOpts: o.signOpts || {} });
-  } catch (err) {
-    // `appendStamped` documents that it never throws; a throw here means a
-    // dependency did. Typed, never swallowed.
-    return bad("append threw", (err && err.message) || String(err));
+    const append = typeof o.append === "function" ? o.append : appendStamped;
+    let r;
+    try {
+      r = append(repoDir, abs, stamped, { identity: o.identity, signOpts: o.signOpts || {} });
+    } catch (err) {
+      // `appendStamped` documents that it never throws; a throw here means a
+      // dependency did. Typed, never swallowed.
+      return bad("append threw", (err && err.message) || String(err));
+    }
+    if (!r || !r.ok) {
+      return bad(
+        (r && r.error) || "append failed",
+        (r && r.reason) || "the append helper returned a non-ok result with no reason",
+      );
+    }
+    if (typeof r.line === "string") _OWN_LINES.add(r.line);
+    return { ok: true, id: r.id, line: r.line, sink: PENDING_REL };
+  } finally {
+    lock.release();
   }
-  if (!r || !r.ok) {
-    return bad(
-      (r && r.error) || "append failed",
-      (r && r.reason) || "the append helper returned a non-ok result with no reason",
-    );
-  }
-  return { ok: true, id: r.id, line: r.line };
 }
 
 /**
@@ -2289,6 +3484,16 @@ module.exports = {
   SCHEMA_V2,
   SCHEMAS,
   EVENTS_REL,
+  // The pending stream (header, § WHERE AN APPEND LANDS). The paths are exported so a
+  // consumer names them from one place; `readEventLog` is the logical-log read every
+  // CURRENT-state reader shares; `flushPendingEvents` is the one writer of `EVENTS_REL`
+  // for appended events, run at train time by `burndown-build.mjs --flush-events`.
+  PENDING_REL,
+  PENDING_LOCK_REL,
+  acquirePendingLock,
+  readEventLog,
+  pendingEventsStatus,
+  flushPendingEvents,
   KINDS,
   WEIGHT_FOR_KIND,
   AUTHORITIES,

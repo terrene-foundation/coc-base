@@ -199,6 +199,20 @@
  * ["coc-artifact-eval-coverage.md#artifact-edit-without-coverage"].
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns read-only git rev-parse calls via lib/git-checkout-proof.js::gitTreeProof (at most two, only for an out-of-project in-.claude/ path). Manifest/deferrals reads are read-only; emits to stdout only."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7, set under the registered 6s

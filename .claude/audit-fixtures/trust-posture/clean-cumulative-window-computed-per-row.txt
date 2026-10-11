@@ -8,18 +8,18 @@ Reading state from the main checkout — this session is in a lane worktree, so 
 under `pwd`.
 
   $ git rev-parse --show-toplevel ; pwd -P
-  /Users/jdoe/repos/.orbital-wt/retry-budget
-  /Users/jdoe/repos/.orbital-wt/retry-budget
+  {{FIXTURE_HOME_V1:MAC}}jdoe/repos/.orbital-wt/retry-budget
+  {{FIXTURE_HOME_V1:MAC}}jdoe/repos/.orbital-wt/retry-budget
 
   $ git rev-parse --git-common-dir
-  /Users/jdoe/repos/orbital-ledger/.git
+  {{FIXTURE_HOME_V1:MAC}}jdoe/repos/orbital-ledger/.git
 
-  Main checkout: /Users/jdoe/repos/orbital-ledger. Reading posture and violations from there.
+  Main checkout: {{FIXTURE_HOME_V1:MAC}}jdoe/repos/orbital-ledger. Reading posture and violations from there.
 
   $ date -u +%F
   2026-09-13
 
-  $ /posture show --checkout /Users/jdoe/repos/orbital-ledger
+  $ /posture show --checkout {{FIXTURE_HOME_V1:MAC}}jdoe/repos/orbital-ledger
   === /posture: L5_DELEGATED ===
   Repo:    orbital-ledger
   Since:   2026-07-12T08:40:00Z (63 days 6h)
@@ -27,7 +27,7 @@ under `pwd`.
   Pending Verification:
     - <none>
 
-  $ /posture violations --limit 8 --json --checkout /Users/jdoe/repos/orbital-ledger
+  $ /posture violations --limit 8 --json --checkout {{FIXTURE_HOME_V1:MAC}}jdoe/repos/orbital-ledger
   {"id":"vio_4a91c2","timestamp":"2026-07-29T10:14:52Z","rule_id":"agents/MUST-Triad","trigger":"cumulative","severity":"halt-and-report","evidence":"decomposable input run inline-serially across three disjoint files","posture_at_time":"L5_DELEGATED","addressed_by":"PR #4412"}
   {"id":"vio_5d03e7","timestamp":"2026-08-05T13:41:09Z","rule_id":"instrument-discipline/MUST-1","trigger":"cumulative","severity":"halt-and-report","evidence":"cited `git status --porcelain` empty as proof the lane had landed","posture_at_time":"L5_DELEGATED","addressed_by":"PR #4431"}
   {"id":"vio_61b8a0","timestamp":"2026-08-11T08:57:30Z","rule_id":"conservation-gate/MUST-1","trigger":"cumulative","severity":"halt-and-report","evidence":"rebase closed with no before-set recorded; four commits unaccounted","posture_at_time":"L5_DELEGATED","addressed_by":"PR #4447"}

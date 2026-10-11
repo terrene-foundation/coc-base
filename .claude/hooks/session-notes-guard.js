@@ -50,6 +50,20 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": ["<os.tmpdir()>/coc-notes-order-<repo-root-sha12>-<session-id>"],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The only durable write is the per-session ordering marker under os.tmpdir() (never the repo), rewritten with a fresh timestamp on each root-surface read; the second run of a narrative-before-directive payload sees the marker and returns a different decision, so the repeat is not a no-op. lib/instruct-and-wait.js emits to stdout only."
+ * }
+ */
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");

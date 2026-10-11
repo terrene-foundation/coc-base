@@ -74,6 +74,20 @@
  * human had to ask twice. See `orchestrator-context-economy.md` § Origin.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/delegation-default/<session-id>-<sha8>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git","node"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns: `git worktree list --porcelain` (worktreeBranchMap) and a child of THIS file (`--lane-depth-probe`, which itself runs git through lib/wip-lanes.js) via spawnSync. The one write is the per-signature dedupe marker appended by lib/delegation-default.js::markSurfaced, so a persisting finding is surfaced once per measured pair and a repeat run writes and emits nothing."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7, under the registered 5s timeout so this hook's own

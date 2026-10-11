@@ -38,4 +38,4 @@ fields nobody does, and the hook name is in the halt message anyway.
 Audit cases under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
 `clean-in-scope-repo.txt` (null), `flag-vendor-mirror.txt` (`<org>/vendor-mirror`,
 halt-and-report), `skip-shell-variable.txt` and `skip-command-substitution.txt` (both
-null). Four green from `/Users/me/repos/loom`.
+null). Four green from `{{FIXTURE_HOME_V1:MAC}}me/repos/loom`.

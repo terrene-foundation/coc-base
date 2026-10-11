@@ -24,7 +24,7 @@ Where NO executable oracle exists — prose rules, specs, config, governance art
 adversarial review is the ONLY verification channel and MUST run the full budget with rotating
 lenses. This is MORE review than tested code receives, not less.
 
-Security and trust-bearing surfaces take the full uncapped loop regardless; if it is ambiguous
+Security and trust-bearing surfaces take the full-depth review — paired round 1, never reduced, never a Round 4 — regardless; if it is ambiguous
 whether a surface is trust-bearing, it IS trust-bearing.
 
 Conditioning depth on model identity, model tier, or self-reported confidence is BLOCKED.
@@ -34,7 +34,7 @@ Conditioning depth on model identity, model tier, or self-reported confidence is
 
 Tested change + established red for the changed property → 1 rotated round (floor)
 Prose rule / spec / config (no oracle) → full budget, rotating lenses
-Auth / revocation / tenant-isolation → full uncapped loop, regardless of oracle
+Auth / revocation / tenant-isolation → paired round 1 + 4a's delta Round 3 at most, never reduced, never a Round 4, regardless of oracle
 
 # DO NOT — scale by model identity, tier, or the model's own confidence
 
@@ -57,7 +57,8 @@ own. Oracle presence tracks the redundancy question; model capability does not.
 
 - **Severity:** `halt-and-report` at gate-review (reviewer confirms depth was justified by
   oracle presence with an established red, never by model identity or self-reported
-  confidence, and that trust-bearing surfaces took the full uncapped loop); `advisory` at the
+  confidence, and that trust-bearing surfaces took the paired round 1, never reduced, never a
+  Round 4); `advisory` at the
   hook layer per `hook-output-discipline.md` MUST-2.
 - **Grace period:** 7 days from rule landing.
 - **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
@@ -68,7 +69,7 @@ own. Oracle presence tracks the redundancy question; model capability does not.
   `posture.json::pending_verification` includes this rule_id.
 - **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms every depth
   reduction cites an established red for the property under change, is floored at one rotated
-  round, and that no trust-bearing surface was reduced. Phase 2 deferred.
+  round, and that no trust-bearing surface was reduced. Phase 2: RETIRED — no Stop detector will be built; gate-review is the enforcement layer.
 - **Violation scope:** MUST-1 (depth conditioned on model identity, tier, or self-reported
   confidence; a suite-level green asserted as a sound oracle; a reduced-depth trust-bearing
   surface).

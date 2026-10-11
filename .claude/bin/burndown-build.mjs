@@ -34,6 +34,11 @@
  *
  * Exit codes: 0 = block generated / block is current. 1 = block is STALE (--check).
  *             2 = UNRUNNABLE, refused, no block produced.
+ *
+ * TWO MODES THAT DO NOT BUILD A BLOCK: `--flush-events` moves the event log's gitignored
+ * pending stream into the tracked `burndown/events.jsonl` (the train-time step; see
+ * `eventStreamMode`), and `--pending-events` reports how many events are waiting there
+ * (exit 1 when any are). Both refuse with the same exit 2.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -444,6 +449,36 @@ function renderCount(value, token) {
 class Unrunnable extends Error {}
 function refuse(reason) {
   throw new Unrunnable(reason);
+}
+
+/**
+ * A refusal's text, made safe to PRINT. A refusal can quote a record field — a chain
+ * finding names its emitter's `verified_id` verbatim, and a line in the gitignored
+ * pending stream needs no key to write — and the banner goes to an operator's terminal
+ * and to CI logs, where a raw ESC or CSI is a control sequence, not text. Each line is
+ * escaped by the shared escaper (`append-sink.js::escapeControlChars`), so the newlines a
+ * multi-line refusal is built with survive and nothing else does. Loaded lazily, like the
+ * event library: this bin can ship without the hooks tree, and then it applies the same
+ * C0/DEL/C1 floor itself. The path is built in `tryEventsLib`'s two-binding shape (a
+ * `here`, then a `rel` joined from it) because that is the form the hook-registry closure
+ * walker resolves; an inline `path.join(path.dirname(fileURLToPath(…)), …)` is a dynamic
+ * site to it, and `emit-hook-registry.mjs` refuses every row whose closure reaches one.
+ */
+function printable(s) {
+  let escape = null;
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const rel = path.join(here, "..", "hooks", "lib", "append-sink.js");
+    const sink = requireCjs(rel);
+    if (sink && typeof sink.escapeControlChars === "function") escape = sink.escapeControlChars;
+  } catch {
+    escape = null; // the bin alone: the floor below
+  }
+  const floor = (line) => line.replace(/[\u0000-\u001F\u007F-\u009F]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+  return String(s == null ? "" : s)
+    .split("\n")
+    .map((line) => (escape ? escape(line) : floor(line)))
+    .join("\n");
 }
 
 // ── git ─────────────────────────────────────────────────────────────────────
@@ -6753,9 +6788,97 @@ function usage() {
     "              source's collapse into the record under a reason that was true of",
     "              neither.",
     "  --selftest  prove the generator can produce a DIFFERENT answer for different inputs",
+    "  --flush-events        TRAIN-TIME STEP: move the event log's gitignored pending stream into",
+    "              the tracked burndown/events.jsonl, in order, then commit that file. Hooks only",
+    "              ever append to the pending stream, so the tracked log moves only here.",
+    "  --pending-events      report events not yet flushed, and flushed lines HEAD lacks (exit 1",
+    "              if either; writes nothing)",
     "",
-    "Exit: 0 ok · 1 stale (--check) / selftest failed · 2 UNRUNNABLE (refused, no block)",
+    "Exit: 0 ok · 1 stale (--check) / events pending (--pending-events) / selftest failed ·",
+    "      2 UNRUNNABLE (refused; a flush that stopped part-way names how many lines it moved)",
   ].join("\n");
+}
+
+/**
+ * `--flush-events` / `--pending-events` — the train-time half of the event log's split.
+ *
+ * Every append (`burndown-events.js::appendEvent`) lands in the GITIGNORED pending stream,
+ * so a hook firing mid-session never dirties the checkout a `dev-preflight` binds to. The
+ * tracked log is extended HERE, by a deliberate step whose result is then committed. The
+ * move itself is the library's (`flushPendingEvents`): one writer, one validator, one
+ * lock — never a second implementation in this file.
+ *
+ * Runs BEFORE `build()` and needs no manifest: the stream exists wherever a hook ran,
+ * whether or not this repo declares a burndown, and a flush that refused for want of a
+ * manifest would strand it.
+ *
+ * `--repo` MUST be a checkout root. Run from a subdirectory, the stream path would
+ * resolve to a directory that holds none, and "0 pending" would be reported for a
+ * stream that was never looked at — an absent reading wearing a clean one's grammar.
+ */
+function eventStreamMode(mode, repo) {
+  const lib = tryEventsLib();
+  if (!lib || typeof lib.flushPendingEvents !== "function" || typeof lib.pendingEventsStatus !== "function") {
+    refuse(
+      `--${mode} needs the event library '${EVENTS_LIB_REL}' with flushPendingEvents + pendingEventsStatus; ` +
+        `it is ${lib ? "present but INCOMPATIBLE (update the hooks tree)" : "absent"}.`,
+    );
+  }
+  if (typeof repo !== "string" || !repo || repo.startsWith("--")) {
+    refuse(`--${mode}: --repo needs a directory (the checkout root).`);
+  }
+  const repoAbs = path.resolve(repo);
+  if (!fs.existsSync(path.join(repoAbs, ".git"))) {
+    refuse(
+      `--${mode}: '${safeCell(repo)}' is not a checkout root (no .git entry). The pending stream lives at ` +
+        `'${lib.PENDING_REL}' under the root; run from the root or pass --repo <root>.`,
+    );
+  }
+  if (mode === "pending-events") {
+    // TWO counts, because "flushed" and "durable" are different states: a flush moves
+    // lines into the WORKING tracked file, and only a commit makes them survive a
+    // `git restore` or the checkout's removal. Exit 1 while EITHER is non-zero.
+    const s = lib.pendingEventsStatus(repoAbs);
+    if (!s.ok) refuse(`--pending-events: ${s.error}: ${s.reason}`);
+    const uncommitted = Number.isInteger(s.uncommitted) ? s.uncommitted : null;
+    if (uncommitted === null) {
+      refuse(`--pending-events: the event library did not report how many lines HEAD lacks (update the hooks tree).`);
+    }
+    if (s.pending > 0) {
+      console.log(
+        `burndown --pending-events: ${s.pending} event(s) pending in ${lib.PENDING_REL} and NOT yet in ` +
+          `${EVENTS_REL}. Move them at train time with --flush-events, then commit.`,
+      );
+    } else if (uncommitted > 0) {
+      console.log(
+        `burndown --pending-events: 0 pending, but ${uncommitted} line(s) of ${lib.PENDING_REL} are in the working ` +
+          `${EVENTS_REL} and NOT in HEAD. Commit ${EVENTS_REL}; until then they are not durable.`,
+      );
+    } else {
+      console.log(`burndown --pending-events: 0 event(s) pending in ${lib.PENDING_REL}; HEAD's ${EVENTS_REL} holds every one.`);
+    }
+    return s.pending === 0 && uncommitted === 0 ? 0 : 1;
+  }
+  const r = lib.flushPendingEvents(repoAbs);
+  if (!r.ok) {
+    const partial = Number.isInteger(r.moved) && r.moved > 0 ? ` (${r.moved} line(s) were moved before it stopped)` : "";
+    refuse(`--flush-events: ${r.error}: ${r.reason}${partial}`);
+  }
+  const kept = r.retained
+    ? ` ${r.retained} line(s) stay in ${lib.PENDING_REL} until HEAD carries them, so a discarded flush is not a lost one.`
+    : "";
+  console.log(
+    r.moved === 0
+      ? `burndown --flush-events: nothing to move — ${EVENTS_REL} already holds every event` +
+          (r.alreadyPresent ? ` (${r.alreadyPresent} pending line(s) were already in it).` : ".") +
+          kept
+      : `burndown --flush-events: moved ${r.moved} event(s) from ${lib.PENDING_REL} into ${EVENTS_REL}, each ` +
+          `verified first against the committed trust surface` +
+          (r.alreadyPresent ? ` (${r.alreadyPresent} already present, not moved again)` : "") +
+          `. Commit ${EVENTS_REL}.` +
+          kept,
+  );
+  return 0;
 }
 
 function main(argv) {
@@ -6771,6 +6894,8 @@ function main(argv) {
     else if (a === "--json") args.mode = "json";
     else if (a === "--selftest") args.mode = "selftest";
     else if (a === "--check-links") args.mode = "check-links";
+    else if (a === "--flush-events") args.mode = "flush-events";
+    else if (a === "--pending-events") args.mode = "pending-events";
     else if (a === "--reground") args.mode = "reground";
     else if (a === "--subject") args.subject = argv[++i];
     else if (a === "--reason") args.reason = argv[++i];
@@ -6830,6 +6955,11 @@ function main(argv) {
     const fixtures =
       args.fixtures || path.resolve(here, "..", "audit-fixtures", "burndown-integrity", "selftest");
     return selftest(fixtures);
+  }
+
+  // Above `build()`, for the reason `eventStreamMode` records: no manifest is needed.
+  if (args.mode === "flush-events" || args.mode === "pending-events") {
+    return eventStreamMode(args.mode, args.repo);
   }
 
   // ── `--verify-quote` DOES NOT BUILD, and the position of this branch is the
@@ -7573,7 +7703,7 @@ if (isMainModule(import.meta.url)) {
     if (e instanceof Unrunnable) {
       // Deliberately loud, and deliberately NOT shaped like a summary. A refused
       // build read as a clean one is the failure this banner exists to prevent.
-      process.stderr.write(`UNRUNNABLE — refusing because ${e.message}\n`);
+      process.stderr.write(`UNRUNNABLE — refusing because ${printable(e.message)}\n`);
       process.stderr.write("This is exit 2. It is NOT a pass. No burndown block was produced.\n");
       process.exitCode = 2;
     } else {

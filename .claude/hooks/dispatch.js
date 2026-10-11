@@ -169,12 +169,15 @@ function bootFault(err) {
   let done = false;
   let event = process.argv[2] || null;
   let timer = null;
-  const exitWith = (stdout, stderr, code) =>
-    process.stderr.write(stderr, () => process.stdout.write(stdout, () => process.exit(code)));
+  const exitWith = (stdout, stderr, code) => {
+    completion.answered = true; // this reply IS the answer — the early exit observer stands down
+    return process.stderr.write(stderr, () => process.stdout.write(stdout, () => process.exit(code)));
+  };
   // The reply itself could not be built: exit 2 is a refusal at PreToolUse (and the
   // conservative answer when the event is unknown), a non-JSON exit 1 elsewhere.
   // Touches nothing of `err` — reading it may be what threw.
   const lastResort = () => {
+    completion.answered = true; // the marker below IS the answer, such as it is
     const code = event && event !== "PreToolUse" ? 1 : 2;
     try {
       process.stderr.write(
@@ -240,31 +243,19 @@ function bootFault(err) {
  * is all of it, answers nothing, exits 0, and at PreToolUse the host reads empty stdout
  * at exit 0 as an ALLOWED call — every guard off with no visible signal. Fields,
  * rationale and the measured execve limit live in lib/dispatch-main.js::completion.
- * `ran` is required below, the moment start() returns; `emitted` is required HERE, at
- * exit, because a body that started and then never answered is the same defect one step
- * later. The refusal is this file's EXISTING boot-fault disposition — exit 2 with the
- * fixed BOOT-FAULT marker at PreToolUse, a loud exit 1 with the same marker elsewhere —
- * never a second deny shape. `fs.writeSync` is the one write that still lands while the
- * process is exiting, and with nothing emitted there is no reply for it to reorder. An
- * ANSWERED event returns at once and touches nothing — that is what keeps a real hook's
- * exit code unchanged — and every other step is guarded, so nothing here can throw an
- * unhandled error on the exit path.
+ * `ran` is required below, the moment start() returns; `emitted` is required at exit.
+ * THE EXIT HALF NOW LIVES IN THE EARLY OBSERVER (R2 M4): it is installed before the
+ * body is required, so it also covers an exit with NO record at all (at load, inside
+ * start(), before main()'s first await) — this function hands it the record and keeps
+ * only the CATCHABLE half. The refusal is this file's EXISTING boot-fault disposition
+ * — exit 2 with the fixed BOOT-FAULT marker at PreToolUse, a loud exit 1 with the same
+ * marker elsewhere — never a second deny shape. An ANSWERED event returns at once and
+ * touches nothing — that is what keeps a real hook's exit code unchanged.
  */
 function watchEmission(rec) {
-  process.on("exit", () => {
-    try {
-      if (rec.emitted === true) return;
-      // The record's event first, then argv — the fallback bootFault starts from. An
-      // unknown event takes the refusal.
-      const ev = (typeof rec.event === "string" && rec.event) || process.argv[2] || null;
-      try {
-        fs.writeSync(2, `${BOOT_FAULT_MARKER}\n[dispatch] .claude/${MAIN_REL} answered nothing for ${ev || "this event"} — the process ended with no reply, so NO detector registered for ${ev || "this event"} ran on this call.\n`);
-      } catch {}
-      process.exitCode = ev && ev !== "PreToolUse" ? 1 : 2;
-    } catch {}
-  });
+  completion.rec = rec;
   // SIGTERM/SIGINT are CATCHABLE and do NOT emit 'exit' — node's signal default ends
-  // the image outright — so exit THROUGH the listener above: one fault reply, never a
+  // the image outright — so exit THROUGH the early observer: one fault reply, never a
   // second copy of it. SIGKILL and an abort-driven OOM are unclosable; the limit, and
   // exactly which events it leaves silent, are named in lib/dispatch-main.js::completion.
   for (const sig of ["SIGTERM", "SIGINT"]) {
@@ -272,6 +263,41 @@ function watchEmission(rec) {
       process.on(sig, () => { if (rec.emitted !== true) process.exit(); });
     } catch {}
   }
+}
+
+/**
+ * THE EARLY EXIT ANSWER (R2 M4 — the round-2 early-exit finding, HIGH; the tenant
+ * label in the finding's case name is deliberately NOT reproduced here — this file
+ * is on the SYNCED surface and a tenant identity token is a disclosure finding
+ * there, `scan-synced-disclosure`).
+ * Installed ONLY when this file is the process's main module, and BEFORE the body
+ * below is required. The completion check further down can only see an exit AFTER
+ * start() RETURNS — the record is handed back then — so a `process.exit(0)` at the
+ * body's LOAD, inside start(), or in main() before its first await ended the image
+ * with EMPTY output at status 0, which the host reads as an ALLOWED call, every
+ * guard off with no visible signal. ONE exit listener owns every end-with-no-reply
+ * (the old watchEmission exit listener is folded in here, so there is never a
+ * second fault shape): no reply was written (`completion.answered`) and no emitted
+ * record exists ⇒ PreToolUse (or an unknown/absent event) is REFUSED — exit 2 with
+ * the fixed BOOT-FAULT marker on stderr, which the host reads as the block text —
+ * and every NAMED non-PreToolUse event stays loud (exit 1, no JSON). A reply that
+ * WAS written returns at once and leaves the exit code untouched. `fs.writeSync`
+ * is the one write that still lands while the process is exiting.
+ */
+const completion = { rec: null, answered: false };
+if (require.main === module) {
+  process.on("exit", () => {
+    try {
+      if (completion.answered || (completion.rec && completion.rec.emitted === true)) return;
+      // The record's event first, then argv — the fallback bootFault starts from.
+      // An unknown or absent event takes the refusal.
+      const ev = (completion.rec && typeof completion.rec.event === "string" && completion.rec.event) || process.argv[2] || null;
+      try {
+        fs.writeSync(2, `${BOOT_FAULT_MARKER}\n[dispatch] .claude/${MAIN_REL} answered nothing for ${ev || "this event"} — the process ended with no reply (an exit at load, inside start(), or before main()'s first await), so NO detector registered for ${ev || "this event"} ran on this call.\n`);
+      } catch {}
+      process.exitCode = ev && ev !== "PreToolUse" ? 1 : 2;
+    } catch {}
+  });
 }
 
 let dispatcher = null;

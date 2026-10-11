@@ -58,7 +58,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  deriveDynamicTokens, walkFiles, readTextOrNull, synthHex, makeScrubber, SCRUB_MODES, assertNoSymlinkEscape, foldForGate,
+  deriveDynamicTokens, walkFiles, readTextOrNull, readTextOrReason, synthHex, makeScrubber, SCRUB_MODES, assertNoSymlinkEscape, foldForGate,
   readRegularFileNoFollow,
   isScrubPlaceholderToken,
   jsonParseOrThrow,
@@ -99,7 +99,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
  * root's file is already absent. Absent on both → INERT, reported, never silent.
  *
  * The parse/validate path is the SHARED lib's (`jsonParseOrThrow`; the same
- * ≥4-char-or-hyphen floor `strip-build-internal.mjs::assertValidOrgValue`
+ * ≥4-char-or-hyphen floor `identity-scrub.mjs::assertValidOrgValue`
  * enforces, so a sub-floor value cannot become a needle that substring-matches
  * ordinary prose). The scanner itself is imported, never reimplemented.
  * @returns {{slugs: string[], note: string}}
@@ -937,7 +937,7 @@ function performClear(root, opts) {
   //     the gate reports clean). Disposition: DELETE, the same one edition-emit.mjs's
   //     CLIENT_TEMPLATE_REMOVE gives this path and the same state a template-instantiated
   //     client starts from; ABSENT is the benign empty case every reader already handles
-  //     (strip-build-internal.mjs::orgSets), and /ecosystem-init writes the client's own.
+  //     (identity-scrub.mjs::orgSets), and /ecosystem-init writes the client's own.
   //     NOT neutralized/placeholdered: an empty-but-present declaration reads as "declared
   //     nothing", which is a different state from "not yet declared", and the file's whole
   //     purpose is to carry values a scrub pair would have to know in advance.
@@ -1170,6 +1170,13 @@ function neutralizeWholeTree(root, scrubPairs) {
  */
 function assertZero(root, canonTokens, opts = {}) {
   const hits = [];
+  // Files this gate could not OPEN. Distinct from the binary skip inside the walk, which is
+  // DELIBERATE (see its comment): `readTextOrNull` collapsed "binary, skip by design" and
+  // "could not be read at all" into ONE null, so an unreadable carrier of canon identity was
+  // skipped and the ceremony still reported clean — while this gate's entire promise is that
+  // ZERO canon trust-identity remains. A FAIL-CLOSED gate MUST be able to tell them apart
+  // (operator-ratified Gate-1 port of the template's readTextOrReason split, 2026-10-06).
+  const unreadable = [];
   const keyMaterial = Array.isArray(opts.keyMaterial) ? opts.keyMaterial : [];
   const foldedTokens = canonTokens.map((t) => foldForGate(t));
   const benign = opts.benign || { keys: new Set(), error: null };
@@ -1190,7 +1197,16 @@ function assertZero(root, canonTokens, opts = {}) {
     // blocked — acceptable because emit is the PRIMARY M1 source-prevention path and the client owns
     // their tree's binaries. A raw NUL-corrupted SOURCE reads as binary here too, but the emit LAYER 3
     // is the fence that catches that class at the source (the client-template is built by emit, not clean).
-    let txt = readTextOrNull(f); if (txt === null) return;
+    const { text: txt0, reason: readReason, error: readErr } = readTextOrReason(f);
+    if (readReason === "unreadable") {
+      // A hole in THIS gate's own coverage, not a skip: the file exists at a path the walk
+      // reached and could not be read (permission, I/O). Named with its errno so the operator
+      // can fix it; never folded into the binary skip below, whose `null` is by design.
+      unreadable.push(`${path.relative(root, f)}  (${readErr})`);
+      return;
+    }
+    let txt = txt0;
+    if (txt === null) return; // binary — the deliberate, documented skip below
     const rel = path.relative(root, f);
     // MO-OPT holistic post-multi-wave redteam (MO-OPT-1): the ceremony's OWN
     // placeholder ecosystem.json legitimately carries upstream_canon.url = the
@@ -1246,6 +1262,7 @@ function assertZero(root, canonTokens, opts = {}) {
   // its content for actual canon tokens. Any OTHER structural finding fails.
   let scannerFindings = [];
   let scannerErrored = false;
+  let scannerErroredReason = "";
   const scannerBin = opts.scannerPath || path.join(SCRIPT_DIR, "scan-synced-disclosure.mjs");
   try {
     // stdio pipe (not the default that lets the child's stderr reach the
@@ -1266,23 +1283,44 @@ function assertZero(root, canonTokens, opts = {}) {
   } catch (e) {
     const rawOut = (e.stdout || "") + (e.stderr || "");
     const rawFindings = rawOut.split("\n").map((l) => l.trim()).filter((l) => /\[SHAPE:/.test(l));
-    if (rawFindings.length === 0) {
-      // FAIL-CLOSED (evidence-first-claims.md MUST-3 / F7 A2 — the ceremony is a VERIFIER
-      // here, not a trust actor). The scanner exits 1 with `[SHAPE:…]` lines for a genuine
-      // finding, and exit 0 (no catch at all) for a genuinely clean run — so entering this
-      // catch with ZERO `[SHAPE:]` lines means the scanner did NOT run to completion (a bad
-      // arg, a malformed input file, an uncaught exception), which is NOT the same as
-      // "0 findings". Silently converting that into a pass is exactly the "cleaner treated
-      // as trust actor" failure mode this gate exists to close — treat it as scanner-status
-      // UNKNOWN, never an all-clear.
-      scannerErrored = true;
+    // EXIT STATUS FIRST (Gate-1 H-1, security-review round 1). The scanner's FULL code
+    // vocabulary is 0 clean / 1 findings / 2 NO VALID RESULT / 3 crashed, and its header
+    // states a caller MUST NOT collapse them. Exit 2 is the COVERAGE FENCE, which prints
+    // any PARTIAL findings it recorded BEFORE refusing — so "≥1 [SHAPE:] line in the
+    // captured output" NO LONGER witnesses "the scan ran to completion" (the premise the
+    // old content-only classifier stated). That classifier read exit 2 + a partial finding
+    // as a genuine finding set, and when every partial finding was the ecosystem.json-exempt
+    // line it converted a REFUSED scan into PASS. Exit 1 is the ONLY code that asserts a
+    // disclosure leak; anything else reaching this catch (2, 3, a kill signal, a spawn
+    // failure) is the ABSENCE of a verdict and fails closed REGARDLESS of output content.
+    const scannerExit = e.status;
+    if (scannerExit === 1) {
+      if (rawFindings.length === 0) {
+        // FAIL-CLOSED (evidence-first-claims.md MUST-3 / F7 A2 — the ceremony is a VERIFIER
+        // here, not a trust actor). Exit 1 with ZERO `[SHAPE:…]` lines is a state the
+        // scanner's own vocabulary does not produce (a bad arg, a malformed input file, an
+        // uncaught exception) — NOT the same as "0 findings". Silently converting that into
+        // a pass is exactly the "cleaner treated as trust actor" failure mode this gate
+        // exists to close: treat it as scanner-status UNKNOWN, never an all-clear.
+        scannerErrored = true;
+        scannerErroredReason = "exit 1 with ZERO [SHAPE:] findings -- it did NOT run to completion";
+      } else {
+        // EXACT-path anchor (HIGH-2): the scanner emits `<relpath>:<line>  [SHAPE:…]`,
+        // so require ecosystem.json to be followed by the `:<line>` separator. A
+        // `startsWith` prefix would also drop a sibling like `ecosystem.json.bak` /
+        // `ecosystem.json.d/leak.md` — letting a structural shape on an adversarial
+        // sibling escape the gate. Only the ceremony's OWN ecosystem.json is exempt.
+        scannerFindings = rawFindings.filter((l) => !/^\.claude\/bin\/ecosystem\.json:\d/.test(l));
+      }
     } else {
-      // EXACT-path anchor (HIGH-2): the scanner emits `<relpath>:<line>  [SHAPE:…]`,
-      // so require ecosystem.json to be followed by the `:<line>` separator. A
-      // `startsWith` prefix would also drop a sibling like `ecosystem.json.bak` /
-      // `ecosystem.json.d/leak.md` — letting a structural shape on an adversarial
-      // sibling escape the gate. Only the ceremony's OWN ecosystem.json is exempt.
-      scannerFindings = rawFindings.filter((l) => !/^\.claude\/bin\/ecosystem\.json:\d/.test(l));
+      // Exit 2 (coverage fence: the scan refused a verdict) / exit 3 (crash fence: STARTED,
+      // did NOT COMPLETE) / a kill signal / a spawn failure (status null). None asserts a
+      // leak and none supports an all-clear — the ASSERT-ZERO CANNOT SPEAK shape, exactly as
+      // `unreadable[]` is handled above.
+      scannerErrored = true;
+      scannerErroredReason = scannerExit === 2 || scannerExit === 3
+        ? `exit ${scannerExit} (${scannerExit === 2 ? "coverage fence -- NO VALID RESULT for this surface" : "crash fence -- the scan DID NOT COMPLETE"}), whatever findings it printed`
+        : `no scan verdict (${scannerExit === null || scannerExit === undefined ? `killed by ${e.signal || "an unknown signal"}` : `exit ${scannerExit}`}) -- status outside the scanner's vocabulary`;
     }
   }
   // r4-v4 F4 (correctness item 13): the SHARED canonical-set identity gate over
@@ -1312,11 +1350,13 @@ function assertZero(root, canonTokens, opts = {}) {
   }
   return {
     hits,
+    unreadable,
     scannerOk: !scannerErrored && scannerFindings.length === 0,
     scannerOut: scannerErrored
-      ? "structural scanner exited WITHOUT emitting any [SHAPE:] findings -- it did NOT run to " +
-        "completion (fail-closed, NOT an all-clear); investigate the scan-synced-disclosure.mjs " +
-        "invocation (bad args / malformed input file / uncaught exception)."
+      ? "structural scanner did NOT produce a usable verdict -- " + scannerErroredReason +
+        ". Fail-closed, NOT an all-clear; investigate the scan-synced-disclosure.mjs invocation " +
+        "or the coverage gap it named (bad args / malformed input file / uncaught exception / " +
+        "a path it could not examine)."
       : scannerFindings.slice(0, 30).join("\n"),
   };
 }
@@ -1522,9 +1562,18 @@ function main() {
   const neutralized = neutralizeWholeTree(root, scrubPairs);
   console.log(`  ✓ whole-tree neutralize → ${neutralized} file(s) rewritten`);
 
-  const { hits, scannerOk, scannerOut } = assertZero(root, canonTokens, { scannerPath: a.scannerPath, keyMaterial, benign, expectTrustRootAbsent: true, sharedGate: true, privateSlugs: entrySharedGate.slugs, privateSlugsNote: entrySharedGate.note });
+  const { hits, unreadable, scannerOk, scannerOut } = assertZero(root, canonTokens, { scannerPath: a.scannerPath, keyMaterial, benign, expectTrustRootAbsent: true, sharedGate: true, privateSlugs: entrySharedGate.slugs, privateSlugsNote: entrySharedGate.note });
   console.log("");
-  if (hits.length || !scannerOk) {
+  // An UNREADABLE carrier fails the gate even with zero hits: "0 canon tokens" and "could not
+  // look at N files" are opposite conclusions and were the same output (`evidence-first-claims.md`
+  // MUST-3, `probe-driven-verification.md` MUST-7). The gate refuses to SPEAK, rather than
+  // reporting a clean it cannot support.
+  if (unreadable.length) {
+    console.error(`✗ ASSERT-ZERO CANNOT SPEAK — ${unreadable.length} file(s) could not be read, so "zero canon identity remains" is UNPROVEN for them:`);
+    for (const u of unreadable.slice(0, 40)) console.error("   " + u);
+    console.error(`   Fix the read (permissions / a FIFO / an I/O fault) or remove the file, then re-run.`);
+  }
+  if (hits.length || !scannerOk || unreadable.length) {
     console.error(`✗ ASSERT-ZERO FAILED — residual canon identity remains in the WORKING TREE (nothing is "clean"):`);
     for (const h of hits.slice(0, 40)) console.error("   " + h);
     if (!scannerOk) { console.error("   structural scanner findings:"); console.error(scannerOut); }

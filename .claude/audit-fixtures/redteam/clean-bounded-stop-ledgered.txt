@@ -1,0 +1,40 @@
+# Round 1 — adversarial validation of the clearance-guard change set
+
+Coverage: 18 cells — 9 attacked, 9 n/a (pre-registered, reason given), 0 OPEN
+Convergence: review ends — D237 stop rule
+Incentive register: 4 rows — 4 REQUIREMENT
+
+## Findings
+
+Round 1 was a FULL review on the authorization path: a PAIRED round 1 (correctness reviewer +
+adversarial security-reviewer, in parallel), plus testing-specialist and gold-standards-validator.
+Every dispatched reviewer returned a payload with a ran-signal.
+
+1. MED — the adapter path accepts an empty clearance set when the tenant header is absent.
+2. INCREMENTAL — the retention doc anchor moved.
+
+No CRITICAL and no HIGH. The round is CLEAN, so review ends here: no second clean round is
+demanded, and there is never a Round 4.
+
+## When review ends — the ledger (rule 5)
+
+Every remaining finding of ANY severity goes to the durable ledger; none is dropped.
+
+- Finding 1 (the authorization finding, MED, security-critical by rule 1's class — it sits on a
+  trust boundary): NEVER eligible for 5(c). It went to the OWNER as an accepted risk with a NAMED
+  ACCEPTOR BEFORE landing (rule 5(d)) — the amended 5(c) excludes security-critical residuals
+  outright, whatever their severity. Nothing was landed on the agent's own acceptance of it.
+- A small NON-SECURITY known risk IS provisionally accepted under rule 5(c): the legacy adapter
+  emits one extra WARN line per empty-set rejection (log noise only — no correctness or security
+  effect). It is NOT security-critical and NOT HIGH/CRITICAL, so 5(c) applies: ledgered OPEN, risk
+  stated plainly, and it STAYS OPEN until a human either accepts it (named acceptor) or asks for
+  the fix — my acceptance never closes it.
+- Finding 2 (INCREMENTAL): deferred-quality ledger, with its reason and revisit trigger
+  ("next retention-surface change OR 2026-11-01").
+
+Residual CRITICAL/HIGH at review end: NONE. A residual CRITICAL/HIGH — or any security-critical
+residual, MED included — goes to the OWNER, named with its open findings, and is never landed on
+the agent's provisional acceptance: never to another round, never under 5(c).
+
+Last-known-good is pinned at this round's tree; the instrument rotated (the paired security lens
+was folded in this round rather than deferred to a later one).

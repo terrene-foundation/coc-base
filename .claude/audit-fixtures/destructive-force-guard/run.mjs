@@ -59,6 +59,7 @@
  * mutation run.
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -590,10 +591,10 @@ check("DANGER/NFP/plain-dir-in-sandbox-silent", () =>
 // `/work/repo` is not left with a no-escape-hatch block — it must still SPEAK
 // (deleting a whole repo is a hazard worth naming) but must not refuse.
 //
-// ARM 1 — the CRITICAL half, always runs. `/Users/Shared` (POSIX) is a real
+// ARM 1 — the CRITICAL half, always runs. `<fixture-home-prefix>Shared` (POSIX) is a real
 // depth-2 path that is NOT a repo and NOT scratch, and asserting on it needs NO
 // writes anywhere. This is the control proving the depth rule still bites.
-const SHALLOW_NONREPO = process.platform === "darwin" ? "/Users/Shared" : "/srv";
+const SHALLOW_NONREPO = process.platform === "darwin" ? materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}Shared") : "/srv";
 if (fs.existsSync(SHALLOW_NONREPO)) {
   check("DANGER/shallow-non-repo-blocks", () =>
     assertCatastrophic(runHook(`rm -rf ${SHALLOW_NONREPO}`, REPO), SHALLOW_NONREPO),
@@ -673,7 +674,7 @@ check("DANGER/xargs-stdin-fed-speaks", () => {
 // the flags and the operand never appear as tokens of their own. Positive
 // evidence of rm + an unreadable operand list MUST speak.
 check("DANGER/fused-command-word-speaks", () => {
-  const res = runHook("rm$IFS-rf$IFS/Users/someoperator", REPO);
+  const res = runHook(materializeFixtureText("rm$IFS-rf$IFS{{FIXTURE_HOME_V1:MAC}}someoperator"), REPO);
   return res.spoke ? true : "expected a finding for a fused `rm` command word, got SILENCE";
 });
 
@@ -682,7 +683,7 @@ check("DANGER/fused-command-word-speaks", () => {
 // into substring matching would red here while the FIRING cases above stayed
 // green, which is the mutation this pole exists to catch.
 check("DANGER/NFP/fused-rmdir-silent", () =>
-  assertSilent(runHook("rmdir$IFS/Users/someoperator", REPO)),
+  assertSilent(runHook(materializeFixtureText("rmdir$IFS{{FIXTURE_HOME_V1:MAC}}someoperator"), REPO)),
 );
 check("DANGER/NFP/substituted-non-rm-silent", () =>
   assertSilent(runHook("$(echo ls) -la /Users", REPO)),

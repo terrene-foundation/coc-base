@@ -242,9 +242,12 @@ CC edit matcher and the `@coc-codex-edit-gate` marker for the companion's statel
 patch policies. `extract-policies.mjs::matcherToCodexTools()` resolves the matcher;
 `validate-emit.mjs::deriveMirroredHookSet` checks the compatibility set.
 
-A marker-less coordination hook can be excluded from the MCP wrapper while still
-registered through the native bridge. Whether it enforces a given call depends on
-its delivered settings, enrollment prerequisites and supported payload semantics.
+Since the 2026-10-09 orchestrator ruling the default is to WIRE: an edit-matcher
+guard carries the `@coc-codex-edit-gate` marker wherever its predicate computes
+from a Codex edit event, and an EXCLUDED guard must carry a written reason at the
+hook and in `sync-manifest.yaml` plus the compensating control that covers it on
+Codex. Whether either registered form enforces a given call still depends on its
+delivered settings, enrollment prerequisites and supported payload semantics.
 Never infer native coverage or absence from the companion's policy table.
 
 ```text
@@ -258,10 +261,13 @@ Never infer native coverage or absence from the companion's policy table.
 # → matcherToCodexTools() resolves the matcher → apply_patch; the marker admits
 #   posture-gate to the apply_patch lane in policies.json.
 
-# DO NOT — a coordination guard under the edit matcher WITHOUT the marker
-# integrity-guard.js (no @coc-codex-edit-gate) registered under the edit matcher
-# → EXCLUDED from the MCP apply_patch wrapper. This does not exclude the hook
-#   from matching native PreToolUse events; inspect delivered settings separately.
+# DO NOT — an edit-matcher guard EXCLUDED without a declared reason
+# my-guard.js (no @coc-codex-edit-gate, no exclusion recorded at the hook or in
+#   sync-manifest.yaml) under the edit matcher
+# → EXCLUDED from the MCP apply_patch wrapper as an UNDECLARED omission. Carry
+#   the marker, or record the reason + its Codex-side compensating control.
+#   (Exclusion does not stop the hook matching native PreToolUse events; inspect
+#   delivered settings separately.)
 
 # DO NOT — declare a direct-to-MCP-only policy with no settings.json source
 "apply_patch": [{ "source_file": "my-guard.js", "cc_matchers": [], "invocation": "subprocess" }]

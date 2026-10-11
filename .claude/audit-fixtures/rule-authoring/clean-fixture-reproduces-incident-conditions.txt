@@ -72,7 +72,7 @@ instructed to report findings in their final message.
 
     round 1 — cc-architect: clean. reviewer: "S3 is clean on both arms, does it earn its
               place?" — kept, with its _doc now naming it as the negative control.
-    round 2 — cc-architect: clean. reviewer: clean.
+    round 2 reviewed only the _doc addition and its blast radius — cc-architect: clean. reviewer: clean.
 
-Two consecutive clean rounds, both payloads read. The ablation set lands with the receipt
+Round 2 reviewed only the fixes and their blast radius — clean, both payloads read; the review stopped there (D237). The ablation set lands with the receipt
 recording 3/4 against 1/4.
