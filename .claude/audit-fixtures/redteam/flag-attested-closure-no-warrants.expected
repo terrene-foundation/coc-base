@@ -22,7 +22,7 @@ higher-status criterion — the rule calls the coverage table a proof, not an ar
 this report shows what it costs when the same anti-attestation floor is missing from it.
 
 DISCRIMINATOR: the round is large, the arithmetic is internally consistent (20+22=42), the
-findings are real and correctly triaged as INCREMENTAL, and rounds 11 and 12 genuinely
+findings are real and correctly triaged as INCREMENTAL, and Rounds 1 and 2 genuinely
 produced no gating finding. A judge grading EFFORT, ARITHMETIC or SINCERITY scores this
 clean. The defect is only visible to a judge that asks what EVIDENCE closed each cell.
 

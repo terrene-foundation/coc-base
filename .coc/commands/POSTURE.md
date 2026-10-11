@@ -56,17 +56,27 @@ distinctness):
 `.claude/hooks/operator-gate.js` per §6.4 row 'posture-upgrade'. The
 gate requires a signed `gate-approval` record by a DISTINCT
 `person_id` operator of role `owner` or `senior` whose bound
-GitHub-collaborator login DIFFERS from the requester's (R5-S-07).
-`host_role: ci` operators are NEVER eligible (R5-S-04). Self-approval
-or same-collaborator approval → operator-gate halt-and-report with
-the §6.4 rule citation in the structured handoff.
+GitHub-collaborator login DIFFERS from the requester's (R5-S-07); both
+logins — and the approver's pubkey — come from the COMMITTED roster at
+`HEAD`, and the requester half is this machine's own resolved identity,
+never a payload field. `host_role: ci` operators are NEVER eligible
+(R5-S-04). Self-approval or same-collaborator approval → operator-gate
+BLOCKS the invocation (exit 2 + `permissionDecision: "deny"`) with the
+§6.4 rule citation in the structured handoff.
+
+**Scope, same as `/release`:** the row gates the MODEL-INVOKED surface
+(a `/posture upgrade` the agent runs arrives as a `Skill` tool call).
+A user-TYPED `/posture upgrade` produces no tool call — the host
+expands it directly — and the event that sees that expansion
+(`UserPromptExpansion`) is not yet in this tree's hook-registry event
+vocabulary, so a typed invocation is not gated today.
 
 **Step 1**: User runs `/posture upgrade --to L5_DELEGATED`. Command:
 
 1. Reads posture.json — verifies all four upgrade requirements (≥7d at posture, 0 violations of triggering class, ≥1 demonstrated correction, target = current_posture + 1).
 2. Writes a random nonce to `<main_checkout>/.claude/learning/.posture-upgrade-nonce` (file readable only by hooks).
 3. Prints to user: `"To confirm upgrade to L5_DELEGATED, paste this nonce in your next message: <NONCE>"`.
-4. Surfaces the gate-approval pre-flight (F14 MED-2): mints a SECOND `requester_nonce` (distinct from the user-paste nonce; bound to THIS upgrade invocation) and instructs the distinct owner/senior to sign over `{target_tool:'posture-upgrade', requester_person_id, requester_verified_id, consumed_nonce:<this-nonce>, ts}`.
+4. Surfaces the gate-approval pre-flight (F14 MED-2): mints a SECOND `requester_nonce` (distinct from the user-paste nonce; bound to THIS upgrade invocation) and instructs the distinct owner/senior to sign over **all nine fields**: `{target_tool:'posture-upgrade', command:<the normalized surface, e.g. 'posture upgrade --to L5'>, target_sha:<the repo's current `git rev-parse HEAD`, 40-hex>, requester_person_id, requester_verified_id, consumed_nonce:<this-nonce>, ts, expires_at:<end of validity, at most 24h after ts>}`. The action is BOUND (2026-10-09 replay closure): the gate derives `command` and `target_sha` itself, so an approval signed for a different level or a different commit is refused — which also means the args (`--to L5`) are part of what the approver authorizes, not decoration.
 
 **Step 2**: User pastes the nonce as the next user message AND runs `/posture upgrade --to L5_DELEGATED --ack NONCE --approver <distinct-person_id>`. Command:
 

@@ -38,5 +38,5 @@ re-dispatching:
     [lane returns] "Done. pyproject 0.6.0, `__version__` 0.6.0, CHANGELOG section written,
       surface test asserts 41 and the sorted member list."
 
-Gates: ruff clean, mypy clean, the surface test green, two consecutive clean adversarial
+Gates: ruff clean, mypy clean, the surface test green, one clean adversarial
 rounds with both payloads read. W32b lands.

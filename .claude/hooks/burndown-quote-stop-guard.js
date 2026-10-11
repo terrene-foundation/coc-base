@@ -41,27 +41,30 @@
  * this returns immediately — no transcript read, no spawn, no findings.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["node"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Reads the session transcript and, when a token is present, spawns `node .claude/bin/burndown-build.mjs --verify-quote -` with the text on stdin — a read-only verification mode that writes nothing. Emission goes to stdout; no state retained."
+ * }
+ */
+
 "use strict";
 
 const TIMEOUT_MS = 4000;
 let fallback = null;
 
-const fs = require("node:fs");
 const path = require("node:path");
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
-// Bounded tail + walk-back. These constants are NOT invented here: they are the
-// figures `detect-violations.js` measured over 400 real transcripts (>20KB) —
-// the last assistant entry carries no text block in 17.3% of sessions, walk-back
-// reaches p99=5 / max=48 entries, and 512KB covered 396/396 samples.
-// KNOWN RESIDUAL: that reader is a private function in `detect-violations.js`
-// with no `module.exports`, so this is a second implementation of one measured
-// behaviour and the two can drift. The correct fix is to extract it to
-// `hooks/lib/`; it is deliberately NOT done here because that edits a live
-// Stop detector every prose rule depends on.
-const TRANSCRIPT_TAIL_BYTES = 512 * 1024;
-const MAX_ASSISTANT_ENTRIES = 60;
+const { readAssistantTextFromPayload } = require("./lib/transcript-read.js");
 
 function passthrough(context) {
   if (fallback) clearTimeout(fallback);
@@ -73,76 +76,6 @@ function passthrough(context) {
     process.stdout.write(JSON.stringify(out) + "\n");
   } catch {}
   process.exit(0);
-}
-
-/**
- * Newest text-bearing assistant message, as `{ text, unknown }`.
- *
- * THE THIRD STATE IS THE POINT. This returned a bare `""` for an ABSENT or
- * UNREADABLE transcript AND for "the reply genuinely had no text", and the caller
- * mapped both onto the same silent passthrough — so a transcript that could not be
- * read rendered identically to a reply with nothing to check. That is the exact
- * two-state defect `verifyText`'s `unknown` was introduced to fix one layer down;
- * the caller was left on the old shape. `unknown` non-null means THE REPLY WAS NOT
- * READ — never that it is clean.
- *
- * The distinction is drawn at "did we see ANY assistant entry": a parseable tail
- * with assistant entries but no text block is the measured-17.3% ordinary case (a
- * tool-only turn) and stays CLEAN, so this cannot cry wolf on every such reply.
- * Zero assistant entries in the whole 512KB tail is a READ problem, not a quiet
- * reply. No path here names the transcript path — a Stop advisory is rendered into
- * the session and an absolute operator path is disclosure the finding does not need.
- */
-function readFinalAssistantText(transcriptPath) {
-  if (typeof transcriptPath !== "string" || !transcriptPath) {
-    return { text: "", unknown: "no transcript path was supplied to the Stop hook, so the reply was NOT read" };
-  }
-  let buf;
-  try {
-    const fd = fs.openSync(transcriptPath, "r");
-    try {
-      const size = fs.fstatSync(fd).size;
-      const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
-      const len = size - start;
-      buf = Buffer.alloc(len);
-      fs.readSync(fd, buf, 0, len, start);
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch (e) {
-    const code = e && e.code ? e.code : "unknown error";
-    return { text: "", unknown: `the session transcript could not be read (${code}), so the reply was NOT checked` };
-  }
-  const lines = buf.toString("utf8").split("\n");
-  let seen = 0;
-  for (let i = lines.length - 1; i >= 0 && seen < MAX_ASSISTANT_ENTRIES; i--) {
-    const raw = lines[i].trim();
-    if (!raw || raw[0] !== "{") continue;
-    let e;
-    try {
-      e = JSON.parse(raw);
-    } catch {
-      continue; // a truncated first line is expected in a tail read
-    }
-    const msg = e && e.message;
-    if (!msg || msg.role !== "assistant") continue;
-    seen++;
-    const content = Array.isArray(msg.content) ? msg.content : [];
-    const text = content
-      .filter((c) => c && c.type === "text" && typeof c.text === "string")
-      .map((c) => c.text)
-      .join("\n");
-    if (text.trim()) return { text, unknown: null };
-  }
-  if (seen === 0) {
-    return {
-      text: "",
-      unknown:
-        "the session transcript tail carried no assistant message at all — the reply was NOT read " +
-        "(a truncated, rotated or non-JSONL transcript renders this way)",
-    };
-  }
-  return { text: "", unknown: null }; // saw assistant entries, none text-bearing: genuinely nothing to check
 }
 
 async function main() {
@@ -166,10 +99,12 @@ async function main() {
 
   // An unreadable transcript is an UNKNOWN and rides the advisory channel, exactly
   // as an unrunnable verifier does. It must not look like a clean scan.
-  const read = readFinalAssistantText(p.transcript_path);
-  if (read.unknown) {
+  const read = readAssistantTextFromPayload(p, {
+    requireSource: true, allowRoleAssistant: true, allowToolOnly: true,
+  });
+  if (read.reason) {
     return passthrough(
-      lib.renderFindings({ invalid: [], untokened: [], unknown: read.unknown, surface: "chat reply" }),
+      lib.renderFindings({ invalid: [], untokened: [], unknown: read.reason, surface: "chat reply" }),
     );
   }
   const text = read.text;

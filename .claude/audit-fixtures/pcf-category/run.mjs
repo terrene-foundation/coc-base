@@ -278,6 +278,11 @@ const CAUSE_IDENTITY_TABLE = [
       }),
   },
   {
+    code: "BODY_FILE_DIRECTORY_UNKNOWN",
+    expect: "NOT_VERIFIED/BODY_FILE_DIRECTORY_UNKNOWN",
+    run: () => classifyPrCreate('cd "$PCF_PROBE_DEST" && gh pr create --body-file b.md', { repoRoot: ROOT }),
+  },
+  {
     code: "BODY_FILE_PATH_EMPTY",
     expect: "NOT_VERIFIED/BODY_FILE_PATH_EMPTY",
     run: () => classifyPrCreate("gh pr create --body-file ''", { repoRoot: ROOT }),
@@ -678,7 +683,7 @@ const CASES = [
   // reported one cause for everything, which is the pre-#1803 behaviour.
   {
     predicate: "every-cause-code-is-pinned-to-its-own-situation",
-    name: "cause IDENTITY lock — each of the 20 codes is asserted BY NAME against a situation only it may claim",
+    name: "cause IDENTITY lock — every code is asserted BY NAME against its distinct situation",
     reds_under:
       "any mis-assignment of a cause at its call site, e.g. a cyclic permutation of MARKER_ABSENT / VALUE_NOT_IN_ENUM / VALUE_EMPTY / MARKERS_CONFLICT / BODY_TEXT_MISSING / COMMAND_UNRESOLVABLE at their five assignment sites — the exact scramble that shipped 50/50 GREEN before this case existed",
     // The row label is carried INTO the compared value, so the failure diff
@@ -705,10 +710,10 @@ const CASES = [
         rowCount: CAUSE_IDENTITY_TABLE.length,
       };
     },
-    // 20 is a LITERAL, not `Object.keys(PCF_CAUSES).length` — an expectation
+    // This is a LITERAL, not `Object.keys(PCF_CAUSES).length` — an expectation
     // computed from the subject agrees with it by construction
     // (`evidence-first-claims.md` MUST-5, self-derived oracle).
-    expect: { unpinned: [], stale: [], pinnedCount: 20, rowCount: 20 },
+    expect: { unpinned: [], stale: [], pinnedCount: 21, rowCount: 21 },
   },
   {
     predicate: "cause-taxonomy-is-a-frozen-identity-map",
@@ -724,7 +729,7 @@ const CASES = [
         .map(([k]) => k),
       distinctValues: new Set(Object.values(PCF_CAUSES)).size,
     }),
-    expect: { frozen: true, nonIdentity: [], distinctValues: 20 },
+    expect: { frozen: true, nonIdentity: [], distinctValues: 21 },
   },
   {
     predicate: "cause-outside-root-is-named-even-when-the-file-exists",
@@ -1162,8 +1167,8 @@ const CASES = [
     ],
   },
   {
-    predicate: "an-untrackable-cd-trail-falls-back-and-never-invents-a-root",
-    name: "wrong-root fail direction — a `cd` inside a pipeline is NOT applied; the verdict falls back to today's refusal",
+    predicate: "an-untrackable-cd-trail-refuses-without-reading-a-root-decoy",
+    name: "unknown-directory refusal — a pipeline CD is unsupported and the body is not read",
     reds_under:
       "resolveCdTrailDir(): apply a `cd` from a pipeline or a mixed `&&`/`;` chain, guessing at a directory the shell may never enter",
     // `cd | cat` runs the cd in a SUBSHELL, so the gh call runs in the ORIGINAL
@@ -1175,7 +1180,7 @@ const CASES = [
           repoRoot: REPO_MAIN,
         }),
       ),
-    expectDeep: "NOT_VERIFIED/BODY_FILE_MISSING",
+    expectDeep: "NOT_VERIFIED/BODY_FILE_DIRECTORY_UNKNOWN",
   },
   {
     predicate: "a-cd-after-the-gh-invocation-is-not-applied-to-it",

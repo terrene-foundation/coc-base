@@ -47,4 +47,6 @@ the same fan-out at the same limit:
 That is the finding the round would have shipped without. Round 2 is NOT clean: three
 findings — mysql.py column list, engine.py cursor close, audit.py conflict-branch emit.
 
-Fix wave next, then round 3 over the union.
+Fix wave next, then review ENDS under D237: this change carries no small security-critical
+delta, so no Round 3 is owed and never a Round 4. The three fixes land, and everything else
+at the stop goes to the durable ledger.

@@ -203,3 +203,49 @@ The count is a MEASUREMENT over the committed reports — there is no stored cou
 ```
 
 All four fields are required; an incomplete sentinel is MALFORMED and is not honoured. `key` is the VERDICT token alone — step attribution (`Sweep 5`) is reported but never keyed, so re-labelling the section a verdict sits under cannot reset its streak; a legacy `<step>/<verdict>` key still resolves. Depth (N=3 derivation, why the state lives in the reports, the verdict-key fix, the detector's lexical bounds): `guides/rule-extracts/sweep-completeness.md` § MUST Rule 4.
+
+## 7. Sweep 11 — USE-template delivery freshness, and the cap-raise rationale
+
+**Why the sweep exists.** On 2026-10-07 two of the three live USE templates had received their
+last loom delivery on **2026-08-19 — 48 days earlier** — and NOTHING in the fleet measured that.
+Every existing probe answers a different question: `check-sync-freshness.mjs` compares a template
+to its OWN remote (perfectly self-consistent while starved — a template that has not been synced
+in weeks reads PASS), and `fleet-freshness.mjs` compares artifact content against a dry-run plan
+without any notion of WHEN. Sweep 11 is the missing measurement, and the whole reason it is a
+sweep rather than a note is that a gap of this class is invisible until something looks on a
+schedule.
+
+**The metric, defined once.** `behind_days = floor((loom origin/main tip commit date − delivered
+loom sha commit date) / 1 day)`, clamped at 0. The delivered sha is read from the template's OWN
+receipts at its remote main tip, in precedence order — `.claude/.coc-delivery.lock::loom_sha` (the
+engine's per-delivery lock), the `chore(sync): Gate-2 … from loom <sha>` subject (classified by the
+SHARED `sync-tier-aware.mjs::isGate2DeliverySubject`, imported rather than re-spelled), then
+`.claude/VERSION::upstream.loom_sha`. **A disagreement between readable receipts is reported
+UNKNOWN, never resolved by preference**: two receipts naming different deliveries mean the last
+delivery is undecidable from outside, and a pick in either direction is a wrong answer wearing a
+measurement's grammar. Bands: `> 3d` WARN, `> 7d` FAIL (the sweep gate).
+
+**Unreadable is never green.** A template that is absent, is not a git work tree, whose remote
+cannot be fetched, or whose receipts do not resolve reports UNKNOWN — a row no consumer may read as
+fresh. `remote-not-found` additionally marks a STALE REGISTRY KEY — surfaced as a note, never as a
+FAIL, because a key pointing at a deleted repo is a registry-hygiene finding, not a delivery gap.
+That signal needs a LOCAL checkout to reach the remote: a declared key with none reports
+`no-local-checkout` and is never counted stale (measured 2026-10-07: the retired `claude-*` keys).
+
+**Wiring.** SessionStart carries the same block through
+`hooks/template-freshness-surface.js` (loom_only: a consumer has no templates and no loom main to
+be behind them by), which renders the engine's own `formatSurface` — one formatter, two callers, no
+drift. The tool's probe FETCHES each template remote (`--no-tags --no-write-fetch-head`, the same
+incremental fetch Gate-2 itself runs); `--no-fetch` degrades any template whose local refs do not
+already hold the remote tip to UNKNOWN.
+
+**This section IS the named rationale for the `/sweep` body-cap raise.** The command's ratified
+ceiling moves **173 → 182** (`validate-emit.mjs::COMMAND_LINE_CAP_EXCEPTIONS`, whose `receipt`
+field points here); the +10 lines are the Sweep 11 section itself — header, rationale prose, the
+runnable probe with its consumer N/A sentinel, and the gate paragraph. The ceiling is the EXACT
+count by design, so the next addition must come back with a rationale of its own. A paired skill
+section is the receipt rather than a journal path for the property that matters here: it ships
+RESOLVED in the same change, so the citation never has a window in which it points at a file that
+does not exist. Journal slot 0657 was reserved and signed from the lane
+(`journal-slot-reservation` record, coordination log seq 133) and remains PROVENANCE for the
+decision — optional to write, and the receipt does not depend on it.

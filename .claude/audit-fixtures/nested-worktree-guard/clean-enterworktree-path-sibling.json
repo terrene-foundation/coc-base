@@ -1,5 +1,5 @@
 {
   "hook_event_name": "PreToolUse",
   "tool_name": "EnterWorktree",
-  "tool_input": { "path": "/Users/me/repos/build/.slug-wt/parallel-dev" }
+  "tool_input": { "path": "{{FIXTURE_HOME_V1:MAC}}me/repos/build/.slug-wt/parallel-dev" }
 }

@@ -41,7 +41,7 @@
 // (Shard-2) fold predicate re-derives — the single-shared-function discipline of
 // security.md § "Enforcement-Surface Parity": the broker signer and the
 // independent verifier MUST consume ONE function, or the two derivations drift
-// and a valid proof folds as forged (or vice-versa). loom-command's off-loom
+// and a valid proof folds as forged (or vice-versa). The off-loom presence
 // broker MUST compute the binding via THIS function's contract.
 //
 // Shard 1 delivers the schema + binding + shape validation ONLY. The fold

@@ -367,8 +367,10 @@ carry reasoning the command references rather than restates.
 (loom-internal reference) and
 `rules/knowledge-convergence.md` MUST-1, work-state transitions are append-only signed events at
 `burndown/events.jsonl` and the forest ledger is a DERIVED PROJECTION regenerated from
-`.claude/hooks/lib/burndown-events.js::foldEvents`. Three consequences the command states as rules
-and this file explains:
+`.claude/hooks/lib/burndown-events.js::foldEvents`. An `appendEvent` lands in the gitignored pending
+stream first; the projection step (`forest-ledger-project.mjs`) flushes it into the tracked log
+before it regenerates, so the ledger folds this session's own events. Three consequences the command
+states as rules and this file explains:
 
 - **Carry-forward became implicit, and that is a SIMPLIFICATION, not a relaxation.** The old
   protocol's step 1 read the prior notes and step 2 re-transcribed every unclosed row — a manual
@@ -795,14 +797,12 @@ membership on every build. Each render's tokens bind its own digest, so both val
 simply two states. If the fragment's quote disagrees with the reply block's ALL PAGES row, say the
 sources moved between the two commands; never pick one, and never reconcile them by hand.
 
-**Rendered BEFORE the ledger emission.** The manifest's tracker is `burndown/events.jsonl`, and
-its `_tracker_note` in `burndown-manifest.json` records that `assertCommittedAndUnmodified` holds the
-tracker to the same standard as every declared source. Inferred from that note, NOT measured here
-(measuring it would mean appending to the real log): after slot (b) appends, the generator refuses
-until the log is committed. So the chart is rendered first, which is correct whether or not the
-inference holds — it shows the committed state the session closes on, and its `generated_from_sha:`
-says which. If the write guard verifying the fragment afterwards meets that refusal,
-`rules/burndown-integrity.md` names a refusing generator as UNKNOWN, never clean.
+**Rendered BEFORE the ledger emission.** The manifest's tracker is `burndown/events.jsonl`. Slot
+(b)'s appends land in the gitignored pending stream, not in that file, so the tracked log — and
+the chart built from it — is unchanged until the projection step flushes the stream. The chart is
+rendered first all the same: it shows the committed state the session closes on, and its
+`generated_from_sha:` says which. If the write guard verifying the fragment afterwards meets a
+refusing generator, `rules/burndown-integrity.md` names that UNKNOWN, never clean.
 
 **A consumer with no manifest gets a refusal, and that is the expected shape.** MEASURED in a fresh
 temporary git repo with no `burndown-manifest.json`: exit 2, `UNRUNNABLE — refusing because declared

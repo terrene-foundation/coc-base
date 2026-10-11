@@ -36,7 +36,7 @@
 const fs = require("fs");
 const path = require("path");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 const {
   emitSignedRecord,
@@ -146,7 +146,12 @@ function _appendToRegistry(repoDir, record) {
   // sink escaping the gitignore fence leaks operator-correlatable identity. The cap check
   // above stays HERE, before signing (refuse rather than truncate-after-sign).
   const p = resolveMemberRegistryPath(repoDir);
-  const w = appendSinkLine({ repoDir, sinkPath: p, line });
+  const w = appendSinkLine({
+    repoDir,
+    additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+    sinkPath: p,
+    line,
+  });
   if (!w.ok)
     return { ok: false, error: `member-registry append refused: ${w.error} — ${w.reason}` };
   return { ok: true };

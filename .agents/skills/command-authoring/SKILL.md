@@ -137,10 +137,10 @@ Variant files supply replacement bodies only for the slots that diverge. Unoverr
 
 Some CC commands map to a CLI's own native primitive — emitting a `.codex/prompts/<name>.md` or `.gemini/commands/<name>.toml` for them would duplicate the native workflow. Per `.claude/agents/codex-architect.md` § Native Primitives:
 
-- **`/review`** → `codex review --uncommitted` or `codex review --base main` (Codex native). Do NOT emit a `.codex/prompts/review.md`.
+- **`/review`** → `codex review --uncommitted` or `codex review --base main` (Codex native). Consumer distribution must exclude a duplicate `.codex/prompts/review.md`.
 - **`/security-review`** → architect-decided; check the per-CLI exclusions list before adding.
 
-The exclusion mechanism lives in `.claude/sync-manifest.yaml::cli_emit_exclusions.{codex,gemini}` as a glob list. New commands that have a native counterpart MUST add a `commands/<name>.md` exclusion entry for the relevant CLI.
+The exclusion mechanism lives in `.claude/sync-manifest.yaml::cli_emit_exclusions.{codex,gemini}` as a glob list. New commands that have a native counterpart MUST add a `commands/<name>.md` exclusion entry for the relevant distribution CLI. The explicitly elected source-local authoring profile retains canonical command references for authoring and audit; that exception never enables consumer delivery (`.claude/bin/lib/local-authoring-projection.mjs:7-63`).
 
 ## Native Phase Skills and Headless Dispatcher
 
@@ -214,7 +214,7 @@ New command in `.claude/commands/` but not in `sync-manifest.yaml` ships to nobo
 
 ### 4. Native-Primitive Shadow
 
-Authoring a `review` command file (shadowing Codex's native `codex review`) without an exclusion entry causes the delivery to advertise a second, conflicting review workflow. Fix: add that command to `cli_emit_exclusions.codex` BEFORE it lands.
+Distributing a `review` command file without a native-primitive exclusion advertises a conflicting review workflow. Add the distribution exclusion before delivery. Source-local authoring references follow the explicit profile exception above (`.claude/bin/lib/local-authoring-projection.mjs:7-63`).
 
 ### 5. Description As Sentence Paragraph
 

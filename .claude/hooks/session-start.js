@@ -16,6 +16,31 @@
  *   other = non-blocking error (warn and continue)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".env",
+ *       ".claude/learning/",
+ *       ".claude/learning/observations.jsonl",
+ *       ".session-notes.d/",
+ *       ".session-notes.shared.md",
+ *       ".session-notes.aggregate.md",
+ *       ".session-notes.migrated",
+ *       ".session-notes.migrate.lock",
+ *       ".git/config",
+ *       "~/.claude/sessions/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["curl","gh","git","gpg","node","python","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes (lib/state-resolver.js, lib/unlanded-work-surface.js, lib/landing-provenance-audit.js, lib/release-drift.js), `gh pr list` (lib/open-pr-surface.js), `git config` writes (lib/coc-ledger-driver.js), `python -m pip list` + lib/version-utils.js's curl/node probes, and lib/operator-id.js key discovery. Network: false by the own-process rule — the gh/curl children reach the network and are covered by spawns. Writes: .env via lib/env-utils.js::ensureEnvFile (copy from .env.example or generated template); the .session-notes.* set comes from lib/session-notes-layout.js::migrateMonolithToSplit + regenerateAggregate; ~/.claude/sessions/ is the home-scoped startedAt record (tmp + rename). Non-idempotent: one session_start observation is appended per invocation."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");

@@ -21,7 +21,7 @@ The Origin line, written so a later reader can trace the finding to the review t
 it:
 
     Origin: 2026-09-09 — surfaced at Northwind Freight's Gate-1 review of their ecosystem
-    fork at /Users/alice/clients/northwind-freight/loom-fork, where a rule authored for the
+    fork at {{FIXTURE_HOME_V1:MAC}}alice/clients/northwind-freight/loom-fork, where a rule authored for the
     northwind-billing lane carried that lane name into its Origin and cascaded it to their
     four project repos before anyone read it.
 

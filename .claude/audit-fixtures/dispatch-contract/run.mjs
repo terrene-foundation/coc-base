@@ -182,6 +182,7 @@
  */
 
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -750,7 +751,7 @@ check("36", "clip flattens newlines",
 
   // -- extraction: which tokens are even considered --
   check("49", "an absolute path after `cd` is extracted",
-    L.extractDeclaredWorkdirs("STEP 0: cd /Users/x/repos/.wt/lane-a then assert").includes("/Users/x/repos/.wt/lane-a"),
+    L.extractDeclaredWorkdirs(materializeFixtureText("STEP 0: cd {{FIXTURE_HOME_V1:MAC}}x/repos/.wt/lane-a then assert")).includes(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}x/repos/.wt/lane-a")),
     "the STEP-0 shape", "M-f: drop the `cd` anchor");
   check("50", "an absolute path after a `worktree ... at` phrase is extracted",
     L.extractDeclaredWorkdirs("The worktree is ALREADY CREATED and verified at /tmp/wt/lane-b.").includes("/tmp/wt/lane-b"),
@@ -1053,7 +1054,7 @@ check("36", "clip flattens newlines",
 // matched) reds here instead of passing as "silent".
 {
   const FX = path.join(REPO, ".claude/audit-fixtures/dispatch-contract");
-  const brief = (name) => fs.readFileSync(path.join(FX, `lane-brief-${name}.txt`), "utf8");
+  const brief = (name) => materializeFixtureText(fs.readFileSync(path.join(FX, `lane-brief-${name}.txt`), "utf8"));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const cls = (namesLane, grantsCommit, leafDenial, role, missing) =>
     ({ namesLane, grantsCommit, leafDenial, role, missing });
@@ -1214,8 +1215,8 @@ check("36", "clip flattens newlines",
   // duplicated literal is the drift mechanism that lets a case keep asserting against a prompt
   // the substitution no longer reaches.
   const atRepo = (name, dir = sb.dir) =>
-    fs.readFileSync(path.join(FX, `lane-brief-${name}.txt`), "utf8")
-      .split("/Users/op/repos/.loom-wt/wip-ledger").join(dir);
+    materializeFixtureText(fs.readFileSync(path.join(FX, `lane-brief-${name}.txt`), "utf8"))
+      .split(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}op/repos/.loom-wt/wip-ledger")).join(dir);
   const RECEIPT = sb.receipt;
   const RECEIPT_DIR = path.dirname(RECEIPT);
   const clearReceipt = () => { try { fs.rmSync(RECEIPT, { force: true }); } catch {} };
@@ -1406,8 +1407,8 @@ check("36", "clip flattens newlines",
   // -- (b) block + halt-and-report + advisory on ONE brief, no receipt --
   const MIXED = {
     name: "lane-w6", subagent_type: "general-purpose",
-    prompt: fs.readFileSync(path.join(REPO, ".claude/audit-fixtures/dispatch-contract/lane-brief-flag-orchestrator-serial.txt"), "utf8")
-      .split("/Users/op/repos/.loom-wt/wip-ledger").join(`/nonexistent-loom-probe-${process.pid}/repos/.loom-wt/lane-mixed`),
+    prompt: materializeFixtureText(fs.readFileSync(path.join(REPO, ".claude/audit-fixtures/dispatch-contract/lane-brief-flag-orchestrator-serial.txt"), "utf8"))
+      .split(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}op/repos/.loom-wt/wip-ledger")).join(`/nonexistent-loom-probe-${process.pid}/repos/.loom-wt/lane-mixed`),
   };
   const mixedF = L.inspectDispatch("Agent", MIXED, inv);
   const mixed = fire(MIXED);

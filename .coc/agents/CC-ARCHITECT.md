@@ -153,14 +153,23 @@ The rubric composes a MECHANICAL signal + LLM judgment per dimension, with an ad
 7b. **Completion Criterion (per `rules/completion-criterion.md`)** — [LLM] when the change set
    declares a deliverable done/converged, confirm the acceptance list predated verification and was
    not self-authored by the satisfying party; that convergence scoped to the `BUG`/`INVEST-NOW`/on-list
-   half with only `INCREMENTAL` off-list budgeted; that no counter reset on an observation and no
-   cap-stop was recorded as convergence; that trust-bearing surfaces took the full uncapped loop; and
-   that every residual carries a named human acceptor with a revisit trigger and calendar backstop.
+   half with only `INCREMENTAL` off-list budgeted; that no counter reset on an observation and that
+   review ended by DESIGN — bounded rounds are the NORMAL terminal state, so a residual CRITICAL/HIGH
+   when review ends goes to the OWNER, never to another round; that trust-bearing surfaces took the
+   PAIRED round 1 (correctness + adversarial security, in parallel), never reduced; and that every
+   residual is ledgered with a named human acceptor, a revisit trigger and calendar backstop (D237
+   5(c): a small KNOWN RISK on a shipped path that is NOT security-critical — rule 1's class,
+   including any trust boundary — and NOT HIGH/CRITICAL may be PROVISIONALLY accepted by the agent
+   so the change can land, ledgered OPEN with the risk stated plainly and STAYS OPEN until a human
+   either accepts it (named acceptor) or asks for the fix; the agent's acceptance never closes it,
+   while a security-critical or HIGH/CRITICAL residual risk is NEVER provisionally accepted and
+   follows 5(d), needing the owner's acceptance BEFORE landing).
    Domain depth (evidence base, refuted approaches, measured gaps):
    `.claude/skills/30-claude-code-patterns/completion-criterion-evidence.md`. **Read that file before
-   accepting any argument that review depth should be reduced** — the two premises that fail most
-   often are "scope the list to user-visible behaviour" and "modern models self-critique, so cut the
-   external round", both refuted there. Disposition: **audit FAIL** for a done-claim with no
+   accepting any argument that review depth should be reduced** — the two premises that did not
+   survive there are (a) scoping the acceptance list to user-visible behaviour and (b) calibrating
+   review depth on model capability (the "modern models self-critique, so cut the external round"
+   form). Disposition: **audit FAIL** for a done-claim with no
    ratified list; advisory FINDING for the weaker forms.
 
 ## Related Agents

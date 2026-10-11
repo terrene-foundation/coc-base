@@ -14,6 +14,24 @@
  *   0 = success (continue)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".env",
+ *       ".claude/learning/observations.jsonl",
+ *       ".claude/learning/observations.archive/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "`.env` is created only when absent (lib/env-utils.js::ensureEnvFile, copy from .env.example or a template). A matched user-correction appends one observation per invocation via lib/learning-utils.js (signed through lib/coc-append.js when identity resolves), and that module mkdirs `.claude/learning/` + `observations.archive/`; when no repo resolves the sink falls back OUTSIDE the repo to ~/.claude/kailash-learning/observations.jsonl, and operator-id.js spawns git/ssh-keygen for the identity stamp."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const {

@@ -16,6 +16,25 @@
  *   other = non-blocking error (warn and continue)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/observations.jsonl",
+ *       ".claude/learning/observations.archive/",
+ *       ".claude/learning/ci-cost-reach/<session-id>.marker",
+ *       ".claude/learning/test-scope-advisory/<session-id>.marker"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","node"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The verdict is a pure predicate over the payload, but finding paths APPEND: an observation row per invocation via lib/learning-utils.js (signed through lib/coc-append.js when identity resolves; that module mkdirs `.claude/learning/` + `observations.archive/`), plus two per-session delivery markers written once each via lib/ci-cost-reach.js and lib/test-scope-advisory.js (those two DO dedupe on session id; the observation sink does not, so a repeat payload appends another row). spawns: spawnSync of `git status --porcelain`, `git diff --cached --name-only`, node pre-commit-branch-scope.js, node scan-synced-disclosure.mjs --check, all with a constant env. No network of its own."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const {
@@ -27,6 +46,7 @@ const {
   detectGitConfigMutation,
   detectRepoScopeDriftBash,
   detectWorktreeStaleBaseRef,
+  parseWorktreeAddBaseRef,
   // Quote-aware segmentation + doc-carrier payload masking. Already exported and
   // already used by the state-path lane; reused here rather than re-derived, so
   // the two lanes cannot drift on what counts as prose (security.md
@@ -216,12 +236,18 @@ function onStdinEnd(input) {
 // instead of reusing it — the divergence kailash-rs rejected the Gate-2 sync
 // over. One parser, every consumer, per security.md § Multi-Site Kwarg
 // Plumbing; same shape as tool-classes.js for tool names.
+const { resolveGitTargetContext, gitProbeArgs, gitOptionFlags, physicalPath } = require("./lib/git-target-context.js");
 const {
+  resolveCdTrailDir,
   parseGitInvocation,
   parseGitInvocations,
+  findGitHookBypass,
   stripShellComments,
   stripShellGroupDelimiters,
+  maskCasePatterns,
+  normalizeStdinScripts,
   expandNestedSegments,
+  isUnknownStdinProducerSegment,
 } = require(path.join(__dirname, "lib", "git-command-parse.js"));
 
 // loom s60 — the destructive-FORCE target predicate. `git worktree remove
@@ -509,16 +535,9 @@ function carriesNoVerifyFlag(g, segment) {
   return false;
 }
 
-/**
- * Structural working-tree signal — the canonical example hook-output-
- * discipline.md MUST-2 names as the basis for `severity: "block"` ("git
- * status --porcelain non-empty before --hard"). Runs in the `-C` target dir
- * (or the session cwd). Returns { ok, dirty, untracked }; ok=false means git
- * could not be queried (not a repo, timeout) — the caller fails OPEN to
- * halt-and-report rather than hard-blocking on an unverifiable signal (the
- * MUST-2 anti-false-positive default).
- */
-function gitWorkingTreeStatus(dir, cwd) {
+function gitWorkingTreeStatus(invocation, cwd) {
+  const context = resolveGitTargetContext(invocation, cwd);
+  if (!context.known) return { ok: false, dirty: false, untracked: false };
   try {
     const { spawnSync } = require("child_process");
     // THE shared guard-git allowlist (loom#1462). This spawn pre-dates that
@@ -552,14 +571,9 @@ function gitWorkingTreeStatus(dir, cwd) {
     if (!gitBin) return { ok: false, dirty: false, untracked: false };
     const r = spawnSync(
       gitBin,
-      [
-        "-C",
-        dir || cwd || ".",
-        "status",
-        "--porcelain",
-        "--untracked-files=all",
-      ],
+      gitProbeArgs(context, ["status", "--porcelain", "--untracked-files=all"]),
       {
+        cwd: context.cwd,
         encoding: "utf8",
         timeout: 2500,
         stdio: ["ignore", "pipe", "ignore"],
@@ -623,20 +637,21 @@ function validateBashCommand(data) {
   // ci-cost-reach.test.mjs pins the cross-repo finding's rendered head against a
   // snapshot taken before this change.
   //
-  // THE RESIDUAL IS STATED, AND IT IS NOT HYPOTHETICAL — it was MEASURED on the
-  // second of the two commands this surface targets:
-  //   git push origin HEAD  -> "NOT BLOCKED — the action has NOT run yet..."  (fixed)
-  //   gh pr create ...      -> "NOT BLOCKED — the action ALREADY RAN..."      (residual)
-  // `gh pr create` ALWAYS co-fires the PCF-category finding above, which is
-  // registered `halt-and-report`, so the merge collapses and the CI-cost
-  // delivery inherits the false head on that path. Every other deferred finding
-  // in this PreToolUse hook carries the same mis-registration — nothing has run
-  // when this hook speaks — so the general repair is to re-register them, and
-  // that is deliberately NOT done here: those findings ship from other lanes
-  // (the PCF block is at origin/main, from T5), and silently changing another
-  // lane's delivered head is a wider blast radius than this fix is scoped to
-  // carry. Recorded so the next session inherits the measurement, not a
-  // surprise.
+  // THE RESIDUAL IS CLOSED, AND AT THE RENDERER RATHER THAN BY RE-REGISTRATION
+  // (2026-10-05, gaps-v2 review item 5 ROOT FIX). The residual measured here was
+  //   git push origin HEAD  -> "NOT BLOCKED — the action has NOT run yet..."  (fixed then)
+  //   gh pr create ...      -> "NOT BLOCKED — the action ALREADY RAN..."      (residual then)
+  // `gh pr create` ALWAYS co-fires the PCF-category finding above, registered
+  // `halt-and-report`, so the merge collapsed and the false head rode out. One
+  // level down, instruct-and-wait.js now keys the fate head on the EVENT ∧
+  // SEVERITY pair (PreToolUse with a blocking-class severity => "has NOT run
+  // yet"; advisory / post-mortem findings keep their weaker heads even here),
+  // which covers this merge, every other finding in this PreToolUse hook, and
+  // every other PreToolUse hook — so the re-registration this note originally
+  // prescribed is no longer needed and is deliberately not done. (CORRECTED:
+  // this note previously read "on the EVENT … whatever the severity" — the v3
+  // claim the v4 gate itself reverted; a reader trusting it re-opens the
+  // advisory-head over-reach the severity conjunct exists to prevent.)
   const withDeferred = (result) => {
     if (deferredFindings.length === 0) return result;
     const all = result.severity
@@ -647,7 +662,18 @@ function validateBashCommand(data) {
         ? "block"
         : all.every((f) => f.severity === "pre-action")
           ? "pre-action"
-          : "halt-and-report",
+          : // GAPS-v4 item 3 — the ALL-ADVISORY arm, and it is ADDITIVE: no
+            // pre-existing deferred finding registers `advisory`, so every
+            // combination that existed before this line takes the same branch
+            // it always did. It exists so the unknowable-stdin-producer
+            // finding (registered `advisory` above) renders its own weaker
+            // head instead of being PROMOTED by the fallback — and it stays
+            // ALL-advisory on purpose: one halt-and-report or one pre-action
+            // in the group still collapses to `halt-and-report`, so a mixed
+            // command is never weakened by the advisory riding along with it.
+            all.every((f) => f.severity === "advisory")
+            ? "advisory"
+            : "halt-and-report",
       what_happened: all.map((f) => f.what_happened).join("\n\n"),
       why: all.map((f) => f.why).join("\n\n"),
       agent_must_report: all.flatMap((f) => f.agent_must_report || []),
@@ -1229,7 +1255,7 @@ function validateBashCommand(data) {
   // provisioning-state signal (actuation-types.js::isPresenceMechanismConfigured).
   // Under the Shard-3a ALWAYS-ON model the presence requirement does NOT gate on
   // this file — the fold rejects an ABSENT actuation on static type-membership,
-  // unconditionally. The file is the loom↔loom-command provisioning contract +
+  // unconditionally. The file is the loom↔enterprise-product provisioning contract +
   // the AC-L15 defense-in-depth signal for any future conditional consumer, and
   // it stays write-guarded so an in-process/LLM caller cannot forge a
   // "provisioned" state a future conditional consumer would trust (nor downgrade
@@ -1481,7 +1507,7 @@ function validateBashCommand(data) {
   const stateFileMutation = detectStateFileMutationSegmentAware(
     command,
     STATE_PATH_RX,
-    { scope: stateTargetScope },
+    { scope: stateTargetScope, cwd },
   );
   if (stateFileMutation) {
     try {
@@ -1781,7 +1807,7 @@ function validateBashCommand(data) {
     const coordMutation = detectStateFileMutationSegmentAware(
       command,
       COORD_MODE_RX,
-      { scope: stateTargetScope },
+      { scope: stateTargetScope, cwd },
     );
     if (coordMutation) {
       try {
@@ -1961,15 +1987,26 @@ function validateBashCommand(data) {
   // mixed line whose expansion is not the command word
   // (`update at $(date) git reset --hard`) parses to no invocation either. Only
   // a body the shell genuinely expands is kept.
+  // GAPS-v2 REVIEW item 2 — the STDIN pre-pass must run BEFORE the splitter.
+  // normalizeStdinScripts turns `<producer> | <shell>`, shell heredocs and
+  // here-strings (`<<<`) into `-c '<body>'` operands — but it was only ever
+  // called PER SEGMENT (inside nestedCommandStrings), and the splitter
+  // separates on `|` BEFORE that, so `echo 'git reset --hard HEAD' | bash`
+  // reached the fences as two innocent halves and the body was invisible
+  // (measured: silent on this tree and on base, against a dirty repo).
+  // Running it on the WHOLE command first is what makes the hook's own
+  // pipeline see the body; the per-segment call inside the reader remains as
+  // the module-level entry and is idempotent over the already-normalized text.
+  const stdinNormalized = normalizeStdinScripts(command);
   const heredocSpans =
-    command.indexOf("<<") === -1
-      ? { structural: command }
-      : parseHeredocSpans(command, {
+    stdinNormalized.indexOf("<<") === -1
+      ? { structural: stdinNormalized }
+      : parseHeredocSpans(stdinNormalized, {
           keepExpandableBodies: true,
           keepDelimiterLine: true,
         });
   const rawSegments = splitShellSegments(
-    stripShellComments(maskDocCarrierPayloads(heredocSpans.structural || "")),
+    stripShellComments(maskDocCarrierPayloads(maskCasePatterns(heredocSpans.structural || ""))),
     { newlineSeparates: true },
   );
 
@@ -2007,6 +2044,34 @@ function validateBashCommand(data) {
   // directory trail would model a `cd` that never happens.
   const nestedExpansion = expandNestedSegments(rawSegments);
   const segments = nestedExpansion.segments.map(stripShellGroupDelimiters);
+  const invocationQueues = new Map();
+  for (const invocation of parseGitInvocations(command)) {
+    const key = stripShellGroupDelimiters(invocation.targetContext?.segment || "").trim();
+    if (!invocationQueues.has(key)) invocationQueues.set(key, []);
+    invocationQueues.get(key).push(invocation);
+  }
+  const segmentInvocations = segments.map((seg) => {
+    const queue = invocationQueues.get(seg.trim());
+    if (queue && queue.length) return queue.shift();
+    const g = parseGitInvocation(seg);
+    if (g && g.targetContext) {
+      g.targetContext.unknown.push("unmatched-segment-context");
+      if (g.unresolvable !== "subcommand") g.unresolvable = "dir";
+    }
+    return g;
+  });
+  const parseContextualSegment = (seg, index) => segmentInvocations[index];
+  const shellBaseForSegment = (seg, index) => {
+    const ordinal = segments.slice(0, index + 1).filter((item) => item.trim() === seg.trim()).length;
+    let seen = 0;
+    let found = false;
+    const trail = resolveCdTrailDir(command, cwd, { stopWhen: (raw) => {
+      if (stripShellGroupDelimiters(raw).trim() !== seg.trim()) return false;
+      found = ++seen === ordinal;
+      return found;
+    } });
+    return found && trail.known ? trail.dir : null;
+  };
 
   // UNKNOWN SUBCOMMAND — fail CLOSED (loom#1549 F3 lock 8). A git invocation
   // whose VERB is produced by a construct the hook must not evaluate
@@ -2016,14 +2081,8 @@ function validateBashCommand(data) {
   // none of them and the segment would fall through to a silent allow — the
   // precise shape this fix exists to close.
   //
-  // Disposition is copied, not invented: it is the one gitWorkingTreeStatus
-  // already takes for an unresolvable git binary ("Unresolvable git ranks
-  // TIGHTEST here … `ok:false` already routes the caller to halt-and-report
-  // rather than silent allow"). halt-and-report, not block, per
-  // hook-output-discipline.md MUST-2 — there is no structural dirty-tree
-  // measurement to justify `block` when the tree cannot even be identified.
-  for (const seg of segments) {
-    const g = parseGitInvocation(seg);
+  for (const [segmentIndex, seg] of segments.entries()) {
+    const g = parseContextualSegment(seg, segmentIndex);
     if (!g || g.unresolvable !== "subcommand") continue;
     // loom#1606 instance 8 — DEFER and BREAK, never return. This lane fails
     // CLOSED on an unresolvable verb, but returning here handed the whole
@@ -2078,7 +2137,28 @@ function validateBashCommand(data) {
   // lexical severity (`hook-output-discipline.md` MUST-2), and a `return` here
   // would suppress the `block` fences for the segments that WERE resolvable —
   // the loom#1606 instance-8 lesson.
-  if (nestedExpansion.unresolvable || nestedExpansion.truncated) {
+  // GAPS-v4 REVIEW item 3 — THE TWO UNREADABLE CLASSES ARE NOT ONE CLASS. The
+  // lane below used to fire on the whole-command boolean, so a producer whose
+  // body does not exist yet (`curl … | sh`) was rendered exactly like a body
+  // whose text exists and cannot be read (`sh -c "$CMD"`) — a halt-and-report
+  // finding where BASE gave the same command a plain WARNING. MEASURED on the
+  // four producer forms (`curl | sh`, `wget | bash`, `cat script.sh | bash`,
+  // `git log | bash`), each now reading halt-style where base read a warning.
+  // The split: an unknowable PRODUCER's output is the ruling's ADVISORY class
+  // (the body is a runtime value, not a hidden literal — there is nothing to
+  // report because there is no text), while every other unreadable body keeps
+  // the halt. The attribution is per SEGMENT (expandNestedSegments.
+  // unresolvableSegments), never the whole-command boolean: a command carrying
+  // BOTH classes must still halt (mixed ⇒ max severity in withDeferred), and
+  // asking the boolean alone is the instrument-discipline.md MUST-4 shape — a
+  // sound answer to a different question.
+  const unresolvableSegs = nestedExpansion.unresolvableSegments || [];
+  const unknownProducerSegs = unresolvableSegs.filter(isUnknownStdinProducerSegment);
+  const otherUnreadable =
+    nestedExpansion.truncated ||
+    unresolvableSegs.length > unknownProducerSegs.length ||
+    (nestedExpansion.unresolvable && unresolvableSegs.length === 0);
+  if (otherUnreadable) {
     deferredFindings.push({
       severity: "halt-and-report",
       what_happened:
@@ -2094,6 +2174,37 @@ function validateBashCommand(data) {
         "Do not retry with the body still opaque. Write the nested command literally.",
       user_summary:
         "a nested command body could not be read — the destructive-op fences are unanswered for it",
+    });
+  }
+
+  if (unknownProducerSegs.length > 0) {
+    // ADVISORY, per the gaps-v4 item-3 ruling: a producer whose body CANNOT be
+    // known is not the same finding as a body whose text is hidden. There is
+    // no literal to report — the shell will run whatever the producer PRINTS —
+    // so the register is the plain warning this shape already carried: the
+    // dangerous-pattern list above puts "WARNING: Piping curl to shell is
+    // dangerous" on the same command, and that text rides out with this
+    // finding (it composes onto the non-blocking exit through the deferred
+    // advisory channel). `advisory`, not halt-and-report, and never `block`:
+    // `hook-output-discipline.md` MUST-2 forbids `block` for a lexical signal,
+    // and among the non-block registers the weaker heading is the honest one
+    // for an unanswerable-rather-than-answered condition
+    // (`instrument-discipline.md` MUST-1). MEASURED before this split: all
+    // four producer forms below rendered halt-style, where base rendered the
+    // warning — a halt on `curl … | sh` is the mute-within-a-day class.
+    deferredFindings.push({
+      severity: "advisory",
+      what_happened: `Bash pipes a shell's SCRIPT from a producer this hook cannot read: ${command.slice(0, 120)}`,
+      why:
+        "The body the shell will run is the producer's OUTPUT — a value that does not exist until the command runs — so no reader can know it, and the destructive-op fences are unanswered for it by construction rather than by an unreadable literal (the class above). BASE rendered this shape at the weaker register (the dangerous-pattern list above already carries a plain warning for the `curl`/`wget` producers, and its text rides out with this finding); the stdin pre-pass briefly hoisted the whole shape to halt-and-report, and this restores the ruling's severity while keeping the finding. `instrument-discipline.md` MUST-1 — a check that cannot answer is not evidence of a clean answer, so this still SPEAKS: it is the register that says \"unanswerable\", not the one that says \"found something\".",
+      agent_must_report: [
+        "State which command produces the shell's script and what it is expected to print",
+        "If the body matters to this session, re-issue it written literally so the fences can read it",
+      ],
+      agent_must_wait:
+        "No action is required before proceeding; report the unreadable body in your next message.",
+      user_summary:
+        "a shell's script arrives over a pipe — the body cannot be read before it runs",
     });
   }
 
@@ -2158,29 +2269,13 @@ function validateBashCommand(data) {
   // finding-rides-out`), not by review. A deferral-only lane is safe to place
   // early precisely BECAUSE it never returns, so it is placed early.
   //
-  // IT ASSESSES THE COMMAND'S TARGET, NEVER `HEAD` AND NEVER THE CWD. The
-  // existing `gitWorkingTreeStatus(g.dir, cwd)` is correct for `reset --hard` /
-  // `clean -f`, which DO act on `g.dir`; reusing it here would be exactly the
-  // defect this component exists to close — a prior instance swept `HEAD` while
-  // the command named another target and returned 18 bytes of silence while 11
-  // unlanded artifacts were destroyed. `assessTarget` therefore takes the
-  // resolved OPERAND and nothing else.
-  //
-  // RELATIVE-OPERAND BASE, and its stated residual: `git -C <dir> worktree
-  // remove ../wt` chdirs to `<dir>` FIRST, so a relative operand resolves
-  // against it, not against the session cwd. `g.dir` is the parser's EFFECTIVE
-  // work-tree, in which `--work-tree` outranks `-C`; for `worktree remove` only
-  // `-C` actually moves the process, so a `--work-tree`-only invocation with a
-  // RELATIVE operand would be resolved against the wrong base. That form does
-  // not chdir and is vanishingly rare, and the residual is recorded here rather
-  // than papered over — an absolute operand is unaffected either way.
-  for (const seg of segments) {
+  for (const [segmentIndex, seg] of segments.entries()) {
     const findings = [];
 
-    const g = parseGitInvocation(seg);
+    const g = parseContextualSegment(seg, segmentIndex);
     const wt = selectWorktreeRemoveForce(g);
     if (wt && wt.force) {
-      findings.push({ kind: "worktree", token: wt.target, gdir: g && g.dir });
+      findings.push({ kind: "worktree", token: wt.target, invocation: g });
     }
     const rmSel = selectRmForce(seg);
     if (rmSel) {
@@ -2196,18 +2291,24 @@ function validateBashCommand(data) {
     for (const f of findings) {
       const verb =
         f.kind === "worktree" ? "git worktree remove --force" : "rm -rf";
-      const base = f.gdir ? path.resolve(cwd || ".", f.gdir) : cwd || ".";
-      const abs = f.token === null ? null : resolveTargetPath(f.token, base);
+      const context = f.invocation ? resolveGitTargetContext(f.invocation, cwd) : null;
+      const base = context ? (context.known ? context.cwd : null) : shellBaseForSegment(seg, segmentIndex);
+      const abs = f.token === null || (!base && !path.isAbsolute(f.token)) ? null : resolveTargetPath(f.token, base);
       const a = assessTarget(abs);
       const where = a.path || (f.token === null ? "<unresolved>" : f.token);
 
-      // FAIL OPEN, LOUDLY. "I could not look" and "I looked and it was empty"
-      // are opposite meanings with identical-looking output
-      // (evidence-first-claims.md MUST-3), so an unassessable target is
-      // REPORTED as indeterminate and never allowed to read as clean.
+      // FAIL CLOSED (B8, 2026-10-08, orchestrator security call). "I could not
+      // look" and "I looked and it was empty" are opposite meanings with
+      // identical-looking output (evidence-first-claims.md MUST-3). This branch
+      // USED to emit halt-and-report — which maps to continue:true
+      // (lib/instruct-and-wait.js), i.e. the destructive command RAN while the
+      // report read as a courtesy notice. MEASURED before this change:
+      // `rm -rf $someTarget` (unassessable) returned rc 0, continue:true. An
+      // unverifiable target ranks TIGHTEST at a fail-closed destructive-op
+      // fence, so the verdict is a REFUSAL (rc 2), not a surface.
       if (a.state === FORCE_STATE.INDETERMINATE) {
         deferredFindings.push({
-          severity: "halt-and-report",
+          severity: "block",
           what_happened: `Bash invoked \`${verb}\` against a target this hook could NOT assess: ${where}`,
           why: `worktree-isolation.md Rule 8 / git.md § "Destructive Working-Tree Ops" — a bare \`git worktree remove\` REFUSES a dirty tree and that refusal IS the safety mechanism \`--force\` defeats; unstaged modifications and untracked-not-ignored files have NO reflog. The target could not be assessed (${a.detail}), so what would be destroyed is UNKNOWN. An unverifiable target ranks TIGHTEST at a fail-closed destructive-op fence, and INDETERMINATE is reported as such rather than as clean.`,
           agent_must_report: [
@@ -2256,7 +2357,7 @@ function validateBashCommand(data) {
         deferredFindings.push({
           severity: "halt-and-report",
           what_happened: `Bash invoked \`${verb}\` against ${where}, which is outside anything this session owns: ${danger.reason}.`,
-          why: `git.md § "Destructive Working-Tree Ops" — the git-content probe is CLEAN here, but that answers "what unlanded git work is at this path?", not "is destroying it safe?". Outside the session's working tree and outside every scratch root, this fence cannot establish that the tree is the session's to destroy, and an unestablished destructive target ranks TIGHTEST at a fail-closed fence.`,
+          why: `git.md § "Destructive Working-Tree Ops" — the git-content probe PROVES ZERO-LOSS here (B8 ruling (1), 2026-10-08, orchestrator security seat): no uncommitted or untracked content, no stash entries, and every commit on a remote — the assessor's CLEAN verdict IS the three-part proof, so no unproven leg rides in this arm. What remains is JURISDICTION: the target is outside the session's working tree and outside every scratch root, and whether a destruction there is this session's to make is the repo-scope guard's question — deliberately NOT merged into this fence (the ruling). An unproven leg never reaches this arm: uncommitted, unpushed or stashed content lands at the DIRTY block branch above, and a probe that cannot answer is refused at the INDETERMINATE block branch above (the arm that actually refuses an unverifiable target; THIS arm only ever surfaces). A proven-zero-loss target is surfaced for the operator rather than refused.`,
           agent_must_report: [
             `The resolved target is ${where} — say whose it is and why this session is deleting it`,
             "If it is scratch you created, prefer a path under the session scratchpad or `mktemp -d`, which are recognised",
@@ -2273,6 +2374,17 @@ function validateBashCommand(data) {
       // Silence here is CORRECT, not a gap: a fence that trips on removing a
       // finished, fully committed tree, or a `mktemp -d` scratch directory, is
       // noise, and noise is how a guard gets switched off.
+      if (danger.tier === FORCE_DANGER.INDETERMINATE && a.state !== FORCE_STATE.EMPTY) {
+        deferredFindings.push({
+          severity: "block",
+          what_happened: `Bash invoked ${verb} against a path whose safety boundaries could not be resolved: ${where}`,
+          why: "security.md Path Containment — an unresolved boundary is UNKNOWN, never a safe path classification.",
+          agent_must_report: ["Name the unresolvable target or boundary and establish its canonical identity before removal."],
+          agent_must_wait: "Do not force-remove content while the target boundary is unverifiable.",
+          user_summary: `${verb} target safety boundary is UNKNOWN`,
+        });
+        continue;
+      }
       if (a.state !== FORCE_STATE.DIRTY) continue;
 
       const shown = a.items.slice(0, 12);
@@ -2292,13 +2404,19 @@ function validateBashCommand(data) {
         ? a.detail
         : `carries ${a.items.length} uncommitted or untracked path(s) that would be destroyed with NO reflog`;
       deferredFindings.push({
-        severity: "halt-and-report",
+        // B8 ruling (2), 2026-10-08 (orchestrator security seat): a non-empty
+        // porcelain before a destructive op is a STRUCTURAL fact — block-grade
+        // (hook-output-discipline MUST-2 + git.md). This emitted
+        // halt-and-report (rc 0 — the command RAN). The report lines below
+        // name the way OUT rather than dead-ending.
+        severity: "block",
         what_happened: `Bash invoked \`${verb}\` against ${where}, which ${carries}:\n  ${shown.join("\n  ")}${more}`,
         why: `worktree-isolation.md Rule 8 / git.md § "Destructive Working-Tree Ops" — a bare \`git worktree remove\` REFUSES a dirty tree, and that refusal IS the safety mechanism; \`--force\` exists to defeat it, and \`rm -rf\` bypasses it entirely. Unstaged modifications and untracked-not-ignored files have no git object and no reflog, so the loss is IRRECOVERABLE (the #401 data-loss class). Structural signal — the target tree's own \`git status --porcelain\`, read at the COMMAND'S TARGET and not at HEAD or the session cwd.`,
         agent_must_report: [
           `The target is ${where} — quote the listed paths and say which are yours from THIS session`,
           "Capture anything unlanded to a patch first (`git -C <target> add -N . && git -C <target> diff > wip.patch`), NOT to the stash — the stash stack is shared with every linked worktree (worktree-isolation.md Rule 9)",
           "If the removal is genuinely intended, confirm the user authorized destroying THIS tree IN THIS CONVERSATION",
+          "Way out: the USER can run this themselves in their terminal, or via the `!` prefix — that path belongs to the operator, not the agent",
         ],
         agent_must_wait:
           "Do not force-remove the tree while it carries unlanded work. Capture to a patch, or land it, first.",
@@ -2307,29 +2425,27 @@ function validateBashCommand(data) {
     }
   }
 
-  // git reset --hard — STRUCTURAL severity (hook-output-discipline.md MUST-2:
-  // `git status --porcelain` non-empty is the canonical structural signal that
-  // justifies `block`). BLOCK only when the resolved working tree is DIRTY (a
-  // dirty-tree --hard silently discards unstaged mods + untracked files with no
-  // reflog); a clean-tree --hard is safe and is ALLOWED (removes the prior
-  // lexical-block false-positive). Anchor tolerates `git -C <dir>`/sudo/env
-  // (HIGH-1 — the cross-tree form the #401 incident used). git-unverifiable →
-  // fail-open to halt-and-report (do not hard-block on an unconfirmable signal).
-  for (const seg of segments) {
-    const g = parseGitInvocation(seg);
-    if (!g || g.sub !== "reset" || !/(^|\s)--hard\b/.test(g.args)) continue;
-    // UNRESOLVABLE TARGET TREE — fail CLOSED (loom#1549 F3 lock 8). The verb is
+  for (const [segmentIndex, seg] of segments.entries()) {
+    const g = parseContextualSegment(seg, segmentIndex);
+    if (!g || g.sub !== "reset" || !gitOptionFlags(g).has("--hard")) continue;
+    // UNRESOLVABLE TARGET TREE — fail CLOSED (loom#1549 F3 lock 8; severity
+    // corrected by B8, 2026-10-08 orchestrator security call). The verb is
     // known and destructive, but `-C`/`--work-tree` names a directory only the
     // shell can produce. The porcelain probe below would spawn against the
     // LITERAL `$(…)` bytes, which name no directory: `ok:false`, and the
-    // fail-OPEN contract then degrades this branch to a bare advisory. Halting
-    // here makes that outcome DELIBERATE rather than an artefact of a spawn
-    // that happened to fail — and it holds even if such a path ever resolved.
-    if (g.unresolvable === "dir") {
+    // fail-OPEN contract then degrades this branch to a bare advisory.
+    //
+    // THE COMMENT SAID "fail CLOSED" AND THE EMISSION WAS "halt-and-report" —
+    // which maps to continue:true (lib/instruct-and-wait.js), so the command
+    // RAN. MEASURED before the fix: `git -C "$(pwd)" reset --hard HEAD`
+    // returned rc 0, continue:true. The doctrine sentence below was already
+    // written; the verdict now matches it.
+    const st = gitWorkingTreeStatus(g, cwd);
+    if (!st.ok) {
       return withDeferred({
-        severity: "halt-and-report",
+        severity: "block",
         what_happened: `Bash invoked \`git reset --hard\` against a target directory this hook cannot resolve: ${command.slice(0, 120)}`,
-        why: "git.md MUST 'Destructive Working-Tree Ops MUST Verify Clean Working Tree' — the `-C`/`--work-tree` value comes from a shell construct the hook MUST NOT evaluate (hook-output-discipline.md Rule 3 / security.md § no-eval), so the tree `--hard` would discard cannot be measured. An unverifiable target ranks TIGHTEST at a fail-closed destructive-op fence.",
+        why: "git.md MUST 'Destructive Working-Tree Ops MUST Verify Clean Working Tree' — the selected target tree or its status could not be measured. An unverifiable target ranks TIGHTEST at a fail-closed destructive-op fence.",
         agent_must_report: [
           "Name the directory the substitution resolves to, and show `git status --porcelain` for THAT directory",
           "Re-issue with the path written literally so the fence can measure the tree, OR use `git reset --keep <ref>` (aborts on a dirty tree by itself)",
@@ -2337,10 +2453,9 @@ function validateBashCommand(data) {
         agent_must_wait:
           "Do not retry --hard while the target tree is unidentifiable. Write the path literally, or use --keep.",
         user_summary:
-          "git reset --hard at a substituted -C path — target tree unverifiable (write the path literally or use --keep)",
+          "git reset --hard — target tree unverifiable (establish the literal target and status before proceeding)",
       });
     }
-    const st = gitWorkingTreeStatus(g.dir, cwd);
     if (st.ok && st.dirty) {
       return withDeferred({
         severity: "block",
@@ -2350,6 +2465,7 @@ function validateBashCommand(data) {
           "The working tree is DIRTY — `git reset --hard` would discard the listed changes unrecoverably",
           "Use `git reset --keep <ref>` (aborts on a dirty tree) OR commit the changes first; to park them, capture to a patch (`git diff > wip.patch`), NOT to the stash — the stash stack is shared with every linked worktree (worktree-isolation.md Rule 9)",
           "If the loss is genuinely intended, confirm the user authorized it IN THIS CONVERSATION",
+          "Way out: the USER can run this themselves in their terminal, or via the `!` prefix — that path belongs to the operator, not the agent",
         ],
         agent_must_wait:
           "Do not retry --hard while the tree is dirty. Use --keep, or commit/patch first.",
@@ -2360,7 +2476,7 @@ function validateBashCommand(data) {
     return withDeferred({
       severity: "halt-and-report",
       what_happened: `Bash invoked \`git reset --hard\`: ${command.slice(0, 120)}`,
-      why: "git.md MUST 'Destructive Working-Tree Ops' — prefer `git reset --keep` (aborts on a dirty tree). Tree appears clean or is unverifiable; surfacing per hook-output-discipline.md MUST-2 (no structural dirty-tree signal → not block).",
+      why: "git.md MUST 'Destructive Working-Tree Ops' — prefer `git reset --keep` (aborts on a dirty tree). Tree is measured clean; surfacing per hook-output-discipline.md MUST-2 (no structural dirty-tree signal → not block).",
       agent_must_report: [
         "Confirm `git status --porcelain` is empty before --hard, OR use `git reset --keep <ref>`",
         "Explain why --hard was chosen over --keep",
@@ -2379,27 +2495,29 @@ function validateBashCommand(data) {
   // `git -C <dir>`/sudo/env (HIGH-1). The sync-tier-aware pre-write snapshot
   // covers the tool's own fs purge; this is the cross-tool tripwire for an
   // OPERATOR-typed destructive clean.
-  for (const seg of segments) {
-    const g = parseGitInvocation(seg);
+  for (const [segmentIndex, seg] of segments.entries()) {
+    const g = parseContextualSegment(seg, segmentIndex);
     if (!g || g.sub !== "clean") continue;
-    const a = g.args;
-    // -n / --dry-run overrides force in git and only previews — exempt.
-    if (/(^|\s)-[a-zA-Z]*n[a-zA-Z]*\b/.test(a) || /(^|\s)--dry-run\b/.test(a)) {
+    const flags = gitOptionFlags(g);
+    // Only option-position flags preview; pathspecs and option values do not.
+    if (flags.has("-n") || flags.has("--dry-run")) {
       continue;
     }
-    const force =
-      /(^|\s)-[a-zA-Z]*f[a-zA-Z]*\b/.test(a) || /(^|\s)--force\b/.test(a);
+    const force = flags.has("-f") || flags.has("--force");
     if (!force) continue; // `git clean` without -f is a no-op
     // UNRESOLVABLE TARGET TREE — fail CLOSED, same disposition as the
-    // `reset --hard` fence above (loom#1549 F3 lock 8). Sibling surface, swept
-    // in the SAME change per security.md § Enforcement-Surface Parity: fixing
-    // only the reset lane would leave `git -C $(…) clean -fd` reaching no
-    // guard, which is the identical measured bypass.
-    if (g.unresolvable === "dir") {
+    // `reset --hard` fence above (loom#1549 F3 lock 8; severity corrected by
+    // B8, 2026-10-08 orchestrator security call — the same halt-and-report
+    // fail-open measured at rc 0, continue:true on this lane too). Sibling
+    // surface, swept in the SAME change per security.md § Enforcement-Surface
+    // Parity: fixing only the reset lane would leave `git -C $(…) clean -fd`
+    // reaching no guard, which is the identical measured bypass.
+    const st = gitWorkingTreeStatus(g, cwd);
+    if (!st.ok) {
       return withDeferred({
-        severity: "halt-and-report",
+        severity: "block",
         what_happened: `Bash invoked \`git clean\` with force against a target directory this hook cannot resolve: ${command.slice(0, 120)}`,
-        why: "git.md MUST 'Destructive Working-Tree Ops' — the `-C`/`--work-tree` value comes from a shell construct the hook MUST NOT evaluate (hook-output-discipline.md Rule 3 / security.md § no-eval), so the untracked files `clean -f` would delete cannot be enumerated. An unverifiable target ranks TIGHTEST at a fail-closed destructive-op fence.",
+        why: "git.md MUST 'Destructive Working-Tree Ops' — the selected target tree or its status could not be measured. An unverifiable target ranks TIGHTEST at a fail-closed destructive-op fence.",
         agent_must_report: [
           "Name the directory the substitution resolves to, and show `git clean -n` (dry-run) for THAT directory",
           "Re-issue with the path written literally so the fence can enumerate what would be deleted",
@@ -2407,10 +2525,9 @@ function validateBashCommand(data) {
         agent_must_wait:
           "Do not retry the force-clean while the target tree is unidentifiable. Dry-run against the literal path first.",
         user_summary:
-          "git clean -f at a substituted -C path — target tree unverifiable (write the path literally and dry-run first)",
+          "git clean -f — target tree unverifiable (establish the literal target and status before proceeding)",
       });
     }
-    const st = gitWorkingTreeStatus(g.dir, cwd);
     if (st.ok && st.untracked) {
       return withDeferred({
         severity: "block",
@@ -2420,6 +2537,7 @@ function validateBashCommand(data) {
           "Untracked-not-ignored files EXIST — `git clean -f` would delete them unrecoverably",
           "Run `git clean -n` (dry-run) to see exactly what would be deleted; to preserve it use `git add -N . && git diff > wip.patch`, NOT `git stash -u` — the stash stack is shared with every linked worktree (worktree-isolation.md Rule 9)",
           "If the deletion is genuinely intended, confirm the user authorized it IN THIS CONVERSATION",
+          "Way out: the USER can run this themselves in their terminal, or via the `!` prefix — that path belongs to the operator, not the agent",
         ],
         agent_must_wait:
           "Do not retry the clean while untracked work exists. Dry-run + capture to a patch first.",
@@ -2430,7 +2548,7 @@ function validateBashCommand(data) {
     return withDeferred({
       severity: "halt-and-report",
       what_happened: `Bash invoked \`git clean\` with force: ${command.slice(0, 120)}`,
-      why: "git.md MUST 'Destructive Working-Tree Ops' — `git clean -f[d]` deletes untracked-not-ignored files. No untracked-not-ignored files detected (or unverifiable); surfacing per hook-output-discipline.md MUST-2.",
+      why: "git.md MUST 'Destructive Working-Tree Ops' — `git clean -f[d]` deletes untracked-not-ignored files. No untracked-not-ignored files detected in the measured tree; surfacing per hook-output-discipline.md MUST-2.",
       agent_must_report: [
         "Confirm via `git clean -n` (dry-run) that nothing of value would be deleted",
         "When in doubt, capture first (`git add -N . && git diff > wip.patch`) rather than destroying — and rather than stashing, which parks the work on a stack every linked worktree can pop (worktree-isolation.md Rule 9)",
@@ -2482,20 +2600,20 @@ function validateBashCommand(data) {
   // green fixture is a statement about the shipped guard rather than about a
   // parallel copy of it.
   const stashHazard = selectStashHazard(
-    segments.map((s) => parseGitInvocation(s)),
+    segmentInvocations,
   );
   // NOT MEASURED ⇒ SILENT (cc-artifacts.md Rule 7 fail-open). `trees.ok` is
   // false when git could not be resolved, the spawn timed out, or the porcelain
   // shape was unparseable — none of which is evidence about the worktree count.
   const stashTrees = stashHazard
-    ? countWorkingTrees(stashHazard.dir, cwd)
+    ? countWorkingTrees(stashHazard.dir, cwd, undefined, stashHazard.invocation)
     : { ok: false, count: 0 };
   if (stashHazard && stashTrees.ok && stashTrees.count > 1) {
     // Stack depth is CONTEXT, never part of the predicate: an empty stack is not
     // safety, because a `push` onto it creates the very entry a sibling can pop
     // a minute later. Probed only once the finding is already firing, so the
     // common (single-tree) path costs exactly one spawn.
-    const stack = countStashEntries(stashHazard.dir, cwd);
+    const stack = countStashEntries(stashHazard.dir, cwd, undefined, stashHazard.invocation);
     const depthNote = stack.ok
       ? `${stack.depth} entr${stack.depth === 1 ? "y" : "ies"} currently on it`
       : "current depth not measured";
@@ -2550,19 +2668,27 @@ function validateBashCommand(data) {
   // inherits their quote-awareness, heredoc-body removal, doc-carrier masking,
   // shell-group stripping and nested-body expansion — `sh -c 'git commit
   // --no-verify -m x'` still resolves to a real commit invocation here.
-  if (segments.some((s) => carriesNoVerifyFlag(parseGitInvocation(s), s))) {
+  const noVerify = segments.some((s) => carriesNoVerifyFlag(parseGitInvocation(s), s));
+  const hookBypass = findGitHookBypass(command);
+  if (noVerify || hookBypass) {
     return withDeferred({
       severity: "halt-and-report",
-      what_happened: `Bash command uses --no-verify: ${command.slice(0, 120)}`,
-      why: "git.md — pre-commit hooks exist for a reason; --no-verify requires explicit user instruction",
+      what_happened: noVerify
+        ? `Bash command uses --no-verify: ${command.slice(0, 120)}`
+        : hookBypass.kind === "unknown"
+          ? `Bash command has unresolved Git hook controls (${hookBypass.reason}): ${command.slice(0, 120)}`
+          : `Bash command overrides Git hooks (${hookBypass.reason}): ${command.slice(0, 120)}`,
+      why: "git.md § Discipline — pre-commit hooks exist for a reason; hook bypass requires explicit user instruction",
       agent_must_report: [
-        "State which hook is being bypassed and why",
+        !noVerify && hookBypass.kind === "unknown"
+          ? "State that effective Git hook controls are NOT RUN/UNKNOWN and identify the unresolved control"
+          : "State which hook is being bypassed and why",
         "Explain the underlying issue you would otherwise have to fix",
-        "Confirm whether the user authorized --no-verify IN THIS CONVERSATION",
+        "Confirm whether the user authorized this hook bypass IN THIS CONVERSATION",
       ],
       agent_must_wait:
         "Do not retry without explicit user instruction. Investigate hook failure root cause first.",
-      user_summary: "--no-verify usage requires user authorization",
+      user_summary: "Hook bypass requires user authorization",
     });
   }
 
@@ -2626,184 +2752,78 @@ function validateBashCommand(data) {
   // (the harm is recoverable; loom#1323 precedent). The full argument lives at
   // the detector in lib/violation-patterns.js; do not re-derive it here.
   if (command.indexOf("worktree") !== -1) {
-    // WHICH REPOSITORY THE PROBE READS IS PART OF THE VERDICT, and reading the
-    // SESSION cwd when the command targets another repo is wrong in BOTH
-    // directions. `git -C <dir>` was already honoured; a `cd <dir> &&` prefix was
-    // not, because splitShellSegments puts the git call in its OWN segment with
-    // no `-C` to carry the directory. Reproduced against two scratch repos that
-    // share a branch name, one 1-behind and one 0-behind:
-    //
-    //   cwd=<stale>  `cd <clean> && git worktree add ../wt wave/x`  → FIRED   ✗
-    //   cwd=<clean>  `cd <stale> && git worktree add ../wt wave/x`  → silent  ✗
-    //
-    // The first is the worse half: a halt naming a repository the command never
-    // touches is precisely the false positive hook-output-discipline.md MUST-2
-    // forbids. So the walk tracks `cd`/`pushd` — and where it CANNOT track them
-    // it declines to probe rather than guessing, because falling back to the
-    // session cwd after an unresolved `cd` IS the false positive.
-    let segDir = cwd;
-    let dirKnown = true;
     let probesSpent = 0;
     let refProbeBudgetMs = REF_PROBE_TOTAL_BUDGET_MS;
-    // A `cd` the shell might SKIP must not be applied. `A || cd <x>` runs the cd
-    // only if A failed; `false && cd <x>` never runs it at all. Applying it
-    // regardless produced a halt naming a repository the command never enters —
-    // reproduced as `cd <clean> || cd <stale> ; git worktree add …` flagging from
-    // a cwd where the ref is current. Deciding which side of a `||` executes
-    // needs the exit status of a command that has not run, so the honest answer
-    // is that the trail is unknowable: the whole walk declines rather than
-    // guessing. `&&`-only chains are safe by construction — if an earlier link
-    // fails the git call does not run either — but this hook cannot see WHICH
-    // separator joined two segments, so the presence of `||` anywhere is the
-    // conservative trigger.
-    // HEREDOC BODIES ARE NOT COMMANDS. `maskDocCarrierPayloads` neutralises a
-    // doc-carrier's quoted ARGUMENT and a `$(cat <<X)` substitution, but a plain
-    // `cat > notes.md <<'EOF' … EOF` writes a FILE, so its body was never masked
-    // and the `;`/`&&` inside the prose fractured it into a segment whose leading
-    // token is `git`. Reproduced against the real repo: authoring a journal note
-    // that MENTIONS `git worktree add … <ref>` produced a verdict byte-identical
-    // to running it. That shape is this repo's own documented authoring pattern,
-    // so the guard would have fired on the very notes describing it — including
-    // a `git commit -F- <<'EOF'` commit message for this PR.
-    //
-    // `.structural` is the command with every heredoc BODY and close line
-    // removed; opener lines survive, and an opener is only committed when its
-    // close actually exists downstream, so a decoy `<<WORD` cannot swallow a real
-    // command. On the parser's work-budget `overflow` `structural` is absent, so
-    // the walk gets an EMPTY string and simply finds nothing — this whole
-    // detector fails open on an unverifiable signal, and a pathological command
-    // missing a stale-base warning is a miss, whereas guessing is the false
-    // positive MUST-2 forbids. NOT `return null`: checks follow this block (the
-    // pytest/.env enforcement below among them) and must not be disabled.
-    //
-    // GATED ON THE `<<` SUBSTRING. Every other caller of parseHeredocSpans
-    // early-exits unless a PROTECTED PATH appears; this lane's gate is the far
-    // more common `worktree`, so calling the parser unconditionally would expose
-    // its O(unclosed-openers × downstream-lines) work budget to any command
-    // containing that word. A command with no `<<` cannot contain a heredoc, so
-    // skipping the parse is exact, not approximate.
-    const spans =
-      command.indexOf("<<") === -1
-        ? { structural: command }
-        : parseHeredocSpans(command);
-    const masked = maskDocCarrierPayloads(spans.structural || "");
-    // SEPARATOR HYGIENE — whether a `cd` actually took effect in the shell that
-    // runs the git call depends on how the segments are JOINED, and three shapes
-    // defeat a naive walk:
-    //
-    //   cd <B> | cat ; git worktree add …   the cd runs in a SUBSHELL; the git
-    //                                       call runs in the ORIGINAL directory
-    //   cd <A> || cd <B> ; git …            `||` short-circuits; only one ran
-    //   git fetch && cd <B>                 MIXED: if fetch fails the cd does
-    //   git worktree add …                  not run, but the git call still does
-    //
-    // All three were reproduced flagging a repository the command never enters —
-    // the false positive hook-output-discipline.md MUST-2 forbids outright.
-    //
-    // A pure `&&` chain is sound (a failed link stops the git call too) and so is
-    // a pure `;`/newline chain (every segment runs, and the statSync below catches
-    // a `cd` that fails). MIXING them is not, and neither is any pipeline,
-    // background, or subshell. Rather than reconstruct the shell's control flow,
-    // the trail is trusted only for those two homogeneous shapes.
-    //
-    // Computed on the MASKED, heredoc-stripped surface so a separator inside
-    // prose cannot silently disable the walk.
-    const hasPipe = /\|/.test(masked); // covers `|` AND `||`
-    const hasAmp = /&/.test(masked); // covers `&` AND `&&`
-    const hasSeq = /[;\n]/.test(masked);
-    const cdTrailTrustworthy =
-      !hasPipe && !/[()]/.test(masked) && !(hasAmp && hasSeq);
-    // ⛔ THIS SPLIT IS RAW, AND THAT IS A RECORDED RESIDUAL — NOT AN OVERSIGHT
-    // AND NOT SOMETHING TO "FIX" BY ROUTING THE SINGULAR (T65 ten-site table).
-    //
-    // Sites 1–7 in this file read `segments`, which `expandNestedSegments` has
-    // already expanded, so a substitution body reaches them as its own segment.
-    // This lane does NOT: it splits `masked` directly, so a `git <verb>` reached
-    // through a command substitution is invisible here. MEASURED, controls
-    // firing: `git worktree add ../y` and `git status && git worktree add ../y`
-    // are both seen; `echo $(git worktree add ../y)` is not.
-    //
-    // SEVERITY — a missing ADVISORY, not a missed block. This lane only PROBES a
-    // base ref to surface a stale-base finding; its blindness costs a finding
-    // that never appears rather than letting an operation through.
-    //
-    // ⛔ ROUTING THE SINGULAR WAS MEASURED AND IS *NOT* THE FIX. Making
-    // `parseGitInvocation` descend does close this row, but it DUPLICATES every
-    // substitution invocation across the nine sites that already pre-expand,
-    // because `expandNestedSegments` emits the body as its own segment and the
-    // carrier then yields the same invocation a second time:
-    //     plural "echo $(git reset --hard HEAD)" -> ["reset","reset"]
-    // The real fix is the CONSOLIDATION — the descent living in ONE place, with
-    // `expandNestedSegments` no longer emitting substitution bodies as separate
-    // segments — which is its own shard with its own two verdicts, because it
-    // changes the plural's output for every consumer. Do not bolt a descent onto
-    // the singular to close this row.
-    //
-    // Bound by `tests/integration/multi-operator/t65-declared-residuals.test.js`
-    // (renamed from `t65-site8-raw-residual.test.js`, which carried only this
-    // residual; the file now carries both bindings).
-    // which carries the `todo` row for the intended behaviour and the measured
-    // duplicate numbers from the route experiment.
-    for (const seg of splitShellSegments(masked, {
-      // A newline separates commands exactly as `;` does. Without this a
-      // multi-line block collapsed into one segment whose leading token is the
-      // FIRST command, so the canonical `git fetch origin <ref>` + newline +
-      // `git worktree add … <ref>` shape — the very sequence Rule 7 prescribes —
-      // was invisible to this guard. The sibling state-path lane already passes
-      // this flag; omitting it here was an oversight, not a scoping decision.
+    const notRun = (reason) => withDeferred({
+      severity: "halt-and-report",
+      what_happened: `Worktree stale-base verification NOT RUN/UNKNOWN: ${reason}`,
+      why: "worktree-orchestration Rule 7 — a bounded or unreadable command walk cannot establish whether every explicit base is current",
+      agent_must_report: ["Report the unverified remainder and reason; do not describe it as a clean stale-base check"],
+      agent_must_wait: "Resolve the command or verify the remaining explicit bases before relying on this check.",
+      user_summary: "Worktree base verification is incomplete",
+    });
+    const spans = command.indexOf("<<") === -1
+      ? { structural: command } : parseHeredocSpans(command);
+    if (typeof spans.structural !== "string") return notRun("heredoc structure unreadable");
+    const masked = maskDocCarrierPayloads(spans.structural);
+    // Shared expansion and owner indices: .claude/hooks/lib/git-command-parse.js:3347-3406.
+    // The singular prefix contract stays unchanged; originals suppress only an
+    // equal nested route, never a distinct sibling invocation.
+    const expansion = expandNestedSegments(splitShellSegments(masked, {
       newlineSeparates: true,
-    })) {
-      const t = seg.trim();
-      // A directory-changing segment we can resolve exactly: one literal operand,
-      // no shell expansion. Anything else (bare `cd` → $HOME, `cd -` → OLDPWD,
-      // `cd --` → $HOME, a `$VAR`/glob/`~` operand, an option form like `cd -P x`,
-      // a `cd` nested in a subshell or wrapped so this pattern misses it) marks
-      // the directory UNKNOWN and is never guessed at.
-      if (/(?:^|[^\w./-])(?:cd|pushd|popd)(?=\s|$)/.test(t)) {
-        const m = /^(?:cd|pushd)\s+(\S+)$/.exec(t);
-        const arg = m ? m[1].replace(/^(['"])(.*)\1$/, "$2") : null;
-        if (
-          !arg ||
-          !dirKnown ||
-          !cdTrailTrustworthy ||
-          /[$`*?~]/.test(arg) ||
-          arg.startsWith("-")
-        ) {
-          dirKnown = false;
-        } else {
-          const next = path.resolve(segDir, arg);
-          // A `cd` to a path that is not a directory FAILS, leaving the shell
-          // where it was. Applying it anyway walked the probe to a nonexistent
-          // directory and reported "clean" for a command that really did run in
-          // the stale repo. Checked, not assumed — and an unreadable path is
-          // UNKNOWN rather than either branch.
-          let st = null;
-          try {
-            st = fs.statSync(next);
-          } catch {
-            st = null;
-          }
-          if (!st) dirKnown = false;
-          else if (st.isDirectory()) segDir = next;
-          // else: `cd <file>` fails; the shell stays put, so segDir is unchanged.
-        }
-        continue;
+    }));
+    if (expansion.truncated || expansion.unresolvable) return notRun("nested command expansion incomplete");
+    const ownerDirs = new Map();
+    const originalInvocations = new Map();
+    let sourceOffset = 0;
+    for (let index = 0; index < expansion.segments.length; index++) {
+      const seg = expansion.segments[index];
+      const owner = expansion.parents[index];
+      if (owner === index) {
+        const start = masked.indexOf(seg, sourceOffset);
+        // A directory-changing segment we can resolve exactly: one literal operand,
+        // no shell expansion; an explicit `cd -P x` is followed too, resolved to its
+        // physical identity; a single-operand `pushd x` moves the shell the same way
+        // `cd x` does and is followed too. Anything else (bare `cd` → $HOME,
+        // `cd -` → OLDPWD, `cd --` → $HOME, a bare/`-n` `pushd`, `popd` whose stack
+        // position the text cannot derive, a `$VAR`/glob/`~` operand, a `cd` nested in
+        // a subshell or wrapped so this pattern misses it) marks the directory
+        // UNKNOWN and is never guessed at.
+        // A `cd` to a path that is not a directory FAILS, leaving the shell
+        // where it was. Applying it anyway walked the probe to a nonexistent
+        // directory and reported "clean" for a command that really did run in
+        // the stale repo. Checked, not assumed — and an unreadable path is
+        // UNKNOWN rather than either branch.
+        ownerDirs.set(owner, start < 0 ? { dir: null, known: false }
+          : resolveCdTrailDir(masked.slice(0, start), cwd));
+        if (start >= 0) sourceOffset = start + seg.length;
       }
-      const g = parseGitInvocation(seg);
+      const context = ownerDirs.get(owner);
+      if (!context) return notRun("missing source-owner directory");
+      // A nested local directory transition is UNKNOWN, rather than applied to
+      // siblings or guessed. Absolute -C independently pins a target below.
+      // Shared trail semantics: .claude/hooks/lib/git-command-parse.js:4028-4083.
+      const nestedCd = owner !== index && /(?:^|[^\w./-])(?:cd|pushd|popd)(?=\s|$)/.test(expansion.segments[owner]);
+      const g = parseGitInvocation(stripShellGroupDelimiters(seg));
       if (!g || g.sub !== "worktree") continue;
-      // An unresolvable `-C` is an UNKNOWN directory, so this lane takes the
-      // disposition it already takes for one: do not probe (loom#1549 F3 lock
-      // 8). Probing the literal `$(…)` bytes would resolve some other path and
-      // report a CLEAN base ref for a tree never inspected — a false negative
-      // worse than no signal. `continue`, not `break`: only THIS segment's
-      // target is unknown, and the cd trail is still valid for later segments.
+      const key = JSON.stringify([g.sub, g.dir, g.unresolvable, g.argv]);
+      if (owner === index) originalInvocations.set(owner, key);
+      else if (originalInvocations.get(owner) === key) continue;
       if (g.unresolvable === "dir") continue;
       // `-C` is absolute → it alone pins the repo, whatever the cd trail did.
       // Otherwise the resolved cd trail must be trustworthy, or we do not probe.
       const cAbs = g.dir && path.isAbsolute(g.dir);
-      if (!dirKnown && !cAbs) break;
-      const probeDir = g.dir ? path.resolve(segDir, g.dir) : segDir;
-      if (probesSpent >= MAX_REF_PROBES || refProbeBudgetMs <= 0) break;
+      if ((!context.known || nestedCd) && !cAbs) continue;
+      const target = resolveGitTargetContext(g, context.known ? context.dir : g.dir);
+      if (!target.known || target.gitDir) continue;
+      const probeDir = target.target;
+      if (probesSpent >= MAX_REF_PROBES || refProbeBudgetMs <= 0) {
+        // Same no-probe domain as .claude/hooks/lib/violation-patterns.js:6184-6197;
+        // shared explicit-base grammar: .claude/hooks/lib/violation-patterns.js:5936-5967.
+        const base = parseWorktreeAddBaseRef(g.args);
+        if (!base || /[$`]/.test(base.ref) || /^(?:origin|upstream)\//.test(base.ref)) continue;
+        return notRun("reference probe budget exhausted");
+      }
       const stats = {};
       const t0 = Date.now();
       // The per-spawn timeout is the REMAINING budget, never the full default —
@@ -2818,24 +2838,6 @@ function validateBashCommand(data) {
         probesSpent++;
         refProbeBudgetMs -= Date.now() - t0;
       }
-      // A BOUNDED number of spawns per invocation, spent only when a spawn
-      // actually happened. Two separate defects lived in the old `if (!stale)
-      // break`:
-      //
-      //   1. The detector returns null both when it probed and found nothing AND
-      //      when it never probed at all (`worktree list`/`remove`/`prune`, an
-      //      `add` with no explicit base, a `$VAR` ref, an already-correct
-      //      `origin/` ref). Breaking on the latter stopped the walk at the first
-      //      harmless subcommand, so the documented `git worktree prune && git
-      //      worktree add … <stale>` cleanup shape was never probed at all.
-      //      `stats.probed` distinguishes them; a segment that cost nothing
-      //      costs nothing.
-      //   2. Even a REAL probe returning clean ended the walk, so
-      //      `add ../a <current> && add ../b <stale>` missed the stale one. A
-      //      hard cap bounds the hot path without that miss: MAX_REF_PROBES × the
-      //      measured ~10.8ms spawn stays an order of magnitude inside the hook's
-      //      own budget, and a chain longer than this is not a shape worth paying
-      //      unbounded latency for.
       if (!stale) continue;
       try {
         logLearningObservation(cwd, "rule_violation", {

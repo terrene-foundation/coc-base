@@ -269,7 +269,7 @@ The coordinator can then decide: retry, reroute, or proceed with partial results
   "mcpServers": {
     "personal-notes": {
       "command": "node",
-      "args": ["/home/me/mcp-notes/server.js"]
+      "args": ["<operator-home>/mcp-notes/server.js"]
     }
   }
 }

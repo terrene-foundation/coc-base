@@ -91,7 +91,7 @@ Run when auditing any parser that ingests human-authored markdown and acts on it
 
 ## Origin
 
-kailash-coc-conformer W2b/W2c/W2d adapters (PR #1877, the conformer is a public kailash crate). **8 adversarial redteam rounds** to 2-consecutive-clean proved that a body scan emulating CommonMark is unwinnable — every round the parser closed one code-block bypass, the next round opened another (nested fence, indented block, CRLF drift, zero-width delimiter). The root-cause fix moved `command-class` (the execution opt-in) and `target-system` (the connector target) OUT of the body and into **frontmatter**, read by a strict column-0 scalar reader, plus a `find_closing_fence` that refuses any non-pristine-ASCII `---` line. The class closed structurally; the whack-a-mole ended.
+kailash-coc-conformer W2b/W2c/W2d adapters (PR #1877, the conformer is a public kailash crate). **8 adversarial redteam rounds** proved that a body scan emulating CommonMark is unwinnable — every round the parser closed one code-block bypass, the next round opened another (nested fence, indented block, CRLF drift, zero-width delimiter). The root-cause fix moved `command-class` (the execution opt-in) and `target-system` (the connector target) OUT of the body and into **frontmatter**, read by a strict column-0 scalar reader, plus a `find_closing_fence` that refuses any non-pristine-ASCII `---` line. The class closed structurally; the whack-a-mole ended.
 
 ## Cross-references
 

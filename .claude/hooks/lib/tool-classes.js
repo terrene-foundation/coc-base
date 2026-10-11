@@ -113,7 +113,113 @@ function isMutationTool(tool) {
   return typeof tool === "string" && MUTATION_TOOLS.has(tool);
 }
 
+/**
+ * B7 (2026-10-08, orchestrator security call) — MUTATION-CAPABLE tools that are
+ * NOT in MUTATION_TOOLS. `apply_patch` is Codex CLI's patch tool (see
+ * `lib/codex-native-policy.js`, which synthesizes its edit targets). It is
+ * recognized here so an integrity-layer classifier does not REFUSE a known
+ * tool; it stays OUT of MUTATION_TOOLS because that set drives ~15 hooks whose
+ * payload reads expect `file_path`/`notebook_path`, which apply_patch does not
+ * carry — membership there would change those hooks' behavior, not just this
+ * classification.
+ */
+const EXTRA_MUTATION_CAPABLE_TOOLS = new Set(["apply_patch"]);
+
+/**
+ * B7 — tools whose NON-mutation is established for the integrity layer.
+ * BENIGN BY CLASSIFICATION, not by inspection: each of these either carries no
+ * filesystem effect (`Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`), or its
+ * mutation surface is policed by a DIFFERENT lane (`Bash` — the bash lane;
+ * `apply_patch` is handled as mutation-capable above; `Task`/`Agent` spawns —
+ * the delegation guards). The Codex native names are the raw forms the Codex
+ * runtime bridges (`lib/codex-hook-runtime.js` NATIVE_SHELL_TOOLS /
+ * NATIVE_AGENT_TOOLS, `lib/codex-tool-contracts.js` plan/message tools), listed
+ * so the bridge cannot turn a legitimate call into a refusal.
+ *
+ * THE LIST IS DELIBERATELY FINITE AND FAIL-CLOSED. A tool name this inventory
+ * does not know classifies as "unknown" — and any consumer that must bound a
+ * tool's effects MUST treat unknown as UNKNOWN (refuse), never as a pass. When
+ * a CLI ships a new tool name, add it HERE (one edit — the SSOT), not per-site.
+ */
+const NON_MUTATION_TOOLS = new Set([
+  // Claude Code — read-only / no filesystem effect
+  "Read",
+  "NotebookRead",
+  "Grep",
+  "Glob",
+  "LS",
+  "WebFetch",
+  "WebSearch",
+  "TodoRead",
+  "TodoWrite",
+  "ExitPlanMode",
+  "AskUserQuestion",
+  "SlashCommand",
+  "Skill",
+  "SendMessage",
+  // Claude Code — task/subagent family (spawns are the delegation guards' lane)
+  "Task",
+  "Agent",
+  "TaskCreate",
+  "TaskUpdate",
+  "TaskList",
+  "TaskGet",
+  "TaskOutput",
+  "TaskStop",
+  // Claude Code — the shell lane's own tool (mutation surface policed there)
+  "Bash",
+  // Codex CLI — native bridged names (see lib/codex-hook-runtime.js)
+  "shell",
+  "shell_command",
+  "exec_command",
+  "unified_exec",
+  "local_shell",
+  "spawn_agent",
+  "collaborationspawn_agent",
+  "update_plan",
+  "functionsupdate_plan",
+  "send_message",
+  "collaborationsend_message",
+  // csq messaging — MCP tools (B7 amendment, 2026-10-08, compliance blocker
+  // via csq/the orchestrator): a csq session depends on these, and they write
+  // ONLY csq's own message store, never repo files. Classified EXPLICITLY so
+  // they never ride the unknown-tool path at all — the narrowed rule would
+  // also let them through (path-less), but an explicit class is the stronger
+  // statement and does not depend on payload shape.
+  "mcp__csq-messaging__send",
+  "mcp__csq-messaging__reply",
+  "mcp__csq-messaging__ack",
+  "mcp__csq-messaging__set_name",
+  "mcp__csq-messaging__inbox",
+  "mcp__csq-messaging__list_sessions",
+]);
+
+/**
+ * classifyTool — the ONE tool classification: "mutation" | "non-mutation" |
+ * "unknown". THREEE-VALUED ON PURPOSE: the third value is the contract B7
+ * exists for — a consumer that cannot bound an unknown tool's effects must see
+ * "unknown" and refuse, because "not in the mutation set" was never the same
+ * claim as "cannot mutate" (the measured probe: `Patch` sailed through an
+ * integrity fence that denied `Write`).
+ *
+ * Non-string / empty input is "unknown" here; a consumer with a LEGITIMATELY
+ * tool-less payload (a non-tool event) must check tool-name presence ITSELF
+ * before asking — absence of a name is not a named tool.
+ *
+ * @param {*} tool - candidate tool name (typically `payload.tool_name`)
+ * @returns {"mutation"|"non-mutation"|"unknown"}
+ */
+function classifyTool(tool) {
+  if (typeof tool !== "string" || tool.length === 0) return "unknown";
+  if (MUTATION_TOOLS.has(tool) || EXTRA_MUTATION_CAPABLE_TOOLS.has(tool)) return "mutation";
+  if (NON_MUTATION_TOOLS.has(tool)) return "non-mutation";
+  return "unknown";
+}
+
 module.exports = {
   MUTATION_TOOLS,
+  EXTRA_MUTATION_CAPABLE_TOOLS,
+  NON_MUTATION_TOOLS,
   isMutationTool,
+  classifyTool,
 };

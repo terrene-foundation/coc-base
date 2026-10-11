@@ -111,3 +111,8 @@ See: `skills/12-testing-strategies/probe-driven-verification.md`.
 - **reviewer**: Hand off for general code review
 - **testing-specialist**: Ensure security tests exist
 - **release-specialist**: Verify production security config
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Grep, Glob. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command. These are role instructions, not a native tool permission boundary. Parent policy still applies.

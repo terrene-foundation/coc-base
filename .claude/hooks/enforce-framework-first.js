@@ -13,6 +13,20 @@
  *   2 = blocking error (stop tool execution)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Pure in-memory regex sweep over the payload's own content (no disk read); the only output is stdout/stderr through lib/instruct-and-wait.js. Note `exitCode` 2 in the header is the legacy vocabulary — the post-hoc path emits halt-and-report, never a deny."
+ * }
+ */
+
 const TIMEOUT_MS = 5000;
 let timeout = null;
 

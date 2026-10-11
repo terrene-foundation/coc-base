@@ -97,15 +97,6 @@ Escalate to a different agent if:
 | SyntaxError     | Fix typo or formatting       | 1             |
 | ValidationError | Fix parameter format         | 1-3           |
 
-## Kailash-Specific Errors
-
-| Error                  | Cause                | Minimal Fix              |
-| ---------------------- | -------------------- | ------------------------ |
-| `Missing .build()`     | Forgot to call build | Add `.build()`           |
-| `Connection not found` | Wrong parameter name | Fix connection string    |
-| `Node not registered`  | Typo in node type    | Correct node type string |
-| `Invalid parameter`    | Wrong config key     | Check node docs          |
-
 ## Related Agents
 
 - **pattern-expert**: For pattern-related issues
@@ -115,11 +106,11 @@ Escalate to a different agent if:
 
 ## Skill References
 
-- **[error-troubleshooting](../../skills/31-error-troubleshooting/SKILL.md)** - Common error patterns
+- **[testing-strategies](../../skills/12-testing-strategies/SKILL.md)** - Verify the minimal fix and relevant regressions
 - **[gold-standards](../../skills/17-gold-standards/SKILL.md)** - Pattern compliance
 
 ## Full Documentation
 
 When this guidance is insufficient, consult:
 
-- `.gemini/skills/31-error-troubleshooting/`
+- Consult the repository's indexed language and framework references for the failing component.

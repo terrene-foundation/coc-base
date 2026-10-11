@@ -40,7 +40,22 @@
  * ── SECOND MODE: `--verify <pre-rebase-ref>` ────────────────────────────────
  *
  *   node .claude/hooks/rebase-content-loss-guard.js --verify <ref> \
- *        [--head <ref>] [--cwd <dir>] [--json]
+ *        [--head <ref>] [--repo <dir>] [--json]
+ *
+ * SUBJECT TREE — the tree whose HEAD the verdict is about. Named explicitly by
+ * `--repo <dir>` (`--cwd` is the legacy alias; `COC_REPO` is honored), and
+ * defaulted to the CWD's toplevel when none is given. An explicit subject that
+ * does not resolve REFUSES (exit 2) — it is never silently replaced by the CWD.
+ * This exists because the mode used to run wherever the process stood: from the
+ * PRIMARY checkout, with the rebase performed in a linked worktree, it resolved
+ * HEAD to the primary's and reported ABSENT for commits whose content lives in
+ * that worktree — a wrong-tree verdict with no warning, whose mirror case is a
+ * false CLEAN. A defaulted HEAD is additionally REFUSED when <ref> names a
+ * branch checked out in a DIFFERENT worktree (the check names the tree to use);
+ * a typed `--head` declares which refs the caller means and proceeds. Every
+ * verdict ECHOES the subject toplevel and the resolved HEAD sha, so the tree a
+ * verdict was measured against is always visible — including for sha/tag refs,
+ * which no possession check can attribute to a worktree.
  *
  * Reports every commit on the pre-rebase ref whose CONTENT is absent from HEAD,
  * by forward and reverse patch-apply against a temporary index — NOT by sha
@@ -62,6 +77,22 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<os.tmpdir()>/rebase-verify-<mkdtemp-suffix>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "No durable writes: the hook mode only decides and emits, and the --verify mode's sole fs output is a throwaway scratch dir — lib/rebase-content-loss.js mkdtemps <os.tmpdir()>/rebase-verify-* to hold the GIT_INDEX_FILE patch-apply probe and rmSyncs it on the way out. spawns: the git rev-list --merges --count and patch-apply probes (spawnSync in that lib). A repeat runs the same verdict and lands no new state, so idempotent."
+ * }
+ */
+
 const path = require("path");
 
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
@@ -71,30 +102,58 @@ const {
   readOverride,
   classifyRebaseCommand,
   countMergesToBeDropped,
+  resolveVerifySubject,
+  subjectPossessionConflict,
   verifyContentPresence,
 } = require(path.join(__dirname, "lib", "rebase-content-loss.js"));
 
-const TIMEOUT_MS = 4500;
+// Env var naming the subject work tree for `--verify` (same precedence class as
+// the `--repo` flag). See `resolveVerifySubject` in the lib for why the tree is
+// an explicit input rather than an ambient default.
+const SUBJECT_ENV = "COC_REPO";
+
+// Raised 4500 -> 20000 (2026-10-08) with the registered budget (6s -> 20s): internal
+// and harness bind must move together or the guard self-kills mid-scan under load.
+const TIMEOUT_MS = 20000;
 
 // ── verify mode ─────────────────────────────────────────────────────────────
 
 function parseVerifyArgs(argv) {
-  const out = { ref: null, head: "HEAD", cwd: process.cwd(), json: false };
+  const out = {
+    ref: null,
+    head: "HEAD",
+    // Whether `--head` was TYPED. A defaulted HEAD is the case where the
+    // subject tree is most likely to be wrong (the caller meant the branch's
+    // own worktree); a typed one is a declared intent and only gets the echo.
+    headExplicit: false,
+    // The SUBJECT work tree. `--cwd` is the legacy alias: both name the same
+    // input, so passing both is refused rather than silently last-wins.
+    repo: null,
+    repoSource: null,
+    json: false,
+  };
   // A flag whose value is MISSING is a usage error, never a silent default: a
   // `--head` that quietly fell back to HEAD would answer a different question
   // than the one typed, and report it as if it were the same one.
   const value = (i, flag) => {
     const v = argv[i];
-    if (v === undefined || v.startsWith("--")) throw new Error(`${flag} requires a value`);
+    if (v === undefined || v.startsWith("--"))
+      throw new Error(`${flag} requires a value`);
     return v;
   };
   try {
     for (let i = 0; i < argv.length; i++) {
       const a = argv[i];
       if (a === "--verify") out.ref = value(++i, a);
-      else if (a === "--head") out.head = value(++i, a);
-      else if (a === "--cwd") out.cwd = value(++i, a);
-      else if (a === "--json") out.json = true;
+      else if (a === "--head") {
+        out.head = value(++i, a);
+        out.headExplicit = true;
+      } else if (a === "--repo" || a === "--cwd") {
+        if (out.repo !== null && out.repoSource !== a)
+          throw new Error("--repo and --cwd both name the subject tree; pass one");
+        out.repo = value(++i, a);
+        out.repoSource = a;
+      } else if (a === "--json") out.json = true;
       else return { error: `unknown argument: ${a}` };
     }
   } catch (e) {
@@ -109,12 +168,86 @@ function runVerify(argv) {
   if (args.error) {
     process.stderr.write(
       `rebase-content-loss-guard: ${args.error}\n` +
-        "usage: rebase-content-loss-guard.js --verify <ref> [--head <ref>] [--cwd <dir>] [--json]\n",
+        "usage: rebase-content-loss-guard.js --verify <ref> [--head <ref>] [--repo <dir>] [--json]\n" +
+        `  Subject tree: --repo names it (` +
+        `--cwd is the legacy alias; ${SUBJECT_ENV} is honored). It defaults to the CWD's toplevel, and an\n` +
+        "  EXPLICIT subject that does not resolve REFUSES — it never silently falls back to the CWD.\n",
     );
     return 2;
   }
+
+  // The subject work tree is resolved FIRST and EXPLICITLY. Pre-fix this mode
+  // ran wherever the process stood and silently resolved HEAD from the ambient
+  // CWD: run from the primary checkout while the rebase happened in a linked
+  // worktree, it reported ABSENT for commits whose content is present in that
+  // worktree — a wrong-tree verdict with no warning (and the mirror case is a
+  // false CLEAN). The caller now names the tree; an unresolvable SUBJECT (or an
+  // unresolvable explicit name) refuses instead of defaulting.
+  const selected =
+    args.repo !== null
+      ? { input: args.repo, source: args.repoSource }
+      : typeof process.env[SUBJECT_ENV] === "string" &&
+          process.env[SUBJECT_ENV].trim()
+        ? { input: process.env[SUBJECT_ENV].trim(), source: SUBJECT_ENV }
+        : { input: process.cwd(), source: "cwd-default" };
+  const subject = resolveVerifySubject(selected);
+  if (!subject.ok) {
+    const why = `the subject work tree could not be resolved, so no verdict was computed: ${subject.why}`;
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify({ resolved: false, refused: true, why, subject: null, commits: [] }) + "\n",
+      );
+    }
+    process.stderr.write(
+      `REFUSING — ${why}\n` +
+        `  Pass --repo <dir> naming the work tree whose HEAD this verdict should be about` +
+        (selected.source === "cwd-default" ? ", or run from inside it" : "") +
+        `. An explicit subject is never silently replaced by the CWD.\n`,
+    );
+    return 2;
+  }
+
+  // Defaulted HEAD + the ref checked out in ANOTHER worktree = the caller is
+  // almost certainly asking about that other tree's rebase while this run
+  // would measure the subject's HEAD. Refuse loudly and name the tree to use.
+  // A typed `--head` is a declared intent, so it proceeds (and still gets the
+  // subject echo below). A sha/tag ref matches no worktree branch and is
+  // covered by the echo rather than by this refusal — stated precisely because
+  // this check CANNOT see that case.
+  if (!args.headExplicit) {
+    const conflict = subjectPossessionConflict({
+      subjectToplevel: subject.toplevel,
+      ref: args.ref,
+    });
+    if (conflict.conflict) {
+      const head = conflict.headSha ? conflict.headSha.slice(0, 12) : "unknown";
+      const why =
+        `--verify ${args.ref} names the branch ${JSON.stringify(conflict.branch)}, checked out in worktree ` +
+        `${conflict.worktree} (HEAD ${head}), but this run measures ${subject.toplevel} ` +
+        `(${args.head} would be resolved in the wrong tree)`;
+      if (args.json) {
+        process.stdout.write(
+          JSON.stringify({
+            resolved: false,
+            refused: true,
+            why,
+            subject: subject.toplevel,
+            ref_worktree: conflict.worktree,
+            commits: [],
+          }) + "\n",
+        );
+      }
+      process.stderr.write(
+        `REFUSING — ${why}.\n` +
+          `  Re-run with --repo ${JSON.stringify(conflict.worktree)} to measure that rebase's tree, or pass ` +
+          `--head <ref> explicitly to state the comparison you mean. A verdict about one tree is never reported for another.\n`,
+      );
+      return 2;
+    }
+  }
+
   const res = verifyContentPresence({
-    cwd: args.cwd,
+    cwd: subject.toplevel,
     ref: args.ref,
     headRef: args.head,
   });
@@ -122,9 +255,20 @@ function runVerify(argv) {
     // UNKNOWN is not an all-clear. Exit 2 keeps it distinguishable from the
     // clean answer at exit 0 (`instrument-discipline.md` MUST-1).
     if (args.json) {
-      process.stdout.write(JSON.stringify({ resolved: false, why: res.why, commits: [] }) + "\n");
+      process.stdout.write(
+        JSON.stringify({
+          resolved: false,
+          why: res.why,
+          subject: subject.toplevel,
+          head_sha: res.headSha || null,
+          commits: [],
+        }) + "\n",
+      );
     } else {
-      process.stderr.write(`UNKNOWN — content presence could not be determined: ${res.why}\n`);
+      process.stderr.write(
+        `UNKNOWN — content presence could not be determined: ${res.why}\n` +
+          `  subject: ${subject.toplevel}\n`,
+      );
     }
     return 2;
   }
@@ -136,6 +280,10 @@ function runVerify(argv) {
         resolved: true,
         ref: res.ref,
         head: res.headRef,
+        // The tree and commit the verdict was measured against, so a
+        // wrong-tree verdict is VISIBLE rather than silent.
+        subject: subject.toplevel,
+        head_sha: res.headSha,
         base: res.base,
         absent: absent.map((c) => ({ sha: c.sha, subject: c.subject })),
         commits: res.commits,
@@ -144,28 +292,46 @@ function runVerify(argv) {
     return absent.length ? 1 : 0;
   }
   const lines = [];
-  lines.push(`content-presence verify: ${res.ref} → ${res.headRef} (base ${res.base.slice(0, 12)})`);
+  lines.push(
+    `content-presence verify: ${res.ref} → ${res.headRef} (base ${res.base.slice(0, 12)})`,
+  );
+  lines.push(
+    `  subject: ${subject.toplevel} · ${res.headRef} = ${res.headSha.slice(0, 12)}`,
+  );
   lines.push(
     `  ${res.commits.length} candidate commit(s): ` +
-      [VERDICT.ABSENT, VERDICT.PRESENT, VERDICT.DIVERGED, VERDICT.INDETERMINATE, VERDICT.NO_CONTENT]
+      [
+        VERDICT.ABSENT,
+        VERDICT.PRESENT,
+        VERDICT.DIVERGED,
+        VERDICT.INDETERMINATE,
+        VERDICT.NO_CONTENT,
+      ]
         .map((v) => `${by(v).length} ${v}`)
         .join(", "),
   );
   if (absent.length) {
     lines.push("");
-    lines.push(`ABSENT — present on ${res.ref}, NOT present on ${res.headRef}:`);
+    lines.push(
+      `ABSENT — present on ${res.ref}, NOT present on ${res.headRef}:`,
+    );
     for (const c of absent) lines.push(`  ${c.sha.slice(0, 12)} ${c.subject}`);
   }
   const diverged = by(VERDICT.DIVERGED);
   if (diverged.length) {
     lines.push("");
-    lines.push("DIVERGED — neither cleanly applies nor cleanly reverses (partially present):");
-    for (const c of diverged) lines.push(`  ${c.sha.slice(0, 12)} ${c.subject}`);
+    lines.push(
+      "DIVERGED — neither cleanly applies nor cleanly reverses (partially present):",
+    );
+    for (const c of diverged)
+      lines.push(`  ${c.sha.slice(0, 12)} ${c.subject}`);
   }
   const indet = by(VERDICT.INDETERMINATE);
   if (indet.length) {
     lines.push("");
-    lines.push("INDETERMINATE — no verdict; treat as UNANSWERED, not as clean:");
+    lines.push(
+      "INDETERMINATE — no verdict; treat as UNANSWERED, not as clean:",
+    );
     for (const c of indet) lines.push(`  ${c.sha.slice(0, 12)} ${c.subject}`);
   }
   if (!absent.length) {
@@ -184,7 +350,10 @@ function passthrough(fallback) {
   process.exit(0);
 }
 
-function advisory(fallback, { what_happened, why, agent_must_report, agent_must_wait, user_summary }) {
+function advisory(
+  fallback,
+  { what_happened, why, agent_must_report, agent_must_wait, user_summary },
+) {
   clearTimeout(fallback);
   emit({
     hookEvent: "PreToolUse",
@@ -197,24 +366,42 @@ function advisory(fallback, { what_happened, why, agent_must_report, agent_must_
   });
 }
 
+const { resolveGitTargetContext } = require("./lib/git-target-context.js");
+
 function decide({ command, cwd, env }) {
   const cls = classifyRebaseCommand(command);
-  if (cls.kind === "not-applicable") return { action: "allow", reason: "no replaying git invocation in this command" };
+  if (cls.kind === "not-applicable")
+    return {
+      action: "allow",
+      reason: "no replaying git invocation in this command",
+    };
   if (cls.kind === "non-replay")
-    return { action: "allow", reason: `git ${cls.verb} ${cls.flag} replays no commits` };
+    return {
+      action: "allow",
+      reason: `git ${cls.verb} ${cls.flag} replays no commits`,
+    };
   if (cls.kind === "preserving")
     return { action: "allow", reason: `${cls.flag} preserves merge commits` };
   if (cls.kind === "unresolvable")
     return { action: "fail-open", reason: cls.why };
 
+  const context = resolveGitTargetContext(cls.invocation || { dir: cls.dir }, cwd || process.cwd());
+  if (!context.known) return { action: "fail-open", reason: context.detail, cls };
   const measured = countMergesToBeDropped({
-    cwd: cls.dir ? path.resolve(cwd || process.cwd(), cls.dir) : cwd,
+    cwd: context.cwd,
+    context,
     upstream: cls.upstream,
     branch: cls.branch,
   });
-  if (!measured.resolved) return { action: "fail-open", reason: measured.why, cls };
+  if (!measured.resolved)
+    return { action: "fail-open", reason: measured.why, cls };
   if (measured.count === 0)
-    return { action: "allow", reason: `0 merge commits on ${measured.tip} since ${measured.base}`, measured, cls };
+    return {
+      action: "allow",
+      reason: `0 merge commits on ${measured.tip} since ${measured.base}`,
+      measured,
+      cls,
+    };
 
   const override = readOverride(env);
   if (override.present && override.accepted) {
@@ -228,7 +415,10 @@ function runHook(payload, fallback) {
   const command = (payload.tool_input && payload.tool_input.command) || "";
   if (!command.trim()) return passthrough(fallback);
 
-  const cwd = typeof payload.cwd === "string" && payload.cwd ? payload.cwd : process.cwd();
+  const cwd =
+    typeof payload.cwd === "string" && payload.cwd
+      ? payload.cwd
+      : process.cwd();
   const d = decide({ command, cwd, env: process.env });
 
   if (d.action === "allow") return passthrough(fallback);
@@ -243,8 +433,10 @@ function runHook(payload, fallback) {
         "Before rebasing, record the pre-rebase tip: `git rev-parse HEAD` (or `git branch pre-rebase-<name>`).",
         "After rebasing, run: node .claude/hooks/rebase-content-loss-guard.js --verify <pre-rebase-ref>",
       ],
-      agent_must_wait: "You may proceed; report that the check did not run before claiming the rebase preserved content.",
-      user_summary: "rebase-content-loss-guard — content-loss check did not run (UNKNOWN, not clean)",
+      agent_must_wait:
+        "You may proceed; report that the check did not run before claiming the rebase preserved content.",
+      user_summary:
+        "rebase-content-loss-guard — content-loss check did not run (UNKNOWN, not clean)",
     });
   }
 
@@ -258,7 +450,8 @@ function runHook(payload, fallback) {
         "Capture the pre-rebase tip NOW so the loss is measurable afterwards.",
         "After the rebase, run `--verify <pre-rebase-ref>` and report the absent-commit list.",
       ],
-      agent_must_wait: "Proceed, then report the post-rebase --verify result before calling the rebase done.",
+      agent_must_wait:
+        "Proceed, then report the post-rebase --verify result before calling the rebase done.",
       user_summary: `rebase-content-loss-guard — flattening ${d.measured.count} merge(s) under an explicit override`,
     });
   }
@@ -304,7 +497,9 @@ function hookMain() {
     process.exit(0);
   }, TIMEOUT_MS);
 
-  const { readStdinBounded } = require(path.join(__dirname, "lib", "read-stdin-bounded.js"));
+  const { readStdinBounded } = require(
+    path.join(__dirname, "lib", "read-stdin-bounded.js"),
+  );
 
   return (async () => {
     // Resolves the PARSED payload (or its `{}` fallback) — never raw text — and

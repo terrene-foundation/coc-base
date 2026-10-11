@@ -93,6 +93,7 @@
 "use strict";
 
 const fs = require("fs");
+const path = require("path");
 const { spawn } = require("child_process");
 
 // Monotonic: every budget in this file is arithmetic on performance.now(), which
@@ -124,7 +125,7 @@ function killGroup(child) {
  * @param {number} deadlineAt MONOTONIC ms (monoNow())
  * @param {(pgid:number)=>void} onStart
  */
-function runOne(d, raw, deadlineAt, onStart) {
+function runOne(d, raw, deadlineAt, onStart, cwd) {
   return new Promise((resolve) => {
     const remaining = deadlineAt - monoNow();
     const budget = Math.max(1, Math.min(d.timeoutMs, remaining));
@@ -132,11 +133,21 @@ function runOne(d, raw, deadlineAt, onStart) {
     // then is "could not run", which dispatch.js refuses at PreToolUse — distinct
     // from the detector overrunning its own timeout (the host-kill disposition).
     const cut = remaining < d.timeoutMs;
+    // THE DETECTOR'S SCOPE IS THE PAYLOAD'S, NOT THIS PROCESS'S. The host launches a
+    // hook with the SESSION's cwd, and `payload.cwd` is that same directory; a worker
+    // thread cannot change its cwd (`process.chdir` is ERR_WORKER_UNSUPPORTED_OPERATION
+    // — MEASURED) and a spawn with no `cwd` option takes the REAL process cwd (also
+    // MEASURED: patching `process.cwd` does not move it), so a detector that resolves
+    // git from its cwd would answer for the DISPATCHER's tree whenever the session has
+    // cd'd elsewhere. MEASURED on the pinned corpora: three kailash-py guards DENY
+    // standalone in a non-git cwd and ALLOWED under the adapted path for exactly this
+    // reason. `cwd` therefore travels with the job and is handed to the spawn.
     let child;
     try {
+      const opts = { stdio: ["pipe", "pipe", "pipe"], ...(cwd ? { cwd } : {}) };
       child = WIN
-        ? spawn(process.execPath, [d.file], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true })
-        : spawn("/bin/sh", ["-c", DETECTOR_SHELL, process.execPath, d.file], { detached: true, stdio: ["pipe", "pipe", "pipe"] });
+        ? spawn(process.execPath, [d.file], { ...opts, windowsHide: true })
+        : spawn("/bin/sh", ["-c", DETECTOR_SHELL, process.execPath, d.file], { ...opts, detached: true });
     } catch (e) {
       return resolve({ status: "crash", exitCode: 1, stdout: "", stderr: `${e && e.message ? e.message : e}\n` });
     }
@@ -207,6 +218,49 @@ function runOne(d, raw, deadlineAt, onStart) {
     if (child.pid) onStart(child.pid);
     child.stdin.end(raw);
   });
+}
+
+/**
+ * Run a run of `mode:"legacy"` rows in THIS process, in registry order, through the
+ * dispatcher's own engine (lib/hook-engine.js) with the same per-row budgets and the same
+ * process-shaped sandbox — one worker thread per batch, not one OS process per row.
+ *
+ * WHY THE POOL IS A SEPARATE PROCESS AT ALL: the engine's shims make a row's *ordinary*
+ * failure modes safe (a crash, a timeout, a process.exit), but an abort, an OOM or a
+ * signal ends the PROCESS, and no JS-level patch can stop those. Running repo rows in the
+ * dispatcher's own workers would put every template verdict behind a repo row's worth of
+ * that risk. Here the blast radius is this child: its own transport dies, the dispatcher
+ * keeps its verdicts, and the rows of this pool are marked per their declarations.
+ *
+ * The rows run with THIS process's cwd, which the dispatcher sets from the payload — the
+ * session's directory — so their git answers are the ones their standalone launch had.
+ */
+async function runLegacyRow(d, index, raw, deadlineAt) {
+  let engine;
+  try {
+    engine = require("./hook-engine.js");
+  } catch (e) {
+    return {
+      status: "crash",
+      exitCode: 1,
+      stdout: "",
+      stderr: `[dispatch] ${d.hook} could not run in-process: the engine would not load in this pool (${e && e.message ? e.message : e})\n`,
+    };
+  }
+  const entry = { hook: d.hook, file: d.file, timeoutMs: d.timeoutMs, mode: "legacy", onIncomplete: d.onIncomplete, origin: "local", index };
+  const out = await engine.runDetectorsIsolated([entry], raw, { deadlineAtMono: deadlineAt, isolation: "event" });
+  const o = out[0] || { status: "engine-fault", exitCode: null, stdout: "", stderr: `[dispatch] ${entry.hook} produced no outcome — the pool could not run it\n` };
+  // THE FRAME VOCABULARY IS THE SUPERVISOR'S, NOT THE ENGINE'S. The dispatcher validates
+  // `status` against exit|timeout|crash|skipped, and the engine's own words include
+  // "return" (a row that finished without calling process.exit) and "engine-fault" (a row
+  // whose worker never produced one). Both are translated HERE, at the boundary, so the
+  // dispatcher's per-row contract sees the same vocabulary it always has: a completed row
+  // is an `exit` with its code, an unrunnable one a `crash` whose stderr says so.
+  // MEASURED: forwarding "return" raw was a protocol violation that took the whole pool's
+  // answer down.
+  const status = o.status === "return" ? "exit" : o.status === "engine-fault" ? "crash" : o.status;
+  const exitCode = o.status === "return" && !Number.isInteger(o.exitCode) ? 0 : o.exitCode === undefined ? null : o.exitCode;
+  return { status, exitCode, stdout: o.stdout || "", stderr: o.stderr || "" };
 }
 
 const MAX_ANCESTRY_HOPS = 64;
@@ -284,7 +338,13 @@ async function main() {
     process.stderr.write(`[local-supervisor] unreadable input: ${e && e.message ? e.message : e}\n`);
     return process.exit(3);
   }
-  const { nonce, dispatcherPid, budgetMs, select, raw } = input || {};
+  const { nonce, dispatcherPid, budgetMs, select, raw, cwd } = input || {};
+  // The detector's cwd, when the dispatcher declares one: an EXISTING absolute directory,
+  // or nothing (the dispatcher's own cwd, which is what a host launch would have used).
+  // Anything else is MALFORMED INPUT — refused like every other shape here, because a
+  // detector that cannot start is a fault the dispatcher must hear about, never a row
+  // that silently ran in the wrong scope.
+  const cwdOk = cwd === undefined || cwd === null || (typeof cwd === "string" && path.isAbsolute(cwd) && fs.existsSync(cwd) && fs.statSync(cwd).isDirectory());
   let { detectors } = input || {};
   const selectOk =
     select &&
@@ -295,8 +355,8 @@ async function main() {
     select.rows.every((r) => r && Number.isInteger(r.mi) && (r.match === null ? r.mi >= 0 && r.mi < select.matchers.length : r.mi === -1)) &&
     (select.event === undefined || typeof select.event === "string") &&
     (select.value === undefined || typeof select.value === "string");
-  if (typeof nonce !== "string" || !(select ? selectOk && detectors === undefined : Array.isArray(detectors)) || typeof raw !== "string" || !(typeof budgetMs === "number" && Number.isFinite(budgetMs) && budgetMs >= 0) || !(Number.isInteger(dispatcherPid) && dispatcherPid > 1)) {
-    process.stderr.write("[local-supervisor] malformed input\n");
+  if (typeof nonce !== "string" || !(select ? selectOk && detectors === undefined : Array.isArray(detectors)) || typeof raw !== "string" || !cwdOk || !(typeof budgetMs === "number" && Number.isFinite(budgetMs) && budgetMs >= 0) || !(Number.isInteger(dispatcherPid) && dispatcherPid > 1)) {
+    process.stderr.write(`[local-supervisor] malformed input${cwdOk ? "" : " (cwd is not an existing absolute directory)"}\n`);
     return process.exit(3);
   }
   // Anchored at RECEIPT, before the ancestry walk: the walk's time is spent from
@@ -356,7 +416,32 @@ async function main() {
       frame({ t: "done", i, status: "skipped", exitCode: null, stdout: "", stderr: `[dispatch] ${d.hook || d.file} skipped: event dispatch budget exhausted\n` });
       continue;
     }
-    const o = await runOne(d, raw, deadlineAt, (pgid) => frame({ t: "start", i, pgid }));
+    // § THE REPO POOL. A row declaring `mode:"legacy"` runs IN-PROCESS, in a worker thread
+    // of THIS process — this process is the repo-owned pool, deliberately a child of the
+    // dispatcher rather than the dispatcher itself: a repo row that aborts, OOMs or is
+    // signalled ends THIS pool and its transport, while every template verdict the
+    // dispatcher already reached stays in hand (the dispatcher treats a dead pool as the
+    // per-row incompleteness their declarations describe). Rows that do not declare it
+    // keep the standalone-process path below, exactly as before.
+    if (d.mode === "legacy") {
+      // ONE ROW PER ENGINE CALL, with the protocol's own start → done pair around it. The
+      // engine can run a whole batch, but the dispatcher's frame protocol is strictly
+      // interleaved (`start(i)` while another row is current is a PROTOCOL VIOLATION —
+      // MEASURED: a batched pair of frames read as exactly that and refused the call), and
+      // that strictness is what stops one detector posting another's verdict. A shared
+      // batch would need that contract relaxed; a worker per row inside this pool costs a
+      // thread boot, not an OS process, which is the cost the pool exists to avoid.
+      // The frame protocol requires a real process group on `start` (the dispatcher
+      // validates `Number.isInteger(f.pgid) && f.pgid > 1`), and the pool's OWN group is
+      // the honest one here: this row runs inside THIS process, so if the dispatcher must
+      // abandon it, ending the pool is exactly how that happens — and the dispatcher's
+      // pool-death marking then applies each row's `on_incomplete` declaration.
+      frame({ t: "start", i, pgid: process.pid });
+      const o = await runLegacyRow(d, i, raw, deadlineAt);
+      frame({ t: "done", i, status: o.status, exitCode: o.exitCode, stdout: o.stdout, stderr: o.stderr });
+      continue;
+    }
+    const o = await runOne(d, raw, deadlineAt, (pgid) => frame({ t: "start", i, pgid }), cwd || undefined);
     frame({ t: "done", i, ...o });
   }
   process.stdout.write(JSON.stringify({ t: "end", n: nonce }) + "\n", () => process.exit(0));

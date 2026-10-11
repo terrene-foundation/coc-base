@@ -1,5 +1,5 @@
 STEP 0 (first action):
-  cd "/Users/op/repos/.loom-wt/wip-ledger" || { echo "STOP: cannot enter"; exit 1; }
+  cd "{{FIXTURE_HOME_V1:MAC}}op/repos/.loom-wt/wip-ledger" || { echo "STOP: cannot enter"; exit 1; }
   top=$(git rev-parse --show-toplevel) || { echo "STOP: not a git repo"; exit 1; }
   [ "$top" = "$(pwd -P)" ] || { echo "STOP: not a worktree ROOT"; exit 1; }
   [ "$(git rev-parse --abbrev-ref HEAD)" = "codify/op-2026-09-12-wip-ledger" ] || { echo "STOP: wrong branch"; exit 1; }

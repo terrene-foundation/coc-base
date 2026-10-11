@@ -197,7 +197,7 @@ const DANGEROUS_ENV_EXACT = new Set([
   // while leaving the primary open is exactly the sibling-blindness this file names.
   // Scoped by reading the three gpg surfaces rather than assuming they match:
   //   VERIFY  — NOT exposed. `coc-sign.js::_verifyGpg` resolves
-  //             `gpgHome || fs.mkdtempSync(...)`, so a homedir is always passed.
+  //             `gpgHome || _createHomedir(...)`, so a homedir is always passed.
   //   SIGN    — exposed when the caller omits it: `_signGpg` does
   //             `if (gpgHome) args.unshift("--homedir", gpgHome)` and otherwise spawns
   //             bare, so $GNUPGHOME selects the signing keyring.

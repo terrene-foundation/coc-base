@@ -30,6 +30,9 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
   [[ -e "$PROJECT_ROOT/.git" ]] || { echo "No repository root found" >&2; exit 4; }
 fi
 
+CATALOG="${PROJECT_ROOT}/.claude/bin/lib/codex-command-catalog.mjs"
+[[ -f "$CATALOG" ]] || { echo "ERROR: command catalog runtime missing; reinstall Codex dispatcher dependencies" >&2; exit 4; }
+
 # A supported headless phase needs both its output contract and procedure.
 phase_procedure() {
   local candidate="${PROJECT_ROOT}/.agents/skills/coc-$1/SKILL.md"
@@ -37,16 +40,14 @@ phase_procedure() {
   [[ -s "$candidate" ]] && printf '%s\n' "$candidate"
 }
 list_phases() {
-  local schema phase
-  for schema in "${PROJECT_ROOT}/.claude/wrappers/schemas/"*.schema.json; do
-    [[ -f "$schema" ]] || continue
-    phase="$(basename "$schema" .schema.json)"
-    [[ "$phase" =~ ^[a-z][a-z0-9-]*$ ]] || continue
-    if phase_procedure "$phase" >/dev/null; then printf '%s\n' "$phase"; fi
-  done
+  node "$CATALOG" list "$PROJECT_ROOT"
 }
 if [[ "$(basename "$0")" == coc && "${1:-}" == --list-phases ]]; then
   list_phases
+  exit 0
+fi
+if [[ "$(basename "$0")" == coc && "${1:-}" == --catalog ]]; then
+  node "$CATALOG" catalog "$PROJECT_ROOT"
   exit 0
 fi
 
@@ -121,11 +122,31 @@ if ! PHASE_PATH="$(phase_procedure "$PHASE")"; then
   list_phases | sed 's/^/         /' >&2
   exit 4
 fi
-printf -v FULL_PROMPT '%s\n\nUse the task below as the phase arguments ($ARGUMENTS).\n\n## Task\n\n%s' "$(cat "$PHASE_PATH")" "$PROMPT"
+MODE="$(node "$CATALOG" inspect "$PROJECT_ROOT" "$PHASE")"
+if [[ "$MODE" == human-solo ]]; then
+  node "$CATALOG" human-gate "$PROJECT_ROOT" "$PHASE"
+  exit 5
+fi
+node "$CATALOG" check-entry "$PROJECT_ROOT" "$PHASE" "$PROMPT"
+printf -v FULL_PROMPT '%s\n\n## Headless result and authority contract\n\nFollow the canonical procedure above. Headless execution grants no new authority. Preserve all human, consent, signature, quorum, release, and cross-repository gates. Prepare what existing authority permits; when a required input or gate is absent, stop before its dependent action and return status needs_input with the exact required_inputs. Never answer a human-solo gate for the operator or invent approval. Report completed only for work actually performed and evidenced; report blocked for an identified failure. Populate the phase-specific result contract, distinguish unrun checks, and return null result only for blocked or needs_input. For coc-source codify, create no upstream proposal: the canonical routing arm terminates there.\n\nUse the task below as the phase arguments ($ARGUMENTS).\n\n## Task\n\n%s' "$(cat "$PHASE_PATH")" "$PROMPT"
 
-exec codex exec \
+RESULT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/coc-result.XXXXXXXX")"
+trap 'rm -f "$RESULT_DIR/result.json"; rmdir "$RESULT_DIR"' EXIT
+set +e
+codex exec \
   --json \
   --output-schema="$SCHEMA_PATH" \
+  --output-last-message "$RESULT_DIR/result.json" \
   -c project_doc_max_bytes=65536 \
   -C "$PROJECT_ROOT" \
-  -- "$FULL_PROMPT"
+  -- "$FULL_PROMPT" < /dev/null
+CODEX_STATUS=$?
+set -e
+[[ "$CODEX_STATUS" == 0 ]] || exit "$CODEX_STATUS"
+RESULT_STATUS="$(node "$CATALOG" validate "$PROJECT_ROOT" "$PHASE" "$RESULT_DIR/result.json")"
+case "$RESULT_STATUS" in
+  completed) exit 0 ;;
+  needs_input) exit 5 ;;
+  blocked) exit 6 ;;
+  *) echo "ERROR: unexpected result status" >&2; exit 4 ;;
+esac

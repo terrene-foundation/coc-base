@@ -1,59 +1,85 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-10-06T15:24:58Z
+timestamp: 2026-10-11T06:07:16Z
 source: loom/.claude
-loom_sha: f83295d5261e827c1eb9a9ffb3620bd287c028f0
+loom_sha: 17d9af5d1e9bfbbf26a7c3cf0d115fe54b2be47d
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
-scope_this_cycle: content+cli-emission   # FULL cycle: .claude/ content axis AND coc-sync Steps 6.5/6.6/6.7
+scope_this_cycle: content+cli-emission   # FULL cycle: .claude/ content axis AND coc-sync Steps 6.5/6.6/6.7 + 4.6
 stats:
-  stage: engine sync-tier-aware.mjs --target base --template coc-base applied in an isolated worktree cut from coc-base origin/main 23e0f0390dee; stage --verify CONSISTENT (per stage handover)
-  delivery_lock_files: 5790   # .claude/.coc-delivery.lock delivered-path rows (engine-written; covers .claude/** only)
-  version_stamp: "loom-tracking -> 2.45.0 @ f83295d5 (stamp-template-version.mjs --write; upstream.loom_sha = f83295d5261e827c1eb9a9ffb3620bd287c028f0)"
+  stage: engine sync-tier-aware.mjs --target base --template coc-base applied in an isolated worktree cut from coc-base origin/main 94af70f55f52; stage --verify CONSISTENT, 5889 files copied / 5889 delivered (per stage handover)
+  delivery_lock_files: 5893   # .claude/.coc-delivery.lock delivered-path rows (engine-written; covers .claude/** only)
+  version_stamp: "loom-tracking -> 2.45.0 @ 17d9af5d (stamp-template-version.mjs --write --repo terrene-foundation/coc-base; upstream.loom_sha = 17d9af5d1e9bfbbf26a7c3cf0d115fe54b2be47d)"
   baselines_emitted: { cc: 0, codex: 1, gemini: 1 }   # CLAUDE.md preserved; AGENTS.md + GEMINI.md freshly emitted
   baseline_emission_bytes:
     block_cap_bytes: 65536
     warn_cap_bytes: 32768
     codex:
       rules: 12
-      bytes: 59633
+      bytes: 59676
       tier: WARN
-      headroom_bytes: 5903
-      headroom_pct: 9.01
-      floor_pct_effective: 6.3   # declared 10; lane-base exception #1950 EXPIRES 2026-11-24 (on expiry this lane reverts to the 10% floor and the gate turns RED)
+      headroom_bytes: 5860
+      headroom_pct: 8.94
+      floor_pct_effective: 6.3   # declared 10; lane-base exception #1950 EXPIRES 2027-02-24 (renewed 2026-09-29, journal/0627; on expiry this lane reverts to the 10% floor and the gate turns RED)
     gemini:
       rules: 12
-      bytes: 59412
+      bytes: 59410
       tier: WARN
-      headroom_bytes: 6124
-      headroom_pct: 9.34
-      floor_pct_effective: 6.3   # declared 10; lane-base exception #1950 EXPIRES 2026-11-24 (on expiry this lane reverts to the 10% floor and the gate turns RED)
+      headroom_bytes: 6126
+      headroom_pct: 9.35
+      floor_pct_effective: 6.3   # declared 10; lane-base exception #1950 EXPIRES 2027-02-24 (renewed 2026-09-29, journal/0627)
   cli_artifacts:
     codex: { prompts: 42, agent_prompts: 18, skills: 32 }
     gemini: { commands: 41, skills: 32, agents: 18 }
+    codex_dispatcher: bin/coc + 42 per-phase symlinks (re-derived from bin/coc --list-phases)
+    native_agents: 18 installed / 0 retired / 0 unmanaged
   coc_artifacts: 182   # rules=81 agents=21 skills=37 commands=43; 184 files in .coc/
   mcp_guard:
-    regenerated: true   # --guard-only: 7 runtime files copied from the loom source + policies.json (734B) + dump extracted from THIS target's own hooks/settings; symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard verified resolving. NOT frozen this cycle (prior cycle froze it; this one re-emitted).
+    regenerated: true   # --guard-only: 9 runtime files copied from the loom source + policies.json (7147B) + extract-policies.dump.json (4007B) extracted from THIS target's own hooks/settings; symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard verified resolving.
+  cli_emit_projection: |
+    .claude/.coc-cli-emit.yaml engine-written (loom#1777/F95); byte-compared against
+    buildCliEmitProjection(loom manifest, nativeCodexSkills=true) = 84636B BYTE-IDENTICAL.
 preserved: [CLAUDE.md, settings.json, "visibility:public"]
 note: |
   Gate-2 base sync — enrichment phase, in the staged worktree cut from coc-base
-  origin/main 23e0f0390dee. Loom HEAD f83295d5261e827c1eb9a9ffb3620bd287c028f0;
+  origin/main 94af70f55f52. Loom HEAD 17d9af5d1e9bfbbf26a7c3cf0d115fe54b2be47d;
   loom platform version 2.45.0 (unchanged).
 
-  ENRICHMENT (coc-sync Steps 6.5/6.6/6.7 + Step 9, all exit 0):
-    - emit.mjs --all --lang base -> root AGENTS.md (59633B) + GEMINI.md (59412B),
+  ENRICHMENT (coc-sync Steps 4.6/6.5/6.6/6.7 + Step 9, all exit 0):
+    - Step 4.6: symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard re-established
+      and verified resolving; .claude/.coc-cli-emit.yaml verified BYTE-IDENTICAL to
+      the freshly composed projection; F95 gate: .claude/sync-manifest.yaml ABSENT.
+    - emit.mjs --all --lang base -> root AGENTS.md (59676B) + GEMINI.md (59410B),
       placed at the repo ROOT (CLAUDE.md preserved).
-    - emit-cli-artifacts.mjs --target base --lane use -> .codex/ + .agents/skills/ +
-      .gemini/; installed-vs-emitted set diff = 0 stale / 0 missing in every tree.
+    - emit-cli-artifacts.mjs --target base --lane use -> .codex/prompts, .codex/agents,
+      .codex/bin, .codex/{rules-index.md,rules-index.json,agent-contracts.json},
+      .agents/skills, .gemini/{commands,skills,agents}; all copies preflighted
+      (copy-type collisions, symlinked components) before any byte was written.
+    - coc-native-agent-delivery.mjs: 18 native agents installed from source commit
+      17d9af5d, receipt rewritten; 0 retired, 0 unmanaged.
     - emit-cli-artifacts.mjs --guard-only --target-root <this tree>: guard tree
       REGENERATED with a policy inventory extracted from THIS target's hooks.
     - emit-coc.mjs --target base --lane use -> .coc/ (182 artifacts / 184 files).
     - stamp-template-version.mjs --write -> VERSION upstream.loom_sha = this run's SHA.
-    - Disclosure scan on the enriched tree: 6465 files, 0 findings.
 
-  NOTES: codex/gemini baseline headroom sits at 9.01%/9.34% against the EFFECTIVE
-  floor 6.3% (declared 10%, lane-base exception #1950 EXPIRES 2026-11-24) — the
-  codex lane is inside the floor+3 band (NOTE per coc-sync Step 6.5 headroom bands).
-  The legacy-skills retire pass preserved existing .agents/skills content ("no prior
-  generator receipt") — no stale files exist (installed == freshly emitted), so
-  nothing was left behind that the emitter no longer produces.
+  DEVIATIONS FROM THE PLAYBOOK COPY LIST (both measured, both reported to the
+  orchestrator rather than silently applied):
+    1. .codex/bin/codex-cost.py is DELIVERED here (byte-identical to
+       .claude/bin/codex-cost.py, sha256 8cd6558d...). It is a declared delivery row
+       in .claude/codex-templates/README.md and the emitted cost-audit prompt
+       instructs the consumer to run `python3 .codex/bin/codex-cost.py`; the
+       coc-sync Step 6.6 copy list omits .codex/bin, so the PREVIOUS delivery shipped
+       the prompt without the adapter it names.
+    2. .codex/rules-index.md, .codex/rules-index.json and .codex/agent-contracts.json
+       are NEW files at this target (absent before this cycle), copied per Step 6.6.
+
+  LEGACY SURFACE PRESERVED (ownership review owed): .codex/skills holds 117 files
+  that the current emitter does not produce (its skill destination is .agents/skills).
+  coc-retire-legacy-skills.mjs reported "no prior generator receipt" and preserved
+  them (its designed fail-safe); 42 of the 117 differ in bytes from the fresh
+  .agents/skills emission, so they are a STALE duplicate surface, not a mirror.
+  Retirement requires a generator receipt or an explicit ownership decision.
+
+  Headroom bands per coc-sync Step 6.5: codex 8.94% is inside the effective-floor+3
+  band (NOTE); both lanes run on the declared exception #1950 (NOTE, expires
+  2027-02-24). No HIGH band.

@@ -1,9 +1,9 @@
 {
-  "description": "F77 own-coords-still-flagged fixture (#386) — synced settings.json carrying an ALLOWLISTED home path inside a permissions.allow tool-call matcher. The allowlist suppresses the `/Users/me/` placeholder home in PROSE; this fixture proves the new settings-permission-absolute-path SHAPE does NOT inherit that suppression. A tool-call matcher in a synced permissions.allow array is intrinsically wrong regardless of which operator's path it carries — the matcher form encodes a runtime authorization scope keyed to an absolute filesystem path, which is broken for every downstream consumer's session.",
+  "description": "F77 own-coords-still-flagged fixture (#386) — synced settings.json carrying an ALLOWLISTED home path inside a permissions.allow tool-call matcher. The allowlist suppresses the `{{FIXTURE_HOME_V1:MAC}}me/` placeholder home in PROSE; this fixture proves the new settings-permission-absolute-path SHAPE does NOT inherit that suppression. A tool-call matcher in a synced permissions.allow array is intrinsically wrong regardless of which operator's path it carries — the matcher form encodes a runtime authorization scope keyed to an absolute filesystem path, which is broken for every downstream consumer's session.",
   "permissions": {
     "allow": [
-      "Edit(/Users/me/repos/loom/kailash-*/**)",
-      "Read(/Users/me/repos/loom/kailash-*/**)"
+      "Edit({{FIXTURE_HOME_V1:MAC}}me/repos/loom/kailash-*/**)",
+      "Read({{FIXTURE_HOME_V1:MAC}}me/repos/loom/kailash-*/**)"
     ],
     "deny": []
   }

@@ -22,7 +22,7 @@ Then the narrative. It is long, and I read it whole too:
     Read(workspaces/wave-loop-2026-09-03/.session-notes, offset: 0)
 
     ## Wave 4 — in flight
-    Shards C and E merged. E's redteam returned two clean rounds.
+    Shards C and E merged. E's redteam round closed clean and the review stopped there (D237).
     Remaining: fold the launch-ledger rows, then close the plan.
 
 The narrative's picture is consistent and wrong: it never mentions shard D at all, because it

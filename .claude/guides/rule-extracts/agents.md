@@ -235,9 +235,9 @@ Relocated from `rules/agents.md` under the co-owner-directed triad codification 
 
 ## Verify Specialist Tool Inventory — read-only roster + materialization
 
-Extracted from `rules/agents.md` § "MUST: Verify Specialist Tool Inventory Before Implementation Delegation" (paired extraction, 2026-08-11 Gate-1 placement of the BUILD stream, `rule-authoring.md` Rule 10 path (a)).
+Extracted from `rules/agents.md` § "MUST: Verify Specialist Tool Inventory Before Delegation" (paired extraction, 2026-08-11 Gate-1 placement of the BUILD stream, `rule-authoring.md` Rule 10 path (a)).
 
-**Read-only specialists — MUST NOT be delegated implementation work:** `security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`. Each declares no `Edit` and (except `reviewer`) no `Bash`, so it halts mid-instruction at the first file-edit boundary and the shard must be re-launched against a different specialist.
+**Read-only specialists — MUST NOT be delegated implementation work:** `security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`. Each declares no `Edit`; only `reviewer` and `value-auditor` declare `Bash` (tool inventories: `.claude/agents/quality/security-reviewer.md:4-4`, `.claude/agents/analysis/analyst.md:4-4`, `.claude/agents/quality/reviewer.md:4-4`, `.claude/agents/quality/gold-standards-validator.md:4-4`, `.claude/agents/value-auditor.md:4-4`), so it halts mid-instruction at the first file-edit boundary and the shard must be re-launched against a different specialist.
 
 **Read-only reviewer materialization (INCREMENTAL).** `security-reviewer` is read-only and has no `Bash`, so it cannot fetch a diff itself. Materialize the diff or the changed-file set to a scratchpad path and NAME that path in the prompt; it then reviews the change instead of halting for context it cannot reach. This is the standard workaround, not a reason to substitute a writing specialist into a review seat.
 
@@ -555,7 +555,7 @@ delegation tool's exposed input schema strips `cwd`, so an orchestrator cannot p
 emission ledger for the 2026-09-12 lane-unit amendment is § "Wave Worktrees — 2026-09-12 Lane-Unit
 Amendment" above.
 
-### § A Dispatched Agent's Result Is Not Received Until It Is DELIVERED
+### § A Dispatched Agent's Result Is Not Received Until DELIVERED
 
 **Severity.** Why the hook-layer ceiling is `block` and not `advisory`: *"the addressable-spawn field
 is structurally present in the input while the other half of the predicate — whether the prompt

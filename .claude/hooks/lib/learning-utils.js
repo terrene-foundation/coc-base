@@ -7,9 +7,101 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 const os = require("os");
+
+// ── Rotation: the LIVE observations file is bounded; no byte is ever lost ────
+//
+// RETENTION RULE (documented here because it is this module's contract):
+//   · The live `observations.jsonl` is bounded at MAX_LIVE_OBSERVATION_BYTES.
+//     When an append would land on a file at/over the bound, the WHOLE live
+//     file is RENAMED — atomically, bytes verbatim — into
+//     `observations.archive/observations_<epoch>_<nonce>.jsonl` before the
+//     append, and the append starts a fresh live file. The newest records are
+//     therefore always in the live file; every older byte stays on disk.
+//   · Nothing is ever truncated or rewritten in place: rename preserves the
+//     `signed bytes == disk bytes` property `knowledge-convergence.md` MUST-6
+//     rests on (a truncate-after-signing would leave rows whose signature no
+//     longer verifies). The append-log's own refuse-on-overflow contract for
+//     an individual RECORD (`coc-append.js::MAX_LINE_BYTES`) is untouched.
+//   · Archive files are NEVER deleted by this module — retained history is the
+//     point of the archive. Readers union the archive: `codify-backlog.mjs`
+//     (`jsonlSince`) and `scripts/learning/observation-logger.js` (`getStats`)
+//     both read live + archive; `learning-digest.js` reads the live file under
+//     a 16 MiB ceiling, which is WHY the bound below sits at half that: a
+//     35.6 MB live file (measured 2026-10-09) could not be read at all
+//     (`readLearningFile` refuses > 16 MiB), so the digest of the whole corpus
+//     silently failed until the bound existed.
+//   · WHY BYTES AND NOT A RECORD COUNT: `scripts/learning/observation-logger.js`
+//     rotates at 500 records, but that path reads the entire file to count —
+//     O(file) per append, which the hooks' per-event path cannot afford. This
+//     module writes on nearly every hook event, so the bound is a statSync
+//     (O(1)). Both rotate into the same archive directory in the same naming
+//     shape, so the readers see one coherent store.
+const MAX_LIVE_OBSERVATION_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Rotate the live observations file into the archive when it is at/over the
+ * bound. Best-effort by design: a rotation failure must never lose the
+ * observation the caller is about to append, so the caller appends into the
+ * existing file and the NEXT append retries (the condition persists).
+ *
+ * @returns {{rotated:true, dest:string} | {rotated:false, error?:string}}
+ */
+function rotateObservationsIfNeeded(learningDir, observationsFile) {
+  let size;
+  try {
+    size = fs.statSync(observationsFile).size;
+  } catch {
+    return { rotated: false }; // absent (first write) or unreadable — nothing to move
+  }
+  if (size < MAX_LIVE_OBSERVATION_BYTES) return { rotated: false };
+  // Re-stat immediately before the rename: a concurrent writer that rotated
+  // first leaves a fresh EMPTY file here, and renaming THAT would put an empty
+  // entry in the archive (harmless but wrong) — this is the only race window,
+  // and it is re-checked rather than assumed.
+  try {
+    size = fs.statSync(observationsFile).size;
+  } catch {
+    return { rotated: false };
+  }
+  if (size < MAX_LIVE_OBSERVATION_BYTES) return { rotated: false };
+
+  const archiveDir = path.join(learningDir, "observations.archive");
+  try {
+    fs.mkdirSync(archiveDir, { recursive: true });
+  } catch {
+    // Already created by ensureLearningDir; a failure here surfaces on rename.
+  }
+  // Same naming shape as `scripts/learning/observation-logger.js` so both
+  // rotation paths produce one readable archive family.
+  const dest = path.join(
+    archiveDir,
+    `observations_${Date.now()}_${crypto.randomBytes(12).toString("hex")}.jsonl`,
+  );
+  try {
+    fs.renameSync(observationsFile, dest); // atomic; every byte moves intact
+  } catch (err) {
+    return { rotated: false, error: err && err.code ? err.code : String(err) };
+  }
+  // Recreate an empty live file immediately so a reader never observes the
+  // file MISSING (only momentarily empty). Losing this race to a concurrent
+  // appender is fine: O_EXCL, and the appender's own write already created it.
+  try {
+    const fd = fs.openSync(
+      observationsFile,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
+      0o600,
+    );
+    fs.closeSync(fd);
+  } catch {
+    // EEXIST = a concurrent writer already recreated it; any other cause
+    // surfaces as an append failure with the caller's own typed error.
+  }
+  return { rotated: true, dest };
+}
 
 /**
  * Resolve the learning directory for a given project.
@@ -95,16 +187,11 @@ function _stateRoots(cwd) {
   //
   // `KAILASH_LEARNING_DIR` above is deliberately UNCHANGED: it is pushed raw as an
   // operator-declared location, a separate question from what an indeterminate git means.
-  try {
-    const { requireMainCheckout } = require(
-      path.join(__dirname, "state-resolver.js"),
-    );
-    const r = requireMainCheckout(cwd);
-    if (r.ok && r.repoDir) roots.push(r.repoDir);
-  } catch {
-    // Resolver unavailable — cwd remains the only root and a main-checkout sink fails CLOSED.
-    // Same disposition as an INDETERMINATE resolution above: no root is added either way.
-  }
+  // Delegated to the ONE derivation in append-sink.js. This was the THIRD
+  // open-coded copy of the idiom (the comment above recorded that as it happened);
+  // six further callers omitted it entirely, which is what broke /codify from a
+  // worktree. Same fail-closed disposition: [] when the resolver cannot answer.
+  roots.push(...mainCheckoutBoundaryRoots(cwd));
   return roots;
 }
 
@@ -134,6 +221,19 @@ function logObservation(cwd, type, data, context) {
   try {
     const learningDir = ensureLearningDir(cwd);
     const observationsFile = path.join(learningDir, "observations.jsonl");
+
+    // Bound the live file BEFORE the append (see the retention rule above):
+    // rotation is a rename, so the incoming record lands in a fresh file and
+    // every already-written byte — signatures included — stays on disk.
+    const rot = rotateObservationsIfNeeded(learningDir, observationsFile);
+    if (rot.error) {
+      // Loud, not silent: the file is unbounded until a later append rotates
+      // it, and a reader that hits its own ceiling would otherwise fail with
+      // nothing in the log saying why.
+      process.stderr.write(
+        `[learning] observations rotation failed (${rot.error}); the live file stays over ${MAX_LIVE_OBSERVATION_BYTES}B and the append proceeds\n`,
+      );
+    }
 
     // M9.1 R3 Sec-R3-S-01: strip absolute-home prefix from cwd to avoid
     // PII (operator username) leak per `security.md` § "No secrets in logs"
@@ -234,4 +334,9 @@ module.exports = {
   ensureLearningDir,
   logObservation,
   countObservations,
+  rotateObservationsIfNeeded,
+  // Exported so a fixture seeds the file against the SAME bound the writer
+  // rotates on (a hardcoded copy could drift and the bound test would pass
+  // while measuring nothing).
+  MAX_LIVE_OBSERVATION_BYTES,
 };

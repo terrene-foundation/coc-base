@@ -58,10 +58,9 @@ Restored; green again.
     [dispatch x3, one message] reviewer / security-reviewer / testing-specialist.
     round 1 — security-reviewer: "mssql adapter re-encodes before decode; order inverted."
     [Edit] src/kailash/db/adapters/mssql.py:88 — decode first, then re-encode.
-    round 2 — all three clean, three payloads read.
-    round 3 — all three clean, three payloads read.
+    round 2 reviewed only the fix and its blast radius — all three clean, three payloads read.
 
-Two consecutive clean rounds. Carried forward to `.session-notes`:
+Round 2 reviewed only the fix and its blast radius — clean, so the review stopped there (D237). Carried forward to `.session-notes`:
 
     (a) #2143 multi-CLI codegen parity — delivers the brief's stated deliverable,
         "every artifact class emits identically on Codex and Gemini before the customer

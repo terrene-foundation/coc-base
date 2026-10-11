@@ -5,13 +5,56 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" ./.claude/hooks/session-start.js",
-            "timeout": 30
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event SessionStart",
+            "timeout": 600
           }
         ]
       }
     ],
-    "UserPromptSubmit": [],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event SessionEnd",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event PreCompact",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event PostCompact",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event UserPromptSubmit",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "*",
@@ -24,29 +67,73 @@
         ]
       }
     ],
-    "PermissionRequest": [],
-    "PostToolUse": [
+    "PermissionRequest": [
       {
-        "matcher": "apply_patch|Edit|Write|NotebookEdit",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" ./.claude/hooks/integration-hygiene.js",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|shell|shell_command|exec_command|unified_exec|apply_patch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" ./.claude/hooks/session-load-backstop.js",
-            "timeout": 30
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event PermissionRequest",
+            "timeout": 600
           }
         ]
       }
     ],
-    "Stop": []
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event PostToolUse",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event SubagentStart",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event SubagentStop",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event Stop",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-event Interrupt",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
   }
 }

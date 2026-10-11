@@ -25,6 +25,15 @@ const {
   protectedPathTokens,
   collapsePathTraversal,
 } = require("./state-target-scope.js");
+// WORKTREE-WIDE receipt resolution (Gate-1 intake of the rs template's #174
+// change, journal/0655). `enumerateSiblingWorktrees` is reused rather than
+// open-coding `git worktree list`: it already verifies each candidate's
+// `git-common-dir` matches our own, so a planted porcelain entry cannot aim the
+// search outside this repo, and it returns a result object separating "could
+// not answer" from "answered: none". `sibling-porcelain.js` requires only
+// `git-subprocess-env.js` (already loaded above), so this adds no cycle and no
+// file to the shipped closure — `.claude/hooks/**` is ALWAYS_INCLUDE.
+const { enumerateSiblingWorktrees } = require("./sibling-porcelain.js");
 
 /**
  * pathSpellingViews — the spellings of `text` a protected-path matcher must be
@@ -272,6 +281,22 @@ const CROSS_REPO_RECEIPT_WINDOW_MS = 6 * 60 * 60 * 1000;
 // does it non-adversarially). Skew tolerates benign multi-host clock drift.
 const CROSS_REPO_RECEIPT_SKEW_MS = 5 * 60 * 1000;
 
+/**
+ * Is this receipt content LIVE right now? The ONE predicate; `scanRoot` below
+ * calls it, and it is EXPORTED so the compaction handoff snapshot
+ * (`hooks/lib/compaction-handoff.js`) reports the same liveness the fence
+ * enforces instead of re-deriving the window — two lineages of this predicate
+ * would be free to disagree about which receipts a session may still rely on.
+ */
+function isReceiptLive(content, now = Date.now()) {
+  const ts = _receiptTimestampMs(content);
+  return (
+    ts !== null &&
+    now - ts <= CROSS_REPO_RECEIPT_WINDOW_MS &&
+    ts - now <= CROSS_REPO_RECEIPT_SKEW_MS
+  );
+}
+
 // Parse a receipt's `timestamp:` (ISO) or `date:` (YYYY-MM-DD) frontmatter →
 // ms epoch, or null if absent/unparseable (→ treated as stale, fail-closed).
 function _receiptTimestampMs(content) {
@@ -300,6 +325,39 @@ function _receiptTimestampMs(content) {
  *
  * Scans the non-codify-gated `.claude/cross-repo-authz/` (RC6 break, journal/0488)
  * FIRST, then repo-root journal/ + workspace journals for codify-authored receipts.
+ *
+ * WORKTREE-WIDE (#174). The search covers EVERY worktree of this repo, not only
+ * the cwd's toplevel. The session cwd and the cwd the guarded command runs in
+ * are routinely DIFFERENT worktrees of one repo — the normal shape of parallel
+ * lane work — so a correctly-formed receipt written by the sanctioned
+ * `/cross-repo-authorize` affordance was invisible to the guard that demands it.
+ * An operator who followed the ceremony exactly was still halted, and the
+ * natural next move is to override, which is what the ceremony exists to stop.
+ *
+ * Every worktree of a repo shares one `.git` and one operator, so a receipt in
+ * any of them is equally authoritative. `enumerateSiblingWorktrees` is reused
+ * rather than open-coding `git worktree list`: it already verifies each
+ * candidate's `git-common-dir` matches our own, so a planted porcelain entry
+ * cannot aim the search outside this repo.
+ *
+ * OWN ROOT IS SCANNED FIRST, AND THE SIBLING SWEEP IS ONLY REACHED IF IT MISSES
+ * — this ordering is load-bearing for COST, not neatness. Measured at the
+ * template this intake came from (#174): on a 72-worktree forest
+ * `enumerateSiblingWorktrees` alone costs ~710ms (per-sibling git subprocesses)
+ * while the whole filesystem scan is ~1ms. Enumerating up front therefore taxed
+ * EVERY call, including the overwhelmingly common one where the receipt sits in
+ * the caller's own tree, which is exactly where the affordance writes it.
+ * Deferring it keeps that path at its pre-#174 cost and spends the sweep only on
+ * the case that previously failed outright.
+ *
+ * FAIL-CLOSED IS PRESERVED IN BOTH DIRECTIONS. Widening the search can only
+ * find MORE receipts, never authorize without one — absent a receipt in every
+ * worktree the answer is still `false`. And when enumeration CANNOT ANSWER
+ * (`ok:false` — no git binary, a `safe.directory` refusal) the own-root result
+ * still stands, so behaviour is never worse than before the fix; the narrowing
+ * is reported on stderr rather than collapsed into "no siblings", which is the
+ * precise conflation sibling-porcelain.js's result-object contract exists to
+ * prevent (`rules/zero-tolerance.md` Rule 3 — no silent fallbacks).
  */
 function hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode) {
   if (!targetSlug) return false;
@@ -334,54 +392,88 @@ function hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode) {
     "mi",
   );
   const now = Date.now();
-  const dirs = [
-    path.join(root, ".claude", "cross-repo-authz"),
-    path.join(root, "journal"),
-  ];
-  try {
-    const wsRoot = path.join(root, "workspaces");
-    for (const e of fs.readdirSync(wsRoot, { withFileTypes: true })) {
-      if (
-        e.isDirectory() &&
-        e.name !== "instructions" &&
-        !e.name.startsWith("_")
-      ) {
-        dirs.push(path.join(wsRoot, e.name, "journal"));
-        dirs.push(path.join(wsRoot, e.name, "journal", ".pending"));
-      }
-    }
-  } catch {
-    /* no workspaces/ — repo-root journal/ only */
-  }
-  for (const d of dirs) {
-    let entries;
+
+  /** The receipt-bearing directories inside ONE worktree root. */
+  const dirsFor = (r) => {
+    const out = [
+      path.join(r, ".claude", "cross-repo-authz"),
+      path.join(r, "journal"),
+    ];
     try {
-      entries = fs.readdirSync(d, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const f of entries) {
-      if (!f.isFile() || !f.name.endsWith(".md")) continue;
-      const fp = path.join(d, f.name);
-      try {
-        const content = fs.readFileSync(fp, "utf8");
-        if (!markerRe.test(content)) continue;
-        // Content-timestamp age bound (checkout-stable, unlike mtime), TWO-SIDED:
-        // reject too-old (> window) AND future-dated (> skew) — a future
-        // `timestamp:` would otherwise authorize indefinitely (the age field is
-        // writer-controlled since the mtime→content-timestamp switch).
-        const ts = _receiptTimestampMs(content);
+      const wsRoot = path.join(r, "workspaces");
+      for (const e of fs.readdirSync(wsRoot, { withFileTypes: true })) {
         if (
-          ts === null ||
-          now - ts > CROSS_REPO_RECEIPT_WINDOW_MS ||
-          ts - now > CROSS_REPO_RECEIPT_SKEW_MS
-        )
-          continue;
-        return true;
+          e.isDirectory() &&
+          e.name !== "instructions" &&
+          !e.name.startsWith("_")
+        ) {
+          out.push(path.join(wsRoot, e.name, "journal"));
+          out.push(path.join(wsRoot, e.name, "journal", ".pending"));
+        }
+      }
+    } catch {
+      /* no workspaces/ in this worktree — its repo-root journal/ only */
+    }
+    return out;
+  };
+
+  /**
+   * Scan ONE worktree root's receipt directories. True on the first live
+   * receipt. Extracted rather than duplicated per root: the own-root and
+   * sibling passes MUST decide by ONE predicate, or the two lineages drift
+   * (`security.md` § Enforcement-Surface Parity — one shared function, never N
+   * copies). Semantics are byte-identical to the pre-#174 single-root loop.
+   */
+  const scanRoot = (r) => {
+    for (const d of dirsFor(r)) {
+      let entries;
+      try {
+        entries = fs.readdirSync(d, { withFileTypes: true });
       } catch {
         continue;
       }
+      for (const f of entries) {
+        if (!f.isFile() || !f.name.endsWith(".md")) continue;
+        const fp = path.join(d, f.name);
+        try {
+          const content = fs.readFileSync(fp, "utf8");
+          if (!markerRe.test(content)) continue;
+          // Content-timestamp age bound (checkout-stable, unlike mtime), TWO-SIDED:
+          // reject too-old (> window) AND future-dated (> skew) — a future
+          // `timestamp:` would otherwise authorize indefinitely (the age field is
+          // writer-controlled since the mtime→content-timestamp switch). The
+          // predicate is `isReceiptLive` above, the ONE copy, shared with the
+          // compaction handoff snapshot.
+          if (!isReceiptLive(content, now)) continue;
+          return true;
+        } catch {
+          continue;
+        }
+      }
     }
+    return false;
+  };
+
+  if (scanRoot(root)) return true;
+
+  // Own root had no live receipt. Only NOW pay for enumeration (~710ms at 72
+  // worktrees, measured at the template) and sweep the rest of the forest.
+  const sib = enumerateSiblingWorktrees(root);
+  if (!sib.ok) {
+    // NOT collapsed to "no siblings" — that conflation is what the result-object
+    // contract exists to prevent. The own-root answer above still stands, so
+    // this is never worse than the pre-#174 behaviour; it is a NARROWED search
+    // and it says so rather than failing silently.
+    process.stderr.write(
+      `[cross-repo-authz] worktree enumeration could not answer (${sib.reason}) — ` +
+        `receipt search narrowed to ${root}. A receipt in a sibling worktree will NOT be seen.\n`,
+    );
+    return false;
+  }
+  for (const s of sib.siblings) {
+    const sibRoot = typeof s === "string" ? s : s && s.path;
+    if (!sibRoot || sibRoot === root) continue;
+    if (scanRoot(sibRoot)) return true;
   }
   return false;
 }
@@ -2507,7 +2599,7 @@ function gitPathspecWriteHits(segText, P) {
   } catch {
     return [];
   }
-  if (!g || !g.sub || g.unresolvable) return [];
+  if (!g || !g.sub || g.unresolvable === "command" || g.unresolvable === "subcommand") return [];
   if (!GIT_PATHSPEC_WRITE_SUBS.has(g.sub)) return [];
   // `tokenize` is quote-aware and already consumes the quotes of a SEPARATED word
   // (git-command-parse.js:480-481), so this `dequote` is a no-op on the common
@@ -2549,7 +2641,7 @@ function gitPathspecWriteHits(segText, P) {
     paths.push(base && !path.isAbsolute(p) ? path.join(base, p) : p);
   }
   if (!paths.length) return [];
-  return [{ verb: `git ${g.sub}`, args: argv, paths }];
+  return [{ verb: `git ${g.sub}`, args: argv, paths, gitInvocation: g, pathspecs: operands.map(gitPathspecOperand).filter(Boolean) }];
 }
 
 // Lazy: `git-command-parse.js` requires THIS module at load, so a top-level
@@ -3301,7 +3393,19 @@ function detectStateFileMutation(command, pathRx, opts) {
     // which is what keeps a read-only `git log … -- <state>` clean.
     for (const h of verbHits || []) {
       if (!h.paths || !h.paths.length) continue;
-      for (const p of h.paths) {
+      let targets = h.paths;
+      if (h.gitInvocation && scope) {
+        const { resolveGitTargetContext, physicalPath } = require("./git-target-context.js");
+        const context = resolveGitTargetContext(h.gitInvocation, o.cwd);
+        if (!context.known) {
+          if (h.pathspecs.some((p) => pathSpellingHit(p, pathRx)))
+            return { layer: 2, kind: h.verb, scope: "unresolved" };
+          continue;
+        }
+        targets = h.pathspecs.map((p) => physicalPath(p, context.target) ||
+          (path.isAbsolute(p) ? p : context.target + path.sep + p));
+      }
+      for (const p of targets) {
         const hit = scopedPathHit(p, pathRx, scope);
         if (hit) return { layer: 2, kind: h.verb, scope: hit };
       }
@@ -5088,6 +5192,7 @@ function detectStateFileMutationSegmentAware(command, pathRx, opts) {
         rawText: rawSegment,
         scanText: maskedSeg,
         scope,
+        cwd: opts && opts.cwd,
       });
       if (maskedHit) return maskedHit;
       // Fail-closed (#745 F1/F2): `$(…)` / backtick command-substitution
@@ -5106,7 +5211,7 @@ function detectStateFileMutationSegmentAware(command, pathRx, opts) {
       // `--body "$(node -e '…write…')"` and `` --body "…`rm <state>`…" `` still
       // fail closed.
       if (hasActiveExecutingConstruct(segment)) {
-        const rawHit = detectStateFileMutation(rawSegment, pathRx, { scope });
+        const rawHit = detectStateFileMutation(rawSegment, pathRx, { scope, cwd: opts && opts.cwd });
         if (rawHit) return rawHit;
       }
     } else {
@@ -5117,6 +5222,7 @@ function detectStateFileMutationSegmentAware(command, pathRx, opts) {
         rawText: rawSegment,
         scanText: rawSegment,
         scope,
+        cwd: opts && opts.cwd,
       });
       if (hit) return hit;
     }
@@ -5126,7 +5232,7 @@ function detectStateFileMutationSegmentAware(command, pathRx, opts) {
   // so the heredoc body's internal `;` fractures the write from the run across
   // sibling segments. This pass reconstructs the heredoc structurally and
   // matches the write→execute conjunction on the FULL command.
-  const bundleHit = detectHeredocWriteRunBundle(command, pathRx, { scope });
+  const bundleHit = detectHeredocWriteRunBundle(command, pathRx, { scope, cwd: opts && opts.cwd });
   if (bundleHit) return bundleHit;
   return null;
 }
@@ -7141,6 +7247,12 @@ module.exports = {
   detectRepoScopeDriftText,
   detectRepoScopeDriftBash,
   hasCrossRepoAuthorizationReceipt,
+  // The receipt LIVENESS predicate and its window, exported so the compaction
+  // handoff snapshot reports the liveness the FENCE enforces. Text-anchored to
+  // `isReceiptLive` rather than to a line number: see the module header.
+  isReceiptLive,
+  receiptTimestampMs: _receiptTimestampMs,
+  CROSS_REPO_RECEIPT_WINDOW_MS,
   // F47 — exported so the RECEIPT WRITER (`.claude/bin/cross-repo-authorize.mjs`)
   // canonicalizes `--target` through the SAME function this module greps with,
   // instead of carrying a second copy of the slug rule that can (and did) drift.

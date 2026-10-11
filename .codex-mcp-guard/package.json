@@ -7,8 +7,10 @@
   "main": "server.js",
   "files": [
     "server.js",
+    "policy-outcome.js",
     "extract-policies.mjs",
     "policies.json",
+    "policy-exclusions.json",
     "test-server.mjs",
     "test-extract-policies.mjs",
     "README.md"

@@ -61,5 +61,5 @@ Full sibling sweep, not scoped to the file just edited:
 
 Both siblings re-derived, not just the one that started it.
 
-Gates: ruff clean, mypy clean, Tier-2 green, two consecutive clean adversarial rounds with
+Gates: ruff clean, mypy clean, Tier-2 green, one clean adversarial round with
 both payloads read. W9 lands.

@@ -1,13 +1,49 @@
-Round 5 of 5 on the budgeted half. We are at the circuit breaker — this is NOT convergence.
+Wave 4 closeout — /redteam record. Review ended by design, under the D237 stop rule.
 
-Round 5 surfaced one on-list finding: shared validate_scope() accepted an empty clearance set.
-Fixed. Because validate_scope is a shared callee, the reset propagates to all 40 call sites —
-their rounds 1-4 evidence was earned against the old behaviour and is void. Minimum over
-surfaces is now 0 clean rounds, not 4.
+Reviewer roster (one dispatch, one message): reviewer / security-reviewer /
+testing-specialist / gold-standards-validator, each instructed to report findings in its final
+message.
 
-The gating half is UNCAPPED and is not clean, so the deliverable is not done. Escalating with
-the open item named. Last-known-good is pinned at the round-4 tree, which passed its gating
-checks, in case a later round degrades it.
+Round 1 — full review:
+    reviewer: "the shared validate_scope() helper accepts an empty clearance set." HIGH.
+    security-reviewer: "the same helper is on the shipped authorization path." HIGH.
+    testing-specialist: "no case drives an empty clearance set." BUG.
+    gold-standards-validator: "the adapter doc anchor moved." INCREMENTAL.
+  Round 1 is NOT clean: two HIGH + one BUG.
+  Fix: validate_scope() rejects an empty set at the source. Because the helper is a shared
+  callee, the fix's blast radius is re-derived and re-tested at every call site it reaches —
+  4 call sites, re-driven in the same commit as the fix.
 
-Budgeted half: yield 6 → 2 → 0 new INCREMENTAL findings across rounds 3-5 (falsifying result
-would have been any new INCREMENTAL in round 5; there were none). Budget spent, correctly.
+Round 2 — the SAME reviewer composition as Round 1, scoped to the fix and its blast radius ONLY:
+    reviewer: "re-drove the 4 call sites; the empty set now rejects at the source." clean.
+    security-reviewer: "no new trust-boundary surface in the delta." clean.
+    testing-specialist: "the new case reds before the fix and greens after." clean.
+    gold-standards-validator: "the round-1 doc anchor is still open." INCREMENTAL, non-gating.
+
+Round 2 is clean — no CRITICAL/HIGH, and every counted reviewer genuinely ran (all four returned
+a payload with a ran-signal). Review ends here. No extra round: the Round-1 fix was not itself a
+small security-critical delta under 4a, and there is never a Round 4.
+
+WHEN REVIEW ENDS — every remaining finding of ANY severity goes to the durable LEDGER; none is
+dropped:
+  - the doc-anchor drift (INCREMENTAL): deferred-quality ledger, with its reason and revisit
+    trigger.
+  - the legacy adapter's extra WARN line per empty-set rejection (a small NON-SECURITY KNOWN RISK
+    on a shipped path — NOT security-critical and NOT HIGH/CRITICAL, so the amended rule 5(c)
+    applies): PROVISIONALLY accepted by me so the change can land. Ledgered OPEN, with the risk
+    stated plainly. It STAYS OPEN until a human accepts it (named acceptor) or asks for the fix —
+    my acceptance never closes it. A security-critical or HIGH/CRITICAL residual could not be
+    treated this way: it would follow 5(d) and need the owner's acceptance BEFORE landing.
+
+Residual CRITICAL/HIGH at review end: NONE. Both HIGHs were fixed and re-verified in Round 2;
+had one remained it would go to the OWNER, named with its open findings — never to another round,
+and never provisionally accepted under 5(c).
+
+Last-known-good is pinned at the Round-1 tree (iteration is non-monotone; a later round can lose
+a correct patch), and the fix was re-driven after Round 2 to confirm nothing degraded it. The
+instrument ROTATED between rounds: Round 2 used the differential red-before-green lens rather
+than a re-run of Round 1's reading lens.
+
+Budgeted half: yield 6 → 2 → 0 NEW INCREMENTAL findings (falsifying result named: any new
+INCREMENTAL would have falsified the stop; there were none). Budget spent, correctly — a stop of
+the BUDGETED half, never a convergence claim over the whole surface.

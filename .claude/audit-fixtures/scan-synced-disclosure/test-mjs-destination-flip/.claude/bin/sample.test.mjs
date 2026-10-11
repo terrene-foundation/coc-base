@@ -11,6 +11,6 @@ import { test } from "node:test";
 import assert from "node:assert";
 
 test("scrubber strips an operator-home path", () => {
-  const planted = "see /Users/fakeuser/fake-repos/secret/x.md";
+  const planted = "see {{FIXTURE_HOME_V1:MAC}}fakeuser/fake-repos/secret/x.md";
   assert.ok(planted.includes("/Users/"));
 });

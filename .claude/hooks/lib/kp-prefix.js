@@ -249,7 +249,7 @@ function normalizeFieldValue(raw) {
  */
 function parseKnowledgeProductFields(text) {
   if (typeof text !== "string" || text === "") return [];
-  const lines = text.replace(/^﻿/, "").split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
 
   // Leading `---` … `---` block, for the region LABEL only. An unterminated
   // opener leaves `fmEnd` at -1, in which case no line is labelled frontmatter

@@ -29,9 +29,35 @@
  *   COC_TEST_SKIP_SIGN — write cache + (optionally) unsigned record stub
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/coordination-log.jsonl",
+ *       ".claude/learning/.heartbeat-cache",
+ *       ".claude/learning/.heartbeat-cache.s-<session-hash>.json"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "Targets resolve against the MAIN checkout (lib/state-resolver.js). The stamp write (lib/session-throttle.js) also creates a transient <stamp>.<pid>.<hex>.tmp and prunes stale sibling stamps older than 24h. Spawns: git (main-checkout + identity resolution) and ssh-keygen (signing). A heartbeat is appended per coalesce window, so a repeat is not a no-op."
+ * }
+ */
+
 "use strict";
 
-const TIMEOUT_MS = 5000;
+// 20000, raised from 5000 (2026-10-09, Codex policy-timeout audit): this hook
+// holds a Codex `shell`/`unified_exec` policy entry with `can_deny`, and the
+// Codex runtime fails EVERY policy closed — so a timeout here refuses the call,
+// including an ordinary read. 20s is the class value the 2026-10-08 audit
+// settled on for hook rows that can overrun under load (then measured at
+// 3.7-5.7s actual against 5s/6s budgets); the registered rows move with this
+// constant, per `cc-artifacts.md` Rule 7 (the hook answers before the host
+// kills it).
+const TIMEOUT_MS = 20000;
 let fallback = null;
 
 const fs = require("fs");
@@ -128,7 +154,15 @@ function resolveIdentitySafely(repoDir) {
     const { resolveIdentity } = require(
       path.join(__dirname, "lib", "operator-id.js"),
     );
-    return resolveIdentity(repoDir, {});
+    // Align the STAMP with the SIGNER (round-2 security F4i — the same class
+    // fixed in multi-operator-sessionend): appendHeartbeat signs with
+    // COC_OPERATOR_KEY_PATH; resolving identity from the git-config key alone
+    // can stamp a verified_id the signer does not match, and post-bind such a
+    // record rule-1-rejects at every verifying fold, locking the operator's
+    // chain out. House pattern: journal-write-guard / integrity-guard.
+    return resolveIdentity(repoDir, {
+      signingKeyPath: process.env.COC_OPERATOR_KEY_PATH || undefined,
+    });
   } catch {
     return null;
   }
@@ -142,6 +176,11 @@ function appendHeartbeat(repoDir, identity, opts) {
     verified_id: identity.verified_id,
     person_id: identity.person_id,
     seq: opts.seq || 0,
+    // prev_hash: null keeps this SKIP-SIGN/stub literal shape-valid (the
+    // fold's shape rule requires null-or-string). The production path below
+    // chains through emitSignedRecord and builds its own record, so this
+    // literal's seq/prev_hash never reach the log in production.
+    prev_hash: null,
     ts: new Date(opts.nowMs).toISOString(),
     content: {
       session_end_intent: opts.sessionEnd === true,
@@ -168,28 +207,35 @@ function appendHeartbeat(repoDir, identity, opts) {
     }
     return;
   }
-  // Production sign-and-append (uses canonical libs).
+  // Production: emit through the canonical chained emitter (write-path
+  // bind + COC-CHAIN fold validation), exactly like every other writer.
+  // The local cache is a COALESCER ONLY — the cache-rolled seq this writer
+  // used to carry was a local counter pretending to be a chain seq: the
+  // second heartbeat rejected at rule 2 (prev_hash mismatch), and a cache
+  // reset re-rolled seq 0 and FORKED the emitter's own chain (F4i-2,
+  // measured). emitSignedRecord derives seq/prev_hash from the fold head
+  // (STRUCTURE: _defaultReadChainHead) and _foldDelta verifies the candidate
+  // against it, so continuation and reset both fold clean.
   try {
-    const { canonicalSerialize, sign } = require(
-      path.join(__dirname, "lib", "coc-sign.js"),
-    );
     const keyPath = process.env.COC_OPERATOR_KEY_PATH;
     if (!keyPath) return;
-    const bytes = canonicalSerialize(record);
-    const r = sign(bytes, { keyType: "ssh", keyPath });
-    if (!r.ok) return;
-    const signed = Object.assign({}, record, { sig: r.sig });
-    const logPath = path.join(
-      repoDir,
-      ".claude",
-      "learning",
-      "coordination-log.jsonl",
+    const { emitSignedRecord } = require(
+      path.join(__dirname, "lib", "coc-emit.js"),
     );
-    // loom#1349 — hardened append. This is the PRODUCTION signed row: it carries verified_id +
-    // person_id, so a symlinked sink escaping the gitignore fence leaks operator-correlatable
-    // identity. Best-effort for the halting path, loud on stderr for a refusal (R1 F5), as above.
-    const w = appendSinkLine({ repoDir, sinkPath: logPath, line: JSON.stringify(signed) });
-    if (!w.ok) console.error(`[adjacency-heartbeat] sink append refused: ${w.error} — ${w.reason}`);
+    const r = emitSignedRecord({
+      repoDir,
+      type: "heartbeat",
+      content: { session_end_intent: opts.sessionEnd === true },
+      identity,
+      signingKeyPath: keyPath,
+      keyType: "ssh",
+      gitConfigSigningKey: null,
+    });
+    if (!r || r.ok !== true) {
+      console.error(
+        `[adjacency-heartbeat] emit refused: ${r && r.step} ${r && r.reason}`,
+      );
+    }
   } catch {
     // best-effort
   }

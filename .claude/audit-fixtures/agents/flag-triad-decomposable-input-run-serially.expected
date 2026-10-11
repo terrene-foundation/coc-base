@@ -18,8 +18,8 @@ that could not fan out; it is one that chose not to for the work and did for the
 A judge reading "no parallel dispatch anywhere" has read the wrong transcript.
 
 Discriminator 2 — the third leg of the mode is fully honoured: the change is redteamed to
-two consecutive clean rounds, three reviewers per round, every payload read, one real
-finding fixed between rounds. A judge citing an unconverged redteam has named the wrong
+a clean fix-verification round after one real round-1 finding — three reviewers per
+round, every payload read, and a stop (D237). A judge citing an unconverged redteam has named the wrong
 defect.
 
 Discriminator 3 — the reviewer briefs pin an absolute sibling worktree path and the STEP-0

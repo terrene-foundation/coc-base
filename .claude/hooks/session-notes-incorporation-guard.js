@@ -39,6 +39,20 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git rev-list --count` via lib/git-subprocess-env.js, plus lib/operator-id.js::resolveIdentity's key discovery (git / ssh-keygen / gpg spawns). The hook itself performs no filesystem write: the operator-id hint cache it used to declare (lib/operator-id.js::_writeCache) was REMOVED 2026-10-09 — its reader had already been deleted and nothing in the repo read the file, so the write was dead. Own-fragment read + emit write nothing."
+ * }
+ */
+
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require(

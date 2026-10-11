@@ -240,10 +240,13 @@ function hookJson(res) {
   }
 }
 
+// The LOGICAL log — tracked file, then the pending stream every append now lands in —
+// read through the library's own reader. Reading the tracked file alone would make every
+// "a refused append wrote NOTHING" case below pass whether or not a write happened.
 function logLines(dir) {
-  const p = path.join(dir, ev.EVENTS_REL);
-  if (!fs.existsSync(p)) return [];
-  return fs.readFileSync(p, "utf8").split("\n").filter((l) => l.trim());
+  const r = ev.readEventLog(dir);
+  if (!r.ok) throw new Error(`readEventLog refused: ${r.error}: ${r.reason}`);
+  return r.text.split("\n").filter((l) => l.trim());
 }
 
 // A caller-injected append that stands in for `appendStamped`. It is the SAME

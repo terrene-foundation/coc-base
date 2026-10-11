@@ -24,6 +24,15 @@ What the advisory severity surfaces, and what it deliberately does not:
 
 > **It IS registered** in `.claude/settings.json` at `PostToolUse`, matcher `Edit|Write|NotebookEdit` — the write-tool set its own `@hook-event` header declares, MEASURED on this tree against a known-absent control — so AT LOOM it fires. **ARMED is not PROVEN EFFECTIVE:** no armed guard has been OBSERVED firing in a live session; registration and distribution state are all that is measured, and the discrimination census below predates arming and is OWED a re-measurement rather than restatable as current. **It reaches NO consumer:** the hook file is deliberately fenced `loom_only` in `sync-manifest.yaml` with its required twin in `validate-emit.mjs::LOOM_ONLY_TIER_CARVEOUTS`, so it does not ship — a consumer receives this RULE and not this DETECTOR, enforcement at those targets is GATE-REVIEW at the consumer's end, its silence there is the ABSENCE OF AN INSTRUMENT rather than evidence that no mis-categorized defer shipped, and the gap is DECLARED in the detector-distribution baseline registry (`detector-distribution-baseline.json`, under the test-harness tree) rather than left silent. **Staged because firing volume is measured on loom's corpus and nowhere else, and a consumer's corpus is a different population.** PROMOTION is deleting this guard's `loom_only:` entry TOGETHER WITH its `LOOM_ONLY_TIER_CARVEOUTS` twin — removing either alone is a defect. Registry note, outside this lane's write-set: the `phase2-deferrals.json` row for this detector sits in `acknowledged_non_deferrals` under the id `product-completion-first.md#bug-signal-defer-detector`, and its "no longer owed" reasoning rests on a registration premise that is now TRUE at loom and FALSE at every consumer — re-stating that row on the armed-and-fenced facts is still owed.
 
+Relocated VERBATIM from the rule's `- **Detection mechanism:**` bullet on 2026-10-08 (a
+structural-cleanup extraction holding the rule-injection budget; no obligation left the rule —
+the bullet keeps its probes, its scanner, its four suppressors, the MUST-token clauses and the
+whole fence/arming record):
+
+> inspect any session that surfaced findings and confirm (a) each finding carries a category label, (b) no BUG-signal finding (failing test/build/type-check, insecure-or-lossy shipped path) was routed to the `deferred-quality` list, (c) every incremental defer carries the four generalized-1b conditions, (d) the judgment bucket was surfaced at `/sweep`, not silently decided.
+
+> the RECORDED-disposition scope,
+
 ### Detector scope — where a disposition is RECORDED
 
 > **Scope is where a disposition is RECORDED** (workspace notes, sweep/redteam reports, todo lists, journal entries, session notes), deliberately NOT this rule's `paths:` frontmatter, which says where the RULE LOADS; consequently this rule file is out of scope and the detector does not fire on the corpus that defines it.

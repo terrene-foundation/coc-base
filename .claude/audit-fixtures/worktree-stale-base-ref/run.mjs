@@ -53,7 +53,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
+import { createRequire, Module } from "node:module";
+import assert from "node:assert/strict";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The fixture DATA lives in the violation-patterns family (see the header);
@@ -408,6 +409,9 @@ try {
       encoding: "utf8",
       timeout: 60000,
     });
+    if (r.error || r.status !== 0 || !r.stdout.trim()) {
+      throw new Error(`hook did not produce a result: status=${r.status} error=${r.error} stderr=${r.stderr}`);
+    }
     // The finding is surfaced in additionalContext; anything else is "silent".
     // Parsed, not grepped, so a malformed hook payload fails loudly here.
     let ctx = "";
@@ -418,10 +422,31 @@ try {
     } catch {
       return `unparseable-stdout:${String(r.stdout).slice(0, 80)}`;
     }
-    return /STALE local base ref/.test(ctx) ? "flagged" : "clean";
+    return /STALE local base ref/.test(ctx) ? "flagged" : /Worktree stale-base verification NOT RUN\/UNKNOWN/.test(ctx) ? "unknown" : "clean";
   };
 
+  const fourCurrent = "git worktree add ../a current; git worktree add ../b current; git worktree add ../c current; git worktree add ../d current; ";
   const DISPATCH_CASES = [
+    ["dispatch-cap-then-no-base-quiet", fourCurrent + "git worktree add ../e", work, "clean"],
+    ["dispatch-cap-then-list-quiet", fourCurrent + "git worktree list", work, "clean"],
+    ["dispatch-cap-then-origin-quiet", fourCurrent + "git worktree add ../e origin/mainline", work, "clean"],
+    ["dispatch-cap-then-variable-ref-quiet", fourCurrent + "git worktree add ../e $BASE", work, "clean"],
+    ["dispatch-route-dedup-keeps-fourth-probe", "git worktree add ../a current; git worktree add ../b current; sudo chroot / setuidgid 0 git worktree add ../c current; git worktree add ../d mainline", work, "flagged"],
+    ["dispatch-probe-cap-is-unknown", "git worktree add ../a current; git worktree add ../b current; git worktree add ../c current; git worktree add ../d current; git worktree add ../e mainline", work, "unknown"],
+    ["dispatch-substitution-stale-explicit", "echo $(git worktree add ../lane mainline)", work, "flagged"],
+    ["dispatch-substitution-current-explicit", "echo $(git worktree add ../lane current)", work, "clean"],
+    ["dispatch-backtick-stale-explicit", "echo `git worktree add ../lane mainline`", work, "flagged"],
+    ["dispatch-substitution-no-base", "echo $(git worktree add ../lane)", work, "clean"],
+    ["dispatch-substitution-singlequoted-data", "echo '$(git worktree add ../lane mainline)'", work, "clean"],
+    ["dispatch-substitution-absolute-C-stale", `echo $(git -C ${work} worktree add ../lane mainline)`, clean, "flagged"],
+    ["dispatch-substitution-absolute-C-clean", `echo $(git -C ${clean} worktree add ../lane mainline)`, work, "clean"],
+    ["dispatch-owner-cd-stale", `cd ${work} && echo $(git worktree add ../lane mainline)`, clean, "flagged"],
+    ["dispatch-owner-cd-clean", `cd ${clean} && echo $(git worktree add ../lane mainline)`, work, "clean"],
+    ["dispatch-nested-cd-unresolved-from-stale", "sh -c 'cd $TARGET; git worktree add ../lane mainline'", work, "clean"],
+    ["dispatch-nested-cd-unknown", `echo $(cd ${work}; git worktree add ../lane mainline)`, clean, "clean"],
+    ["dispatch-nested-cd-absolute-C", `echo $(cd $TARGET; git -C ${work} worktree add ../lane mainline)`, clean, "flagged"],
+    ["dispatch-shell-body-stale", "sh -c 'git worktree add ../lane mainline'", work, "flagged"],
+    ["dispatch-real-sibling-current-then-stale", "echo $(git worktree add ../a current) $(git worktree add ../b mainline)", work, "flagged"],
     // ── the detector must reach a real invocation ──
     [
       "dispatch-bare-stale",
@@ -696,6 +721,97 @@ try {
         name,
         `expected ${want}, got ${got} (cmd=${JSON.stringify(cmd)}, cwd=${hookCwd})`,
       );
+  }
+
+  // Reach counters execute the changed consumer, and the independent dispatch
+  // expectations above must throw a named assertion for each altered invariant.
+  // Source consumer: .claude/hooks/validate-bash-command.js:2756-2826.
+  const source = readFileSync(HOOK, "utf8").replace(/^#![^\n]*\n/, "");
+  const load = (text) => {
+    const subject = new Module(HOOK);
+    subject.filename = HOOK;
+    subject.paths = Module._nodeModulePaths(dirname(HOOK));
+    subject._compile("let mutationHits = 0; const mutationGuards = new Set();\n" + text +
+      "\nmodule.exports.fixtureDecision = validateBashCommand; module.exports.mutationHits = () => mutationHits; module.exports.mutationGuards = () => [...mutationGuards];", HOOK);
+    return subject.exports;
+  };
+  const classify = (body) => {
+    const text = body?.what_happened || "";
+    return /STALE local base ref/.test(text) ? "flagged"
+      : /Worktree stale-base verification NOT RUN\/UNKNOWN/.test(text) ? "unknown" : "clean";
+  };
+  const mutations = [
+    ["structural-close", "dispatch-nested-cd-absolute-C", "const g = parseGitInvocation(stripShellGroupDelimiters(seg));",
+      'const g = (mutationHits++, parseGitInvocation(seg));'],
+    ["noncandidate-cap", "dispatch-cap-then-no-base-quiet", "if (!base || /[$`]/.test(base.ref) || /^(?:origin|upstream)\\//.test(base.ref)) continue;",
+      'if ((mutationHits++, false)) continue;'],
+    ["reach", "dispatch-substitution-stale-explicit", "const seg = expansion.segments[index];",
+      'const seg = (mutationHits++, expansion.parents[index] === index ? expansion.segments[index] : "echo");'],
+    ["owner-directory", "dispatch-owner-cd-stale", "resolveCdTrailDir(masked.slice(0, start), cwd)",
+      '(mutationHits++, { dir: cwd, known: true })'],
+    // Absolute-C: `git -C <work>` pins the target via targetContext.chdir, NOT
+    // via g.dir — the context branch of resolveGitTargetContext ignores g.dir
+    // entirely, so nulling `dir` alone was a no-op and the pole never flipped.
+    // Neutralising the captured chdir/shellChdir selectors drops the route back
+    // to the payload cwd (clean), whose mainline is current — so the stale
+    // `work` probe never happens and the verdict flips to clean.
+    ["absolute-C", "dispatch-substitution-absolute-C-stale", "const target = resolveGitTargetContext(g, context.known ? context.dir : g.dir);",
+      'const target = (mutationHits++, resolveGitTargetContext({ ...g, targetContext: { ...(g.targetContext || {}), chdir: [], shellChdir: [] } }, context.known ? context.dir : g.dir));'],
+    ["nested-cd-unknown", "dispatch-nested-cd-unresolved-from-stale", "if ((!context.known || nestedCd) && !cAbs) continue;",
+      'if ((mutationHits++, !context.known) && !cAbs) continue;'],
+    ["quoted-data", "dispatch-substitution-singlequoted-data", "const expansion = expandNestedSegments(splitShellSegments(masked, {",
+      `const expansion = expandNestedSegments(splitShellSegments((mutationHits++, masked.replace(/'/g, "")), {`],
+    // Route suppression: the wrapper route (`sudo chroot / setuidgid 0 git …`)
+    // carries an OPAQUE target context, so it abstains at TWO barriers — the
+    // `g.unresolvable === "dir"` guard AND, past it, resolveGitTargetContext's
+    // `context.unknown` check ("git target context is opaque" → !target.known).
+    // Neutralising the opacity ITSELF lets BOTH wrapper routes spend a probe:
+    // the owner route (#3) resolves, and the nested `setuidgid` route (#4)
+    // survives the dedupe because its key differs by unresolvable provenance —
+    // together exhausting MAX_REF_PROBES before the fourth (mainline) probe,
+    // which flips the verdict to unknown. TWO earlier poles were dead here:
+    // one mutated only the dedupe, one only the unresolvable guard — the other
+    // barrier still abstained.
+    ["route-suppression", "dispatch-route-dedup-keeps-fourth-probe", 'if (g.unresolvable === "dir") continue;',
+      '{ mutationHits++; g.unresolvable = null; if (g.targetContext) g.targetContext.unknown = []; }'],
+    ["probe-budget", "dispatch-probe-cap-is-unknown", "probesSpent >= MAX_REF_PROBES || refProbeBudgetMs <= 0",
+      '(mutationHits++, false)'],
+  ];
+  const baseline = load(source);
+  for (const [id, caseName, anchor, replacement] of mutations) {
+    try {
+      const row = DISPATCH_CASES.find(([name]) => name === caseName);
+      if (!row) throw new Error("missing independent mutation pole: " + caseName);
+      const [, command, hookCwd, want] = row;
+      const data = { tool_name: "Bash", tool_input: { command }, cwd: hookCwd };
+      assert.equal(classify(baseline.fixtureDecision(data)), want, caseName + ": baseline acceptance");
+      if (source.split(anchor).length !== 2) throw new Error("missing or ambiguous mutation anchor: " + id);
+      let altered = source.replace(anchor, replacement);
+      if (id === "quoted-data") {
+        const guards = [
+          ['const masked = maskDocCarrierPayloads(spans.structural);',
+            'const masked = (mutationHits++, mutationGuards.add("prose-mask"), spans.structural);'],
+          ['start < 0 ? { dir: null, known: false }',
+            'start < 0 ? (mutationHits++, mutationGuards.add("owner-unknown"), { dir: cwd, known: true })'],
+        ];
+        for (const [guard, drop] of guards) {
+          assert.equal(altered.split(guard).length, 2, id + ": sibling guard anchor");
+          altered = altered.replace(guard, drop);
+        }
+        altered = altered.replace('masked.replace(/\'/g, "")', 'mutationGuards.add("quote-retention"), masked.replace(/\'/g, "")');
+      }
+      const mutant = load(altered);
+      const got = classify(mutant.fixtureDecision(data));
+      assert.ok(mutant.mutationHits() > 0, id + ": mutation must reach code before reading RED");
+      if (id === "quoted-data") assert.deepEqual(mutant.mutationGuards().sort(),
+        ["owner-unknown", "prose-mask", "quote-retention"], "quoted-data: every joint mutation reached");
+      let red;
+      try { assert.equal(got, want, caseName + ": changed consumer must retain its contract"); }
+      catch (error) { red = error; }
+      assert.equal(red?.code, "ERR_ASSERTION", id + ": named contract must RED");
+      assert.ok(red.message.includes(caseName), id + ": read named RED");
+      pass("mutation-" + id, `REACHED=${mutant.mutationHits()} JOINT=${mutant.mutationGuards().join(",") || "none"} RED=${caseName} expected=${want} got=${got}`);
+    } catch (error) { fail("mutation-" + id, error.message); }
   }
 } catch (e) {
   fail("real-git-arm", `setup or execution error: ${e.message}`);

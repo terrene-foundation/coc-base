@@ -43,13 +43,13 @@ const fs = require("fs");
 // `path` is deliberately NOT required. Its only use was `path.dirname(logPath)`
 // for the pre-#1349 unchecked mkdir, which is gone (the primitive owns directory
 // creation, and creating it here would defeat defense 1 — see `appendRecord`).
-// `state-resolver.js` is required LAZILY inside `appendRecord`, not here, so the
-// five read-only hooks that load this module do not pull in its `child_process`
-// dependency on a path that never resolves a containment root — the same shape
-// `coc-emit.js` uses at its own call site on this sink.
+// `state-resolver.js` is reached LAZILY — inside `appendRecord` through
+// `mainCheckoutBoundaryRoots()`, which resolves it on call — not at module
+// load, so the five read-only hooks that load this module do not pull in its
+// `child_process` dependency on a path that never resolves a containment root.
 const crypto = require("crypto");
 const { resolveLogPath } = require("./state-io.js");
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 /**
  * The `appendSinkLine` `error` tags that mean THE SUBSTRATE FAILED, as opposed
@@ -302,14 +302,10 @@ function createFilesystemTransport(repoDir) {
     // Against the main checkout that symlink lands under neither root and is
     // still refused.
     //
-    // Resolved through `requireMainCheckout` — the FAIL-CLOSED accessor — and
-    // not the legacy `resolveMainCheckout`, because what is declared here is a
-    // CONTAINMENT ROOT and the legacy accessor silently returns its own `cwd`
-    // argument when git cannot identify a main checkout. The `!ok` branch
-    // declares NOTHING: a sink outside `repoDir` is then refused rather than
-    // written somewhere unverified, while a sink INSIDE `repoDir` — the
-    // legitimate non-git / unresolvable-git case the tests exercise — still
-    // lands, because `repoDir` is always root[0].
+    // Containment roots for a state-dir sink: derived by the ONE helper in
+    // append-sink.js (see its doc for the fail-closed resolver rationale and
+    // for why an unresolvable git declares NOTHING rather than over-blocking
+    // a sink that is legitimately inside `repoDir`).
     //
     // § SYNC INSIDE AN ASYNC METHOD — deliberate, and cheaper than it looks.
     // `appendSinkLine` is synchronous, so this method's one `await` on the
@@ -341,16 +337,7 @@ function createFilesystemTransport(repoDir) {
     // result AND catches, so both directions are inert THERE — which is
     // exactly why the split has to be maintained deliberately here, since no
     // caller's behaviour would have caught its loss.)
-    const boundaryRoots = [];
-    try {
-      const { requireMainCheckout } = require("./state-resolver.js");
-      const mainCheckout = requireMainCheckout(repoDir);
-      if (mainCheckout.ok) boundaryRoots.push(mainCheckout.repoDir);
-    } catch {
-      // Resolver unavailable — `repoDir` remains the only root and a
-      // main-checkout sink fails CLOSED rather than being written somewhere
-      // unverified.
-    }
+    const boundaryRoots = mainCheckoutBoundaryRoots(repoDir);
     // The line is handed over WITHOUT its terminator; the primitive writes
     // exactly one "\n". O_APPEND atomicity for writes ≤PIPE_BUF is unchanged —
     // the primitive opens with O_WRONLY|O_APPEND and loops until every byte of

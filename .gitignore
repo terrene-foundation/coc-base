@@ -10,6 +10,7 @@
 .claude/learning/observations.jsonl
 .claude/learning/violations.jsonl
 .claude/learning/coordination-log.jsonl*
+.claude/learning/burndown-events.pending.jsonl*
 .claude/learning/provenance/
 .claude/learning/posture.json*
 .claude/learning/.initialized

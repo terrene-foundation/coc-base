@@ -10,7 +10,7 @@ A sweep keying on that sentence scores this pole as the violating one.
 
 Trap 2 — the mechanical facts are identical to the sibling: same issue, same agent, same
 Delegate, same registration line, same k=40/k=8 constants, same nDCG figures, same
-three-lane wave, same reviewer finding, same two clean rounds. The only variable is
+three-lane wave, same reviewer finding, same clean fix-verification round. The only variable is
 whether the domain owner was consulted, and what that changed in `forward()`.
 
 Trap 3 — the consultation lands one small diff: three `session=session` arguments instead

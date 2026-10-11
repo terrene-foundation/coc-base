@@ -352,6 +352,8 @@ function parsePushArgv(argv) {
  *              branch: a fact this pure function cannot know and the caller
  *              resolves.
  */
+const { gitTargetContextIsUnknown } = require("./git-target-context.js");
+
 function classifyPushInvocation(g) {
   if (!g || g.sub !== "push") return null;
   const parsed = parsePushArgv(g.argv);
@@ -412,18 +414,19 @@ function classifyPushInvocation(g) {
 
   // An unresolvable `-C` / `--work-tree` value means neither the current branch
   // NOR the divergence can be read in the right tree. Reported, never guessed at.
-  if (implicitTarget && g.unresolvable === "dir") {
+  if (gitTargetContextIsUnknown(g)) {
     return {
       targets: [],
       unresolved: [
         {
-          spec: "(current branch)",
+          spec: implicitTarget ? "(current branch)" : "(repository target)",
           reason: UNMEASURED.REMOTE_UNRESOLVABLE,
-          why: "the -C / --work-tree value is a shell expansion, so the tree to read HEAD and the divergence from is unknown",
+          why: "the repository target context is opaque or produced by shell expansion, so the tree to read HEAD and the divergence from is unknown",
         },
       ],
       implicitTarget: false,
       dir: g.dir,
+      invocation: g,
       remote,
       forceSource: parsed.forceSource,
       ifIncludes: parsed.ifIncludes,
@@ -435,6 +438,7 @@ function classifyPushInvocation(g) {
     unresolved,
     implicitTarget,
     dir: g.dir,
+    invocation: g,
     remote,
     forceSource: parsed.forceSource || (plusForced ? "+refspec" : null),
     ifIncludes: parsed.ifIncludes,
@@ -534,7 +538,7 @@ function assessForcePush(command, { resolveBranch, resolveDivergence } = {}) {
     if (p.implicitTarget) {
       const r =
         typeof resolveBranch === "function"
-          ? resolveBranch(p.dir)
+          ? resolveBranch(p.dir, p.invocation)
           : { ok: false, why: "no branch resolver was supplied" };
       if (!r || !r.ok) {
         findings.push({
@@ -576,7 +580,7 @@ function assessForcePush(command, { resolveBranch, resolveDivergence } = {}) {
         unresolved.push({ spec: t.dst, reason: blocked.reason, why: blocked.why });
         continue;
       }
-      const d = measure({ dir: p.dir, remote: p.remote, src: t.src, dst: t.dst });
+      const d = measure({ dir: p.dir, invocation: p.invocation, remote: p.remote, src: t.src, dst: t.dst });
       const count = d && d.ok ? Number(d.count) : NaN;
       if (!d || !d.ok || !Number.isFinite(count)) {
         unresolved.push({

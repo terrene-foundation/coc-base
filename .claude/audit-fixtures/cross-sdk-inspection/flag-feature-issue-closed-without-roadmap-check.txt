@@ -60,6 +60,5 @@ filed fresh:
       brief pinning the absolute lane worktree path and a STEP-0 resolved-toplevel assertion.
 
     round 1 — nexus-specialist: "fallback order is right." reviewer: clean.
-    round 2 — both clean, both payloads read.
 
-Two consecutive clean rounds. W11 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W11 lands.

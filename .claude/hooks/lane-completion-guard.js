@@ -75,6 +75,20 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/stop-refusal/<session-id>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["gh","git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `gh pr list` / `gh api user` via execFile plus local git probes via lib/trunk-ref.js::resolveTrunk (execFileSync). The hook MEANS to reach the network through the `gh` child — the forge read IS its instrument — so that is declared here via spawns, not via the network flag, which covers only this process's own sockets. The one write is the per-session refusal-budget row appended by lib/stop-refusal.js (BOUND 4, write-before-refuse) through lib/append-sink.js; each refusal consumes a slot, so a repeat appends another row rather than being a no-op."
+ * }
+ */
+
 const path = require("path");
 const { execFile } = require("child_process");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));

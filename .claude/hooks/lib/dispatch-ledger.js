@@ -107,7 +107,11 @@ const path = require("path");
 // un-hardened sink; a direct `fs.readFileSync` was a second, un-hardened SOURCE, which is exactly
 // the asymmetry CRITICAL 1 and CRITICAL 2 were. There is deliberately NO bare `fs` binding in this
 // module's scope any more, so reaching for either takes an added import rather than a free hand.
-const { appendSinkLine, readSinkFile } = require("./append-sink.js");
+const {
+  appendSinkLine,
+  readSinkFile,
+  mainCheckoutBoundaryRoots,
+} = require("./append-sink.js");
 
 /**
  * Stream version. Independent of `activation_schema_version` and deliberately NOT pinned to 0:
@@ -704,7 +708,17 @@ function appendRecord(a) {
     if (!record || typeof record !== "object" || !RECORD_KINDS.includes(record.kind))
       return { ok: false, error: "record MUST be an object with a known kind" };
     const sinkPath = _sinkPath(repoDir, record.session_id);
-    const w = appendSinkLine({ repoDir, sinkPath, line: JSON.stringify(record) });
+    // Declared even though this sink is repoDir-contained today: measured in a real
+    // worktree, containment passes either way, while OMITTING it fails closed the
+    // moment an entry point resolves the shared learning tree to the main checkout.
+    // Uniform declaration is what keeps the boundary one derivation instead of a
+    // per-caller judgement that drifted six times already.
+    const w = appendSinkLine({
+      repoDir,
+      additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+      sinkPath,
+      line: JSON.stringify(record),
+    });
     if (!w.ok) return { ok: false, error: `${w.error} — ${w.reason}` };
     return { ok: true, sinkPath };
   } catch (e) {

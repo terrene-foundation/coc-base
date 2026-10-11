@@ -296,6 +296,20 @@ function runFixtureDir(dir, detector) {
     .filter((f) => f.endsWith(".txt"))
     .map((f) => f.slice(0, -4))
     .sort();
+  // EMPTY-DENOMINATOR GUARD (operator-ratified Gate-1 port, 2026-10-06). A fixture
+  // directory that yields zero .txt files generates zero `test()` calls, and a suite
+  // that runs no tests passes — so renaming or moving the fixtures would disarm this
+  // detector's entire corpus without a single red. The same shape the coverage fence
+  // closes in scan-synced-disclosure.mjs, applied to the apparatus that guards the
+  // detectors (`verification-gate-integrity.md` MUST-2 — absence of a result is not a
+  // pass; `instrument-discipline.md` MUST-3(a) — a never-shown-to-fire instrument).
+  test(`${dir}/<fixture corpus is non-empty>`, () => {
+    assert.ok(
+      names.length > 0,
+      `${dir} yielded no .txt fixtures, so every assertion below it would be ` +
+        `silently skipped and this suite would pass having tested nothing.`,
+    );
+  });
   for (const name of names) {
     test(`${dir}/${name}`, () => {
       const cmd = fs.readFileSync(path.join(abs, name + ".txt"), "utf8");

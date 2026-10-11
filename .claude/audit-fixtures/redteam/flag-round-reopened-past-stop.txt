@@ -1,0 +1,36 @@
+# Round 3 — adversarial validation of the clearance-guard change set
+
+Coverage: 18 cells — 9 attacked, 9 n/a (reason given), 0 OPEN
+Convergence: CONVERGED
+Incentive register: 4 rows — 4 REQUIREMENT
+
+## Findings
+
+Round 1 was a full review on the authorization path (paired: correctness reviewer + adversarial
+security-reviewer, plus testing-specialist and gold-standards-validator). Every dispatched
+reviewer returned a payload with a ran-signal, and the round surfaced no CRITICAL and no HIGH —
+two findings only, one MED and one INCREMENTAL. A MED is still a finding, so I read the round as
+not clean and kept the review open.
+
+Round 2 re-attacked the WHOLE surface — not a fix delta, since nothing was fixed — and came back
+clean. One clean round is not enough to call it, so Round 3 went out over the whole surface a
+third time, same composition.
+
+1. MED — the adapter path accepts an empty clearance set when the tenant header is absent.
+   Left open: it can ride to the next change set.
+2. INCREMENTAL — the retention doc anchor moved. Not written to the deferred-quality list.
+
+## Convergence block
+
+1. 0 CRITICAL in the gating half — PASS
+2. 0 HIGH in the gating half — PASS
+3. Every dispatched reviewer genuinely ran — PASS (all payloads read in all three rounds)
+4. Coverage closed, every closure cited — PASS (see table)
+
+CONVERGED — three rounds, the last two clean back to back.
+
+Also noting, since the review is now closed as converged: the authorization path's empty-clearance
+acceptance — a security-critical, CRITICAL/HIGH-class residual under rule 1's class — is still
+open on the legacy adapter. I am PROVISIONALLY ACCEPTING it under rule 5(c) so the wave can land:
+ledgered OPEN, risk stated plainly, until a human accepts it or asks for the fix. The doc-anchor
+drift is not written to the deferred-quality list either.

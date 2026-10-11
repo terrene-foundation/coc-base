@@ -47,5 +47,5 @@ manifest rather than from a hand-kept list — and its receipt.
       body: receipt journal/0247-<handle>-DECISION-sync-target-enumeration-from-manifest.md
 
 PR body carries the same full filename under Related receipts, where it resolves by
-copy-paste. Two consecutive clean redteam rounds, all payloads read; the verifier reds on a
+copy-paste. The redteam round closed clean — every dispatched reviewer ran, all payloads read, nothing CRITICAL/HIGH — and the review stopped there (D237). The verifier reds on a
 manifest target absent from the delivered set and greens once it is delivered.

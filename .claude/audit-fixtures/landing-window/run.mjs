@@ -142,6 +142,27 @@ console.log(`primary          : ${PRIMARY}`);
 console.log(`sibling          : ${SIBLING}`);
 console.log(`marker           : ${MARKER}`);
 
+// UNKNOWN core and allowed protocol are paired; source:
+// .claude/hooks/landing-window-guard.js:744-753,1097-1110.
+function driveUnknown(command, detail) {
+  const payload = bashCall(command, OTHER);
+  const finding = require_(GUARD).evaluate(payload);
+  const result = drive(payload, otherEnv());
+  const body = result.json?.hookSpecificOutput?.additionalContext;
+  const matched = finding?.severity === "report" &&
+    finding.reason === "git-target-context-unknown" &&
+    finding.detail === "The write target is UNKNOWN: " + detail &&
+    finding.target === null && Array.isArray(finding.targets) && finding.targets.length === 0 &&
+    finding.jurisdiction === fs.realpathSync(PRIMARY) && finding.classification?.state === "live" &&
+    result.tag === "[HALT-AND-REPORT]" && result.code === 0 && result.refused === false &&
+    result.json?.continue === true &&
+    result.json?.hookSpecificOutput?.permissionDecision !== "deny" &&
+    result.json?.permissionDecision !== "deny" && typeof body === "string" &&
+    body.includes("reason    : git-target-context-unknown") &&
+    body.includes("The write target is UNKNOWN. The call is allowed");
+  return { result, finding, matched };
+}
+
 function drive(payload, env) {
   return driveHook(GUARD, { stdinRaw: JSON.stringify(payload), cwd: PRIMARY, env });
 }
@@ -230,7 +251,7 @@ const POLES = [
   // the spend ledger and the one-shot gate were removed rather than re-graded.
   // Its three poles dissolved with the mechanism (they are not "undriven" — they
   // are gone, and the coverage check below reads this table).
-  { pole: "compound-shell-mutating-git-advised", checks: ["27"] },
+  { pole: "compound-shell-mutating-git-unknown-reported", checks: ["27"] },
   { pole: "compound-shell-without-git-allowed", checks: ["28"] },
   { pole: "cwd-outside-repo-git-C-advised", checks: ["29", "30c"] },
   { pole: "cwd-outside-repo-write-advised", checks: ["30", "30b"] },
@@ -248,7 +269,7 @@ const POLES = [
   // T12 — redesign clause (d): the writer denylist becomes a READ-ONLY allowlist,
   // and an unrecognised command ranks TIGHTEST. Two poles because a hook that
   // advises on everything satisfies neither meaningfully.
-  { pole: "non-git-writer-unrecognised-advised", checks: ["50"] },
+  { pole: "non-git-writer-unrecognised-unknown-reported", checks: ["50"] },
   { pole: "non-git-read-only-command-allowed", checks: ["51"] },
   // T10 — the one-shot override's AVAILABILITY lookup. RED and GREEN are two
   // poles because neither alone can show the answer TRACKS the ledger: the
@@ -632,18 +653,22 @@ check(
   "silence here = the owner test is back on the ENV signal, and every child process the owner spawned inherited that variable",
 );
 
-// --- H2: compound shell forms returned ZERO invocations to the parser -------
+// H2 UNKNOWN reports retain the allowed call without inventing a target.
+// .claude/hooks/landing-window-guard.js:642-670,744-753.
 for (const [label, cmd] of [
   ["if/then/fi", "if true; then git commit -m x; fi"],
   ["for/do/done", "for i in 1; do git commit; done"],
   ["subshell parens", "(git commit -m x)"],
   ["brace group", "{ git commit -m x; }"],
 ]) {
-  const r = drive(bashCall(cmd, OTHER), otherEnv());
+  const detail = label === "if/then/fi" || label === "for/do/done"
+    ? "unaccounted shell git target"
+    : "unrecognised command (ranked tightest: not on the read-only allowlist) (unresolvable operand)";
+  const { result: r, finding, matched } = driveUnknown(cmd, detail);
   check(
-    `27  H2  a mutating git inside ${label} -> ADVISED`,
-    r.tag === "[ADVISORY]" && r.code === 0,
-    `cmd=${cmd} exit=${r.code} tag=${r.tag}`,
+    `27  H2  a mutating git inside ${label} -> UNKNOWN REPORT, allowed`,
+    matched,
+    `cmd=${cmd} exit=${r.code} tag=${r.tag} finding=${JSON.stringify(finding)} refused=${r.refused}`,
     "silence = the parser returns ZERO invocations for this construct, `sawMutatingGit` stays false, and the hook returns BEFORE the marker is read — one shell wrapper is a complete blind spot (MEASURED pre-fix)",
   );
 }
@@ -876,11 +901,12 @@ for (const [label, cmd] of [
   ["patch", "patch -p1 < x.diff"],
   ["python3 -c open(w)", `python3 -c "open('z.txt','w').write('x')"`],
 ]) {
-  const r = drive(bashCall(cmd, OTHER), otherEnv());
+  const { result: r, finding, matched } = driveUnknown(cmd,
+    "unrecognised command (ranked tightest: not on the read-only allowlist) (unresolvable operand)");
   check(
-    `50  T12 a non-git writer (${label}) into the primary -> ADVISED (ranked tightest)`,
-    r.tag === "[ADVISORY]",
-    `cmd=${cmd} exit=${r.code} tag=${r.tag}`,
+    `50  T12 a non-git writer (${label}) -> UNKNOWN REPORT, allowed`,
+    matched,
+    `cmd=${cmd} exit=${r.code} tag=${r.tag} finding=${JSON.stringify(finding)} refused=${r.refused}`,
     "silence = the command is absent from the writer denylist, so it produces no target and the hook reports nothing mutating — the fail-OPEN direction the allowlist replaces",
   );
 }

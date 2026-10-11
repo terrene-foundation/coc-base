@@ -111,6 +111,20 @@
  * Every `catch` below is one of these two by design, and each says which.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git","node"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns `node .claude/bin/burndown-build.mjs --check-links` (read-only mode) and, for the semantic arm, `git show HEAD:<rel>` per lib/git-subprocess-env.js. Both reads; emission goes to stdout and no state is retained."
+ * }
+ */
+
 "use strict";
 
 const TIMEOUT_MS = 4000;

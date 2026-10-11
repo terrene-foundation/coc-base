@@ -33,6 +33,20 @@
  *   1 = hook error (e.g. timeout, malformed input)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git check-ignore -v` via lib/git-subprocess-env.js (absolute binary, minimal env) — a local read, so the hook's own process opens no network. The warning renders to stdout as additionalContext; no durable write anywhere."
+ * }
+ */
+
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require(

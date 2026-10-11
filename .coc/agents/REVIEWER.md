@@ -84,14 +84,26 @@ The load-bearing checks, in the order they fail most often:
 4. **No counter was reset by an observation** rather than a change; "touched surface" includes
    transitive consumers of a changed callee, and the deliverable counter is the MINIMUM over
    surfaces, never an aggregate.
-5. **No cap-stop was recorded as convergence.** Hitting the round cap is abnormal termination.
-   Confirm a last-known-good state survived every round — iteration is non-monotone.
-6. **Every trust-bearing surface got the full uncapped loop**, both lenses; no reduced-depth
-   routing on an ambiguous classification (ambiguous ⇒ trust-bearing).
+5. **Review ended by DESIGN.** Bounded rounds are the NORMAL terminal state — Round 1 is a full
+   review and Round 1 clean = review ends; not clean → fix, then Round 2 reviews ONLY the fixes
+   plus their blast radius; one extra Round 3 only for a small security-critical fix's delta;
+   never a Round 4. A residual CRITICAL/HIGH when review ends goes to the OWNER, never to another
+   round. Confirm a last-known-good state survived every round — iteration is non-monotone.
+6. **Every trust-bearing surface got the PAIRED round 1** — correctness + adversarial security, in
+   parallel — never reduced; no reduced-depth routing on an ambiguous classification
+   (ambiguous ⇒ trust-bearing).
 7. **Depth was justified by oracle presence, never model capability or self-reported confidence.**
    A suite-level green is not a sound oracle for an untested property.
-8. **Each shipped residual carries a named human acceptor** (standing role, not an individual),
-   a revisit trigger, AND a calendar backstop. No human reachable ⇒ NOT accepted ⇒ not done.
+8. **When review ends, at any round, every remaining finding goes to the durable LEDGER** — none
+   dropped. Each shipped residual carries a named human acceptor (standing role, not an
+   individual), a revisit trigger, AND a calendar backstop; **D237 5(c) exception:** a small KNOWN
+   RISK on a shipped path that is NOT security-critical (rule 1's class, including any trust
+   boundary) and NOT HIGH/CRITICAL may be PROVISIONALLY accepted by the agent so the change can
+   land — ledgered OPEN with the risk stated plainly, STAYS OPEN until a human either accepts it
+   (named acceptor) or asks for the fix, and the agent's acceptance never closes it. A
+   security-critical or HIGH/CRITICAL residual risk is NEVER provisionally accepted: it follows
+   5(d) and needs the owner's acceptance BEFORE landing. Absent that exception, no human reachable
+   ⇒ NOT accepted ⇒ not done.
 
 **A finding of "converged" with no stated list is itself the finding.** Report it as such.
 

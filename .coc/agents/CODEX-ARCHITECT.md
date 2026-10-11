@@ -73,7 +73,7 @@ settings are operator-local. Distribution does not grant presentation: preserve
 | Review | `codex review --uncommitted` OR `--base main` OR `--commit <SHA>` |
 | Hook registration | `.codex/hooks.json` or inline `[hooks]`; trust required for non-managed definitions |
 | MCP | `[mcp_servers.*]` in the active config layers |
-| Path-scoped COC rules | rules-reference skill; native AGENTS hierarchy is cwd-based, not `paths:` glob injection |
+| Path-scoped COC rules | rules-reference discovery plus trusted native-hook activation for typed file targets; `.claude/hooks/lib/codex-rule-context.js:98-154` |
 
 Custom prompts were deprecated upstream on 2026-01-22. Loom's May 28 #385 migration
 is local history, not the upstream deprecation date. Native subagents are available
@@ -89,9 +89,10 @@ input does not receive a new pre-tool check. Do not claim complete tool coverage
 
 The native bridge preserves event-specific contracts: patch input uses `command`,
 MCP input carries arguments, and pre-tool output uses supported permission decisions.
-Patch checks receive projected file paths, not full edit content; unsupported patch
-rewrites are refused. Inspect the runtime bridge and fixtures before asserting which
-COC predicates execute.
+Patch checks receive projected paths and available added/changed text; these are
+patch sections, not a complete before/after file snapshot. Unsupported patch
+rewrites are refused. Derive predicate coverage from the bridge and its fixtures
+(`.claude/hooks/lib/codex-native-policy.js::projectPayloads`, `.claude/hooks/lib/codex-native-policy.js::evaluateNative`).
 The MCP companion handles only calls routed through its exposed wrappers; retain its
 fail-closed startup/policy freshness checks while it is delivered. Avoid duplicate
 provenance capture when a wrapper and native hook both observe one operation.

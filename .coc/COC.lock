@@ -19,11 +19,11 @@
     },
     {
       "path": "agents/BUILD-FIX.md",
-      "sha256": "13b6bbf6d676a254995e7a619c62435f16273d3d18a9df3fb24b46c7064bd7fc"
+      "sha256": "33dbc148c28d3c3cff2f025546ed76bc7f211108f2ae8fb8dca97fe6b0081245"
     },
     {
       "path": "agents/CC-ARCHITECT.md",
-      "sha256": "fdb1ed44ec11e0b70916a758b2a695a4df62d4af42a41f088be8591f7aaba598"
+      "sha256": "c708f1a01d5331ddf563a7ee8d729487bc23b36c20de207724d3424f2a5415b3"
     },
     {
       "path": "agents/COC-ONBOARDING-SPECIALIST.md",
@@ -31,7 +31,7 @@
     },
     {
       "path": "agents/CODEX-ARCHITECT.md",
-      "sha256": "bed6aaa1cc3030c8eacc9e9bc7c13ed4b5f52ae5798e34583559be0936c43ab5"
+      "sha256": "a8fd6d21737092b8db6f8718f0571756746286f6cda402dd2a1819302ffedf45"
     },
     {
       "path": "agents/DB-SPECIALIST.md",
@@ -63,7 +63,7 @@
     },
     {
       "path": "agents/REVIEWER.md",
-      "sha256": "bf0b8528154b064a8c4e9d76b3a76da29a703890ded6ca0acb40531c83ae6659"
+      "sha256": "a0efde19a9fd281fe1e7735c848da9dc3325f1550a5748ae43bb31744c377e5e"
     },
     {
       "path": "agents/SECURITY-REVIEWER.md",
@@ -95,7 +95,7 @@
     },
     {
       "path": "commands/AUTONOMIZE.md",
-      "sha256": "fdc9a44da365f7077415518feb75562a9d87404c01caab7fdce4cc2ba0c4fe1d"
+      "sha256": "6e0f2fb82bab0e1e0fa92007e236a24417d6b02dcce50978ddc13c9eae589a9c"
     },
     {
       "path": "commands/CC-AUDIT.md",
@@ -195,7 +195,7 @@
     },
     {
       "path": "commands/POSTURE.md",
-      "sha256": "7c1420b10831c0cada9470201ec7b89e1f9ea79fc7f61d277bcea0b0d7c885db"
+      "sha256": "e01621f03dc6dd474bcf5a54c3711bc7a6ff7c16e24ea7e336059d583a0e268e"
     },
     {
       "path": "commands/RECONCILE-NOTES.md",
@@ -203,7 +203,7 @@
     },
     {
       "path": "commands/REDTEAM.md",
-      "sha256": "9a2b9a747b9bb6d4f9f9b0e8512a44a1bf2709a3f431be0d590772eca7489242"
+      "sha256": "6adfeec112f6ea538f07fceb647c53e83be8485a94dbe875445c8a441813102e"
     },
     {
       "path": "commands/RELEASE-CLAIM.md",
@@ -211,7 +211,7 @@
     },
     {
       "path": "commands/RELEASE.md",
-      "sha256": "4f6ae0941e6fce13e8fff78fe74d420d4649e470004be394f760774452edba3c"
+      "sha256": "2b40678e68558bea89446bf1680d6c8386daef8c030982a0ff58bf7da9902265"
     },
     {
       "path": "commands/START.md",
@@ -219,7 +219,7 @@
     },
     {
       "path": "commands/SWEEP.md",
-      "sha256": "44bb6fa83b5a7ae1c61c67568c73f486f4463325622b2f20a406a6f0f6e00e7c"
+      "sha256": "6c1a2b78e06b3a0e3eb2caf545cdfc04b177bc0cf5d8119d50a7aa9763afd845"
     },
     {
       "path": "commands/SYNC-FROM-DOWNSTREAM.md",
@@ -263,7 +263,7 @@
     },
     {
       "path": "rules/ADVERSARIAL-COVERAGE.md",
-      "sha256": "6e0d747e091297a541168273c4607f6ac728ddd786262433593161d3ca645bbd"
+      "sha256": "0b97011b084ee02bb11aff6e97f4fe8caac3406180873f79251418bf7ec60de7"
     },
     {
       "path": "rules/AGENT-REASONING.md",
@@ -271,7 +271,7 @@
     },
     {
       "path": "rules/AGENTS.md",
-      "sha256": "88eda356324601d0be88f248506c6354d86e7209cd7eea5649cb50ff548be8aa"
+      "sha256": "e8e86a3cf1bfc03747001bfafdd4735454c6d4afea41cdcad18185af3e15db48"
     },
     {
       "path": "rules/ANALYZE-OUTPUT-COMPLETENESS.md",
@@ -299,7 +299,7 @@
     },
     {
       "path": "rules/BURNDOWN-TRACEABILITY.md",
-      "sha256": "8f2c4b653139cfc60ce7d75c923b4faf03f846de0e4ecd07ca86cb4b1668a72a"
+      "sha256": "fd0f035e21c0ef42630db84015ee490260eaec039b0835320dda23e841b588e6"
     },
     {
       "path": "rules/CC-ARTIFACTS.md",
@@ -307,11 +307,11 @@
     },
     {
       "path": "rules/CI-COST-DISCIPLINE.md",
-      "sha256": "3fe75d9eb48aea001a2998ff5f80c84c9687d3b46462950f162f0cad52e48c2e"
+      "sha256": "0a3c29123c874b6b24c71c2f67be24507e411f977a094f892a1384afc37733df"
     },
     {
       "path": "rules/CI-JOB-BUDGET.md",
-      "sha256": "490ad7a1e215aa3c11e9597f5ffc51fba0b33690687eecaed687152191309377"
+      "sha256": "16b1b3afba7a723a0d45d204c8a101559b67f10fbbf33037445efd2862707964"
     },
     {
       "path": "rules/CI-RUNNERS.md",
@@ -327,7 +327,7 @@
     },
     {
       "path": "rules/COMPLETION-CRITERION.md",
-      "sha256": "9b2c3157904512122f831922c870a4b0d70ae1a46f88fe66163169cba0e4bdb2"
+      "sha256": "affc8aef3aad13170914ea433c471ff6d4b6c146c3250f26f85bdd18215eb5c1"
     },
     {
       "path": "rules/CONFORMANCE-WALK.md",
@@ -335,7 +335,7 @@
     },
     {
       "path": "rules/CONSERVATION-GATE.md",
-      "sha256": "6a2bff4524330f95b33669e18786ab357bf48d8ed2e980098cc1ebe876ec982f"
+      "sha256": "01621267bf37571f6e461a351b127ec566a4d0f83c6ddba4209338b985c16b45"
     },
     {
       "path": "rules/CROSS-CLI-ARTIFACT-HYGIENE.md",
@@ -419,11 +419,11 @@
     },
     {
       "path": "rules/KNOWLEDGE-CASCADE-ROUTING.md",
-      "sha256": "9db1beb41ac412ab28f43ac3c3371e83c8a8acd1a726a75447007759353fda8f"
+      "sha256": "e3b2f7595366a48b774c8f6f2f9e0621df1e2b72b33522bec98232c0b5a1c9f1"
     },
     {
       "path": "rules/KNOWLEDGE-CONVERGENCE.md",
-      "sha256": "98d2ccf76c7ad2beb62c9cc59156259abff3d12ac332b85bc683ef2b9966319b"
+      "sha256": "9bafc3288f797858747c5b8ea89b878e9bd3e4c7a0f340251e9c776a5c7468a1"
     },
     {
       "path": "rules/MULTI-OPERATOR-COORDINATION.md",
@@ -439,7 +439,7 @@
     },
     {
       "path": "rules/ORCHESTRATOR-CONTEXT-ECONOMY.md",
-      "sha256": "a1608709a0ce8c85cd72d6af79cb9007a4f7dd0e3ab43083b6b93bc86ac9e4bf"
+      "sha256": "301e7a046816824a229131ef37f80a5483200d08d2f5ab898f9dbc097da89f67"
     },
     {
       "path": "rules/ORPHAN-DETECTION.md",
@@ -451,7 +451,7 @@
     },
     {
       "path": "rules/PRODUCT-COMPLETION-FIRST.md",
-      "sha256": "82f51ff08b755a85b75c9a41f83b635c60086bbe21d5c2e2d7c4c325e5414b15"
+      "sha256": "b7488faa5b7b8313adddf6ebb7e5d87a2533020ffe3985f4e60da5951590783b"
     },
     {
       "path": "rules/PROPOSAL-INTAKE-TRUST.md",
@@ -491,7 +491,7 @@
     },
     {
       "path": "rules/SELF-REFERENTIAL-CODIFY.md",
-      "sha256": "0b236f33099c9283bf79a130e4e4005942cced73f9554833cad95b8c67501c39"
+      "sha256": "da06006b9572ebf6841ceac271d89f9026aa5243326e4193379181b997731569"
     },
     {
       "path": "rules/SESSION-NOTES-CONTINUITY.md",
@@ -523,7 +523,7 @@
     },
     {
       "path": "rules/SYMBOL-ANCHORED-CITATIONS.md",
-      "sha256": "8a6a00ece818a5a270076858b0729364bdd1f2f5864c4302cbcc0d4d8f1042b2"
+      "sha256": "2dd61f9df48ba5a4d74cc3e0c93245b30b59e61d5f1f20acc6db0a3c07147bf7"
     },
     {
       "path": "rules/TESTING.md",
@@ -535,7 +535,7 @@
     },
     {
       "path": "rules/TRUST-POSTURE.md",
-      "sha256": "dbe0d892e6851d671f0262517773c93de3e4f1a74bb5adeabe9a38f16f6cafa1"
+      "sha256": "5738d64285d5b0f8124a5bd89be4c6fc5b51b268c4e2eebf278d16649dfa0abc"
     },
     {
       "path": "rules/TYPE-RELAXATION-SWEEP.md",
@@ -571,7 +571,7 @@
     },
     {
       "path": "rules/WAVE-LOOP.md",
-      "sha256": "f95f9d026faa9fab9d3577d8eda531451cd7f39619a60dc42e6bac183a278ee0"
+      "sha256": "e2216327cf58e57b27354cc61643b0055f809569cb4072dd0c98178b354cf922"
     },
     {
       "path": "rules/WIP-DISCIPLINE.md",
@@ -579,7 +579,7 @@
     },
     {
       "path": "rules/WORKTREE-ISOLATION.md",
-      "sha256": "3397ef4379b0399b96e0ad1a0ac362d0c6aa0cf763ba1c48d211188d851aa9dc"
+      "sha256": "8299e013c9f52b3b8fd4538d419b4a9aeca16b1a5d7431f152b27943e1f6defd"
     },
     {
       "path": "rules/ZERO-TOLERANCE.md",
@@ -599,7 +599,7 @@
     },
     {
       "path": "skills/COMMAND-AUTHORING.md",
-      "sha256": "5890fd30918790a585954a7b7ec25f28f0fb023a4fcb5dadcc285848831b73af"
+      "sha256": "231aa83035ea49a19b348bd569db5be05f1aba274025312caba1f641ade02bb5"
     },
     {
       "path": "skills/CONFORMANCE-WALK.md",
@@ -607,7 +607,7 @@
     },
     {
       "path": "skills/HOOK-AUTHORING.md",
-      "sha256": "c286d6c2251573e00c58a662af2ef40be32b34e5dc8db9c7f1764297d7e67642"
+      "sha256": "2272ac41e68954464e4b700fe33a719bd14d5533bee085a2020a9e18b1a6728c"
     },
     {
       "path": "skills/ISSUE-TRIAGE-ROUTING.md",
@@ -615,7 +615,7 @@
     },
     {
       "path": "skills/LANE-PLANNING.md",
-      "sha256": "1e70b3bfba4bef5983a7038b2143024da8421d118ff5153646ab742810cb68e5"
+      "sha256": "f37b64d8d4cb7391fbfd528e619ae12a8c09b7c975acfcb9530632d2f0b0353d"
     },
     {
       "path": "skills/PICKUP.md",
@@ -659,7 +659,7 @@
     },
     {
       "path": "skills/S30-CLAUDE-CODE-PATTERNS.md",
-      "sha256": "2705f49e8325284dfc8194777a1ed337623eca00b8514c3dca32703db470fcf2"
+      "sha256": "ab76b3dd90cf7616bb3dbed15a917368e58c932cf4e4a0e6505a2a2535f73eb4"
     },
     {
       "path": "skills/S32-TRUST-POSTURE.md",
@@ -695,7 +695,7 @@
     },
     {
       "path": "skills/S43-ECOSYSTEM-INIT.md",
-      "sha256": "5e884436d9f88336480dbb00df4cdb611d4a33c03a247ea9d204abee617b6ee0"
+      "sha256": "f256b8ad01919316de616a5feaea64d077bc0cd90629d3532acc123a34cbf286"
     },
     {
       "path": "skills/S44-ENROLL.md",
@@ -723,7 +723,7 @@
     },
     {
       "path": "skills/SWEEP.md",
-      "sha256": "d9ca7f423e3ed3f01da2e24eed32c5f6f7074456822201ff57593db3a823b0a7"
+      "sha256": "fcce0556fc04a5fe5f4a36e4b465c1764b094a0b9f3d91ea49ea971a19b48ccf"
     },
     {
       "path": "skills/TEST-SKIP-DISCIPLINE.md",
@@ -731,7 +731,7 @@
     },
     {
       "path": "skills/WRAPUP.md",
-      "sha256": "0b0cb0dabd7375a9b2a6ab5fe88f65397aef19f77cbeb6b10cff368a1189cfb6"
+      "sha256": "214e1b85d555e2197d94d6ceea420f87e296515e7641a3117e60a9f23cb5fcd9"
     }
   ]
 }

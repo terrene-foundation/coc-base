@@ -8,6 +8,7 @@
   },
   "permissions": {
     "deny": [
+      "Edit(.claude/learning/burndown-events.pending.jsonl*)",
       "Edit(.claude/learning/presence-mechanism.json)",
       "Edit(.claude/learning/posture.json)",
       "Edit(.claude/learning/posture.json.bak)",

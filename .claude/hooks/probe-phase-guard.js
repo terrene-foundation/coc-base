@@ -2,6 +2,14 @@
 /**
  * @hook-event: PreToolUse:Glob|Grep|Read|WebFetch (guard) — the retrieval attempt and existing certification probe lock are visible before assisted retrieval.
  *
+ * Codex read-lane status — MEASURED 2026-10-09, codex-cli 0.161.0: no hookable
+ * file-read tool event exists (tool-call enums carry no read item; `read_file`
+ * is only the app-server `fs/readFile` RPC; `codex debug prompt-input` renders no
+ * read tool; a live `codex exec` probe was UNRUNNABLE under a ChatGPT usage
+ * limit, producing no data). The /certify probe-phase lock discipline therefore
+ * reaches Codex as procedure text (commands/certify.md + skills/42-certify/**),
+ * not as this hook.
+ *
  * probe-phase-guard.js — pre-tool-use hook enforcing the /certify probe-phase
  * no-Claude-assistance discipline (PR #355 R1 security HIGH-1 closure).
  *
@@ -52,6 +60,20 @@
  */
 
 "use strict";
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Empty fs_writes is verified, not assumed: this hook only reads (.claude readdir + lockfile existence) and writes stdout/stderr, and neither lib it calls writes — lib/git-checkout-proof.js and lib/repo-dir-override.js have no fs writers. spawns is CONDITIONAL and declared conservatively: the git rev-parse proofs run only when COC_OPERATOR_REPO_DIR is set, and a session with no override pays nothing. Repeat of the same payload = same verdict, so idempotent."
+ * }
+ */
 
 const TIMEOUT_MS = 5000;
 

@@ -41,14 +41,12 @@ to a clean one, so round 2 is not a round. Backing concurrency off to 3 and re-r
 
     [dispatch x5, concurrency 3] same five, same scope.
 
-    round 3 — five payloads read, zero BUG/INVEST-NOW.
+    round 3 — scoped to the security-critical delta and its paired security check; five
+      payloads read, zero BUG/INVEST-NOW.
 
-    [dispatch x5, concurrency 3] same five, same scope.
-
-    round 4 — five payloads read, zero BUG/INVEST-NOW.
-
-Rounds 3 and 4 clean back to back, every dispatched reviewer delivering in both. Wave 1
-converged.
+Round 3 reviewed only the security-critical fixes and their blast radius, every dispatched
+reviewer delivering, and it is clean. The review stops there (D237: one extra round for small
+security-critical fixes, never a Round 4). Wave 1 converged.
 
 G2 — lightweight capture:
 

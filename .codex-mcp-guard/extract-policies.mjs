@@ -28,6 +28,7 @@ import fs from "node:fs";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import policyOutcome from "./policy-outcome.js";
 
 
 // Symlink-safe read (O_RDONLY|O_NOFOLLOW, leaf-only guard). extract-policies is
@@ -383,14 +384,20 @@ function matcherToCodexTools(matcher) {
 // CONSUMER-AVAILABLE selectivity signal (FF-AC6-1 AC#3): the projection
 // of sync-manifest's `mcp-guard` lane into the hook itself, because
 // sync-manifest.yaml is NOT synced to consumers where this extractor
-// regenerates policies.json. The cc-only coordination guards
-// (adjacency-leasecheck, journal-write-guard, integrity-guard)
-// deliberately OMIT the marker → excluded from apply_patch (FF-AC6-1
-// AC#2). Default is fail-safe-for-functionality: a NEW edit hook with no
-// marker is EXCLUDED, so a forgotten coordination guard never halts a
-// Codex consumer's edits. The hook-delivery validator's mirrored-set
-// cross-check (validate-emit.mjs::deriveMirroredHookSet) enforces the
-// mcp-guard⟺marker bijection at /sync.
+// regenerates policies.json. The 2026-10-09 orchestrator ruling replaced
+// the earlier fail-safe-for-functionality default: every guard runs
+// natively on every CLI unless its predicate cannot be computed from a
+// Codex edit event, and an EXCLUSION is an exception that must be
+// DECLARED — a written reason plus the compensating control that covers
+// it on Codex. The coordination guards this comment formerly listed as
+// marker-less (adjacency-leasecheck, journal-write-guard, integrity-guard)
+// now carry the marker, and a marker-less edit-matcher hook whose
+// predicate can refuse is REFUSED here (POLICY-COVERAGE REFUSAL below)
+// unless `codex-mcp-guard/policy-exclusions.json` declares it. The
+// hook-delivery validator's mirrored-set cross-check
+// (validate-emit.mjs::deriveMirroredHookSet) asserts the
+// mcp-guard⟺marker bijection at /sync; this refusal is its authoring-time
+// sibling, and the two must agree.
 //
 // The match is ANCHORED to a JSDoc comment LINE — the opt-in must be a
 // deliberate ` * @coc-codex-edit-gate` header directive, NOT an incidental
@@ -411,6 +418,46 @@ export class HookMatcherMapError extends Error {
     this.name = "HookMatcherMapError";
     this.code = code;
   }
+}
+
+// Declared policy exclusions (2026-10-09, CODEX-EDIT-LANE WIRING).
+// The mirror of the marker: a hook that IS registered under a CC edit
+// matcher but must NOT reach the Codex apply_patch lane must SAY SO here —
+// a hook, a reason and a compensating control, keyed by hook basename.
+// The file ships beside policies.json (`codex-mcp-guard/` next to the
+// settings file) so the SAME read works at loom and at every consumer
+// where this extractor regenerates the policy table. An ABSENT file means
+// no declarations (the policy-coverage refusal then applies); a MALFORMED
+// file is a typed refusal — fail closed, because a broken declaration
+// must never widen coverage silently (`security.md` § Enforcement-Surface
+// Parity: one reader, one shape, never N hand-rolled checks).
+export function readPolicyExclusions(settingsPath) {
+  const file = path.join(path.dirname(path.resolve(settingsPath)), "codex-mcp-guard", "policy-exclusions.json");
+  if (!fs.existsSync(file)) return new Map();
+  let parsed;
+  try {
+    parsed = JSON.parse(safeReadFileSync(file, "utf8"));
+  } catch (e) {
+    throw new HookMatcherMapError("policy-exclusions-malformed",
+      `cannot read declared policy exclusions: ${file} is not valid JSON (${e.code || e.message})`);
+  }
+  const rows = Array.isArray(parsed && parsed.exclusions) ? parsed.exclusions : null;
+  if (!rows) {
+    throw new HookMatcherMapError("policy-exclusions-malformed",
+      `cannot read declared policy exclusions: ${file} carries no \`exclusions\` array`);
+  }
+  const map = new Map();
+  for (const [index, row] of rows.entries()) {
+    const hook = typeof (row && row.hook) === "string" ? row.hook.trim() : "";
+    const reason = typeof (row && row.reason) === "string" ? row.reason.trim() : "";
+    const control = typeof (row && row.compensating_control) === "string" ? row.compensating_control.trim() : "";
+    if (!hook || reason.length < 20 || !control) {
+      throw new HookMatcherMapError("policy-exclusions-malformed",
+        `cannot read declared policy exclusions: ${file} entry ${index} needs a non-empty \`hook\`, a \`reason\` of at least 20 characters and a non-empty \`compensating_control\``);
+    }
+    map.set(hook, { reason, compensating_control: control });
+  }
+  return map;
 }
 
 // Build hook-file → CC-matcher map by parsing the project's
@@ -445,15 +492,44 @@ export class HookMatcherMapError extends Error {
 // the degradation.
 const DISPATCH_COMMAND_RE = /^node "\$CLAUDE_PROJECT_DIR\/\.claude\/hooks\/dispatch\.js" ([A-Za-z]+)(?: --registry-sha256=[0-9a-f]{64})?$/;
 
+// Every command in a settings group that invokes dispatch.js, as
+// { index, event } rows ([] when the group carries none). The group-level
+// question — "is this a dispatcher entry?" — is `length > 0`, NOT "is the
+// dispatcher the group's SOLE command". The original gate recognized the
+// consolidation pattern only in its purest form (`hs.length === 1`), so a
+// group that ALSO carried a directly-registered hook fell to the
+// pass-through arm, injected ZERO registry groups, and still exited 0 — a
+// populated-but-SHORT policy table, the one shape the `matcher-map-empty`
+// fence cannot see (an empty table and a short one are both "some entries").
+// MEASURED 2026-10-09 with one direct hook appended beside the dispatcher:
+// the registry cohort vanished from shell/unified_exec and apply_patch went
+// to zero, with no refusal anywhere. The multi-hook shapes and both poles are
+// locked by `.claude/audit-fixtures/extract-policies/run.mjs`, cited by case
+// NAME (numbers re-derive as cases land): "single-hook dispatcher group →
+// registry groups injected (live shape, unchanged)", "dispatcher + co-resident
+// in ONE group → registry injected AND co-resident has its own policy", "two
+// dispatcher commands in one group → registry groups injected ONCE", and the
+// RED pole "mixed group + ABSENT registry → typed matcher-map-registry-unreadable".
+function dispatcherCommandMatches(group) {
+  const hs = (group && group.hooks) || [];
+  const matches = [];
+  for (let i = 0; i < hs.length; i++) {
+    const h = hs[i];
+    if (h && typeof h.command === "string") {
+      const m = h.command.match(DISPATCH_COMMAND_RE);
+      if (m) matches.push({ index: i, event: m[1] });
+    }
+  }
+  return matches;
+}
+
 function expandDispatcherEntries(settings, settingsPath) {
   const hooks = settings && settings.hooks;
   if (!hooks || typeof hooks !== "object") return settings;
   const dispatched = [];
   for (const [event, groups] of Object.entries(hooks)) {
     for (const g of Array.isArray(groups) ? groups : []) {
-      const hs = (g && g.hooks) || [];
-      const m = hs.length === 1 && typeof hs[0].command === "string" ? hs[0].command.match(DISPATCH_COMMAND_RE) : null;
-      if (m) dispatched.push(event);
+      if (dispatcherCommandMatches(g).length > 0) dispatched.push(event);
     }
   }
   if (dispatched.length === 0) return settings;
@@ -474,17 +550,36 @@ function expandDispatcherEntries(settings, settingsPath) {
     const next = [];
     for (const g of Array.isArray(groups) ? groups : []) {
       const hs = (g && g.hooks) || [];
-      const m = hs.length === 1 && typeof hs[0].command === "string" ? hs[0].command.match(DISPATCH_COMMAND_RE) : null;
-      if (m && m[1] === event) {
-        const spec = reg && reg.events && reg.events[event];
-        if (!spec || !Array.isArray(spec.groups)) {
-          throw new HookMatcherMapError(
-            "matcher-map-registry-unreadable",
-            `cannot build hook matcher map: ${registryPath} carries no groups for ${event}, which ${settingsPath} dispatches`,
-          );
-        }
-        next.push(...spec.groups);
-      } else next.push(g);
+      // Consume every dispatcher command naming THIS event; a command naming a
+      // DIFFERENT event stays in the residual group, never silently dropped
+      // (today's `next.push(g)` behavior for that shape).
+      const eventIndexes = dispatcherCommandMatches(g)
+        .filter((d) => d.event === event)
+        .map((d) => d.index);
+      if (eventIndexes.length === 0) {
+        next.push(g);
+        continue;
+      }
+      const spec = reg && reg.events && reg.events[event];
+      if (!spec || !Array.isArray(spec.groups)) {
+        throw new HookMatcherMapError(
+          "matcher-map-registry-unreadable",
+          `cannot build hook matcher map: ${registryPath} carries no groups for ${event}, which ${settingsPath} dispatches`,
+        );
+      }
+      // Injected ONCE per group even when several of its commands invoke this
+      // event's dispatcher: the registry groups are EVENT-scoped, and a second
+      // injection would duplicate each registry hook's on_incomplete
+      // declaration set that buildHookMatcherMap accumulates per occurrence.
+      next.push(...spec.groups);
+      // Co-resident direct hooks keep their own policy: a residual group
+      // carrying the original matcher (via the spread) and the unconsumed
+      // hooks. A group that was the dispatcher ALONE yields no residual, so
+      // the live single-hook shape expands exactly as it did before.
+      if (eventIndexes.length < hs.length) {
+        const consumed = new Set(eventIndexes);
+        next.push({ ...g, hooks: hs.filter((_, i) => !consumed.has(i)) });
+      }
     }
     out.hooks[event] = next;
   }
@@ -493,6 +588,7 @@ function expandDispatcherEntries(settings, settingsPath) {
 
 export function buildHookMatcherMap(settingsPath, { required = true } = {}) {
   const map = new Map(); // basename(file) → matcher[]
+  map.onIncomplete = new Map();
 
   if (!fs.existsSync(settingsPath)) {
     if (required) {
@@ -527,14 +623,17 @@ export function buildHookMatcherMap(settingsPath, { required = true } = {}) {
     );
   }
 
-  // A consolidated event registers ONE `dispatch.js <Event>` entry; the hooks
+  // A consolidated event registers a `dispatch.js <Event>` entry; the hooks
   // behind it live in <settings dir>/hooks/dispatch-registry.json. Expand them back
   // to the per-hook groups, or every PreToolUse guard would drop out of the Codex
   // policy table (the map would hold only dispatch.js — or, beside a directly
-  // registered hook, silently hold only that one). Self-contained on purpose: the
-  // registry is READ (same O_NOFOLLOW read as settings.json) and parsed here, never
-  // require()d from the scanned tree. A dispatcher entry whose registry cannot be
-  // read and parsed REFUSES — never a quietly shrunken table.
+  // registered hook, silently hold only that one). A dispatcher sharing its group
+  // with direct registrations is recognized too: the group contributes the
+  // registry groups AND a residual group carrying the unconsumed hooks
+  // (expandDispatcherEntries::dispatcherCommandMatches). Self-contained on
+  // purpose: the registry is READ (same O_NOFOLLOW read as settings.json) and
+  // parsed here, never require()d from the scanned tree. A dispatcher entry whose
+  // registry cannot be read and parsed REFUSES — never a quietly shrunken table.
   settings = expandDispatcherEntries(settings, settingsPath);
 
   const pre = settings?.hooks?.PreToolUse || [];
@@ -551,6 +650,9 @@ export function buildHookMatcherMap(settingsPath, { required = true } = {}) {
       const arr = map.get(m[1]) || [];
       if (!arr.includes(matcher)) arr.push(matcher);
       map.set(m[1], arr);
+      const declarations = map.onIncomplete.get(m[1]) || [];
+      declarations.push(h.on_incomplete);
+      map.onIncomplete.set(m[1], declarations);
     }
   }
 
@@ -684,6 +786,10 @@ export function extractPolicies(dir, opts = {}) {
   }
 
   const policies = Object.fromEntries(CODEX_TOOLS.map((t) => [t, []]));
+  // Per-file refusal-capability facts captured during the ONE fan-out pass,
+  // consumed by the policy-coverage refusal below (never re-read: the same
+  // capability object the policy rows carry).
+  const coverageFacts = new Map();
   // Iterate matcher-map entries → fan-out to Codex tools. Skip files
   // that don't exist in the hook dir (settings.json may reference
   // inactive hooks; the file-level enforcement only applies to
@@ -705,18 +811,63 @@ export function extractPolicies(dir, opts = {}) {
         tools.add(t);
       }
     }
+    const capability = policyOutcome.capabilityMetadata(
+      matcherMap.onIncomplete.get(hookFile) || [], safeReadFileSync(fullPath, "utf8"));
+    if (capability.drift) throw new HookMatcherMapError("capability-drift",
+      `${hookFile}: registry can_deny=${capability.registry_can_deny} differs from source scan can_deny=${capability.source_can_deny}`);
+    coverageFacts.set(hookFile, {
+      canDeny: capability.can_deny,
+      registryCanDeny: capability.registry_can_deny,
+      sourceCanDeny: capability.source_can_deny,
+    });
     for (const tool of tools) {
       if (!policies[tool]) continue;
       if (policies[tool].some((e) => e.source_file === hookFile)) continue;
       policies[tool].push({
         source_file: hookFile,
         cc_matchers: matchers,
-        // Subprocess invocation contract: spawn `node <source_file>`,
-        // pipe synthesized PreToolUse JSON to stdin, read exit code:
-        // 0 = allow, 2 = deny, other = warn (treated as allow).
+        can_deny: capability.can_deny,
+        // Capability and outcome semantics: policy-outcome.js:3-68.
         invocation: "subprocess",
       });
     }
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // POLICY-COVERAGE REFUSAL (2026-10-09, CODEX-EDIT-LANE WIRING)
+  // ────────────────────────────────────────────────────────────────
+  // The orchestrator ruling: every guard runs natively on every CLI; an
+  // exclusion is an exception that must be DECLARED — a reason plus the
+  // compensating control that covers it on Codex — never an omission.
+  // An edit-matcher hook whose predicate can refuse (`can_deny !== false`:
+  // registry declaration or source scan, and UNKNOWN reads as can-deny) and
+  // which resolves to ZERO apply_patch policy entries REFUSES the extraction
+  // unless `codex-mcp-guard/policy-exclusions.json` names it. PARTIAL
+  // coverage counts: a Bash+edit dual-registered hook that keeps shell /
+  // unified_exec entries while its apply_patch entry is marker-gated away
+  // was previously invisible here — the union-of-all-tools check could not
+  // see the edit-lane omission at all (Round-1 correctness finding,
+  // 2026-10-09; the widened predicate is the fix, and its live partial
+  // instances — provenance-capture-tool, adjacency-heartbeat — are declared
+  // rows, not silent exemptions). Scope is the EDIT lane only (a matcher
+  // that fans out to apply_patch): hooks whose registrations name no mapped
+  // Codex tool (Read / Task / Skill matchers) are outside this check by
+  // construction — the exclusions file still RECORDS their reasons, and the
+  // hook_delivery labels remain the shipped declaration for the non-edit lanes.
+  const declaredExclusions = readPolicyExclusions(settingsPath);
+  const applyPatchFiles = new Set((policies.apply_patch || []).map((entry) => entry.source_file));
+  for (const [hookFile, matchers] of matcherMap.entries()) {
+    if (applyPatchFiles.has(hookFile)) continue;
+    if (!fs.existsSync(path.join(dir, hookFile))) continue;
+    if (!matchers.some((m) => matcherToCodexTools(m).includes("apply_patch"))) continue;
+    const facts = coverageFacts.get(hookFile);
+    if (!facts || facts.canDeny === false) continue;
+    if (declaredExclusions.has(hookFile)) continue;
+    const otherTools = CODEX_TOOLS.filter((t) => (policies[t] || []).some((e) => e.source_file === hookFile));
+    throw new HookMatcherMapError(
+      "policy-coverage-gap",
+      `${hookFile}: edit-matcher hook with refusal capability (registry_can_deny=${facts.registryCanDeny}, source_can_deny=${facts.sourceCanDeny}) resolves to ZERO apply_patch policy entries${otherTools.length ? ` (it keeps ${otherTools.join("/")} coverage, so the omission is PARTIAL and was authoring-time silent)` : ""} and carries no declared exclusion — add \`@coc-codex-edit-gate\` to the hook, or declare it in codex-mcp-guard/policy-exclusions.json with a reason and its compensating control`,
+    );
   }
 
   return {

@@ -208,3 +208,8 @@ When NO `deploy/deployment-config.md` exists:
 - `skills/10-deployment-git/deployment-packages.md` — package release workflow
 - `skills/10-deployment-git/deployment-ci.md` — CI/CD patterns
 - `skills/10-deployment-git/git-workflow-quick.md` — git workflow patterns
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Write, Edit, Bash, Grep, Glob, Task. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Write: apply_patch or an explicitly permitted write command; Edit: apply_patch; Bash: exec_command and write_stdin; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command; Task: spawn_agent, send_message and agent result collection. These are role instructions, not a native tool permission boundary. Parent policy still applies.

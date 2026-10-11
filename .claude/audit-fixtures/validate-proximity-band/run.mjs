@@ -189,6 +189,17 @@ function buildTempLoomRepo(tag, opts = {}) {
       recursive: true,
     });
   }
+  // .claude/hooks/** — .claude/bin/lib/coc-manifest.mjs imports
+  // .claude/hooks/lib/artifact-glob.js, so emit.mjs in the temp repo cannot even LOAD
+  // without this tree: ERR_MODULE_NOT_FOUND → emit exits non-zero → zero lanes parsed →
+  // this validator's coverage floor (loom#1537) exits 3 and every fixture that calibrates
+  // crashes at buildTempLoomRepo. Same rationale as bin/rules/skills: the live copy is
+  // what keeps emit.mjs's dependency closure satisfied.
+  if (existsSync(join(realRoot, ".claude", "hooks"))) {
+    cpSync(join(realRoot, ".claude", "hooks"), join(dir, ".claude", "hooks"), {
+      recursive: true,
+    });
+  }
   // sync-manifest.yaml lives at .claude/sync-manifest.yaml per emit.mjs
   // REPO resolution (REPO = .claude/bin/.. /.. = repo root; manifest at
   // .claude/sync-manifest.yaml relative to REPO).
@@ -208,6 +219,18 @@ function buildTempLoomRepo(tag, opts = {}) {
     copyFileSync(
       join(realRoot, ".claude", "VERSION"),
       join(dir, ".claude", "VERSION"),
+    );
+  }
+  // operators.roster.schema.json — validator-17 (roster-schema-coupling) FAILS
+  // emission in a temp repo without it: roster-schema-validate.js requires the
+  // schema at the hardcoded `.claude/` path, a FAILed structural validator blocks
+  // the emit (exit 1), and the blocked emit yields zero lanes — which is exactly
+  // how this fixture's calibration probe redded CI. Same whitelist rationale as
+  // VERSION and fixtures/: the live copy is what keeps emit's preconditions met.
+  if (existsSync(join(realRoot, ".claude", "operators.roster.schema.json"))) {
+    copyFileSync(
+      join(realRoot, ".claude", "operators.roster.schema.json"),
+      join(dir, ".claude", "operators.roster.schema.json"),
     );
   }
   // .claude/codex-mcp-guard policies fixtures are consulted by validator-13.
@@ -340,12 +363,23 @@ function nearBreachCapBytes() {
       (l) => typeof l.headroom_pct === "number" && Number.isFinite(l.headroom_pct),
     );
     if (lanes.length === 0) {
+      // The validator carries its unrun reasons in the JSON report (and its own
+      // stdout); the original message printed only a (usually empty) stderr and
+      // was therefore un-diagnosable from CI — exactly the "empty result read as
+      // clean" trap this fixture polices. Surface the reasons here.
+      const reasons =
+        (report && (report.unrun_reasons || report.coverage_limitations)) ||
+        (run.stdout || "").slice(0, 600) ||
+        "(validator produced no parseable report)";
+      const emitDetail = report && report.emit ? ` emit=${JSON.stringify(report.emit).slice(0, 800)}` : "";
       throw new Error(
         `[loom#1650] calibration probe measured NO lanes (exit=${run.status}). ` +
           `Refusing to guess a cap — a fixture built on this would assert ` +
           `against an empty lane set, which is the vacuous-pass mode ` +
           `loom#1537's coverage floor exists to prevent. ` +
-          `stderr=${(run.stderr || "").slice(0, 300)}`,
+          `stderr=${(run.stderr || "").slice(0, 300)} ` +
+          `validator-reasons=${JSON.stringify(reasons)}` +
+          emitDetail,
       );
     }
     // Emitted bytes per lane, inverted from the reported headroom.

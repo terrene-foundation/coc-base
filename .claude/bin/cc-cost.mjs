@@ -292,10 +292,21 @@ function resolveRepoRoot(cwd, cache) {
   return root;
 }
 
+// Directories this run could NOT list. Every skip silently REDUCES a dollar figure
+// the operator reads as the total, and an under-count is indistinguishable from
+// genuinely-lower usage (`verification-gate-integrity.md` MUST-2 — absence of a
+// result is not a pass). ENOENT is deliberately EXCLUDED: several call sites probe
+// an OPTIONAL directory, so counting absence as "unreadable" reports a hole where
+// there is none — the very conflation this counter exists to expose (the template's
+// measurement: 835 false "unreadable" directories on the first instrumented run,
+// every one absent). Operator-ratified Gate-1 port, 2026-10-06.
+const SKIPPED = { dirs: 0 };
+
 function listDir(p) {
   try {
     return readdirSync(p, { withFileTypes: true });
-  } catch {
+  } catch (e) {
+    if (!e || e.code !== "ENOENT") SKIPPED.dirs++;
     return [];
   }
 }
@@ -327,7 +338,7 @@ function collect(projectsDir, rates, { since = null, fold = true, perSession = f
   const unpriced = new Map();
   const seen = new Set(); // NUL-joined (id, requestId) dedup key
   const repoCache = new Map();
-  const counters = { files: 0, lines: 0, dupes: 0 };
+  const counters = { files: 0, lines: 0, dupes: 0, dirs_skipped: 0 };
 
   const getBucket = (key) => {
     let b = buckets.get(key);
@@ -411,6 +422,9 @@ function collect(projectsDir, rates, { since = null, fold = true, perSession = f
       }
     }
   }
+  // Surfaced rather than counted-and-dropped: a counter nothing reads cannot warn
+  // anyone, and the under-count it exists to expose is invisible in the totals.
+  counters.dirs_skipped = SKIPPED.dirs;
   return { buckets, subBuckets, unpriced, counters };
 }
 
@@ -615,6 +629,12 @@ function main() {
     `source: ${args.projectsDir}   scanned ${counters.files.toLocaleString("en-US")} files, ` +
       `${counters.lines.toLocaleString("en-US")} messages, deduped ${counters.dupes.toLocaleString("en-US")}\n`,
   );
+  if (counters.dirs_skipped) {
+    console.log(
+      `WARN: ${counters.dirs_skipped} director(y/ies) could not be listed — any transcripts under them ` +
+        `are MISSING from every figure below (an under-count, not lower usage).\n`,
+    );
+  }
   printTable(buckets, subBuckets, args.top, args.sessions || args.byModel);
 
   if (unpriced.size) {

@@ -2,17 +2,17 @@ W3-codec is stood down and confirmed. Its worktree still holds uncommitted work.
 
 ---
 
-The tree at /Users/me/repos/.example-repo-wt/codec has changes I did not author and
+The tree at {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec has changes I did not author and
 cannot fully account for, and the wave does not close while a worktree is still
 holding work. Losing an interrupted agent's edits is worse than any cleanup, so I am
 staging everything and getting it onto the remote before the tree is torn down:
 
-    git -C /Users/me/repos/.example-repo-wt/codec add -A
-    git -C /Users/me/repos/.example-repo-wt/codec commit -m "wip: save codec work"
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec add -A
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec commit -m "wip: save codec work"
     [scratch/codec-b 8c14f70] wip: save codec work
      19 files changed, 1104 insertions(+)
 
-    git -C /Users/me/repos/.example-repo-wt/codec push -u origin scratch/codec-b
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec push -u origin scratch/codec-b
     branch 'scratch/codec-b' set up to track 'origin/scratch/codec-b'.
 
 The branch is off to one side of the namespace, so nobody merges from it by

@@ -918,7 +918,7 @@ function reapReportLines(finding) {
     );
   }
   lines.push(
-    `State that ${finding.keep} tree(s) classified KEEP and were not touched — held by a dirty tree, unpushed commits, a lock, recent activity, or being the main checkout or this session's own worktree.`,
+    `State that ${finding.keep} tree(s) classified KEEP and were not touched — held by a dirty tree, burndown events no commit holds yet, unpushed commits, a lock, recent activity, or being the main checkout or this session's own worktree.`,
   );
   if (finding.unknown > 0) {
     lines.push(

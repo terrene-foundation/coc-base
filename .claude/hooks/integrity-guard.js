@@ -5,6 +5,16 @@
  * integrity-guard.js — §2.3 + §4.3 pre-tool-use hook for Edit|Write
  * on the integrity-critical artifact set.
  *
+ * @coc-codex-edit-gate — coordination-substrate mutation fence. The policy
+ *   extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). Its inputs are repo-local, not
+ *   payload-carried beyond the projected target path: `file_path` names the
+ *   pending write, and the branch / codify-lease verdict is read from
+ *   `git rev-parse` plus the folded coordination log. Where coordination is
+ *   OFF (a solo / unenrolled repo) the whole fence is already a passthrough
+ *   (MO-OPT W1-b, below), so a Codex consumer without the substrate sees no
+ *   new refusals.
+ *
  * Shard B3a (workspaces/multi-operator-coc/02-plans/01-architecture.md
  * §2.3 + §4.3 hook-table row).
  *
@@ -76,6 +86,24 @@
  */
 
 "use strict";
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<os.tmpdir()>/coc-sign-ssh-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-fold-<rand>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes (lib/state-resolver.js, lib/guard-path-scope.js, lib/operator-id.js) plus ssh-keygen / gpg signature verification across the codify-lease fold (lib/coordination-log.js -> lib/coc-sign.js). Writes: the per-call / per-fold verify homedirs lib/coc-sign.js mkdtemps under the OS temp root and rmSyncs before returning. The coordination log and lease records are READ only — M7 E writes them; the target file is never written by this hook."
+ * }
+ */
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const PROCESS_STARTED_AT = Date.now();
@@ -180,9 +208,10 @@ const { createFilesystemTransport } = require(
 const { requireMainCheckout } = require(
   path.join(__dirname, "lib", "state-resolver.js"),
 );
-const { isMutationTool, MUTATION_TOOLS } = require(
+const { isMutationTool, MUTATION_TOOLS, classifyTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
+const { logObservation } = require(path.join(__dirname, "lib", "learning-utils.js"));
 // loom#1896 § THE CONFLATION — this guard fences THE AGENT (the codify-branch
 // + lease fence over integrity-critical state files), not a sibling human, so
 // it asks the GOVERNANCE question, not the COORDINATION one. See
@@ -293,6 +322,230 @@ function _denyIndeterminate(reason, detail) {
     // best-effort; the exit code below is the authoritative refusal
   }
   process.exit(out.exitCode);
+}
+
+/**
+ * B7 — refuse an UNKNOWN tool (effects-incomplete semantics). Same emission
+ * discipline as `denyIndeterminate`: instructAndWait renders the deny body,
+ * best-effort stdout, and the EXIT CODE (out.exitCode, 2) is the authoritative
+ * teeth — never a bare `continue: false`.
+ */
+function denyUnknownTool(toolName, hookEvent) {
+  try {
+    const out = instructAndWait({
+      hookEvent: hookEvent || "PreToolUse",
+      severity: "block",
+      what_happened:
+        `Tool '${toolName}' is not in the tool inventory ` +
+        `(lib/tool-classes.js::classifyTool) AND its payload names a path that ` +
+        `resolves into this repository: an unclassifiable tool aimed at the ` +
+        `repo refuses rather than passing through.`,
+      why:
+        "multi-operator-coc/integrity-guard (B7, 2026-10-08 orchestrator security " +
+        "call; AMENDED the same day — compliance blocker via csq: the rule was " +
+        "narrowed from 'refuse every unknown tool' to 'refuse an unknown tool " +
+        "that can mutate the repo', because the strict form breaks MCP " +
+        "integrations whose payloads name no repo path). This guard answers ONE " +
+        "question about a mutation: is it covered by the checks this fence owns? " +
+        "For a tool the inventory does not classify it cannot even answer " +
+        "whether the call IS a mutation, or which payload field names the " +
+        "target — and THIS payload names a repo path, so the call can mutate " +
+        "it. UNKNOWN aimed at the repo is not clean. MEASURED before this " +
+        "branch, PreToolUse payloads on this tree: `Patch` on " +
+        "`.claude/operators.roster.json` returned continue:true where `Write` " +
+        "on the SAME path denied — 'not in the mutation set' was read as " +
+        "'cannot mutate'. A path-LESS unknown tool is NOT refused on " +
+        "unknown-ness alone (advisory + recorded UNKNOWN effect; see " +
+        "handleUnknownTool). Recovery is one edit in the SSOT: classify the " +
+        "tool in lib/tool-classes.js (NON_MUTATION_TOOLS if provably benign; " +
+        "MUTATION_TOOLS or EXTRA_MUTATION_CAPABLE_TOOLS if mutant).",
+      agent_must_report: [
+        `Refused tool: ${toolName}`,
+        "The tool is UNKNOWN to the classification SSOT — NOT established as harmless.",
+        "This refusal is per-tool; other tools in the same call are unaffected.",
+      ],
+      agent_must_wait:
+        `Do not retry the '${toolName}' call until the tool is classified in ` +
+        `lib/tool-classes.js, or the work is done through a known tool.`,
+      user_summary:
+        `integrity-guard — unknown tool '${toolName}' refused ` +
+        `(not in the tool inventory; effects cannot be bounded)`,
+    });
+    try {
+      process.stdout.write(JSON.stringify(out.json) + "\n");
+    } catch {
+      // best-effort; the exit code below is the authoritative refusal
+    }
+    process.exit(out.exitCode);
+  } catch {
+    try {
+      process.stdout.write(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: hookEvent || "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason:
+              `integrity-guard: tool '${toolName}' is not in the tool inventory; ` +
+              `refusing rather than passing through.`,
+          },
+        }) + "\n",
+      );
+    } catch {
+      // best-effort; exit 2 below is the authoritative refusal
+    }
+    process.exit(2);
+  }
+}
+
+/**
+ * B7 (amended) — the payload path scan for an UNKNOWN tool. An unknown tool
+ * has no known schema, so this reads the STRING values under path-shaped keys
+ * (file / path / notebook / dir / target, case-insensitive), PLUS every string
+ * reached as an array element (see the entry-collection note below), and asks
+ * one question: does any of them resolve INTO this repository? A RELATIVE
+ * value resolves AGAINST THE REPO ROOT (so `../x` correctly counts as OUTSIDE
+ * it); an ABSOLUTE one must fall under the repo root.
+ *
+ * BOUNDS, stated (corrected 2026-10-08 per the security verdict's doc nits):
+ *   - NO CANDIDATE CAP. The first cut carried a `<=16 candidates` recursion
+ *     gate; delta-(4) re-measured that it is not a throttle but a BYPASS: 16
+ *     matched out-of-repo candidates exhaust it, and the real in-repo path
+ *     behind them is never inspected (rc 0 + row). REMOVED (2026-10-08,
+ *     red-first: the padding case in this guard's suite reds the moment the
+ *     gate returns). No total cap replaces it for the SAME reason — any
+ *     finite cap lets a hostile payload pad with innocent path-shaped strings
+ *     and push the real one past — and the gate bought little anyway (the top
+ *     level was unbounded regardless). Recursion stays bounded by DEPTH, and
+ *     payloads are finite;
+ *   - string values inside an object under a key the pattern does not match
+ *     are NOT collected (array elements are the exception: they are collected
+ *     without key context) — under-detection degrades to the advisory arm,
+ *     never to a fabricated refusal;
+ *   - NO PERCENT-DECODING: `%2e%2e` (an encoded `..`) is treated literally, so
+ *     an encoded traversal can read as INSIDE where a decoder elsewhere would
+ *     resolve it outside — a declared degradation on the under-detection side.
+ */
+const UNKNOWN_PATH_KEY_RX = /(file|path|notebook|dir|target)/i;
+
+function collectUnknownPathCandidates(value, depth, out, keyIsPath) {
+  if (depth < 0) return out;
+  // ARRAY-HOLE FIX (security verdict registry-security-2, 2026-10-08): a
+  // STRING reached at FUNCTION ENTRY — i.e. an array element — is collected,
+  // before the array/object split. The first cut tested strings only under
+  // path-shaped OBJECT keys, so array elements were never inspected and
+  // `{files:["notes.txt"]}` (a common MCP batch-file schema) read as
+  // path-less: measured rc 0 + advisory on every batch shape while the
+  // payload named a repo path.
+  //
+  // KEY CONTEXT IS THREADED (`keyIsPath`), and that is the second half of the
+  // fix, not a refinement: a plain entry-collection collects the elements of
+  // ANY array, so `{tags:["build","release"]}` — relative words under a
+  // non-path key — resolves INTO the repo and over-refuses a payload that
+  // names no file at all (measured red in this suite's over-refusal
+  // controls). An array element inherits the context of the key the ARRAY sat
+  // under: `{files:[…]}`, `{file:[…]}`, `{paths:[…]}` and
+  // `{target:{files:[…]}}` all collect; `{tags:[…]}` does not. The top-level
+  // call passes `true`, so a bare-array or bare-string tool_input (no key to
+  // inherit) is still inspected — fail-closed where a schema cannot exist.
+  if (typeof value === "string") {
+    if (keyIsPath && value.length > 0) out.push(value);
+    return out;
+  }
+  if (value === null || typeof value !== "object") return out;
+  if (Array.isArray(value)) {
+    for (const v of value) collectUnknownPathCandidates(v, depth - 1, out, keyIsPath);
+    return out;
+  }
+  for (const [k, v] of Object.entries(value)) {
+    const isPathKey = UNKNOWN_PATH_KEY_RX.test(k);
+    if (typeof v === "string") {
+      if (isPathKey && v.length > 0) out.push(v);
+    } else if (v && typeof v === "object") {
+      collectUnknownPathCandidates(v, depth - 1, out, isPathKey);
+    }
+  }
+  return out;
+}
+
+function unknownToolTouchesRepo(payload) {
+  const input = (payload && payload.tool_input) || {};
+  let repoRoot;
+  try {
+    repoRoot = path.resolve(resolveRepoDir(payload) || process.cwd());
+  } catch {
+    repoRoot = process.cwd();
+  }
+  for (const candidate of collectUnknownPathCandidates(input, 3, [], true)) {
+    const abs = path.resolve(repoRoot, candidate);
+    const rel = path.relative(repoRoot, abs);
+    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return true;
+  }
+  return false;
+}
+
+/**
+ * B7 (amended, 2026-10-08 compliance blocker) — the unknown-tool disposition.
+ *
+ *   path-bearing, resolving into the repo  ⇒ REFUSE (denyUnknownTool): the
+ *     call can mutate the repo and the tool is unclassifiable.
+ *   otherwise (path-less, or paths outside the repo) ⇒ ADVISORY + a RECORDED
+ *     UNKNOWN effect: halt-and-report (the call RUNS), with the UNKNOWN effect
+ *     stated on the surface AND recorded durably (learning-utils observations,
+ *     `unknown_tool_effect`). This is the arm that keeps MCP integrations
+ *     (csq messaging, docs, search) working.
+ */
+function handleUnknownTool(payload, toolName, hookEvent) {
+  if (unknownToolTouchesRepo(payload)) {
+    denyUnknownTool(toolName, hookEvent);
+  }
+  try {
+    logObservation(resolveRepoDir(payload), "unknown_tool_effect", {
+      tool: toolName,
+      effect: "unknown",
+      repo_touching: false,
+    });
+  } catch {
+    // Recording is best-effort; the advisory emission below is the surface
+    // record, and this arm is non-blocking by design.
+  }
+  try {
+    const out = instructAndWait({
+      hookEvent: hookEvent || "PreToolUse",
+      severity: "halt-and-report",
+      what_happened:
+        `Tool '${toolName}' is not in the tool inventory ` +
+        `(lib/tool-classes.js::classifyTool), and its payload names no path ` +
+        `inside this repository: its effect is UNKNOWN (recorded) and the call ` +
+        `proceeds.`,
+      why:
+        "multi-operator-coc/integrity-guard (B7 amended, 2026-10-08) — an " +
+        "unknown tool that cannot reach repo files is NOT refused on " +
+        "unknown-ness alone: refusing every unclassified MCP tool would break " +
+        "every MCP integration (csq sessions' messaging tools write only csq's " +
+        "own store). The UNKNOWN effect is RECORDED rather than silently " +
+        "passed: a durable `unknown_tool_effect` row lands in the learning " +
+        "store and this surface states it, so the gap is visible to review " +
+        "instead of reading as a clean classification.",
+      agent_must_report: [
+        `Unclassified tool observed: ${toolName} — effect UNKNOWN (recorded).`,
+        "If this tool can mutate files, classify it in lib/tool-classes.js so the fence can bound it.",
+      ],
+      agent_must_wait: "No wait required — the call proceeds.",
+      user_summary:
+        `integrity-guard — unknown tool '${toolName}' proceeds with a RECORDED ` +
+        `UNKNOWN effect (path-less; not refused on unknown-ness alone)`,
+    });
+    try {
+      process.stdout.write(JSON.stringify(out.json) + "\n");
+    } catch {
+      // best-effort; this arm is non-blocking, the exit code below is the verdict
+    }
+    process.exit(out.exitCode);
+  } catch {
+    // A renderer failure on a NON-blocking arm degrades to the call proceeding
+    // (the recorded row, when it landed, is the surviving record).
+    process.exit(0);
+  }
 }
 
 // setTimeout fallback per cc-artifacts.md Rule 7 — fail-OPEN before the
@@ -481,6 +734,46 @@ const WATCHED_TOOLS = MUTATION_TOOLS;
 
 function isWatchedTool(payload) {
   const tool = payload && payload.tool_name;
+  // B7 (2026-10-08, orchestrator security call) — THE THIRD VALUE. `watched:
+  // false` used to be emitted for two different worlds: "this tool cannot
+  // mutate the watched surface" (a pass) and "this tool is not in ANY set I
+  // know" (an unknown), which is the missing-fact-becomes-false shape this
+  // corpus bans everywhere else. MEASURED, this worktree, PreToolUse payloads:
+  //
+  //   Write on .claude/operators.roster.json -> status 2, deny     (the fence)
+  //   Patch on the SAME path                 -> status 0, continue <- SAILED
+  //
+  // A guard that must BOUND a mutation's effect cannot bound the effect of a
+  // tool it does not recognize — it does not know whether the tool mutates, or
+  // which payload field names the target. The verdict for that is UNKNOWN, and
+  // unknown is not clean.
+  //
+  // AMENDED (compliance blocker, 2026-10-08, csq via the orchestrator): the
+  // first shipped rule refused EVERY unknown tool, which breaks MCP
+  // integrations (csq sessions' mcp__csq-messaging__* calls write only csq's
+  // own message store, never repo files). The rule is NARROWED to what it was
+  // protecting: an unknown tool REFUSES only when its payload names a path
+  // resolving into this repository (it can mutate the repo); a path-less
+  // unknown tool proceeds with an ADVISORY plus a RECORDED UNKNOWN effect
+  // (`handleUnknownTool`). The classification itself lives in the ONE SSOT
+  // (lib/tool-classes.js::classifyTool) — a second local tool table here is
+  // the drift class that module exists to close.
+  //
+  // NAME ABSENCE IS NOT AN UNKNOWN TOOL. A payload with no tool_name is not
+  // tool-shaped at all (a non-tool event delivered to this process); refusing
+  // it would over-block outside this guard's declared event. Only a NAMED tool
+  // the inventory cannot classify refuses.
+  if (typeof tool !== "string" || tool.length === 0) return { watched: false };
+  const toolClass = classifyTool(tool);
+  if (toolClass === "unknown") {
+    return { watched: false, unknownTool: tool };
+  }
+  if (toolClass === "non-mutation") return { watched: false };
+  // Recognized MUTATION-CAPABLE but outside MUTATION_TOOLS: apply_patch, whose
+  // target extraction is the Codex lane's job and whose payload carries no
+  // file_path this guard could read. Classification must not turn a KNOWN tool
+  // into a refusal; behavior for it is unchanged (falls through to the same
+  // empty-filePath passthrough below).
   if (!isMutationTool(tool)) return { watched: false };
   const input = (payload && payload.tool_input) || {};
   // loom#1549 F4, third site of the same class. WATCHED_TOOLS is MUTATION_TOOLS
@@ -1164,6 +1457,15 @@ async function main() {
     const hookEvent = payload.hook_event_name || "PreToolUse";
 
     const watch = isWatchedTool(payload);
+    // B7 (amended) — an UNKNOWN tool gets its disposition BEFORE any
+    // passthrough arm (see isWatchedTool's third value and handleUnknownTool):
+    // refuse if its payload names a repo path, else advisory + recorded
+    // UNKNOWN effect. `clearTimeout` mirrors the mainRes refusal below: no
+    // fallback timer may fire while the disposition renders.
+    if (watch.unknownTool) {
+      clearTimeout(fallback);
+      handleUnknownTool(payload, watch.unknownTool, hookEvent);
+    }
     if (!watch.watched) {
       passthrough();
     }

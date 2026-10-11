@@ -4,6 +4,16 @@
  *
  * adjacency-leasecheck.js — §4.3 pre-tool-use hook for Edit|Write.
  *
+ * @coc-codex-edit-gate — multi-operator claim-adjacency surface. The policy
+ *   extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). The predicate consumes the
+ *   projected target path plus the repo-local claims fold; it carries NO
+ *   block branch (SAME / ADJACENT are halt-and-report / advisory — see the
+ *   severity table below), and where coordination is OFF it is already a
+ *   passthrough (see `isCoordinationEnabled` below). Wired 2026-10-09 under
+ *   the orchestrator ruling that every guard runs natively on every CLI
+ *   unless its predicate cannot be computed — this one's can.
+ *
  * The first user-visible behavior in F14: every Edit/Write in a
  * multi-operator session now surfaces sibling activity per §4.1's
  * SAME / ADJACENT / INDEPENDENT relation.
@@ -28,7 +38,12 @@
  *
  *   NO branch of this hook carries severity: block.
  *
- *   Budget:   ≤5s; setTimeout fallback per cc-artifacts.md Rule 7.
+ *   Budget:   ≤16s internal, 20s registered (raised 2026-10-09 when this
+ *             hook entered the Codex `apply_patch` policy table): the Codex
+ *             runtime fails every policy CLOSED, so the budget must clear the
+ *             enrolled-path fold + signature verification under load, not
+ *             only the unenrolled passthrough. setTimeout fallback per
+ *             cc-artifacts.md Rule 7.
  *
  * Flow:
  *   1. Resolve operator identity via operator-id.js (Tier 1: explicit key
@@ -67,9 +82,25 @@
  * invoke `/claim`.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/coordination-log.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The auto-claim append goes through lib/transport-filesystem.js -> lib/append-sink.js, which may mkdir .claude/learning/. Spawns: git (state-resolver / sibling-porcelain) and ssh-keygen (lib/coc-sign.js signing). Each invocation appends a fresh signed claim (claim_id embeds nowMs), so a repeat is not a no-op."
+ * }
+ */
+
 "use strict";
 
-const TIMEOUT_MS = 5000;
+const TIMEOUT_MS = 16000;
 
 // setTimeout fallback per cc-artifacts.md Rule 7. Hook-internal hang
 // MUST NOT block the agent forever. {continue: true} surfaces no halt.

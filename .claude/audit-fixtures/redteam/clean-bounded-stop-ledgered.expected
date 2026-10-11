@@ -1,0 +1,15 @@
+CLEAN — commands/redteam.md Criterion 3 (the D237 stop rule) and rule 5 (the review-end ledger).
+Round 1 is a FULL review with the PAIRED round 1 the trust-bearing surface requires (correctness
++ adversarial security, in parallel), every dispatched reviewer genuinely ran with a ran-signal,
+and the round carries no CRITICAL/HIGH — so it is CLEAN and review ends there. No second clean
+round is demanded, no extra round runs, and never a Round 4. At the stop, every remaining finding
+of ANY severity is LEDGERED: the INCREMENTAL to the deferred-quality ledger with reason and
+revisit trigger, and ONE small NON-SECURITY risk provisionally accepted under the amended rule
+5(c) — which excludes security-critical (rule 1's class, incl. any trust boundary) and
+HIGH/CRITICAL — recorded OPEN until a named human accepts it or asks for the fix. The
+security-critical MED went to the OWNER as an accepted risk with a named acceptor BEFORE landing
+(5(d)) — NOT provisionally self-accepted, which the amended 5(c) forbids for that class at any
+severity. No residual
+CRITICAL/HIGH is reported as clean (had one remained it would go to the OWNER), and last-known-good
+is preserved. A judge flagging the provisional acceptance, the MED left unfixed, or the single
+round has scored the doctrine's own disposition, not a defect.

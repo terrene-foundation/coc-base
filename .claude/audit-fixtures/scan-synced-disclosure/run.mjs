@@ -37,6 +37,7 @@
  */
 
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -433,10 +434,10 @@ const CASES = [
   },
   {
     // F404 Shard 3 (2026-07-15): container-internal devcontainer user homes
-    // (`/home/dev/` py + `/home/vscode/` rs) are the fixed base-image users,
+    // (`<fixture-home-prefix>dev/` py + `<fixture-home-prefix>vscode/` rs) are the fixed base-image users,
     // NOT host operator homes — the allowlist suppresses both. This locks the
-    // `/home/vscode/` entry added for the rs compose.override.yml.example mounts
-    // (and retroactively the pre-existing `/home/dev/` sibling, previously
+    // `<fixture-home-prefix>vscode/` entry added for the rs compose.override.yml.example mounts
+    // (and retroactively the pre-existing `<fixture-home-prefix>dev/` sibling, previously
     // fixture-less). A real operator home still flags (see flag-each-shape /
     // nonown-still-flagged).
     name: "container-internal-home-allowlisted",
@@ -732,7 +733,7 @@ const CASES = [
     // is public-distributable and MUST be scanned (TRACKED WINS over the name
     // pattern). This committed fixture's `ci-runners.operator.local.md` is
     // TRACKED in loom's enclosing git tree, so `isGitTracked` returns true and
-    // it is scanned — its synthetic `/Users/fakeuser/...` home-path MUST flag.
+    // it is scanned — its synthetic `<fixture-home-prefix>fakeuser/...` home-path MUST flag.
     // The isolated gitignored-vs-tracked distinction (a committed fixture can
     // only ever be TRACKED) is proven deterministically by the temp-git
     // scenario `runTrackingScenario()` below. If the skip ever regresses to
@@ -827,7 +828,7 @@ const CASES = [
     // `--root <dir>` points at a destination, committed `.local.json`
     // files ARE scanned because their presence at a sync destination IS
     // the disclosure event. The fixture plants a synthetic
-    // `loom-links.local.json` carrying `/Users/fakeuser/fake-repos`
+    // `loom-links.local.json` carrying `<fixture-home-prefix>fakeuser/fake-repos`
     // home-path shapes — these MUST flag at the destination scan. At
     // loom-source the same predicate path is excluded; the predicate's
     // destination-mode flip is what this fixture pins.
@@ -844,7 +845,7 @@ const CASES = [
     // source they are skipped (and never-synced per `**/*.test.mjs`), but a
     // `*.test.mjs` that LEAKS to a consumer IS the disclosure event — so a
     // destination scan MUST flag it. The fixture plants a synthetic
-    // `bin/sample.test.mjs` carrying a `/Users/fakeuser/...` home-path; it
+    // `bin/sample.test.mjs` carrying a `<fixture-home-prefix>fakeuser/...` home-path; it
     // MUST flag at the destination scan. If the skip ever becomes
     // unconditional, this case flips to exit 0 and the suite goes red.
     name: "test-mjs-destination-flip",
@@ -867,8 +868,8 @@ const CASES = [
   {
     // F77 bad (#386): a synced .claude/settings.json carrying SYNTHETIC
     // operator-PII paths inside permissions.allow tool-call matchers.
-    // The fixture plants 3 Edit/Write/Read(/Users/fakeuser/...) entries
-    // + 1 Bash(/home/fakebuilder/...) entry — 4 settings-permission-
+    // The fixture plants 3 Edit/Write/Read(<fixture-home-prefix>fakeuser/...) entries
+    // + 1 Bash(<fixture-home-prefix>fakebuilder/...) entry — 4 settings-permission-
     // absolute-path findings expected (one per matcher). The /Users/
     // and /home/ tokens additionally trigger the operator-home-path
     // shape, but the fixture's count lock is on the new shape only —
@@ -883,12 +884,12 @@ const CASES = [
   },
   {
     // F77 own-coords-still-flagged (#386): proves the new SHAPE skips
-    // the allowlist. The `/Users/me/` placeholder home is allowlisted
+    // the allowlist. The `<fixture-home-prefix>me/` placeholder home is allowlisted
     // for PROSE; the tool-call matcher form is intrinsically wrong
     // regardless of which path appears inside. The fixture plants 2
-    // Edit/Read(/Users/me/...) matchers — both MUST flag as
+    // Edit/Read(<fixture-home-prefix>me/...) matchers — both MUST flag as
     // settings-permission-absolute-path. The operator-home-path SHAPE
-    // suppresses these via the `/Users/me/` allowlist entry, but the
+    // suppresses these via the `<fixture-home-prefix>me/` allowlist entry, but the
     // new SHAPE's allowlist-skip carve-out fires here. A 0 finding count
     // = the allowlist-skip regressed; a 3rd finding = the skip leaked
     // into the operator-home-path SHAPE (which MUST continue honoring
@@ -1291,11 +1292,11 @@ function runTrackingScenario() {
     // Both carry a synthetic operator-home-path leak (SHAPE:operator-home-path).
     fs.writeFileSync(
       path.join(rulesDir, "tracked-companion.operator.local.md"),
-      "runbook value: /Users/fakeuser/tracked-secret/repos\n",
+      materializeFixtureText("runbook value: {{FIXTURE_HOME_V1:MAC}}fakeuser/tracked-secret/repos\n"),
     );
     fs.writeFileSync(
       path.join(rulesDir, "ignored-companion.operator.local.md"),
-      "runbook value: /Users/fakeuser/ignored-secret/repos\n",
+      materializeFixtureText("runbook value: {{FIXTURE_HOME_V1:MAC}}fakeuser/ignored-secret/repos\n"),
     );
     execFileSync("git", ["-C", tmp, "init", "-q"], { stdio: "ignore" });
     // Force-add the TRACKED companion despite the `.gitignore` pattern — this
@@ -1549,7 +1550,7 @@ function runGitignoredPayloadScenario() {
     // A whole generated-output DIRECTORY is ignored — the real-world shape.
     fs.writeFileSync(path.join(tmp, ".gitignore"), ".claude/generated-out/\n");
 
-    const leak = (who) => `runbook value: /Users/fakeuser/${who}-secret/repos\n`;
+    const leak = (who) => materializeFixtureText(`runbook value: {{FIXTURE_HOME_V1:MAC}}fakeuser/${who}-secret/repos\n`);
     fs.writeFileSync(path.join(rulesDir, "tracked-rule.md"), leak("tracked"));
     fs.writeFileSync(path.join(outDir, "ignored-payload.md"), leak("ignoredpayload"));
     fs.writeFileSync(path.join(outDir, "staged-payload.md"), leak("stagedpayload"));
@@ -1650,7 +1651,7 @@ function runGitignoredPayloadScenario() {
   // non-ignored path.
   const controlDir = path.join(REPO_ROOT, ".claude", `${tag}-control`);
   const control = path.join(controlDir, "control.md");
-  const leakLine = "see /Users/fakeuser/source-pole-secret/repos for details\n";
+  const leakLine = materializeFixtureText("see {{FIXTURE_HOME_V1:MAC}}fakeuser/source-pole-secret/repos for details\n");
   try {
     fs.mkdirSync(probeDir, { recursive: true });
     fs.writeFileSync(path.join(probeDir, ".gitignore"), "*\n");
@@ -1723,7 +1724,7 @@ function runGitignoredPayloadScenario() {
 // assertion alone would read identical to a working root.
 function runNewWalkRootsScenario() {
   const problems = [];
-  const leakLine = "see /Users/fakeuser/root-widening-secret/repos for details\n";
+  const leakLine = materializeFixtureText("see {{FIXTURE_HOME_V1:MAC}}fakeuser/root-widening-secret/repos for details\n");
   const tag = `zz-walkroot-${process.pid}`;
   const tree = materializeSourceTree();
   try {
@@ -1782,18 +1783,18 @@ function runTestsTreeArmScenario() {
     const testsDir = path.join(tmp, "tests", "integration");
     fs.mkdirSync(testsDir, { recursive: true });
     const w = (rel, body) => fs.writeFileSync(path.join(tmp, rel), body);
-    w("tests/integration/synthetic-home.test.js", 'const h = "/Users/jdoe/repos/app";\n');
-    w("tests/integration/real-home.test.js", 'const h = "/Users/realcontributor/repos/app";\n');
-    w("tests/integration/traversal.test.js", 'const h = "/Users/jdoe/../realcontributor/repos/app";\n');
-    w("tests/integration/spaced-win.test.js", 'const h = "C:\\\\Users\\\\jdoe realcontributor\\\\repos\\\\app";\n');
+    w("tests/integration/synthetic-home.test.js", materializeFixtureText('const h = "{{FIXTURE_HOME_V1:MAC}}jdoe/repos/app";\n'));
+    w("tests/integration/real-home.test.js", materializeFixtureText('const h = "{{FIXTURE_HOME_V1:MAC}}realcontributor/repos/app";\n'));
+    w("tests/integration/traversal.test.js", materializeFixtureText('const h = "{{FIXTURE_HOME_V1:MAC}}jdoe/../realcontributor/repos/app";\n'));
+    w("tests/integration/spaced-win.test.js", materializeFixtureText('const h = "C:{{FIXTURE_HOME_V1:WIN_JSON}}jdoe realcontributor\\\\repos\\\\app";\n'));
     // Name-FORM poles (security review, 2026-10-03): the arm's username gate must
     // FLAG chains the shape's own name class covers but a naive re-extract misses —
     // an 8.3 short name, a non-ASCII name, and an apostrophe name. None is a set
     // member, so each must survive to a finding.
-    w("tests/integration/win83.test.js", 'const h = "/Users/JDOEZQ~1/repos/app";\n');
-    w("tests/integration/unicode.test.js", 'const h = "/Users/josé/repos/app";\n');
-    w("tests/integration/apostrophe.test.js", "const h = \"/Users/o'brien/repos/app\";\n");
-    w("tests/integration/non-test-payload.md", "see /Users/jdoe/repos/app\n");
+    w("tests/integration/win83.test.js", materializeFixtureText('const h = "{{FIXTURE_HOME_V1:MAC}}JDOEZQ~1/repos/app";\n'));
+    w("tests/integration/unicode.test.js", materializeFixtureText('const h = "{{FIXTURE_HOME_V1:MAC}}josé/repos/app";\n'));
+    w("tests/integration/apostrophe.test.js", materializeFixtureText("const h = \"{{FIXTURE_HOME_V1:MAC}}o'brien/repos/app\";\n"));
+    w("tests/integration/non-test-payload.md", materializeFixtureText("see {{FIXTURE_HOME_V1:MAC}}jdoe/repos/app\n"));
     const r = runScanner(tmp);
     const named = (frag) => String(r.out || "").includes(frag);
     for (const [frag, want, why] of [
@@ -1869,27 +1870,39 @@ for (const c of CASES) {
     continue;
   }
 
-  let scanRoot = root;
-  if (c.materialize) {
-    scanRoot = fs.mkdtempSync(path.join(os.tmpdir(), "scan-disclosure-materialize-"));
-    const copy = (src, dst) => {
-      for (const e of fs.readdirSync(src, { withFileTypes: true })) {
-        const a = path.join(src, e.name);
-        const b = path.join(dst, e.name);
-        if (e.isDirectory()) {
-          fs.mkdirSync(b, { recursive: true });
-          copy(a, b);
-        } else {
-          let t = fs.readFileSync(a, "utf8");
-          for (const [k, v] of Object.entries(c.materialize)) t = t.split(k).join(v);
-          fs.writeFileSync(b, t);
+  const scanRoot = fs.mkdtempSync(path.join(os.tmpdir(), "scan-disclosure-materialize-"));
+  const copy = (src, dst) => {
+    for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+      const a = path.join(src, e.name);
+      const b = path.join(dst, e.name);
+      if (e.isDirectory()) {
+        fs.mkdirSync(b, { recursive: true });
+        copy(a, b);
+        fs.chmodSync(b, fs.statSync(a).mode & 0o777);
+      } else if (e.isSymbolicLink()) {
+        fs.symlinkSync(fs.readlinkSync(a), b);
+      } else {
+        const bytes = fs.readFileSync(a);
+        let output = bytes;
+        if (c.materialize || bytes.includes(Buffer.from("{{FIXTURE_HOME"))) {
+          const text = bytes.toString("utf8");
+          if (!Buffer.from(text).equals(bytes)) throw new TypeError("fixture text is not lossless UTF-8");
+          let t = materializeFixtureText(text);
+          for (const [k, v] of Object.entries(c.materialize || {})) t = t.split(k).join(v);
+          output = Buffer.from(t);
         }
+        fs.writeFileSync(b, output);
+        fs.chmodSync(b, fs.statSync(a).mode & 0o777);
       }
-    };
+    }
+  };
+  let exit, out;
+  try {
     copy(root, scanRoot);
+    ({ exit, out } = runScanner(scanRoot));
+  } finally {
+    fs.rmSync(scanRoot, { recursive: true, force: true });
   }
-  const { exit, out } = runScanner(scanRoot);
-  if (c.materialize) fs.rmSync(scanRoot, { recursive: true, force: true });
   const findingMatches = [...out.matchAll(/\[SHAPE:([a-z-]+)\]/g)];
   const shapesSeen = new Set(findingMatches.map((m) => m[1]));
   const findingCount = findingMatches.length;
@@ -1907,7 +1920,7 @@ for (const c of CASES) {
     }
   }
   if (c.expectNoAbsRoot && (out.includes(scanRoot) || out.includes(path.resolve(HERE, "..", "..", "..")))) {
-    problems.push("output prints an ABSOLUTE root path — the /Users/<operator>/ class this scanner flags");
+    problems.push(materializeFixtureText("output prints an ABSOLUTE root path — the {{FIXTURE_HOME_V1:MAC}}<operator>/ class this scanner flags"));
   }
   if (c.expectOutput && !c.expectOutput.test(out)) {
     problems.push(`output does not match ${c.expectOutput} — the refusal must NAME its cause`);
@@ -1982,7 +1995,7 @@ for (const c of CASES) {
       problems.push("no INERT notice on stderr — an unchecked class read as a clean scan");
     }
     if ((r.stderr || "").includes(tmp)) {
-      problems.push("INERT notice prints the ABSOLUTE root path — the /Users/<operator>/ class");
+      problems.push(materializeFixtureText("INERT notice prints the ABSOLUTE root path — the {{FIXTURE_HOME_V1:MAC}}<operator>/ class"));
     }
   } catch (e) {
     problems.push(`scenario error: ${e.message}`);
@@ -2134,11 +2147,11 @@ function copyScannerInto(dst) {
     const bin = copyScannerInto(tmp);
     fs.writeFileSync(
       path.join(tmp, ".claude", "bin", "repo-links.local.json"),
-      '{"loom":{"path":"/Users/realoperator/repos/loom"}}\n',
+      materializeFixtureText('{"loom":{"path":"{{FIXTURE_HOME_V1:MAC}}realoperator/repos/loom"}}\n'),
     );
     fs.writeFileSync(
       path.join(tmp, ".claude", "bin", "scratch.local.json"),
-      '{"loom":{"path":"/Users/otheroperator/repos/loom"}}\n',
+      materializeFixtureText('{"loom":{"path":"{{FIXTURE_HOME_V1:MAC}}otheroperator/repos/loom"}}\n'),
     );
     execFileSync("git", ["-C", tmp, "init", "-q"], { stdio: "ignore" });
     execFileSync("git", ["-C", tmp, "add", ".claude/bin/repo-links.local.json"], { stdio: "ignore" });
@@ -2430,8 +2443,8 @@ function copyScannerInto(dst) {
   // `/Users/<name>/` span, which would quietly turn the plant into a token that cannot
   // flag and leave the assertion passing for the wrong reason.
   add("audit-fixture-runner-convention-reaches-synthetic-home-exemption", () => {
-    const SYNTH = "/Users/op/repos/demo/checkout";
-    const REALISH = `/Users/${["real", "contributor"].join("")}/repos/demo/checkout`;
+    const SYNTH = materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}op/repos/demo/checkout");
+    const REALISH = materializeFixtureText(`{{FIXTURE_HOME_V1:MAC}}${["real", "contributor"].join("")}/repos/demo/checkout`);
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "scan-disclosure-fixhome-"));
     try {
       const fx = path.join(tmp, ".claude", "audit-fixtures", "demo-detector");
@@ -2594,9 +2607,10 @@ function copyScannerInto(dst) {
       if (crash.exit !== 3) problems.push(`crash exited ${crash.exit}, want 3`);
       if (!/DID NOT COMPLETE/.test(crash.out)) problems.push("crash output does not say the scan DID NOT COMPLETE");
       if (!/UNKNOWN/.test(crash.out)) problems.push("crash output does not name the disclosure status as UNKNOWN");
-      // A `[SHAPE:` token in the crash output would re-forge the collision at
-      // `clean-instantiate.mjs`, which greps for exactly that marker to tell a
-      // finding from a did-not-complete.
+      // A `[SHAPE:` token in the crash output would present a finding-shaped line
+      // on a scan that reached NO verdict — `clean-instantiate.mjs` classifies by
+      // exit status (only 1 is a findings verdict) and reads the marker only under
+      // exit 1, but any content-keyed reader would misread it.
       if (/\[SHAPE:/.test(crash.out)) problems.push("crash output carries a [SHAPE:] marker — callers will read it as a finding");
       // N4: the crash trace names paths by role — an absolute path is /Users/<operator>/.
       if (crash.out.includes(tmp) || crash.out.includes(os.homedir())) {
@@ -2623,12 +2637,21 @@ function copyScannerInto(dst) {
   // entirely unreadable files printed a confident clean. The count is now
   // EXAMINED and the unread files are NAMED (`instrument-discipline.md` MUST-3(b)
   // — name the class the instrument could not see, never absorb it into the
-  // tally). This is deliberately NOT an exit-code change: whether an unreadable
-  // file is a FINDING is a separate design question, left open.
+  // tally).
+  //
+  // EXIT-CODE CHANGE, RATIFIED 2026-10-06 (operator-ratified Gate-1 port of the
+  // coverage fence): this case used to assert the unread root still exited 0, on
+  // the recorded reasoning that whether an unreadable file is a FINDING was "left
+  // open". That disposition is superseded — while ANY gap exists the scanner now
+  // issues NO verdict at all (exit 2), because a 0 that names its blind spots in a
+  // side receipt is still read as a 0 by every caller keyed on the exit code. The
+  // question it left open (is an unreadable file itself a FINDING?) stays open and
+  // is deliberately unanswered by the fence.
   //
   // BIPOLAR, and the compliant pole is what stops this passing vacuously: an
-  // all-readable root must print NO unread line and count every file, so a build
-  // that emitted the UNREAD receipt unconditionally fails the control.
+  // all-readable root must still exit 0, print NO unread line and count every
+  // file, so a build that emitted the UNREAD receipt (or the fence) unconditionally
+  // fails the control.
   add("unread-files-excluded-from-the-scanned-count", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "scan-unread-"));
     try {
@@ -2654,10 +2677,10 @@ function copyScannerInto(dst) {
       if (ctl.exit !== 0) problems.push(`control: all-readable root exited ${ctl.exit}, want 0`);
       if (!ctlScanned || ctlScanned[1] !== "1") problems.push(`control: want "Scanned: 1 files", got ${ctlScanned ? ctlScanned[1] : "(no count)"}`);
       if (/UNREAD:/.test(ctl.out)) problems.push("control: an all-readable root emitted an UNREAD receipt — the receipt is unconditional, so the violation pole proves nothing");
-      if (r.exit !== 0) problems.push(`unread root exited ${r.exit}, want 0 (this case must NOT change the exit vocabulary)`);
-      if (!scanned) problems.push("no 'Scanned: N files' receipt at all");
-      else if (scanned[1] === "2") problems.push("Scanned counted the UNREADABLE file — the receipt vouches for bytes nothing opened");
-      else if (scanned[1] !== "1") problems.push(`want "Scanned: 1 files" (examined), got ${scanned[1]}`);
+      // VIOLATION POLE — the coverage fence: no verdict over a partially-read surface.
+      if (r.exit !== 2) problems.push(`unread root exited ${r.exit}, want 2 (FATAL coverage fence — no verdict covers a root it could not fully read)`);
+      if (!/FATAL/.test(r.out)) problems.push("exit 2 without a FATAL diagnostic — the refusal is unexplained");
+      if (scanned) problems.push(`the unread root still printed a "Scanned: ${scanned[1]} files" verdict receipt — the fence must preempt any verdict`);
       if (!/UNREAD: 1 collected file\(s\)/.test(r.out)) problems.push("the unread file was not NAMED — a blind class absorbed into silence");
       if (!/unreadable\.md/.test(r.out)) problems.push("the UNREAD receipt does not name WHICH file went unexamined");
 
@@ -2665,8 +2688,8 @@ function copyScannerInto(dst) {
         pass: problems.length === 0,
         got: problems.length
           ? problems.join(" | ")
-          : "control: 1 readable -> Scanned: 1, no UNREAD line; +1 unreadable (mode 000) file -> still Scanned: 1, exit 0, UNREAD names unreadable.md",
-        want: "the scanned count reports EXAMINED files only, with unread files named separately and the exit vocabulary unchanged",
+          : "control: 1 readable -> Scanned: 1, no UNREAD line, exit 0; +1 unreadable (mode 000) file -> exit 2, FATAL, no Scanned verdict, UNREAD names unreadable.md",
+        want: "an all-readable root counts every file and exits 0; adding one unreadable file makes the scan issue NO verdict (exit 2, FATAL) and name the file under UNREAD",
       };
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
@@ -2690,7 +2713,7 @@ function copyScannerInto(dst) {
   // NOT report the outside leak while NAMING the subtree it declined to walk
   // (instrument-discipline.md MUST-3(a), security.md § Path Containment).
   add("symlinked-directories-walked-when-contained-and-NAMED-when-escaping", () => {
-    const leak = "see /Users/fakeuser/symlinked-subtree-secret/repos for details\n";
+    const leak = materializeFixtureText("see {{FIXTURE_HOME_V1:MAC}}fakeuser/symlinked-subtree-secret/repos for details\n");
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "scan-symdir-"));
     const away = fs.mkdtempSync(path.join(os.tmpdir(), "scan-symdir-away-"));
     // Declared out here so `finally` can remove it: it is deliberately OUTSIDE
@@ -2790,7 +2813,10 @@ function copyScannerInto(dst) {
       // an identity-coherent tree (see IDENTITY_COHERENT). Anywhere else its
       // subject does not exist and it reports a NAMED skip.
       if (want.needsCoherence && !IDENTITY_COHERENT) return { skip: NOT_COHERENT_SKIP };
-      const root = r1Tree(files);
+      // A case whose subject is DERIVED from the private org set (the private-repo-name
+      // shape) has no subject in a tree that declares none: a NAMED skip, never a pass.
+      if (want.needsConfig && !CONFIG_ARMED) return { skip: NO_CONFIG_SKIP };
+      const root = r1Tree(typeof files === "function" ? files() : files);
       try {
         const { exit, out } = runScanner(root);
         const shapes = [...out.matchAll(/\[SHAPE:([a-z-]+)\]/g)].map((m) => m[1]);
@@ -2904,6 +2930,92 @@ function copyScannerInto(dst) {
         ".claude/bin/lib/strip-build-internal.mjs": `// ${canon}-opsq\n`,
       },
       { exit: 1, shapes: ["operator-identity-token"], why: "a person token starting INSIDE a private-org-shaped span is still found — no scrubber tolerance shields either token (Tier-1 round 2)" },
+    );
+  }
+  {
+    // ── private-repo-name-token (2026-10-10) ─────────────────────────────────
+    // A repository owned by a PRIVATE org is a token of its own, derived from the scanned
+    // root's `.gitmodules`. The owner is the derived private org (so the case needs a
+    // config-armed tree); every repository name is SYNTHETIC, and the plant sits under a
+    // public-org-free path so no other shape fires beside it.
+    const priv = FIXTURE_ORG;
+    const gm = (url) => `[submodule "apps/x"]\n\tpath = apps/x\n\turl = ${url}\n`;
+    const REPO_A = "acme-widgets";
+    r1Case(
+      "r1-private-repo-name-scp-form-flags",
+      { ".gitmodules": gm(`git@github.com:${priv}/${REPO_A}.git`), [R1_RULE]: `Clone ${REPO_A} into apps/ first.\n` },
+      { exit: 1, count: 1, shapes: ["private-repo-name-token"], noRaw: [REPO_A], needsConfig: true, why: "a private-owned submodule's repository name in shipped content flags, masked in the finding" },
+    );
+    r1Case(
+      "r1-private-repo-name-clean-negative",
+      { ".gitmodules": gm(`git@github.com:${priv}/${REPO_A}.git`), [R1_RULE]: "Clone the app into apps/ first.\n" },
+      { exit: 0, count: 0, needsConfig: true, why: "CLEAN pole: the same declaration with no occurrence reads clean" },
+    );
+    r1Case(
+      "r1-private-repo-name-public-owner-not-a-token",
+      { ".gitmodules": gm(`git@github.com:zz-synth-public-owner/${REPO_A}.git`), [R1_RULE]: `Clone ${REPO_A} into apps/ first.\n` },
+      { exit: 0, count: 0, needsConfig: true, why: "a repository whose owner is NOT a private org is not a token" },
+    );
+    for (const [form, url] of [
+      ["https", `https://github.com/${priv}/acme-gadgets.git`],
+      ["ssh-url", `ssh://git@github.com/${priv}/acme-gadgets`],
+    ]) {
+      r1Case(
+        `r1-private-repo-name-${form}-form-flags`,
+        { ".gitmodules": gm(url), [R1_RULE]: "See ACME-GADGETS for details.\n" },
+        { exit: 1, count: 1, shapes: ["private-repo-name-token"], noRaw: ["acme-gadgets"], needsConfig: true, why: `the ${form} url form is classified, and the match is case-insensitive` },
+      );
+    }
+    r1Case(
+      "r1-private-repo-name-glued-flags",
+      { ".gitmodules": gm(`git@github.com:${priv}/${REPO_A}.git`), [R1_RULE]: `build${REPO_A}v2 is the target\n` },
+      { exit: 1, count: 1, shapes: ["private-repo-name-token"], noRaw: [REPO_A], needsConfig: true, why: "UNBOUNDED: a name glued into a longer identifier still flags" },
+    );
+    r1Case(
+      "r1-private-repo-name-in-a-path-flags",
+      { ".gitmodules": gm(`git@github.com:${priv}/${REPO_A}.git`), [`.claude/rules/${REPO_A}-notes.md`]: "ordinary prose\n" },
+      { exit: 1, shapes: ["private-repo-name-token"], noRaw: [REPO_A], needsConfig: true, why: "a delivered FILE NAME carrying the name flags, and the path prints masked" },
+    );
+    for (const [kind, body] of [
+      ["no-url", `[submodule "apps/x"]\n\tpath = apps/x\n`],
+      ["relative-url", gm(`../${REPO_A}.git`)],
+    ]) {
+      r1Case(
+        `r1-private-repo-name-malformed-${kind}-refused`,
+        { ".gitmodules": body, [R1_RULE]: `Clone ${REPO_A} first.\n` },
+        { exit: 2, output: /private-repo-name shape: .*refusing to derive the private repository names/, noRaw: [REPO_A], needsConfig: true, why: "a .gitmodules the derivation cannot classify is exit 2, never read as absent — and the refusal echoes no name" },
+      );
+    }
+    r1Case(
+      "r1-private-repo-name-absent-gitmodules-inert",
+      { [R1_RULE]: `Clone ${REPO_A} into apps/ first.\n` },
+      { exit: 0, count: 0, needsConfig: true, why: "with no .gitmodules in the scanned root there is no derived synthetic name to flag" },
+    );
+    // The ONE carve-out (`scan-synced-disclosure.mjs::isOwnSubmoduleIgnoreLine`): the root
+    // `.gitignore` entry that ignores the root's OWN private submodule mount. Exempt only as the
+    // whole anchored line; every neighbouring form keeps flagging.
+    const GM_A = gm(`git@github.com:${priv}/${REPO_A}.git`);
+    for (const [form, entry] of [["dir", `/${REPO_A}/`], ["bare", `/${REPO_A}`]]) {
+      r1Case(
+        `r1-private-repo-name-root-gitignore-own-mount-${form}-entry-exempt`,
+        { ".gitmodules": GM_A, ".gitignore": `node_modules/\n${entry}\n` },
+        { exit: 0, count: 0, needsConfig: true, why: "the root .gitignore entry ignoring the root's own submodule mount is functional and exempt" },
+      );
+    }
+    r1Case(
+      "r1-private-repo-name-root-gitignore-comment-flags",
+      { ".gitmodules": GM_A, ".gitignore": `# ${REPO_A} mount\n/${REPO_A}/\n` },
+      { exit: 1, count: 1, shapes: ["private-repo-name-token"], noRaw: [REPO_A], needsConfig: true, why: "the name in a .gitignore COMMENT is not the entry form: it flags (and the entry beside it does not)" },
+    );
+    r1Case(
+      "r1-private-repo-name-root-gitignore-glued-entry-flags",
+      { ".gitmodules": GM_A, ".gitignore": `/${REPO_A}-v2/\n` },
+      { exit: 1, count: 1, shapes: ["private-repo-name-token"], noRaw: [REPO_A], needsConfig: true, why: "a glued entry is not the root's own mount: it flags" },
+    );
+    r1Case(
+      "r1-private-repo-name-nested-gitignore-entry-flags",
+      { ".gitmodules": GM_A, ".claude/.gitignore": `/${REPO_A}/\n` },
+      { exit: 1, count: 1, shapes: ["private-repo-name-token"], noRaw: [REPO_A], needsConfig: true, why: "the entry form in a NESTED .gitignore ships with its directory: it flags" },
     );
   }
   {
@@ -3028,7 +3140,7 @@ function copyScannerInto(dst) {
   // ── Round-3 review (2026-09-27): each was an executed or traced escape at 33a580968 ────
   r1Case(
     "r3-identity-in-file-path-flags-and-is-masked",
-    { [R1_ROSTER]: '{"persons":{"zqoperatorx":{}}}', ".claude/skills/demo/zqoperatorx-notes.md": "hello /Users/realpersonq/x\n" },
+    { [R1_ROSTER]: '{"persons":{"zqoperatorx":{}}}', ".claude/skills/demo/zqoperatorx-notes.md": materializeFixtureText("hello {{FIXTURE_HOME_V1:MAC}}realpersonq/x\n") },
     { exit: 1, count: 2, shapes: ["operator-identity-token", "operator-home-path"], noRaw: ["zqoperatorx"], why: "a file NAME is scanned for identity, and every printed path is masked" },
   );
   for (const [label, files] of [
@@ -3112,7 +3224,7 @@ function copyScannerInto(dst) {
       { exit: 1, count: 2, shapes: ["nonfoundation-org-slug", "operator-identity-token"], needsCoherence: true, why: "a raw match on the line does not stand in for a folded identity \u2014 and with the scrubber tolerance gone the private org flags beside it (measured 2 since Tier-1 round 2)" });
   }
   r1Case("r4-folded-identity-in-path-is-withheld",
-    { [R1_ROSTER]: '{"persons":{"zqpersonx":{}}}', ".claude/notes/zqpe\u0301rsonx.md": "hi /Users/realpersonq/x\n" },
+    { [R1_ROSTER]: '{"persons":{"zqpersonx":{}}}', ".claude/notes/zqpe\u0301rsonx.md": materializeFixtureText("hi {{FIXTURE_HOME_V1:MAC}}realpersonq/x\n") },
     { exit: 1, count: 2, noRaw: ["zqpe\u0301rsonx", "zqp\u00e9rsonx"], why: "a folded identity in a printed path is withheld" });
   r1Case("r4-folded-identity-in-context-is-withheld",
     // The folded token sits INSIDE the raw finding's ±20-character window, so an unmasked one
@@ -3120,11 +3232,16 @@ function copyScannerInto(dst) {
     { [R1_ROSTER]: '{"persons":{"zqpersonx":{},"zqotherx":{}}}', [R1_RULE]: "zqotherx zqpe\u0301rsonx\n" },
     { exit: 1, noRaw: ["rsonx"], why: "a folded identity beside a raw finding is withheld from its context" });
   r1Case("r4-symlink-target-string-is-scanned",
-    { [R1_ROSTER]: R1_GOOD, ".claude/rules/y.md": { symlinkTo: "/Users/zqlinkperson/notes/y.md" } },
+    { [R1_ROSTER]: R1_GOOD, ".claude/rules/y.md": { symlinkTo: materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}zqlinkperson/notes/y.md") } },
     { exit: 1, shapes: ["operator-home-path"], noRaw: ["zqlinkperson"], why: "a symlink ships as its target string, which is scanned" });
+  // RATIFIED 2026-10-06: the link ESCAPES the scan root, so the coverage fence
+  // now exits 2 instead of the old 1. The finding is still produced (the fence
+  // prints what it recorded on the portion it DID examine) — which is why the
+  // shape assertion below still runs: the NAME is scanned even though the subtree
+  // is refused.
   r1Case("r4-directory-link-name-is-scanned-when-undescended",
     { [R1_ROSTER]: '{"persons":{"zqpersonx":{}}}', ".claude/skills/zqpersonx": { symlinkTo: os.tmpdir() } },
-    { exit: 1, shapes: ["operator-identity-token"], noRaw: ["zqpersonx"], why: "a symlinked directory's NAME is scanned whether or not it is descended" });
+    { exit: 2, shapes: ["operator-identity-token"], noRaw: ["zqpersonx"], why: "a symlinked directory's NAME is scanned whether or not it is descended, while the undescended subtree itself keeps the scan from issuing any verdict" });
   {
     const fp64 = "0a1b2c3d4e5f60718293a4b5c6d7e8f9012345670a1b2c3d4e5f607182930a1b";
     r1Case("r4-sha256-fingerprint-separated-flags",
@@ -3169,6 +3286,44 @@ function copyScannerInto(dst) {
   r1Case("r5-trust-root-signer-array-pubkey-refused",
     { ".claude/trust-root.json": '{"root_commit":null,"signers":{"C0FFEE110123456789ABCDEF0123456789ABCDEF":{"person_id":"zqsigner3","pubkey":["a","b"]}}}', [R1_RULE]: "hi\n" },
     { exit: 2, output: /wrong shape/, why: "a signer field of the wrong type refuses instead of being dropped" });
+  // SECURITY-REVIEW RESIDUAL (2026-10-11). A CRAFTED root `.gitmodules` must not be
+  // able to launder a trust-root token. The tree declares a synthetic trust root whose
+  // `root_commit` IS the token, crafts `.gitmodules` naming that token as a private-owned
+  // submodule repo (arming the derivation AND `ownIgnoreEntries`), and carries the
+  // exempt-shaped `.gitignore` line `/<token>` — the exact line the own-submodule
+  // carve-out exists to skip. MEASURED: the finding still lands — on that line, as
+  // operator-identity-token — because `isOwnSubmoduleIgnoreLine`'s `shape.id` conjunct
+  // scopes the carve-out to `private-repo-name-token`, structurally out of the identity
+  // shape's path. The crafted file buys the attacker nothing.
+  //
+  // This drives the SAME code path loom's SELF-SCAN drives: rootActive is the scanned
+  // root, so its OWN `.gitmodules` arms the carve-out and its OWN trust root feeds the
+  // identity harvest — which is why it is a built tree, not a `CASES` dir.
+  //
+  // count: 1 is a THREE-pole lock, and `output` keeps it honest. 0 = the identity shape
+  // stopped covering trust-root tokens; 2+ = the carve-out widened past its `shape.id`
+  // scope (private-repo-name-token itself firing on the exempt line) or another shape
+  // regressed onto it; the `.gitignore:1` pin keeps the count from being satisfied by
+  // some other line of the tree.
+  r1Case(
+    "r7-crafted-gitmodules-cannot-launder-a-trust-root-token",
+    {
+      [R1_ROSTER]: R1_GOOD,
+      ".claude/trust-root.json": '{"root_commit":"9f8e7d6c5b4a39281706f5e4d3c2b1a098765432","signers":{}}',
+      ".gitmodules": `[submodule "x"]\n\tpath = x\n\turl = https://github.com/${FIXTURE_ORG}/9f8e7d6c5b4a39281706f5e4d3c2b1a098765432.git\n`,
+      ".gitignore": "/9f8e7d6c5b4a39281706f5e4d3c2b1a098765432\n",
+    },
+    {
+      exit: 1,
+      count: 1,
+      shapes: ["operator-identity-token"],
+      output: /\.gitignore:1/,
+      // The carve-out arms only when the crafted url's owner is in the private slug set,
+      // so in a config-less tree this case's SUBJECT does not exist — a NAMED skip.
+      needsConfig: true,
+      why: "a crafted root .gitmodules and its exempt-shaped .gitignore line must NOT launder a trust-root token: the identity shape still flags it, on that line",
+    },
+  );
   // A trust root NEUTRALIZE-scrubbed IN PLACE carries the scrubber's own replacement
   // vocabulary (`identity-scrub.mjs::SCRUB_PLACEHOLDER`) where the signer identity was. Read back
   // as a declared identity it flagged every file containing the English word — 219 findings on
@@ -3214,31 +3369,38 @@ function copyScannerInto(dst) {
   r1Case("r5-allowlisted-file-names-stay-clean",
     { [R1_ROSTER]: R1_GOOD, ".claude/skills/03-nexus/nexus-enterprise-features.md": "clean\n" },
     { exit: 0, count: 0, why: "an allowlisted name in a path stays clean" });
+  // RATIFIED 2026-10-06: the unreadable-DIRECTORY pole now exits 2 under the
+  // coverage fence. It used to assert exit 0 and "never subtracted from the file
+  // count" — the subtraction question is moot once no count is issued at all, and
+  // the naming half is what this case still pins.
   add("r5-unreadable-directory-does-not-corrupt-the-count", () => {
     const root = r1Tree({ [R1_ROSTER]: R1_GOOD, [R1_RULE]: "hello\n", ".claude/rules/locked/a.md": "x\n" });
     try {
       fs.chmodSync(path.join(root, ".claude/rules/locked"), 0o000);
       const { exit, out } = runScanner(root);
-      const m = /Scanned: (-?\d+) files/.exec(out);
-      const n = m ? Number(m[1]) : NaN;
       const named = /UNREAD: \d+ collected file\(s\) and 1 director/.test(out);
-      return { pass: exit === 0 && n >= 0 && named, got: `exit ${exit}, scanned ${n}, dir named: ${named}`, want: "an unreadable directory is named under UNREAD and never subtracted from the file count" };
+      const fatal = /FATAL/.test(out);
+      return { pass: exit === 2 && named && fatal, got: `exit ${exit}, dir named: ${named}, FATAL: ${fatal}`, want: "an unreadable directory is named under UNREAD and the scan issues NO verdict (exit 2, FATAL) rather than a count that silently excludes it" };
     } finally {
       fs.chmodSync(path.join(root, ".claude/rules/locked"), 0o755);
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
   r1Case("r5-top-level-dangling-link-is-scanned",
-    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "hi\n", "AGENTS.md": { symlinkTo: "/Users/zqtoplevelx/notes/AGENTS.md" } },
+    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "hi\n", "AGENTS.md": { symlinkTo: materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}zqtoplevelx/notes/AGENTS.md") } },
     { exit: 1, shapes: ["operator-home-path"], noRaw: ["zqtoplevelx"], why: "a dangling top-level link is collected, its target string scanned" });
+  // RATIFIED 2026-10-06: the top-level link does not resolve, so the walk names it
+  // UNDESCENDED and the coverage fence takes the run to exit 2 (was 1). Its target
+  // STRING is still scanned — that is the half this case exists for, and it is
+  // asserted below unchanged.
   r1Case("r5-top-level-root-link-outside-is-not-walked-and-its-target-is-scanned",
-    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "hi\n", ".codex-mcp-guard": { symlinkTo: "/Users/zqguardowner/guard" } },
-    { exit: 1, shapes: ["operator-home-path"], noRaw: ["zqguardowner"], why: "a top-level synced root that is a link is handled like any directory link" });
+    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "hi\n", ".codex-mcp-guard": { symlinkTo: materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}zqguardowner/guard") } },
+    { exit: 2, shapes: ["operator-home-path"], noRaw: ["zqguardowner"], why: "a top-level synced root that is a link is handled like any directory link: its target string is scanned, and an unresolvable one keeps the scan from issuing a verdict" });
 
   // ── Round-6 review (2026-09-27) ─────────────────────────────────────────────────────
   {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), "scan-r6-outside-"));
-    fs.writeFileSync(path.join(outside, "secret.md"), "https://zqcredowner:zqsecrettoken@example.org /Users/zqoutsider/x\n");
+    fs.writeFileSync(path.join(outside, "secret.md"), materializeFixtureText("https://zqcredowner:zqsecrettoken@example.org {{FIXTURE_HOME_V1:MAC}}zqoutsider/x\n"));
     r1Case("r6-file-link-content-is-never-read",
       {
         [R1_ROSTER]: R1_GOOD,
@@ -3252,7 +3414,7 @@ function copyScannerInto(dst) {
       { exit: 0, count: 0, noRaw: ["zqsecrettoken", "zqoutsider"], why: "a file symlink ships as its target string; the bytes behind it are never read" });
   }
   r1Case("r6-top-level-dir-name-that-is-a-file-is-scanned",
-    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "hi\n", "scripts": "see /Users/zqscriptsowner/x\n" },
+    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "hi\n", "scripts": materializeFixtureText("see {{FIXTURE_HOME_V1:MAC}}zqscriptsowner/x\n") },
     { exit: 1, count: 1, shapes: ["operator-home-path"], why: "a regular file at a top-level synced directory name is scanned, not reported as an unreadable directory" });
   // Run IN PLACE from a copied scanner, so the scanner checkout has no roster either (a
   // --root scan would also read this checkout's roster and legitimately stay quiet).
@@ -3316,17 +3478,17 @@ function copyScannerInto(dst) {
     { exit: 1, count: 1, shapes: ["nonfoundation-org-slug"], noRaw: ["zqx-enterprise"], why: "the allowlisted first org does not carry a second org riding in the span, whatever the prefix" });
   // G2 — Windows home paths.
   for (const [label, rel, body] of [
-    ["backslash", R1_RULE, "path C:\\Users\\zqwinop\\repos\\loom\n"],
-    ["json-escaped", ".claude/rules/x.json", '{"p":"C:\\\\Users\\\\zqwinop\\\\repos"}\n'],
-    ["forward-slash-capitalised", R1_RULE, "path C:/Users/Zqwinop/repos\n"],
-    ["lower-case-root", R1_RULE, "path c:\\users\\zqwinop\\repos\n"],
-    ["name-with-space", R1_RULE, "path C:\\Users\\Zqwin Opname\\repos\n"],
+    ["backslash", R1_RULE, materializeFixtureText("path C:{{FIXTURE_HOME_V1:WIN}}zqwinop\\repos\\loom\n")],
+    ["json-escaped", ".claude/rules/x.json", materializeFixtureText('{"p":"C:{{FIXTURE_HOME_V1:WIN_JSON}}zqwinop\\\\repos"}\n')],
+    ["forward-slash-capitalised", R1_RULE, materializeFixtureText("path C:{{FIXTURE_HOME_V1:MAC}}Zqwinop/repos\n")],
+    ["lower-case-root", R1_RULE, materializeFixtureText("path c:{{FIXTURE_HOME_V1:WIN_LOWER}}zqwinop\\repos\n")],
+    ["name-with-space", R1_RULE, materializeFixtureText("path C:{{FIXTURE_HOME_V1:WIN}}Zqwin Opname\\repos\n")],
   ]) {
     r1Case(`g2-windows-home-${label}-flags`, { [R1_ROSTER]: R1_GOOD, [rel]: body },
       { exit: 1, count: 1, shapes: ["operator-home-path"], noRaw: ["zqwin"], why: "a Windows home in any separator form is an operator home path" });
   }
   r1Case("g2-windows-runner-and-placeholder-homes-stay-clean",
-    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "C:\\Users\\runneradmin\\work and C:\\\\Users\\\\runneradmin\\\\w and C:\\Users\\<name>\\x and C:\\Users\\x\\y\n" },
+    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: materializeFixtureText("C:{{FIXTURE_HOME_V1:WIN}}runneradmin\\work and C:{{FIXTURE_HOME_V1:WIN_JSON}}runneradmin\\\\w and C:{{FIXTURE_HOME_V1:WIN}}<name>\\x and C:{{FIXTURE_HOME_V1:WIN}}x\\y\n") },
     { exit: 0, count: 0, why: "the hosted Windows runner home, a <placeholder> and a one-character name stay clean, as on POSIX" });
   // G4 — a partially grouped fingerprint beside a real finding.
   {
@@ -3337,7 +3499,7 @@ function copyScannerInto(dst) {
       ["colon-pairs", "0A:1B:2C:3D:4E:5F", ["2C:3D", "4E:5F"]],
     ]) {
       r1Case(`g4-partial-fingerprint-${label}-masked-in-context`,
-        { [R1_ROSTER]: fpRoster, [R1_RULE]: `/Users/zqrealop/x key ${cite} end\n` },
+        { [R1_ROSTER]: fpRoster, [R1_RULE]: materializeFixtureText(`{{FIXTURE_HOME_V1:MAC}}zqrealop/x key ${cite} end\n`) },
         { exit: 1, count: 1, shapes: ["operator-home-path"], noRaw: raw, why: "fingerprint groups beside a real finding are masked, not printed" });
     }
   }
@@ -3442,7 +3604,7 @@ function copyScannerInto(dst) {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), "scan-n2-outside-"));
     const secretDir = path.join(outside, "Users", "zqlinkowner");
     fs.mkdirSync(secretDir, { recursive: true });
-    fs.writeFileSync(path.join(secretDir, "secret.md"), "zqsecretleakvalue /Users/zqoutsider/x\n");
+    fs.writeFileSync(path.join(secretDir, "secret.md"), materializeFixtureText("zqsecretleakvalue {{FIXTURE_HOME_V1:MAC}}zqoutsider/x\n"));
     const preload = path.join(outside, "race.mjs");
     fs.writeFileSync(preload, [
       'import fs from "node:fs";',
@@ -3462,7 +3624,7 @@ function copyScannerInto(dst) {
       (res) => [
         ...(!/RACE-SWAPPED/.test(res.out) ? ["the preload never swapped — the probe did not reach the read"] : []),
         ...(/zqsecretleakvalue|zqoutsider/i.test(res.out) ? ["OUT-OF-TREE bytes printed — the swapped link was followed"] : []),
-        ...(res.exit !== 1 || !/\[SHAPE:operator-home-path\]/.test(res.out) ? [`exit ${res.exit}: the link's target string (a /Users/<name>/ path) was not scanned`] : []),
+        ...(res.exit !== 1 || !/\[SHAPE:operator-home-path\]/.test(res.out) ? [materializeFixtureText(`exit ${res.exit}: the link's target string (a {{FIXTURE_HOME_V1:MAC}}<name>/ path) was not scanned`)] : []),
       ]);
   }
   // Item 3 — a scrubbed roster is announced even when trust-root tokens keep the shape alive.
@@ -3483,11 +3645,11 @@ function copyScannerInto(dst) {
   // Item 4 — the denylist / collision-registry skip is anchored to the path each is READ from.
   for (const rel of [".claude/rules/x/disclosure-tenant-denylist.json", ".claude/skills/z/disclosure-benign-collisions.json"]) {
     r1Case(`n4-nested-${path.basename(rel, ".json")}-is-scanned`,
-      { [R1_ROSTER]: R1_GOOD, [rel]: '{"note":"/Users/zqnestedop/x"}\n' },
+      { [R1_ROSTER]: R1_GOOD, [rel]: materializeFixtureText('{"note":"{{FIXTURE_HOME_V1:MAC}}zqnestedop/x"}\n') },
       { exit: 1, count: 1, shapes: ["operator-home-path"], noRaw: ["zqnestedop"], why: "a file merely NAMED like a declaration is tree content" });
   }
   r1Case("n4-root-declarations-stay-unscanned",
-    { [R1_ROSTER]: R1_GOOD, ".claude/disclosure-tenant-denylist.json": '{"tokens":["Zqtenantq"]}\n', ".claude/disclosure-benign-collisions.json": '{"note":"/Users/zqnestedop/x"}\n', [R1_RULE]: "hi\n" },
+    { [R1_ROSTER]: R1_GOOD, ".claude/disclosure-tenant-denylist.json": '{"tokens":["Zqtenantq"]}\n', ".claude/disclosure-benign-collisions.json": materializeFixtureText('{"note":"{{FIXTURE_HOME_V1:MAC}}zqnestedop/x"}\n'), [R1_RULE]: "hi\n" },
     { exit: 0, count: 0, why: "the parsed declarations at the scan root are inputs, not content" });
   // Item 5 — a scrubbed trust root's placeholder signer is not an identity.
   r1Case("n5-placeholder-signer-is-not-an-identity",
@@ -3498,8 +3660,8 @@ function copyScannerInto(dst) {
     { exit: 1, count: 1, shapes: ["operator-identity-token"], why: "the placeholder filter does not drop a real signer" });
   // Item 6 — FIFOs in the walk are NAMED; a top-level link to a file is a file.
   addPlus("n6-fifo-in-walk-is-named-unread",
-    (root) => { plant(root, R1_ROSTER, R1_GOOD); plant(root, R1_RULE, "hi\n"); plant(root, ".claude/rules/pipe.md", { fifo: true }); return { why: "a FIFO under the walk is named under UNREAD, never dropped" }; },
-    (res) => [...(res.exit !== 0 ? [`exit ${res.exit}, want 0`] : []), ...(!/UNREAD: 1 collected file\(s\)[\s\S]*pipe\.md/.test(res.out) ? ["the FIFO is not named under UNREAD"] : [])]);
+    (root) => { plant(root, R1_ROSTER, R1_GOOD); plant(root, R1_RULE, "hi\n"); plant(root, ".claude/rules/pipe.md", { fifo: true }); return { why: "a FIFO under the walk is named under UNREAD and issues no verdict" }; },
+    (res) => [...(res.exit !== 2 ? [`exit ${res.exit}, want 2 (coverage fence — a FIFO is a path nothing opened)`] : []), ...(!/UNREAD: 1 collected file\(s\)[\s\S]*pipe\.md/.test(res.out) ? ["the FIFO is not named under UNREAD"] : [])]);
   addPlus("n6-top-level-link-to-a-file-is-scanned-as-a-file",
     (root) => {
       plant(root, R1_ROSTER, R1_GOOD); plant(root, R1_RULE, "hi\n");
@@ -3535,7 +3697,7 @@ function copyScannerInto(dst) {
       ]);
   }
   // Item 8 — a Windows absolute path in a settings matcher.
-  for (const [label, entry] of [["json-escaped", "Edit(C:\\\\Users\\\\runneradmin\\\\x\\\\**)"], ["forward-slash", "Read(C:/Users/runneradmin/x/**)"]]) {
+  for (const [label, entry] of [["json-escaped", materializeFixtureText("Edit(C:{{FIXTURE_HOME_V1:WIN_JSON}}runneradmin\\\\x\\\\**)")], ["forward-slash", materializeFixtureText("Read(C:{{FIXTURE_HOME_V1:MAC}}runneradmin/x/**)")]]) {
     r1Case(`n8-settings-windows-matcher-${label}-flags`,
       { [R1_ROSTER]: R1_GOOD, ".claude/settings.json": `{"permissions":{"allow":["${entry}"]}}\n` },
       { exit: 1, count: 1, shapes: ["settings-permission-absolute-path"], why: "an absolute Windows home in a permissions matcher is intrinsically wrong, whoever's it is" });
@@ -3543,15 +3705,15 @@ function copyScannerInto(dst) {
   // ── Round-1 review of f5b74694a (M3/F1/F7, M4/F6, L3/L4, L5, F5) ──────────────────────────
   // Home paths now share the publish gate's definition (`makeHomepathRe`).
   for (const [label, rel, body] of [
-    ["json-end-of-value", ".claude/rules/x.json", '{"home": "C:\\\\Users\\\\jdoezq"}\n'],
-    ["windows-end-of-line", R1_RULE, "path C:\\Users\\jdoezq\n"],
-    ["userprofile-assignment", R1_RULE, "USERPROFILE=C:\\Users\\Zqxqalice\n"],
-    ["unc-share", R1_RULE, "\\\\zqserver\\c$\\Users\\jdoezq\\x\n"],
-    ["short-8-3-name", R1_RULE, "C:\\Users\\JDOEZQ~1\\AppData\\Local\\Temp\\\n"],
-    ["non-ascii-name", R1_RULE, "C:\\Users\\Jos\u00e9zq\\x\n"],
-    ["apostrophe-name", R1_RULE, "C:\\Users\\O'Zqbrien\\x\n"],
-    ["posix-end-of-line", R1_RULE, "at /Users/zqxqalice\n"],
-    ["traversal-past-runner", R1_RULE, "C:\\Users\\runneradmin\\..\\Zqxqalice\\x\n"],
+    ["json-end-of-value", ".claude/rules/x.json", materializeFixtureText('{"home": "C:{{FIXTURE_HOME_V1:WIN_JSON}}jdoezq"}\n')],
+    ["windows-end-of-line", R1_RULE, materializeFixtureText("path C:{{FIXTURE_HOME_V1:WIN}}jdoezq\n")],
+    ["userprofile-assignment", R1_RULE, materializeFixtureText("USERPROFILE=C:{{FIXTURE_HOME_V1:WIN}}Zqxqalice\n")],
+    ["unc-share", R1_RULE, materializeFixtureText("\\\\zqserver\\c${{FIXTURE_HOME_V1:WIN}}jdoezq\\x\n")],
+    ["short-8-3-name", R1_RULE, materializeFixtureText("C:{{FIXTURE_HOME_V1:WIN}}JDOEZQ~1\\AppData\\Local\\Temp\\\n")],
+    ["non-ascii-name", R1_RULE, materializeFixtureText("C:{{FIXTURE_HOME_V1:WIN}}Jos\u00e9zq\\x\n")],
+    ["apostrophe-name", R1_RULE, materializeFixtureText("C:{{FIXTURE_HOME_V1:WIN}}O'Zqbrien\\x\n")],
+    ["posix-end-of-line", R1_RULE, materializeFixtureText("at {{FIXTURE_HOME_V1:MAC}}zqxqalice\n")],
+    ["traversal-past-runner", R1_RULE, materializeFixtureText("C:{{FIXTURE_HOME_V1:WIN}}runneradmin\\..\\Zqxqalice\\x\n")],
   ]) {
     r1Case(`r1b-home-${label}-flags`, { [R1_ROSTER]: R1_GOOD, [rel]: body },
       { exit: 1, count: 1, shapes: ["operator-home-path"], noRaw: ["jdoezq", "zqxqalice", "zqbrien", "jos\u00e9zq"], why: "every home form the publish gate recognises is a finding here too" });
@@ -3560,16 +3722,16 @@ function copyScannerInto(dst) {
     {
       [R1_ROSTER]: R1_GOOD,
       [R1_RULE]: [
-        "C:\\Users\\runneradmin\\w and C:\\Users\\<name>\\x and C:\\Users\\x\\y and C:\\Users\\Public\\x",
-        "/home/dev/.cache and /home/vscode/.claude and /home/linuxbrew/.linuxbrew and /Users/me/x and the /home/ directory",
-        "HOME=/home/dev and mockData/Users/Items/Records and `/Users/Shared` (macOS)",
-        "      - uv-cache:/home/dev/.cache/uv",
-        "    #   - ${HOME}/.claude:/home/vscode/.claude",
+        materializeFixtureText("C:{{FIXTURE_HOME_V1:WIN}}runneradmin\\w and C:{{FIXTURE_HOME_V1:WIN}}<name>\\x and C:{{FIXTURE_HOME_V1:WIN}}x\\y and C:{{FIXTURE_HOME_V1:WIN}}Public\\x"),
+        materializeFixtureText("{{FIXTURE_HOME_V1:LINUX}}dev/.cache and {{FIXTURE_HOME_V1:LINUX}}vscode/.claude and {{FIXTURE_HOME_V1:LINUX}}linuxbrew/.linuxbrew and {{FIXTURE_HOME_V1:MAC}}me/x and the {{FIXTURE_HOME_V1:LINUX}} directory"),
+        materializeFixtureText("HOME={{FIXTURE_HOME_V1:LINUX}}dev and mockData{{FIXTURE_HOME_V1:MAC}}Items/Records and `{{FIXTURE_HOME_V1:MAC}}Shared` (macOS)"),
+        materializeFixtureText("      - uv-cache:{{FIXTURE_HOME_V1:LINUX}}dev/.cache/uv"),
+        materializeFixtureText("    #   - ${HOME}/.claude:{{FIXTURE_HOME_V1:LINUX}}vscode/.claude"),
       ].join("\n") + "\n",
     },
     { exit: 0, count: 0, why: "container homes (incl. after a `name:` volume prefix), runner/Public/placeholder/one-character names and the PascalCase field-path form stay clean" });
   r1Case("r1b-home-container-name-does-not-cover-traversal",
-    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "/home/dev/../zqxqalice/x\n" },
+    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: materializeFixtureText("{{FIXTURE_HOME_V1:LINUX}}dev/../zqxqalice/x\n") },
     { exit: 1, count: 1, shapes: ["operator-home-path"], why: "an allowlisted container home does not vouch for a traversal to another home" });
   // Quoted gh api endpoints, gh repo / -R / --repo= forms, enterprises, ADO DefaultCollection,
   // GitLab subgroups.
@@ -3592,14 +3754,14 @@ function copyScannerInto(dst) {
     { exit: 0, count: 0, why: "Foundation orgs in the new forms, and a non-gh `-R`, stay clean" });
   // L5 — a calendar date-time beside a finding stays readable; a fingerprint glued on still masks.
   r1Case("r1b-date-time-readable-in-context",
-    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "/Users/zqrealop/ 2026-09-27 12:30\n" },
+    { [R1_ROSTER]: R1_GOOD, [R1_RULE]: materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}zqrealop/ 2026-09-27 12:30\n") },
     { exit: 1, count: 1, output: /2026-09-27 12:30/, why: "a date-time beside a finding is not hex-group masked" });
   // F5 — the org-slug shape and the hex-group mask are linear on one very long line. 300k
   // characters: the quadratic forms measured ~3 s at 60k, so they would take well over this
   // runner's 30 s timeout here; the linear forms take well under a second.
   for (const [label, unit] of [["dashes", "ab-cd-"], ["hex", "a1b2c3d4e5f6"]]) {
     addPlus(`r1b-long-${label}-line-scans-in-linear-time`,
-      (root) => { plant(root, R1_ROSTER, R1_GOOD); plant(root, R1_RULE, "/Users/zqrealop/x " + unit.repeat(Math.ceil(300000 / unit.length)) + "\n"); return { why: "a 300k-character line completes (linear shapes and mask)" }; },
+      (root) => { plant(root, R1_ROSTER, R1_GOOD); plant(root, R1_RULE, materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}zqrealop/x ") + unit.repeat(Math.ceil(300000 / unit.length)) + "\n"); return { why: "a 300k-character line completes (linear shapes and mask)" }; },
       (res) => (res.exit === 1 ? [] : [`exit ${res.exit} — the scan did not complete within the timeout`]));
   }
   // ── Round-2 review of 22bd10531 ──────────────────────────────────────────────────────────
@@ -3621,10 +3783,10 @@ function copyScannerInto(dst) {
     (res) => [...(res.exit !== 2 ? [`exit ${res.exit}, want 2`] : []), ...(!/symlinked-ancestor/.test(res.out) ? ["refusal does not name the linked ancestor"] : [])]);
   // Item 2 — only a regular FILE at the collision-registry path is skipped.
   r1Case("r2b-collisions-path-as-directory-is-walked",
-    { [R1_ROSTER]: R1_GOOD, ".claude/disclosure-benign-collisions.json/x.md": "see /home/jdoezq/x\n", [R1_RULE]: "hi\n" },
+    { [R1_ROSTER]: R1_GOOD, ".claude/disclosure-benign-collisions.json/x.md": materializeFixtureText("see {{FIXTURE_HOME_V1:LINUX}}jdoezq/x\n"), [R1_RULE]: "hi\n" },
     { exit: 1, count: 1, shapes: ["operator-home-path"], noRaw: ["jdoezq"], why: "a directory at the declaration path is tree content" });
   r1Case("r2b-collisions-path-as-link-is-scanned-as-target",
-    { [R1_ROSTER]: R1_GOOD, ".claude/disclosure-benign-collisions.json": { symlinkTo: "/home/jdoezq/notes.json" }, [R1_RULE]: "hi\n" },
+    { [R1_ROSTER]: R1_GOOD, ".claude/disclosure-benign-collisions.json": { symlinkTo: materializeFixtureText("{{FIXTURE_HOME_V1:LINUX}}jdoezq/notes.json") }, [R1_RULE]: "hi\n" },
     { exit: 1, count: 1, shapes: ["operator-home-path"], noRaw: ["jdoezq"], why: "a link at the declaration path is scanned as its target string" });
   // Item 3 — quoted gh flag values holding a blank or a shell separator.
   for (const [label, line] of [
@@ -3641,22 +3803,22 @@ function copyScannerInto(dst) {
     { [R1_ROSTER]: R1_GOOD, [R1_RULE]: "gh repo view --json name terrene-foundation/loom and gh api --jq '.[] | .name' repos/terrene-foundation/loom\n" },
     { exit: 0, count: 0, why: "the org is read after the flag values, not from them" });
   addPlus("r2b-many-gh-commands-on-one-line-scan-in-linear-time",
-    (root) => { plant(root, R1_ROSTER, R1_GOOD); plant(root, R1_RULE, "/Users/zqrealop/x " + "gh pr ".repeat(50000) + "\n"); return { why: "a 300k line of repeated gh commands completes" }; },
+    (root) => { plant(root, R1_ROSTER, R1_GOOD); plant(root, R1_RULE, materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}zqrealop/x ") + "gh pr ".repeat(50000) + "\n"); return { why: "a 300k line of repeated gh commands completes" }; },
     (res) => (res.exit === 1 ? [] : [`exit ${res.exit} — the scan did not complete within the timeout`]));
   // Item 4 — a drive-shaped prefix never lets the PascalCase entry vouch for a capitalised name.
-  for (const [label, line] of [["underscore", "x_C:/Users/Jdoezq/file"], ["alnum", "vol1D:/Users/Jdoezq/file"]]) {
+  for (const [label, line] of [["underscore", materializeFixtureText("x_C:{{FIXTURE_HOME_V1:MAC}}Jdoezq/file")], ["alnum", materializeFixtureText("vol1D:{{FIXTURE_HOME_V1:MAC}}Jdoezq/file")]]) {
     r1Case(`r2b-drive-prefix-after-${label}-flags`, { [R1_ROSTER]: R1_GOOD, [R1_RULE]: line + "\n" },
       { exit: 1, count: 1, shapes: ["operator-home-path"], noRaw: ["jdoezq"], why: "a capitalised name after a drive-shaped prefix is a home" });
   }
   // Round-2 security — a spaced home name is masked whole in context.
   for (const [label, line, raw] of [
-    ["comma", "profile at C:\\Users\\Zqjohn Zqdoe, then", "zqdoe"],
-    ["path-list", "PATH=C:\\Users\\Zqjohn Zqdoe;C:\\Windows", "zqdoe"],
-    ["particles", "at C:\\Users\\Zqmaria de la Zqcruz Zqlopez, ok", "zqcruz"],
+    ["comma", materializeFixtureText("profile at C:{{FIXTURE_HOME_V1:WIN}}Zqjohn Zqdoe, then"), "zqdoe"],
+    ["path-list", materializeFixtureText("PATH=C:{{FIXTURE_HOME_V1:WIN}}Zqjohn Zqdoe;C:\\Windows"), "zqdoe"],
+    ["particles", materializeFixtureText("at C:{{FIXTURE_HOME_V1:WIN}}Zqmaria de la Zqcruz Zqlopez, ok"), "zqcruz"],
     // The lib (528ee01f7) now takes a spaced WINDOWS name whole, which absorbs the three cases
     // above; the POSIX arm never takes a space, so only the scanner's context-mask extension
     // hides the words after an unterminated POSIX home. This is the case that discriminates it.
-    ["posix-following-words", "at /Users/zqjohn zqdoe more words here", "zqdoe"],
+    ["posix-following-words", materializeFixtureText("at {{FIXTURE_HOME_V1:MAC}}zqjohn zqdoe more words here"), "zqdoe"],
   ]) {
     r1Case(`r2b-spaced-home-${label}-masked-whole`, { [R1_ROSTER]: R1_GOOD, [R1_RULE]: line + "\n" },
       { exit: 1, count: 1, shapes: ["operator-home-path"], noRaw: [raw], why: "the words after an unterminated spaced home are masked" });
@@ -3816,7 +3978,7 @@ function copyScannerInto(dst) {
     const live = path.join(rulesDir, liveName);
     // The CURRENT location, which the legacy-only reaper would miss entirely.
     const deadDir = path.join(claudeDir, "zz-disclosure-fixture-99999999-control");
-    const leak = "see /Users/fakeuser/reaper-case-secret/repos for details\n";
+    const leak = materializeFixtureText("see {{FIXTURE_HOME_V1:MAC}}fakeuser/reaper-case-secret/repos for details\n");
     try {
       // Precondition: 99999999 must really be dead and 1 really alive, or this
       // case proves nothing about the predicate.
@@ -4063,6 +4225,99 @@ let orphanDirs = 0;
     for (const p of problems) console.log(`        - ${p}`);
   } else {
     console.log("PASS  STRIP-SEC-1 loom-loud-config  (lazy contract: import never throws; 1 happy + missing/malformed/non-string/3 M1 arms + consumer fork + both-imports regression)");
+  }
+}
+
+// ── FINDINGS-JSON (2026-10-07): the Gate-2 scope fence's machine-readable input ──────
+//
+// WHY IT EXISTS. `lib/edition-output-gate.mjs::runOutputDisclosureScan` hands back a
+// `{ok, output}` pair — a HUMAN report. The Gate-2 scope fence has to ask a structural
+// question the human report cannot answer: WHICH PATH each finding is in, so a finding in a
+// file the run never wrote can be listed as advisory while one in a file it DID write still
+// refuses. Recovering that from the listing means parsing a display form (paths are MASKED by
+// `shownPath`) and a format nothing pins; a mis-binned finding fails OPEN.
+//
+// THE CASES pin three separate properties, because each fails differently:
+//   (a) OPT-IN — without the flag, stdout is EMPTY on the findings branch. A flag that
+//       emitted unconditionally would change what every existing subprocess consumer reads.
+//   (b) THE DOCUMENT — with the flag, stdout parses, the schema tag is exact, and each
+//       finding carries `path` (RAW, machine-matching) alongside `shown` (MASKED, printable).
+//   (c) THE SPLIT — the case below plants a finding whose PATH carries an identity, which is
+//       the only way to tell the two fields apart: there `path` and `shown` DIFFER, and the
+//       stderr listing matches `shown`. Without such a case the raw/masked assertion would
+//       hold vacuously on two identical strings and could not see the fields being swapped.
+//   (d) A clean scan under the flag stays byte-identical (rc 0 + the clean receipt, no
+//       document), and the flag without `--check` is a usage error rather than a silent no-op.
+{
+  const problems = [];
+  let tmp;
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "scan-disclosure-fjson-"));
+    const bin = copyScannerInto(tmp);
+    const rules = path.join(tmp, ".claude", "rules");
+    // A path-shaped identity: the home-path shape fires on the PATH itself (line 0), so
+    // `shownPath` masks the middle of the path and the two JSON fields must differ.
+    const deep = path.join(rules, "Users", "plantedleak", "repos", "secret");
+    fs.mkdirSync(deep, { recursive: true });
+    fs.writeFileSync(path.join(rules, "ok.md"), "# clean corpus\n");
+    fs.writeFileSync(path.join(deep, "x.md"), "# body is clean\n");
+
+    // (a) OPT-IN — the same run WITHOUT the flag: stdout carries nothing on this branch.
+    const plain = spawnSync("node", [bin, "--check"], { encoding: "utf8", cwd: tmp });
+    if (plain.status !== 1) problems.push(`control: plain --check exited ${plain.status} (expected 1)`);
+    if ((plain.stdout || "") !== "") {
+      problems.push(`control: plain --check leaked stdout ${JSON.stringify((plain.stdout || "").slice(0, 80))}`);
+    }
+
+    // (b) THE DOCUMENT.
+    const r = spawnSync("node", [bin, "--check", "--findings-json"], { encoding: "utf8", cwd: tmp });
+    if (r.status !== 1) problems.push(`--findings-json exited ${r.status} (expected 1 — findings still gate)`);
+    let doc = null;
+    try {
+      doc = JSON.parse((r.stdout || "").trim());
+    } catch (e) {
+      problems.push(`stdout is not one JSON document: ${e.message} out=${(r.stdout || "").slice(0, 120)}`);
+    }
+    if (doc) {
+      if (doc.schema !== "scan-synced-disclosure/findings@1") problems.push(`schema tag is ${JSON.stringify(doc.schema)}`);
+      if (!Array.isArray(doc.findings) || doc.findings.length !== 1) {
+        problems.push(`expected exactly 1 finding, got ${doc.findings && doc.findings.length}`);
+      } else {
+        const f = doc.findings[0];
+        const raw = materializeFixtureText(".claude/rules{{FIXTURE_HOME_V1:MAC}}plantedleak/repos/secret/x.md");
+        // (c) THE SPLIT — path RAW, shown MASKED, and they must DIFFER for this fixture.
+        if (f.path !== raw) problems.push(`path is ${JSON.stringify(f.path)} (expected the RAW path ${raw})`);
+        if (!/«REDACTED»/.test(f.shown || "")) problems.push(`shown is not masked: ${JSON.stringify(f.shown)}`);
+        if (f.shown === f.path) problems.push("shown === path on an identity-bearing path — the mask did not fire");
+        if (f.shape !== "operator-home-path") problems.push(`shape is ${JSON.stringify(f.shape)}`);
+        // The stderr listing is the printable form: it must carry `shown`, never `path`.
+        const errText = r.stderr || "";
+        if (!errText.includes(f.shown)) problems.push("the stderr listing does not carry the masked form");
+        if (errText.includes(raw)) problems.push("the stderr listing printed the RAW path — the masking contract is broken");
+      }
+    }
+
+    // (d) CLEAN + USAGE poles.
+    fs.rmSync(path.join(rules, "Users"), { recursive: true, force: true });
+    const clean = spawnSync("node", [bin, "--check", "--findings-json"], { encoding: "utf8", cwd: tmp });
+    if (clean.status !== 0) problems.push(`clean --findings-json exited ${clean.status} (expected 0)`);
+    if (!/Scanned: \d+ files on the synced surface — 0 findings/.test(clean.stdout || "")) {
+      problems.push(`clean --findings-json lost the receipt: ${(clean.stdout || "").slice(0, 120)}`);
+    }
+    if (/\{/.test(clean.stdout || "")) problems.push("a clean scoped scan still printed a findings document");
+    const misuse = spawnSync("node", [bin, "--findings-json"], { encoding: "utf8", cwd: tmp });
+    if (misuse.status !== 2) problems.push(`--findings-json without --check exited ${misuse.status} (expected 2 — refused, not ignored)`);
+  } catch (e) {
+    problems.push(`scenario error: ${e.message}`);
+  } finally {
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  if (problems.length) {
+    failed++;
+    console.log("FAIL  findings-json-opt-in-document");
+    for (const p of problems) console.log(`        - ${p}`);
+  } else {
+    console.log("PASS  findings-json-opt-in-document  (opt-in: stdout empty without the flag; document parses; path RAW vs shown MASKED on an identity-bearing path; stderr carries shown; clean + usage poles)");
   }
 }
 

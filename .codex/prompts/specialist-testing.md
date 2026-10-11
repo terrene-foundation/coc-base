@@ -209,3 +209,8 @@ def test_create_user_ok():
 - `skills/12-testing-strategies/testing-patterns.md` — test implementation examples
 - `skills/12-testing-strategies/test-3tier-strategy.md` — 3-tier strategy details
 - `skills/17-gold-standards/gold-mocking-policy.md` — real infrastructure policy
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Write, Edit, Bash, Grep, Glob, Task. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Write: apply_patch or an explicitly permitted write command; Edit: apply_patch; Bash: exec_command and write_stdin; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command; Task: spawn_agent, send_message and agent result collection. These are role instructions, not a native tool permission boundary. Parent policy still applies.

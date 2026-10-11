@@ -13,7 +13,7 @@ before anything is planned.
       brief's sentence verbatim, the relevant section of specs/dataflow/pooling.md, the
       instruction to REFUTE rather than confirm, and the instruction to return its finding
       in its final message. Each pinned to the sibling worktree
-      /Users/someoperator/repos/.kailash-dataflow-wt/pool-audit with the STEP-0 resolved-
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kailash-dataflow-wt/pool-audit with the STEP-0 resolved-
       toplevel assertion.
 
     #2201 lane: "FALSE as written. src/kailash_dataflow/pool/config.py:31 sets

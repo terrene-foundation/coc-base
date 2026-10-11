@@ -31,6 +31,7 @@
  * Exit: 0 = every case matched expectation; 1 = at least one did not.
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -112,7 +113,7 @@ function buildCases() {
     }
     cases.push({
       name: f,
-      input: readFileSync(path.join(HERE, f), "utf8"),
+      input: materializeFixtureText(readFileSync(path.join(HERE, f), "utf8")),
       expect: f.startsWith("flag-") ? "BLOCKED" : "PASSTHROUGH",
       env: {},
     });
@@ -122,10 +123,10 @@ function buildCases() {
   // status marker (`hook-output-discipline.md` MUST-1 delivery channel).
   cases.push({
     name: "<injection> control bytes stripped from emitted body",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-injection-in-tool-name.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     // eslint-disable-next-line no-control-regex
@@ -133,10 +134,10 @@ function buildCases() {
   });
   cases.push({
     name: "<injection> forged [ADVISORY] marker not reproduced",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-injection-in-tool-name.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     forbidStderr: /\[ADVISORY\]/,
@@ -165,10 +166,10 @@ function buildCases() {
   // § "Detectors that block work the agent has been instructed to perform").
   cases.push({
     name: "<escape> env COC_ALLOW_NESTED_WORKTREE=1 lets the call through",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "PASSTHROUGH",
     env: { COC_ALLOW_NESTED_WORKTREE: "1" },
   });
@@ -178,10 +179,10 @@ function buildCases() {
   // (`lib/instruct-and-wait.js` delivery contract).
   cases.push({
     name: "<escape> override surfaces on stderr AND in additionalContext",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "PASSTHROUGH",
     env: { COC_ALLOW_NESTED_WORKTREE: "1" },
     alsoRequireStderr: /ADVISORY.*COC_ALLOW_NESTED_WORKTREE=1/,
@@ -194,10 +195,10 @@ function buildCases() {
   // the gate for later calls, and (c) is ignored when empty.
   cases.push({
     name: "<receipt> one-shot receipt lets the call through",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "PASSTHROUGH",
     env: {},
     setup: () => writeReceipt("sanctioned nested placement for this one shard"),
@@ -206,10 +207,10 @@ function buildCases() {
   });
   cases.push({
     name: "<receipt> receipt is CONSUMED (second call blocks again)",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     // Write the receipt, spend it on a first call, then assert the SECOND call
@@ -218,17 +219,17 @@ function buildCases() {
       writeReceipt("one-shot");
       probe(
         HOOK,
-        readFileSync(path.join(HERE, "flag-task-isolation-worktree.json"), "utf8"),
+        materializeFixtureText(readFileSync(path.join(HERE, "flag-task-isolation-worktree.json"), "utf8")),
       );
     },
     teardown: clearReceipt,
   });
   cases.push({
     name: "<receipt> empty receipt is NOT an override",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     setup: () => writeReceipt("   \n"),
@@ -307,10 +308,10 @@ function buildCases() {
   // (hook-output-discipline.md MUST-1).
   cases.push({
     name: "<shape> block carries actionable remediation",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     alsoRequireStderr: /REPORT TO USER/,
@@ -318,10 +319,10 @@ function buildCases() {
   });
   cases.push({
     name: "<shape> block names the one-shot receipt override",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     alsoRequireStderr: /worktree-authz[/\\]nested-worktree-allow/,

@@ -74,10 +74,13 @@ function assertNoCanonStateCarryover(opts) {
 //
 // `scan-synced-disclosure.mjs`'s exit vocabulary, mirrored here because this module
 // spawns it and must not collapse the codes. Authority is that script's own header
-// block (`.claude/bin/scan-synced-disclosure.mjs:36-55`), which enumerates all four
+// block (`.claude/bin/scan-synced-disclosure.mjs:36-60`), which enumerates all four
 // and states the MUST-NOT-collapse rule these constants exist to honour:
 //   0 = ran to completion, reportable   1 = ran to completion, >=1 finding
-//   2 = did NOT start (bad arg/root/denylist)
+//   2 = NO VALID RESULT — did NOT start (bad arg / --root not a directory / no
+//       synced surface / malformed denylist or registry) OR ran to the end of the
+//       loop but could not EXAMINE every collected path (unread file / unlistable
+//       directory / undescended symlinked directory; § COVERAGE FENCE)
 //   3 = STARTED and did NOT complete (uncaught exception mid-scan)
 const SCAN_EXIT_CLEAN = 0;
 const SCAN_EXIT_FINDINGS = 1;

@@ -33,6 +33,20 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/dispatch-reconcile/"],
+ *     "network": false,
+ *     "spawns": ["git","ps"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes through lib/state-resolver.js and a memoized `ps` through lib/dispatch-ledger.js; the one fs write is the `reconcile` verdict row appended to the per-session sink by lib/append-sink.js, so a repeat run appends another row."
+ * }
+ */
+
 // Bounded timer per `cc-artifacts.md` Rule 7, under the registered 5s timeout so this hook's own
 // fallback fires first and shutdown is never held up.
 const TIMEOUT_MS = 4000;

@@ -10,7 +10,7 @@ The `*.operator.local.md` exclusion in `isExcluded()` is now scoped to
 (never committed); at a destination scan (`--root <dir>`) a committed
 `*.operator.local.md` IS the disclosure event the scanner exists to catch. The
 planted `ci-runners.operator.local.md` carries a synthetic
-`/Users/fakeuser/...` home-path; it MUST flag at the destination scan.
+`<operator-home>/...` home-path; it MUST flag at the destination scan.
 
 If the skip ever becomes unconditional again — or the generic `*.local.md`
 catch-all re-swallows the `*.operator.local.md` superset-suffix — this case

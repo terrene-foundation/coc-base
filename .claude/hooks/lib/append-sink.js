@@ -609,6 +609,52 @@ function reconcileFdIdentity(fd, realSinkDir, sinkPath, expectedDir, __windowHoo
 }
 
 /**
+ * The boundary roots a `.claude/learning/**` sink legitimately lives under.
+ *
+ * WHY THIS IS A FUNCTION AND NOT A COMMENT TELLING CALLERS WHAT TO DO. Every sink
+ * under `.claude/learning/` is SHARED STATE that resolves to the MAIN CHECKOUT, so
+ * in a git worktree the session's own `repoDir` is the wrong — and only
+ * apparently safer — containment boundary, exactly as `additionalRoots` documents
+ * above. That derivation was open-coded at the call sites, and it drifted: of NINE
+ * `appendSinkLine` callers, only THREE carried it. The six that did not fail CLOSED
+ * from any worktree, taking the journal-slot reservation and the `derives_from[]`
+ * emitter with them — both MANDATORY `/codify` steps — while `worktree-isolation.md`
+ * MANDATES worktrees. A copy-pasted precondition is a precondition that will be
+ * forgotten; this is the one implementation.
+ *
+ * Resolved through `requireMainCheckout` — the FAIL-CLOSED accessor — never the
+ * legacy `resolveMainCheckout`, which silently returns its own `cwd` argument when
+ * git cannot identify a main checkout (`state-resolver.js` § INDETERMINATE). A
+ * caller widening a trust boundary with that value widens it with an unverified
+ * one. Stated honestly rather than over-claimed: where the argument passed in
+ * already equals the value fallen back to, the indeterminate branch contributed a
+ * NO-OP DUPLICATE (`appendSinkLine` declares `repoDir` as root[0] and `_resolveRoots`
+ * realpath-dedupes), so the boundary never actually widened — but that safety held
+ * only by coincidence of the two values matching, a two-hop invariant no reader
+ * re-derives and which breaks the moment a call is handed a session cwd instead.
+ *
+ * Returns [] when the resolver is unavailable or cannot answer. That is the SAME
+ * fail-closed shape as the callers' catch: a sink outside `repoDir` is refused
+ * rather than written somewhere unverified, while a sink INSIDE `repoDir` — the
+ * legitimate non-git / unresolvable-git case — still lands. Refusing the whole
+ * append on `!ok` would over-block that path.
+ *
+ * @param {string} repoDir  The session's repo dir (already root[0] at the sink).
+ * @returns {string[]}  Zero or one additional root; never throws.
+ */
+function mainCheckoutBoundaryRoots(repoDir) {
+  try {
+    const { requireMainCheckout } = require(path.join(__dirname, "state-resolver.js"));
+    const mainCheckout = requireMainCheckout(repoDir);
+    return mainCheckout && mainCheckout.ok ? [mainCheckout.repoDir] : [];
+  } catch {
+    // Resolver unavailable — `repoDir` remains the only root and a main-checkout
+    // sink fails CLOSED (loudly, to the caller) rather than landing unverified.
+    return [];
+  }
+}
+
+/**
  * Append ONE line to a JSONL sink, hardened against symlinked ancestors, a symlinked sink
  * directory, a symlinked sink file, hard links, FIFOs, and world-readable modes.
  *
@@ -1293,6 +1339,14 @@ function readSinkFile(a) {
 // skip under the very condition it exists to check (caught while red-teaming this fix).
 module.exports = {
   appendSinkLine,
+  // The ONE derivation of the main-checkout containment root for a
+  // `.claude/learning/**` sink. Every `appendSinkLine` caller whose sink lives
+  // there MUST pass `additionalRoots: mainCheckoutBoundaryRoots(repoDir)`, or it
+  // fails closed from every git worktree. Enforced by
+  // `.claude/audit-fixtures/append-sink-boundary-roots/` over the
+  // `.claude/hooks/lib/**` caller set that fixture enumerates — a caller outside
+  // that set needs the enumerator extended, not a widened claim of coverage.
+  mainCheckoutBoundaryRoots,
   // The READ counterpart. Same containment, same directory pin, plus a hard byte bound enforced
   // by the read itself. Exported so every sink READER shares this one implementation rather than
   // re-deriving a containment check that will drift from the append path.

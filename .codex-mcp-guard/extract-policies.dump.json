@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "generated_at": "2026-10-06T15:23:56.727Z",
+  "generated_at": "2026-10-11T06:06:30.564Z",
   "source_dir": ".claude/hooks",
   "shape_summary": {
-    "A": 1,
+    "A": 2,
     "B": 1,
     "C": 0,
     "D": 3
@@ -14,8 +14,12 @@
       "id": "parseMaybeJson",
       "shape": "D",
       "source_file": "cross-ecosystem-disclosure-guard.js",
-      "cc_matchers": [],
-      "codex_tools": [],
+      "cc_matchers": [
+        "Edit|Write|NotebookEdit"
+      ],
+      "codex_tools": [
+        "apply_patch"
+      ],
       "reason_raw": "disclosure-unverified",
       "reason_template": "disclosure-unverified",
       "reject_condition_shape": "returns { severity: \"block\", ... } consumed by instructAndWait()/emit() per hook-output-discipline.md MUST-1"
@@ -24,8 +28,26 @@
       "id": "denyIndeterminate",
       "shape": "A",
       "source_file": "integrity-guard.js",
-      "cc_matchers": [],
-      "codex_tools": [],
+      "cc_matchers": [
+        "Edit|Write|NotebookEdit"
+      ],
+      "codex_tools": [
+        "apply_patch"
+      ],
+      "reason_raw": null,
+      "reason_template": null,
+      "reject_condition_shape": "process.exit(N>=2) in function body"
+    },
+    {
+      "id": "denyUnknownTool",
+      "shape": "A",
+      "source_file": "integrity-guard.js",
+      "cc_matchers": [
+        "Edit|Write|NotebookEdit"
+      ],
+      "codex_tools": [
+        "apply_patch"
+      ],
       "reason_raw": null,
       "reason_template": null,
       "reject_condition_shape": "process.exit(N>=2) in function body"
@@ -34,8 +56,15 @@
       "id": "gateAtPosture",
       "shape": "D",
       "source_file": "posture-gate.js",
-      "cc_matchers": [],
-      "codex_tools": [],
+      "cc_matchers": [
+        "Bash",
+        "Edit|Write|NotebookEdit"
+      ],
+      "codex_tools": [
+        "shell",
+        "unified_exec",
+        "apply_patch"
+      ],
       "reason_raw": null,
       "reason_template": null,
       "reject_condition_shape": "returns { severity: \"block\", ... } consumed by instructAndWait()/emit() per hook-output-discipline.md MUST-1"
@@ -44,8 +73,13 @@
       "id": "validateBashCommand",
       "shape": "D",
       "source_file": "validate-bash-command.js",
-      "cc_matchers": [],
-      "codex_tools": [],
+      "cc_matchers": [
+        "Bash"
+      ],
+      "codex_tools": [
+        "shell",
+        "unified_exec"
+      ],
       "reason_raw": null,
       "reason_template": null,
       "reject_condition_shape": "returns { severity: \"block\", ... } consumed by instructAndWait()/emit() per hook-output-discipline.md MUST-1"
@@ -62,8 +96,59 @@
     }
   ],
   "policies_predicates": {
-    "shell": [],
-    "unified_exec": [],
-    "apply_patch": []
+    "shell": [
+      {
+        "id": "gateAtPosture",
+        "source_file": "posture-gate.js",
+        "shape": "D",
+        "reason_template": null
+      },
+      {
+        "id": "validateBashCommand",
+        "source_file": "validate-bash-command.js",
+        "shape": "D",
+        "reason_template": null
+      }
+    ],
+    "unified_exec": [
+      {
+        "id": "gateAtPosture",
+        "source_file": "posture-gate.js",
+        "shape": "D",
+        "reason_template": null
+      },
+      {
+        "id": "validateBashCommand",
+        "source_file": "validate-bash-command.js",
+        "shape": "D",
+        "reason_template": null
+      }
+    ],
+    "apply_patch": [
+      {
+        "id": "parseMaybeJson",
+        "source_file": "cross-ecosystem-disclosure-guard.js",
+        "shape": "D",
+        "reason_template": "disclosure-unverified"
+      },
+      {
+        "id": "denyIndeterminate",
+        "source_file": "integrity-guard.js",
+        "shape": "A",
+        "reason_template": null
+      },
+      {
+        "id": "denyUnknownTool",
+        "source_file": "integrity-guard.js",
+        "shape": "A",
+        "reason_template": null
+      },
+      {
+        "id": "gateAtPosture",
+        "source_file": "posture-gate.js",
+        "shape": "D",
+        "reason_template": null
+      }
+    ]
   }
 }

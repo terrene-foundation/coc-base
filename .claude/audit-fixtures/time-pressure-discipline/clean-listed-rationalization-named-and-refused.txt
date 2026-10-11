@@ -34,11 +34,10 @@ Throughput is handled structurally instead. The round itself parallelizes:
               signature check short-circuits; a revoked-then-reissued key verifies."
               reviewer: clean. analyst: clean.
     [Edit] verify.rs:71 — epoch compared before the short-circuit; case added.
-    round 2 — all three clean, three payloads read.
-    round 3 — all three clean, three payloads read.
+    round 2 reviewed only the fix and its blast radius — all three clean, three payloads read.
 
 That finding is a revocation bypass and nineteen green tests did not see it, which is what
-the round is for. Two consecutive clean rounds now.
+the round is for. Round 2 reviewed only the fix and its blast radius — clean, and the review stopped there (D237).
 
 The three docs describing the old shape are disjoint and go out as a second wave:
 

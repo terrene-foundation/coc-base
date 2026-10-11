@@ -18,12 +18,12 @@ const TOOL_KEYS = Object.fromEntries([...NATIVE_SHELL_TOOLS].map((tool) => [tool
 TOOL_KEYS.apply_patch = "apply_patch";
 
 function publishedMoveContent(file, cwd) {
-  // Hosts can report logical cwd aliases (/tmp on macOS); compare against the
-  // runtime's real ROOT using the same canonical cwd boundary.
-  const destination = path.resolve(fs.realpathSync(cwd || ROOT), file);
-  const relative = path.relative(ROOT, destination);
-  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error("patch move destination is outside the delivered repository");
-  let current = ROOT;
+  // Hosts can report logical cwd aliases (/tmp on macOS); canonicalize (native: on-disk case)
+  // with the resolver checkoutTop uses for ROOT, so both sides of the boundary agree.
+  const destination = path.resolve(fs.realpathSync.native(cwd || ROOT), file);
+  const top = require("./codex-rule-context").checkoutTop(ROOT, destination), relative = top ? path.relative(top, destination) : "";
+  if (!top || relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error("patch move destination is outside the delivered repository");
+  let current = top;
   let metadata;
   for (const component of relative.split(path.sep)) {
     current = path.join(current, component);
@@ -48,34 +48,172 @@ function publishedMoveContent(file, cwd) {
   } finally { fs.closeSync(fd); }
 }
 
+// ---------------------------------------------------------------------------
+// Patch projection — COMPLETENESS (every grammar element REPRESENTED or DECLARED)
+// ---------------------------------------------------------------------------
+// The projection below TRANSLATES a native V4A patch into the Edit/Write
+// vocabulary the delivered CC hooks read, and it is sound only while every
+// element of the patch is either REPRESENTED or DECLARED. An element the scan
+// drops silently makes structurally DIFFERENT patches project IDENTICALLY, and
+// a consumer then reasons about an operation that is not the one on the wire.
+// MEASURED (2026-10-08, controls firing both directions): the baseline
+// `@@ / -OLD / +NEW` AND all of (a) an added `@@ missing-anchor` plus a
+// ` EXPECTED-CONTEXT` line, (b) an added `*** End of File`, (c) `@@ FIRST` vs
+// `@@ SECOND`, collapsed to the same {file_path, old_string:"OLD", new_string:
+// "NEW"} and the same target-only {file_path} — the earlier scan read headers,
+// `+` and `-` only, so context, anchors and markers never reached a consumer.
+//
+// The repair is the L1 contract's own rule (`guard-foundation/contract.js`: a
+// missing fact is UNDETERMINED — never false, never an empty result):
+//   - REPRESENTED — a context line IS part of the matched block, so it is
+//     carried into BOTH sides, the same reading the admitted derivation
+//     implements (`codex-foundation-adapter.js::applyHunks`: " "/"-" build the
+//     old block, " "/"+" the new one). Dropping it makes the projection require
+//     strictly LESS than the patch does.
+//   - DECLARED — an element the CC Edit shape cannot express marks the
+//     projection undetermined, and `evaluateNative` refuses the call. A hunk
+//     ANCHOR is a locator and NOT removed text, so folding it into old_string
+//     would claim the patch deletes a line it does not; a `*** End of File`
+//     constrains WHERE the hunk lands; a SECOND hunk is a second, disjoint
+//     replacement that one contiguous old→new pair cannot express; an
+//     unprefixed body line is content the shape cannot place.
+//     THE ANCHOR IS NOT MERELY UNMEASURED — it is MEASURED to select the
+//     occurrence: on 'FIRST\nOLD\nSECOND\nOLD\nTAIL\n' the applier lands
+//     `@@ FIRST` on 'FIRST\nNEW\nSECOND\nOLD\nTAIL\n' and `@@ SECOND` on
+//     'FIRST\nOLD\nSECOND\nNEW\nTAIL\n' from an IDENTICAL old→new pair
+//     (security seat, 2026-10-08; sha256 7a024809… / 4d49f1c1…). Both arms are
+//     therefore marked, including `@@ FIRST` even though its bytes coincide
+//     with the anchor-free arm's: asserting THAT coincidence would require a
+//     locating rule this projection does not implement and cannot check.
+//   - NOT a drop, so not a mark: a bare `@@` separator and an EMPTY anchor text
+//     (`@@` / `@@ `) select nothing, and in an Add section the path IS the
+//     location, so `@@`/`*** End of File` there carry no locator meaning.
+//     Grammar VALIDITY is a different question this projection has never
+//     answered (it tolerates a missing envelope by design — see
+//     codex-foundation-adapter.js's header on that boundary).
+//   - The mark travels in the shape the consumers already speak
+//     ({verdict, reason, unresolved}), so a non-blocking consumer can read it
+//     and the blocking one acts on it. A determined projection carries no mark,
+//     which is exact rather than assumed: the scan below represents or declares
+//     EVERY line, so its silence is a closed claim.
+const PATCH_ENVELOPE = new Set(["*** Begin Patch", "*** End Patch"]);
+const PATCH_EOF_MARKER = "*** End of File";
+// The admitted grammar's own anchor shape (`codex-foundation-adapter.js`
+// HUNK_ANCHOR, the SSOT for this grammar): a bare `@@` opens a hunk, and
+// `@@ <text>` names the enclosing context the hunk lives in.
+const HUNK_ANCHOR = /^@@(?: (.*))?$/;
+const PATCH_UNREPRESENTABLE = Object.freeze({
+  anchor: "the hunk anchor is a locator, not removed text: which section the hunk applies to cannot be carried by an old→new pair",
+  multiHunk: "a second hunk in one section is a second, disjoint replacement; concatenating them into one old→new pair would fabricate a contiguity the patch does not have",
+  eofMarker: "the `*** End of File` marker constrains the hunk to the end of the file; the edit projection has no at-end-of-file field",
+  unpresentable: "a body line with no \" \"/\"-\"/\"+\" prefix carries neither a context requirement nor a removed/added line the edit projection can represent",
+  deleteBody: "a Delete File section carries no body line, so this element has no place in the projection",
+});
+
+/** Scan a patch body into per-section hunks, declaring every element the edit
+ *  projection cannot represent. Each section is
+ *  `{kind, content: [], hunks: [{anchor, old, next}], unresolved: [{span, reason}]}`
+ *  and `loose` holds unmodelled lines outside any section (they belong to no
+ *  target, so they are declared on every projection rather than dropped). */
+function scanPatchSections(command) {
+  const sections = new Map();
+  const moves = new Set();
+  const loose = [];
+  let section = null;
+  for (const line of command.split(/\r?\n/)) {
+    const header = line.match(/^\*\*\* (Add|Update|Delete) File: (.+)$/);
+    if (header) {
+      section = { kind: header[1], content: [], hunks: [], unresolved: [] };
+      sections.set(header[2].trim(), section);
+      continue;
+    }
+    if (PATCH_ENVELOPE.has(line)) continue;
+    if (!section) {
+      // A body line before any file section, or after the envelope's close,
+      // belongs to no target — declared, never dropped.
+      if (line.trim()) loose.push({ span: line, reason: PATCH_UNREPRESENTABLE.unpresentable });
+      continue;
+    }
+    if (line.startsWith("*** Move to: ")) {
+      const destination = line.slice("*** Move to: ".length).trim();
+      sections.set(destination, section); moves.add(destination);
+      continue;
+    }
+    if (section.kind === "Add") {
+      if (line.startsWith("+")) section.content.push(line.slice(1));
+      else if (line === PATCH_EOF_MARKER || HUNK_ANCHOR.test(line)) continue; // no locator meaning: the path IS the location
+      else if (line.trim()) section.unresolved.push({ span: line, reason: PATCH_UNREPRESENTABLE.unpresentable });
+      continue;
+    }
+    if (section.kind === "Delete") {
+      if (line.trim()) section.unresolved.push({ span: line, reason: PATCH_UNREPRESENTABLE.deleteBody });
+      continue;
+    }
+    const anchor = line.match(HUNK_ANCHOR);
+    if (anchor) {
+      // An EMPTY anchor text (`@@` or `@@ `) locates nothing, so it is not a
+      // drop — the same reading that makes a bare `@@` a separator. Only
+      // NON-EMPTY text is a locator this projection cannot carry.
+      const text = anchor[1] === undefined || anchor[1].trim() === "" ? null : anchor[1];
+      if (text !== null) section.unresolved.push({ span: line, reason: PATCH_UNREPRESENTABLE.anchor });
+      const open = section.hunks[section.hunks.length - 1];
+      if (open && open.old.length === 0 && open.next.length === 0) open.anchor = text; // an empty hunk is not a hunk
+      else {
+        if (open) section.unresolved.push({ span: line, reason: PATCH_UNREPRESENTABLE.multiHunk });
+        section.hunks.push({ anchor: text, old: [], next: [] });
+      }
+      continue;
+    }
+    if (line === PATCH_EOF_MARKER) {
+      section.unresolved.push({ span: line, reason: PATCH_UNREPRESENTABLE.eofMarker });
+      continue;
+    }
+    if (!(line.startsWith(" ") || line.startsWith("-") || line.startsWith("+"))) {
+      if (line.trim()) section.unresolved.push({ span: line, reason: PATCH_UNREPRESENTABLE.unpresentable });
+      continue;
+    }
+    let hunk = section.hunks[section.hunks.length - 1];
+    if (!hunk) section.hunks.push((hunk = { anchor: null, old: [], next: [] }));
+    // A context line belongs to BOTH sides — the admitted derivation's reading.
+    if (line.startsWith(" ") || line.startsWith("-")) hunk.old.push(line.slice(1));
+    if (line.startsWith(" ") || line.startsWith("+")) hunk.next.push(line.slice(1));
+  }
+  return { sections, moves, loose };
+}
+
 function projectPayloads(payload) {
   payload = normalizeNativeInput(payload);
+  payload = require("./codex-tool-contracts").projectStructuredTool(payload);
   if (payload.tool_name === "apply_patch") {
     if (typeof payload.tool_input?.command !== "string") throw new Error("apply_patch hook input requires command text");
     const inputs = guard.synthesizePolicyInputs("apply_patch", payload.tool_input);
     if (!inputs[0]?.file_path) throw new Error("apply_patch has no verifiable edit targets");
     if (inputs.length > guard.MAX_GATE_TARGETS) throw new Error("apply_patch exceeds the policy target limit");
-    const sections = new Map();
-    const moves = new Set();
-    let section;
-    for (const line of payload.tool_input.command.split(/\r?\n/)) {
-      const header = line.match(/^\*\*\* (Add|Update|Delete) File: (.+)$/);
-      if (header) {
-        section = { kind: header[1], old: [], next: [] };
-        sections.set(header[2].trim(), section);
-      } else if (section && line.startsWith("*** Move to: ")) {
-        const destination = line.slice("*** Move to: ".length).trim();
-        sections.set(destination, section); moves.add(destination);
-      } else if (section && line.startsWith("+") ) section.next.push(line.slice(1));
-      else if (section && line.startsWith("-")) section.old.push(line.slice(1));
-    }
+    const { sections, moves, loose } = scanPatchSections(payload.tool_input.command);
     return inputs.map((input) => {
       const body = sections.get(input.file_path);
       const write = body?.kind === "Add" || moves.has(input.file_path);
+      const unresolved = [...(body?.unresolved || []), ...loose];
       const tool_input = { ...input };
+      if (unresolved.length) {
+        // The claim is WITHHELD, not weakened: no old_string/new_string/content
+        // is emitted for a section whose patch elements could not be
+        // represented, so no consumer can read a partial pair as the edit.
+        return { ...payload, tool_name: write ? "Write" : "Edit", tool_input, projection: Object.freeze({
+          verdict: "undetermined",
+          reason: `missing fact: the edit projection for "${input.file_path}" cannot represent ${unresolved.length} patch element(s)`,
+          unresolved,
+        }) };
+      }
+      // An Add section's content is its `+` lines; a `Move to` destination
+      // projects the source section's added lines (the moved file's body).
+      const added = body ? (body.kind === "Add" ? body.content : body.hunks.flatMap((h) => h.next)) : [];
       if (write) tool_input.content = moves.has(input.file_path) && payload.hook_event_name === "PostToolUse"
-        ? publishedMoveContent(input.file_path, payload.cwd) : (body?.next || []).join("\n");
-      else if (body) { tool_input.old_string = body.old.join("\n"); tool_input.new_string = body.next.join("\n"); }
+        ? publishedMoveContent(input.file_path, payload.cwd) : added.join("\n");
+      else if (body) {
+        tool_input.old_string = body.hunks.flatMap((h) => h.old).join("\n");
+        tool_input.new_string = body.hunks.flatMap((h) => h.next).join("\n");
+      }
       return { ...payload, tool_name: write ? "Write" : "Edit", tool_input };
     });
   }
@@ -145,7 +283,23 @@ function evaluateNative(payload, deadline = Date.now() + 550000) {
   const loomGroups = settings.hooks?.PreToolUse || [];
   const outcomes = [];
   const ran = new Set();
+  // An UNDETERMINED projection refuses the call. The patch is ONE atomic tool
+  // call, so a section whose elements the edit projection could not represent
+  // makes the WHOLE call undecidable: allowing the representable half would
+  // wave through the half nobody could read. The refusal is PUSHED into
+  // `outcomes` rather than returned here so the rest of the chain still runs —
+  // intent capture must record what was attempted even when a sibling refuses
+  // (journal/0216), and any path gate's own verdict still travels beside it.
+  const undetermined = projectedPayloads.filter((p) => p.projection?.verdict === "undetermined");
+  if (undetermined.length) {
+    const detail = undetermined
+      .flatMap((p) => p.projection.unresolved.map((u) => `${u.span.trim().slice(0, 120)} — ${u.reason}`))
+      .slice(0, 4).join("; ");
+    outcomes.push(refusal(`apply_patch cannot be evaluated: ${undetermined.length} of ${projectedPayloads.length} projected target(s) carry patch elements the edit projection cannot represent (${detail}). Re-issue the patch without the unrepresentable element — a hunk anchor, a \`*** End of File\` marker and an unprefixed body line are each avoidable, and one file section carries ONE hunk — then retry.`));
+  }
   try {
+    const context = require("./codex-rule-context").collectRuleContext(ROOT, payload, projectedPayloads);
+    if (context) outcomes.push({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: context } }), stderr: "", exitCode: 0 });
     // A Loom refusal returns before repo-local registries or regexes are read.
     for (const local of [false, true]) {
       const groups = local ? localGroups(loomGroups) : loomGroups;
@@ -190,7 +344,9 @@ function evaluateNative(payload, deadline = Date.now() + 550000) {
           ran.add(invocation);
           const remainingMs = deadline - Date.now();
           if (remainingMs <= 0) return refusal("Native policy evaluation exceeded its time budget.");
-          const result = guard.invokeHook({ hookFile, payload: projected, timeoutMs: Math.min(timeoutMs, remainingMs) });
+          const capability = guard.policyCapability(hookFile, groups);
+          const facts = guard.invokeHook({ hookFile, payload: projected, timeoutMs: Math.min(timeoutMs, remainingMs) });
+          const result = guard.classifyPolicyOutcome(facts, { canDeny: capability.can_deny });
           if (["missing", "error", "timeout", "crash"].includes(result.verdict)) {
             if (hookFile === guard.CAPTURE_HOOK) {
               outcomes.push({ hook: hookFile, stdout: JSON.stringify({ systemMessage: `Intent capture could not run (${result.verdict}); policy checks continue.` }), stderr: "", exitCode: 0 });
@@ -198,8 +354,13 @@ function evaluateNative(payload, deadline = Date.now() + 550000) {
             }
             return refusal(`Policy ${hookFile} could not run (${result.verdict}).`);
           }
-          // Normalize every stdout record AND retain invokeHook's independently
-          // computed verdict; a multiline deny must never degrade to plain context.
+          if (["warn-denied", "ask-denied"].includes(result.verdict)) {
+            const restrictive = normalizeOutput("PreToolUse", result, payload.tool_name);
+            if (restrictive.exitCode === 2) return restrictive;
+            return refusal(`Policy ${hookFile} could not authorize the call (${result.verdict}).`);
+          }
+          // Native normalization remains stricter than the MCP advisory transport
+          // (.claude/hooks/lib/codex-hook-runtime.js:340-364).
           const out = normalizeOutput("PreToolUse", result, payload.tool_name);
           const h = parseOutput(out.stdout)?.hookSpecificOutput;
           // A CC edit rewrite is a different schema from native V4A patch input.
@@ -217,4 +378,9 @@ function evaluateNative(payload, deadline = Date.now() + 550000) {
   }
   return mergeOutcomes("PreToolUse", outcomes);
 }
-module.exports = { projectPayloads, evaluateNative };
+// `scanPatchSections` is exported for the projection-completeness suite: a
+// mutation proof needs its reach token derived from the LOADED function's own
+// source, and an unexported function has no source a subject process can read
+// (the same reason `restoreNativeRewrite` is exported for the cases-codex
+// corpus). No production caller reads it.
+module.exports = { projectPayloads, evaluateNative, boundedMatcher, scanPatchSections };

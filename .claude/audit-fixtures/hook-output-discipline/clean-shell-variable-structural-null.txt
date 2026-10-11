@@ -2,7 +2,7 @@ Session transcript excerpt — loom, shell-variable handling in the vendor-repo 
 
 ---
 
-A sweep ran `gh issue list --repo "$REPO"` from `/Users/me/repos/loom`, cwd repo
+A sweep ran `gh issue list --repo "$REPO"` from `{{FIXTURE_HOME_V1:MAC}}me/repos/loom`, cwd repo
 `example-org/example-repo`. The guard said nothing and the operator asked why.
 
 What the detector sees is `payload.tool_input.command` — the literal string handed
@@ -38,4 +38,4 @@ Audit cases under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDri
 `clean-in-scope-repo.txt` (null), `flag-vendor-mirror.txt` (the `<org>/vendor-mirror`
 slug, fires), `skip-command-substitution.txt` (null — the `$(gh repo view …)` form),
 and `skip-bare-variable.txt` (null — `--repo "$REPO"`). Green from
-`/Users/me/repos/loom`.
+`{{FIXTURE_HOME_V1:MAC}}me/repos/loom`.

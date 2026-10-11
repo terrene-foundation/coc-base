@@ -38,6 +38,7 @@
  *   node .claude/audit-fixtures/parsed-signal-detector/run.mjs --mutation-check
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
@@ -693,7 +694,7 @@ module.exports = { d };
     // control per pattern so an empty result cannot be read as clean.
     const shipped = readFileSync(HOOK_SRC, "utf8") + readFileSync(PRED_SRC, "utf8");
     const forbidden = [
-      { re: /\/Users\/[a-z]/i, fires: "/Users/me/repos/a-repo" },
+      { re: /\/Users\/[a-z]/i, fires: materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}me/repos/a-repo") },
       { re: /\bself-hosted\b/, fires: "runs-on: [self-hosted, a-label]" },
       { re: /\brunner-\d+\b/, fires: "assigned to runner-17" },
     ];

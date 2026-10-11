@@ -61,7 +61,6 @@ instructed to report findings in their final message.
 
     round 1 — cc-architect: clean. reviewer: "S2's expect_flagged is the same as S1's, is that
               intended?" — yes, both are widen-without-reader-update, confirmed and closed.
-    round 2 — cc-architect: clean. reviewer: clean.
 
-Two consecutive clean rounds, both payloads read. The ablation set lands with the receipt
+Round 1 clean — the round-one question was answered inside the round, every dispatched reviewer ran, nothing CRITICAL/HIGH. Done; no second round owed (D237). The ablation set lands with the receipt
 recording 4/4 against 3/4.

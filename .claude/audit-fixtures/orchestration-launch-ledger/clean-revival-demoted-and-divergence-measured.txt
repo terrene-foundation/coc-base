@@ -23,7 +23,7 @@ a human call, not mine.
 On the branch. W3-codec's local and origin diverged while it was paused, and the
 tempting move is a forced update:
 
-    git -C /Users/me/repos/.example-repo-wt/codec rev-list --count feat/codec-b..origin/feat/codec-b
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec rev-list --count feat/codec-b..origin/feat/codec-b
     5
 
 Five commits sit on origin that this agent never fetched. `--force-with-lease` would

@@ -4,6 +4,14 @@
  *
  * journal-write-guard.js — §4.3 pre-tool-use hook for `Write` on journal/.
  *
+ * @coc-codex-edit-gate — journal append-only + slot-reservation gate. The
+ *   policy extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). The append-only block reads the
+ *   projected target path against `fs.existsSync` and applies in every mode;
+ *   the slot-registry half is gated on governance, and an unenrolled repo
+ *   receives only the advisory (`shapeAdvisoryOrPassthrough`), so the Codex
+ *   posture matches the CC posture exactly.
+ *
  * Shard B3a (workspaces/multi-operator-coc/02-plans/01-architecture.md
  * §2.3 + §4.3 hook-table row).
  *
@@ -55,6 +63,24 @@
  */
 
 "use strict";
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<os.tmpdir()>/coc-sign-ssh-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-fold-<rand>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes (lib/state-resolver.js, lib/guard-path-scope.js, lib/operator-id.js) plus ssh-keygen / gpg verification of the reservation fold (lib/coordination-log.js -> lib/coc-sign.js). Writes: the per-call / per-fold verify homedirs lib/coc-sign.js mkdtemps under the OS temp root and rmSyncs before returning. The journal target and the coordination log are READ only — M6 D writes the reservation record; this hook never writes the entry."
+ * }
+ */
 
 // THE HOOK BUDGET, AND WHAT HAPPENS WHEN IT RUNS OUT (2026-09-12).
 //

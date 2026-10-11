@@ -67,6 +67,5 @@ it is bounded by how long 842 sits.
       each brief pinning the absolute lane worktree path and a STEP-0 toplevel assertion.
 
     round 1 — reviewer: clean on the diff. security-reviewer: clean.
-    round 2 — both clean, both payloads read.
 
-Two consecutive clean rounds. W4 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W4 lands.

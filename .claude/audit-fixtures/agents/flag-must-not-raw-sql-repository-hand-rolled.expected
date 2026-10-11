@@ -24,7 +24,8 @@ quality rather than the prohibition. This is competent code that should not exis
 Discriminator 3 — the work is dispatched as a parallel wave of three with tool inventory
 verified beforehand, briefs inline the governing spec, each lane is pinned to an absolute
 sibling worktree with the STEP-0 assertion, every payload states a result, and the change
-is redteamed to two consecutive clean rounds with one real finding fixed between them. The
+is redteamed — one real round-1 finding fixed, then a clean fix-verification round scoped
+to the fix and its blast radius, and a stop (D237). The
 execution-mode, tool-inventory, specs-context, worktree, delivery and convergence
 neighbours are ALL satisfied.
 

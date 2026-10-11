@@ -34,7 +34,7 @@
 const fs = require("fs");
 const path = require("path");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 const {
   emitSignedRecord,
@@ -114,7 +114,12 @@ function _appendToPointer(repoDir, record) {
   // loom#1349 R1 F3 — routed through the shared hardened primitive (structural twin of
   // capability-ledger). The cap check above stays HERE, before signing.
   const p = resolveUpstreamCanonPath(repoDir);
-  const w = appendSinkLine({ repoDir, sinkPath: p, line });
+  const w = appendSinkLine({
+    repoDir,
+    additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+    sinkPath: p,
+    line,
+  });
   if (!w.ok)
     return { ok: false, error: `upstream-canon append refused: ${w.error} — ${w.reason}` };
   return { ok: true };

@@ -67,6 +67,29 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "./",
+ *       ".git/",
+ *       ".claude/learning/.ss-banner-cache.json",
+ *       ".claude/learning/.ss-banner-tmp-<mkdtemp-suffix>/",
+ *       ".claude/learning/.ss-banner-rebuild.lock",
+ *       ".claude/learning/.worker-spawn.trace",
+ *       "<os.tmpdir()>/coc-ss-banner-<mkdtemp-suffix>/",
+ *       "<os.tmpdir()>/coc-sign-<mkdtemp-suffix>"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","gpgconf","node","ps","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "`./` + `.git/`: the Op1 start-refresh (lib/ecosystem-pull-merge.js) runs a clean-tree-gated `git merge --ff-only`, which rewrites the current checkout's tracked working tree and git state; Op2's canon fetch is `--no-write-fetch-head`. network is false for THIS process: the canon fetch and the genesis-materializer ls-remote/fetch are spawned git children, so they are covered by spawns. `.claude/learning` is the main-checkout state dir (lib/state-resolver.js). .worker-spawn.trace is written only under COC_TEST_WORKER_SPAWN_TRACE=1 (test-gated, declared conservatively). The two <os.tmpdir()> families are per-invocation mkdtemp dirs (bounded worker's banner.txt; lib/coc-sign.js signing/verify homedirs) created and removed by this hook's own process tree. spawns: the hard-bounded fold worker + the detached #866 cache rebuild (lib/coord-background.js) plus git children."
+ * }
+ */
+
 const TIMEOUT_MS = 10000;
 
 // setTimeout fallback per cc-artifacts.md Rule 7 — fail-open. Armed as the FIRST

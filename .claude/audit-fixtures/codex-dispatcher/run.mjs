@@ -97,12 +97,49 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
   });
 }
 
+// The dispatcher's POST-EXEC contract (added alongside .claude/bin/lib/codex-command-catalog.mjs):
+// after `codex exec` returns 0, `coc` validates the `--output-last-message` result file via
+// CATALOG validate and requires an exact, schema-complete `completed` payload
+// (codex-command-catalog.mjs::validateResult — shape-exact, additionalProperties:false, and for
+// the analysis family at least one `observed` evidence referencing the result). A stub that only
+// echoes therefore falls to the dispatcher's `*) unexpected result status` arm and exits 4 — the
+// exact way this suite reddened CI (4p/4f) when the catalog landed (1f801bce2) without a fixture
+// update. The stub now writes a contract-valid completed result, so the forwarding-path cases
+// exercise the real end-to-end success shape rather than a pre-catalog approximation.
+const STUB_RESULT = JSON.stringify({
+  phase: "analyze",
+  execution_mode: "headless-with-gates",
+  status: "completed",
+  summary: "Stub run: the fixture recorded the forwarded dispatch.",
+  evidence: [
+    {
+      kind: "observation",
+      reference: "stub-forward",
+      outcome: "observed",
+      detail: "The stub received the forwarded codex exec argv.",
+    },
+  ],
+  outputs: [],
+  errors: [],
+  required_inputs: [],
+  next_actions: [],
+  result: { scope: "fixture", findings: [], recommendations: [] },
+});
+const STUB_RESULT_PATH = path.join(STUB_DIR, "result-payload.json");
+
 function setupStub() {
+  writeFileSync(STUB_RESULT_PATH, STUB_RESULT + "\n");
   writeFileSync(
     STUB_PATH,
     [
       "#!/usr/bin/env bash",
       "echo \"STUB_CODEX_FORWARDED: $*\"",
+      "out=\"\"; prev=\"\"",
+      "for a in \"$@\"; do",
+      "  if [ \"$prev\" = \"--output-last-message\" ]; then out=\"$a\"; fi",
+      "  prev=\"$a\"",
+      "done",
+      "if [ -n \"$out\" ]; then cp '" + STUB_RESULT_PATH + "' \"$out\"; fi",
       "exit 0",
       "",
     ].join("\n"),
@@ -293,7 +330,7 @@ const CASES = [
     args: ["analyze", "test prompt"],
     input: "", // empty stdin; reproduces non-TTY shape that surfaced H-1
     expectExit: 0,
-    expectStdoutMatch: /^STUB_CODEX_FORWARDED: exec --json --output-schema=.*analyze\.schema\.json -c project_doc_max_bytes=65536[\s\S]*## Task\n\ntest prompt$/,
+    expectStdoutMatch: /^STUB_CODEX_FORWARDED: exec --json --output-schema=.*analyze\.schema\.json --output-last-message \S+ -c project_doc_max_bytes=65536[\s\S]*## Task\n\ntest prompt$/,
     description: "REGRESSION GUARD for H-1: argv wins over empty stdin in non-TTY context",
   },
   {
@@ -301,7 +338,7 @@ const CASES = [
     args: ["analyze"],
     input: "piped prompt body",
     expectExit: 0,
-    expectStdoutMatch: /^STUB_CODEX_FORWARDED: exec --json --output-schema=.*analyze\.schema\.json -c project_doc_max_bytes=65536[\s\S]*## Task\n\npiped prompt body$/,
+    expectStdoutMatch: /^STUB_CODEX_FORWARDED: exec --json --output-schema=.*analyze\.schema\.json --output-last-message \S+ -c project_doc_max_bytes=65536[\s\S]*## Task\n\npiped prompt body$/,
     description: "no argv + piped stdin → stdin used as prompt",
   },
   {
@@ -321,7 +358,7 @@ const CASES = [
     args: ["test prompt via shim"],
     via: "coc-analyze",
     expectExit: 0,
-    expectStdoutMatch: /^STUB_CODEX_FORWARDED: exec --json --output-schema=.*analyze\.schema\.json -c project_doc_max_bytes=65536[\s\S]*## Task\n\ntest prompt via shim$/,
+    expectStdoutMatch: /^STUB_CODEX_FORWARDED: exec --json --output-schema=.*analyze\.schema\.json --output-last-message \S+ -c project_doc_max_bytes=65536[\s\S]*## Task\n\ntest prompt via shim$/,
     description: "basename-driven phase via coc-analyze symlink",
   },
   {

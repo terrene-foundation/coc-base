@@ -64,5 +64,5 @@ Then the amendment itself:
     $ node .claude/bin/phase2-deferral-integrity.mjs > /tmp/g.txt 2>&1; echo $?
     0
 
-Two consecutive clean redteam rounds, both payloads read. The record now reads correctly at
+The redteam round closed clean — every dispatched reviewer ran, both payloads read, nothing CRITICAL/HIGH — and the review stopped there (D237). The record now reads correctly at
 the point a reader will look, and the amendment explains how it got there.

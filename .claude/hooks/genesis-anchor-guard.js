@@ -41,6 +41,23 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<os.tmpdir()>/coc-sign-ssh-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-vfy-<rand>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: ssh-keygen / gpg signature verification plus git probes, reached through lib/coc-sign.js, lib/state-resolver.js, lib/coordination-mode.js and lib/repo-dir-override.js (lib/log-ref-name.js contributes only the static DEFAULT_LOG_REF_NAME constant). The only writes are the per-call verify homedirs (payload / sig / allowed_signers) that lib/coc-sign.js mkdtemps under the OS temp root and rmSyncs before returning — no repo-relative or durable write. Roster / coordination-log / enrollment marker are reads; every finding renders to stdout via lib/instruct-and-wait.js."
+ * }
+ */
+
 const TIMEOUT_MS = 5000;
 
 // setTimeout fallback per cc-artifacts.md Rule 7. The timeout path emits

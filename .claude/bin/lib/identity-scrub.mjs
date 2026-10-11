@@ -23,8 +23,9 @@
  * honesty over a false "exact token set" claim).
  *
  * This module contains ZERO identity itself — it is identity-free machinery that
- * EXTRACTS identity from a repo's `operators.roster.json` + tenant denylist at
- * RUNTIME. It is therefore safe to SYNC + PUBLISH (`.claude/bin/**`): a consumer
+ * EXTRACTS identity from a repo's `operators.roster.json` + tenant denylist, the
+ * canonical `canon-identity-values.json` declaration (`orgSets`) and the private
+ * repositories its root `.gitmodules` declares (`privateRepoNames`) at RUNTIME. It is therefore safe to SYNC + PUBLISH (`.claude/bin/**`): a consumer
  * receiving it sees only the extraction logic, never a literal canon token.
  *
  * deriveDynamicTokens(repoDir) returns { scrub, gate, unhonoured }:
@@ -53,9 +54,10 @@
  * Node ESM, zero dependencies.
  */
 import {
-  readdirSync, statSync, lstatSync, realpathSync, openSync, fstatSync, readSync, closeSync, constants as FS,
+  readdirSync, readFileSync, statSync, lstatSync, realpathSync, openSync, fstatSync, readSync, closeSync, constants as FS,
 } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * The typed refusal of `readRegularFileNoFollow` / `readTextOrNull`. `code` is always
@@ -196,10 +198,42 @@ export function readRegularFileNoFollow(p, {
  * scrub and the gate must see. What is checked is the OPENED descriptor, so a link to a FIFO is
  * refused like a FIFO. Config reads that must never follow a link use `readRegularFileNoFollow`.
  * No size cap: tree files are unbounded by design (the previous read had none either).
+ *
+ * This is now a THIN WRAPPER: `readTextOrReason` performs the read and can tell
+ * "binary, skip by design" from "could not be read at all" — a distinction a
+ * FAIL-CLOSED caller needs and this collapse cannot express. Callers that only
+ * want the text keep using this, and keep its THROW on a non-regular file.
  */
 export function readTextOrNull(f) {
+  return readTextOrReason(f).text;
+}
+
+/**
+ * The read behind `readTextOrNull`, DISTINGUISHING WHY the text is absent.
+ *
+ * `readTextOrNull` collapses "this file is binary, skip it by design" and "this
+ * file could not be read at all" into ONE null, so a caller scanning for residual
+ * identity tokens cannot tell a legitimate skip from a hole in its own coverage —
+ * the two are the same bytes downstream. Its caller is clean-instantiate's
+ * assertZero, the FAIL-CLOSED gate whose entire promise is that ZERO canon
+ * trust-identity remains, so an unreadable carrier was skipped while the ceremony
+ * still reported clean. A fail-closed gate MUST be able to tell them apart.
+ *
+ * MEASURED RATIFICATION (2026-10-06, operator-ratified Gate-1 port): the split is
+ * the template-side shape recovered into this module; the throwing contract of
+ * `readTextOrNull` is unchanged, because every caller reads a throw as "refuse to
+ * run" and a reason would silently downgrade that to "skip me".
+ *
+ * @returns {{text: string|null, reason: "ok"|"binary"|"unreadable"|"directory", error?: string}}
+ *   `binary` and `directory` are DELIBERATE non-text outcomes (never a coverage
+ *   hole); `directory` is its own value rather than folded into either, because a
+ *   directory passed to a FILE read is an EISDIR — not content, and not a failed
+ *   read. Only `unreadable` means the read is UNKNOWN for a path that expected to
+ *   yield text.
+ */
+export function readTextOrReason(f) {
   let fd;
-  try { fd = openSync(f, FS.O_RDONLY | O_NONBLOCK); } catch {
+  try { fd = openSync(f, FS.O_RDONLY | O_NONBLOCK); } catch (err) {
     // A SOCKET cannot be opened at all (ENXIO / EOPNOTSUPP), so its kind is only visible to a stat
     // of the name. Without this it read as a failed read → `null` → "binary, skip" — the silent
     // pass the refusal below exists to prevent (measured: a socket returned null). A genuinely
@@ -208,13 +242,14 @@ export function readTextOrNull(f) {
     try { st = statSync(f); } catch { /* absent / unstattable: a failed read */ }
     const k = st ? statKind(st) : "file";
     if (k !== "file" && k !== "directory") throw new UnsafeFileReadError(path.basename(String(f)), k, `it is a ${k}, not a regular file`);
-    return null;
+    if (k === "directory") return { text: null, reason: "directory" };
+    return { text: null, reason: "unreadable", error: (err && err.code) || String(err) };
   }
   let buf;
   try {
     const k = statKind(fstatSync(fd));
     // A directory is not content and never blocks; it keeps its former `null` (EISDIR) result.
-    if (k === "directory") return null;
+    if (k === "directory") return { text: null, reason: "directory" };
     if (k !== "file") throw new UnsafeFileReadError(path.basename(String(f)), k, `it is a ${k}, not a regular file`);
     const chunks = [];
     const b = Buffer.allocUnsafe(64 * 1024);
@@ -222,13 +257,377 @@ export function readTextOrNull(f) {
     buf = Buffer.concat(chunks);
   } catch (e) {
     if (e instanceof UnsafeFileReadError) throw e;
-    return null;
+    return { text: null, reason: "unreadable", error: (e && e.code) || String(e) };
   } finally {
     closeSync(fd);
   }
   const n = Math.min(buf.length, 8192);
-  for (let i = 0; i < n; i++) if (buf[i] === 0) return null; // binary → skip
-  return buf.toString("utf8");
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return { text: null, reason: "binary" }; // binary → skip
+  return { text: buf.toString("utf8"), reason: "ok" };
+}
+
+// ── THE CANONICAL IDENTITY DECLARATION ───────────────────────────────────────
+// `orgSets` / `privateOrgSlugs` and the org-value validator were defined in
+// `strip-build-internal.mjs` until 2026-10-10 and MOVED here unchanged in behaviour;
+// that module imports and re-exports them, so every existing import still resolves.
+//
+// WHY THEY MOVED. `deriveDynamicTokens` (below) now harvests the private REPOSITORY
+// names, and a repository is private exactly when its owner is a private org — so this
+// module needs the private org set. `strip-build-internal.mjs` already imports this
+// module (`foldForGate`), so importing it back would close an import CYCLE that every
+// importer of this module would then load, including the ones that never touch
+// strip-build-internal today. A new third module would avoid the cycle but needs its own
+// distribution classification on every lane and edition, and an importer that ships
+// without it fails to load. Here, the declaration reader stays zero-dependency and
+// travels wherever this module already does.
+//
+// Read MODULE-RELATIVE (`../../canon-identity-values.json` from `.claude/bin/lib/`), the
+// same anchor the reader always had — this file sits in the same directory.
+
+/** GitHub org-name shape: 2–39 chars — 1-char values ARE REJECTED (F7: the
+ * previous regex admitted them while its comment claimed 2–39) — alnum with
+ * interior hyphens, and NOT a common word. */
+const ORG_VALUE_RX = /^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$/;
+// M1 (cc-architect, 2026-10-04): a 2–3 character value is almost always an
+// English word once the shape check passes (`is`, `to`, `at` all do), and a
+// short true org name is vanishingly rare while the COST of a false positive is
+// rewriting prose ("This is a test" → "This is <org> test", measured). So a
+// value must ALSO be either ≥4 characters or contain a hyphen — every real
+// slug in this ecosystem carries the hyphen (both the private canon slug and
+// the public template org are hyphenated; neither is written here, and the
+// literal that briefly was is exactly what the delivered-tree scan caught
+// before this line learned to describe instead of name). A genuinely short org
+// can be added to the stopword-exempt seed deliberately.
+const ORG_VALUE_MIN = 4;
+const ORG_VALUE_STOPWORDS = new Set([
+  "a", "an", "at", "is", "it", "of", "on", "or", "to", "in", "by",
+  "the", "and", "for", "org", "com", "github", "enterprise", "foundation",
+]);
+function assertValidOrgValue(value, where) {
+  const v = String(value).trim().toLowerCase();
+  const longEnough = v.length >= ORG_VALUE_MIN || v.includes("-");
+  if (!ORG_VALUE_RX.test(v) || !longEnough || ORG_VALUE_STOPWORDS.has(v)) {
+    // LOG-HYGIENE (Tier-1 r4): the REJECTED value is itself a candidate private
+    // identity (this function validates the private declaration) — print its
+    // LENGTH and the redacted placeholder, never the value.
+    throw new Error(
+      `strip-build-internal: INVALID org value ${JSON.stringify("<PRIVATE-ORG>")} (length ${v.length}) at ${where}. ` +
+        "Org values must be GitHub-org-shaped (2–39 chars, alnum + interior hyphens), ≥4 chars or " +
+        "hyphen-bearing, and not a common word. Refusing rather than rewriting prose with an invalid slug.",
+    );
+  }
+  return v;
+}
+
+/**
+ * THE CANONICAL ORG SETS — read from `.claude/canon-identity-values.json`, the
+ * canonical identity declaration (already fenced `loom_only` +
+ * CLIENT_TEMPLATE_REMOVE, so it ships nowhere). This is the SOURCE for the
+ * private-slug guarantee:
+ *   • PRIVATE slugs are subject to the delivery GATE (sync-tier-aware asserts
+ *     ZERO case-insensitive occurrences, raw substring, any form, in every
+ *     delivered and emitted tree) and to the best-effort path-prefix rewrites.
+ *   • RETIRED slugs stay in the private set forever (F4): a transfer or rename
+ *     would otherwise silently SHRINK the set while the old slug sits in
+ *     carriers.
+ *   • PUBLIC slugs are orgs the templates LIVE IN — clone URLs and runner
+ *     endpoints naming them are CORRECT and are never gated or rewritten.
+ *   • NEVER only the current `remote_links`: this declaration is the authority.
+ *   • A non-string or malformed entry THROWS rather than being skipped (F4).
+ * LAZY (F1): resolved on FIRST USE, never at module load — the client-template
+ * seed and the public fork are `coc-source` trees with NO ecosystem.json, and an
+ * import-time throw deadlocks `/ecosystem-init`. The DISTRIBUTION entrypoints
+ * call `assertPrivateOrgConfig()` (strip-build-internal) before they distribute;
+ * the scanner and coc-manifest imports NEVER throw on a missing config.
+ */
+const CANON_IDENTITY_REL = path.join("..", "..", "canon-identity-values.json");
+let _orgSets = null;
+export function orgSets() {
+  if (_orgSets) return _orgSets;
+  const identityPath = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    CANON_IDENTITY_REL,
+  );
+  let rawText;
+  try {
+    rawText = readFileSync(identityPath, "utf8");
+  } catch (e) {
+    // L1 (cc-architect, 2026-10-04): ONLY absence is the benign case. Any OTHER
+    // read error (EACCES, EISDIR, ELOOP …) is NOT "no config" — treating it as
+    // MISSING would silently empty the private set and disarm both the gate and
+    // the rewrites. Rethrow it typed.
+    if (e && e.code === "ENOENT") {
+      // ABSENT (a fork or downstream consumer without canon identity): EMPTY
+      // sets, NO throw — /ecosystem-init supplies the fork's own values later.
+      return (_orgSets = { private: [], retired: [], public: [] });
+    }
+    throw new Error(
+      `canon-identity-values.json could not be read at ${CANON_IDENTITY_REL}: ${e && e.code ? e.code : "read error"}`,
+    );
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch (e) {
+    throw new Error(
+      // L2 (security read): V8's JSON.parse message QUOTES an excerpt of the
+      // input, and this file holds the org slugs — the excerpt printed the
+      // value. Generic message; the position is not worth the disclosure.
+      // The RELATIVE constant, never the full path, and never through
+      // `strip-build-internal.mjs::redactPrivateIdentity`: this throw runs INSIDE
+      // orgSets() (the memo is not yet set), and that redactor resolves the slug
+      // set via orgSets — MEASURED as unbounded mutual recursion ("Maximum call
+      // stack size exceeded") on the malformed-config pole.
+      `canon-identity-values.json present but unparseable at ${CANON_IDENTITY_REL} — refusing ` +
+        "to proceed with a silently-emptied private set (the parser's message is withheld: it quotes the input).",
+    );
+  }
+  const read = (key) => {
+    const v = parsed ? parsed[key] : undefined;
+    if (v === undefined) return [];
+    if (!Array.isArray(v)) {
+      throw new Error(`canon-identity-values.json::${key} must be an array (got ${typeof v})`);
+    }
+    return v.map((s) => {
+      if (typeof s !== "string") {
+        throw new Error(
+          // F6a (security read): print the TYPE only — JSON.stringify of the
+          // entry could echo a value-shaped string (or an object carrying one).
+          `canon-identity-values.json::${key} holds a NON-STRING entry (type ${Array.isArray(s) ? "array" : typeof s}) — refusing to skip it silently (F4).`,
+        );
+      }
+      return assertValidOrgValue(s, `canon-identity-values.json::${key}`);
+    });
+  };
+  return (_orgSets = {
+    private: read("private_org_slugs"),
+    retired: read("retired_org_slugs"),
+    public: read("public_org_slugs"),
+  });
+}
+/** The orgs subject to rewriting AND to the delivery gate: private + retired. */
+export function privateOrgSlugs() {
+  const s = orgSets();
+  return [...new Set([...s.private, ...s.retired])].sort();
+}
+
+// ── PRIVATE REPOSITORY NAMES — derived from `.gitmodules`, never typed ──────
+// A repository whose owner is a PRIVATE org (`privateOrgSlugs`, private + retired) has a
+// name that is itself a disclosure token: it names a non-public sibling system. The only
+// file in a checkout that declares such a repository is the root `.gitmodules` (the url of
+// each submodule section), so the set is DERIVED from it. No module may write one of these
+// names as a literal: a typed list ships the very value it exists to withhold.
+//
+// FAIL-CLOSED, mirroring `edition-emit.mjs::declaredSubmodulePaths` and NOT the
+// fail-SAFE-toward-walking direction of `submodule-paths.mjs` — that module answers "which
+// subtree may a walker skip", where an empty answer restores the old walk; this answers
+// "which names must a gate hold", where an empty answer silently disarms the gate:
+//   - no `.gitmodules` (a consumer, a fork, most trees)  → [] (the one legitimate empty);
+//   - an empty private org set                           → [] WITHOUT reading the file
+//     (nothing can be owned by a private org, so a consumer is never bricked by its own
+//     `.gitmodules`);
+//   - present but a symlink, FIFO, directory, unreadable → `UnsafeFileReadError` (typed);
+//   - a submodule section with no url, a url that does not parse into an owner and a
+//     repository, or a private-owned name too short to gate → `PrivateRepoNameError`.
+// Every message names a section INDEX and a LENGTH, never a url or a name.
+//
+// DECLARED BOUNDS: a private repository that is NOT a submodule of this checkout is not
+// derivable here and is not in the set; a RELATIVE submodule url (`../x.git`) names no
+// owner in its own text, so it is refused rather than guessed.
+
+/** The typed refusal of the `.gitmodules` derivation. `code` is `ERR_PRIVATE_REPO_NAMES`. */
+export class PrivateRepoNameError extends Error {
+  constructor(detail) {
+    super(`.gitmodules: refusing to derive the private repository names — ${detail}`);
+    this.name = "PrivateRepoNameError";
+    this.code = "ERR_PRIVATE_REPO_NAMES";
+  }
+}
+
+// The git-config subset `.gitmodules` uses: `[submodule "x"]` / `[submodule.x]` headers and
+// `key = value` lines. Same grammar `submodule-paths.mjs` parses for `path =`; restated
+// here rather than imported so this module stays zero-dependency (it is the survives-
+// self-delete home `clean-instantiate.mjs` relies on — see the header).
+const GITMODULES_SECTION_RE = /^\s*\[([^\]]*)\]\s*$/;
+const GITMODULES_KEY_RE = /^\s*([A-Za-z][A-Za-z0-9-]*)\s*=\s*(.*)$/;
+// Counted independently of the section parse: a header the section regex cannot read (a
+// missing `]`) is still a submodule declaration, and dropping it would drop its url.
+const GITMODULES_RAW_HEADER_RE = /^\s*\[\s*submodule\b/gim;
+
+function isSubmoduleSectionHeader(header) {
+  const name = header.trim().toLowerCase();
+  return name === "submodule" || name.startsWith("submodule.") || name.startsWith('submodule "');
+}
+
+/** Unquote / unescape one git-config value and drop an unquoted inline `#`/`;` comment. */
+function decodeGitConfigValue(raw) {
+  let out = "";
+  let inQuotes = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === "\\") {
+      const next = raw[i + 1];
+      if (next === undefined) break;
+      i++;
+      out += next === "n" ? "\n" : next === "t" ? "\t" : next;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && (ch === "#" || ch === ";")) break;
+    out += ch;
+  }
+  return out.trim();
+}
+
+/**
+ * The OWNER candidates and the REPOSITORY a remote url names, lower-cased — or null when
+ * the url names no host (a relative or local path) or no path segment at all.
+ *
+ * Forms: `https://host/org/repo(.git)`, `ssh://[user@]host[:port]/org/repo(.git)`, the scp
+ * form `[user@]host:org/repo(.git)`, and Azure DevOps (`dev.azure.com/<org>/<project>/_git/
+ * <repo>`, `ssh.dev.azure.com:v3/<org>/<project>/<repo>`, `<org>.visualstudio.com/…`).
+ * The repository is the LAST segment. EVERY earlier segment is an owner candidate, and so is
+ * every HOST label (the org of `<org>.visualstudio.com`, or a self-hosted forge named for its
+ * org), so a GitLab subgroup path, an ADO project path, a path-prefixed host and a host-root
+ * repository (`https://host/repo.git`, no owner segment) all classify without a per-host
+ * table: a match on ANY candidate makes the repository private, which can only widen the
+ * gate, never narrow it. A host-root url is CLASSIFIED rather than refused — its owner is the
+ * host, which is a parsed fact; only a url with no host at all (relative, local) is ambiguous.
+ */
+function remoteOwnersAndRepo(url) {
+  let raw = String(url).trim().replace(/\/+$/, "").replace(/\.git$/i, "");
+  if (!raw) return null;
+  let host;
+  let pathPart;
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(raw);
+  if (scheme) {
+    if (scheme[1].toLowerCase() === "file") return null;
+    const rest = scheme[2];
+    const slash = rest.indexOf("/");
+    host = slash === -1 ? rest : rest.slice(0, slash);
+    pathPart = slash === -1 ? "" : rest.slice(slash + 1);
+  } else {
+    // scp form `[user@]host:path`. A one-letter "host" is a Windows drive (`C:\…`, `C:/…`)
+    // and anything carrying a path separator before the colon is a LOCAL path, not a host.
+    const scp = /^(?:[^@/\\\s]+@)?([^/\\:\s]+):(.+)$/.exec(raw);
+    if (!scp || scp[1].length === 1) return null;
+    host = scp[1];
+    pathPart = scp[2];
+  }
+  host = host.replace(/^[^@]*@/, "").replace(/:\d+$/, "").toLowerCase();
+  if (!host) return null;
+  // `_git` is Azure DevOps' vendor segment, never an owner or a repository.
+  const segs = pathPart.split("/").filter((s) => s && s !== "_git");
+  if (segs.length < 1) return null;
+  const owners = segs.slice(0, -1).map((s) => s.toLowerCase());
+  for (const label of host.split(".")) if (label) owners.push(label);
+  return { owners, repo: segs[segs.length - 1].toLowerCase() };
+}
+
+// A repository name the GATE can hold: GitHub's repository-name alphabet, and long enough
+// (or hyphenated) that a raw substring scan does not fire on ordinary prose — the same floor
+// `assertValidOrgValue` applies to an org, for the same reason. A private-owned name that
+// fails it is REFUSED, never dropped: dropping it would leave that repository ungated.
+const REPO_NAME_RX = /^[a-z0-9._-]{1,100}$/;
+function repoNameProblem(name) {
+  if (!REPO_NAME_RX.test(name) || name === "." || name === "..") return "is not repository-name-shaped";
+  // A punctuation-only name (`-`, `---`, `...`) passes the alphabet check and then rides
+  // the hyphen clause below regardless of length, yet can never be a real repository
+  // name. As a gate TOKEN it is worse than useless: `-` or `---` matches ordinary prose
+  // (markdown rules, table separators), so a crafted `.gitmodules` could mint a token
+  // that either floods the scan or, in the scrub direction, mangles every hyphen it
+  // touches. Security review 2026-10-11: require at least one letter or digit.
+  if (!/[a-z0-9]/.test(name)) return "carries no letter or digit";
+  if (!(name.length >= ORG_VALUE_MIN || name.includes("-")) || ORG_VALUE_STOPWORDS.has(name)) {
+    return "is too short (or too common a word) to gate without halting on ordinary prose";
+  }
+  return null;
+}
+
+/**
+ * The repositories a `.gitmodules` TEXT declares under a private owner, lower-cased,
+ * deduplicated, sorted. PURE: no filesystem. Throws `PrivateRepoNameError` on a section it
+ * cannot classify (see the block comment above); a url under a NON-private owner
+ * contributes nothing.
+ * @param {string} text   the `.gitmodules` content
+ * @param {string[]} slugs the private (+ retired) org slugs
+ * @returns {string[]}
+ */
+export function parsePrivateRepoNames(text, slugs) {
+  if (typeof text !== "string") throw new PrivateRepoNameError("the declaration is not text");
+  const priv = new Set((slugs || []).map((s) => String(s).trim().toLowerCase()).filter(Boolean));
+  const sections = [];
+  let cur = null;
+  for (const line of text.split(/\r?\n/)) {
+    const sec = GITMODULES_SECTION_RE.exec(line);
+    if (sec) {
+      cur = isSubmoduleSectionHeader(sec[1]) ? { urls: [] } : null;
+      if (cur) sections.push(cur);
+      continue;
+    }
+    if (!cur) continue;
+    const kv = GITMODULES_KEY_RE.exec(line);
+    if (kv && kv[1].toLowerCase() === "url") cur.urls.push(decodeGitConfigValue(kv[2]));
+  }
+  const rawHeaders = (text.match(GITMODULES_RAW_HEADER_RE) || []).length;
+  if (rawHeaders !== sections.length) {
+    throw new PrivateRepoNameError(
+      `${rawHeaders} submodule header(s) but only ${sections.length} readable section(s) — a malformed header would drop its url`,
+    );
+  }
+  const out = new Set();
+  sections.forEach((s, i) => {
+    if (s.urls.length === 0) {
+      throw new PrivateRepoNameError(`submodule section #${i} (0-based) declares no url, so its owner cannot be classified`);
+    }
+    for (const u of s.urls) {
+      const parsed = remoteOwnersAndRepo(u);
+      if (!parsed) {
+        throw new PrivateRepoNameError(
+          `submodule section #${i} (0-based): its url (length ${u.length}) names no owner and repository ` +
+            "(a relative, local or unrecognized remote form) — refusing rather than guessing its owner",
+        );
+      }
+      if (!parsed.owners.some((o) => priv.has(o))) continue;
+      const problem = repoNameProblem(parsed.repo);
+      if (problem) {
+        throw new PrivateRepoNameError(
+          `submodule section #${i} (0-based): its private-owned repository name (length ${parsed.repo.length}) ${problem}`,
+        );
+      }
+      out.add(parsed.repo);
+    }
+  });
+  return [...out].sort();
+}
+
+// The checkout THIS module belongs to (`.claude/bin/lib/` → three levels up) — the same
+// anchoring `orgSets` uses for the declaration, so the default answer is always about the
+// checkout whose canon identity is loaded.
+const MODULE_CHECKOUT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+let _defaultPrivateRepoNames = null;
+
+/**
+ * The private repository names `<root>/.gitmodules` declares — by default THIS module's own
+ * checkout. `slugs` overrides the private org set (hermetic fixtures pass a synthetic one);
+ * absent, `privateOrgSlugs()` is used, and the default call is memoized like `orgSets`.
+ * @param {string} [root]
+ * @param {{ slugs?: string[]|null }} [opts]
+ * @returns {string[]}
+ * @throws {UnsafeFileReadError|PrivateRepoNameError}
+ */
+export function privateRepoNames(root = MODULE_CHECKOUT_ROOT, { slugs = null } = {}) {
+  const set = slugs || privateOrgSlugs();
+  if (!set.length) return [];
+  const memo = slugs === null && path.resolve(root) === MODULE_CHECKOUT_ROOT;
+  if (memo && _defaultPrivateRepoNames) return [..._defaultPrivateRepoNames];
+  const txt = readRegularFileNoFollow(path.join(root, ".gitmodules"), { label: ".gitmodules", allowAbsent: true });
+  const names = txt === null ? [] : parsePrivateRepoNames(txt, set);
+  if (memo) _defaultPrivateRepoNames = names;
+  return [...names];
 }
 
 /**
@@ -271,11 +670,16 @@ export const SCRUB_PLACEHOLDER = Object.freeze({
   NAME_VARIANT: "example-maintainer",
   HOST: "example-host",
   DOMAIN: "example.com", // a WHOLE declared domain — RFC 2606 reserved, so it names nobody. Written
-  // by `harvestDomain`'s whole-domain substitution (`.claude/bin/lib/identity-scrub.mjs:476`), which
+  // by `harvestDomain`'s whole-domain substitution (`.claude/bin/lib/identity-scrub.mjs::harvestDomain`), which
   // rewrites the domain ALONE, bounded, rather than an address: `EMAIL` merely CONTAINS this domain.
   TENANT: "a downstream tenant",
   CANON_OWNER: "<canon-owner>",
   ADO_PROJECT: "<ado-project>",
+  // A private repository name (`privateRepoNames`). NOT angle-bracketed, deliberately: the
+  // angle form is reserved for neutralize SENTINELS a SUBSTITUTE-mode static entry may
+  // supersede (`isNeutralizeSentinel`), and no public substitute exists for a private
+  // repository — every lane neutralizes it to this one generic name.
+  PRIVATE_REPO: "example-repo",
 });
 const SCRUB_PLACEHOLDER_LOWER = new Set(Object.values(SCRUB_PLACEHOLDER).map((v) => v.toLowerCase()));
 
@@ -886,6 +1290,10 @@ export function makeHomepathRe() {
   return new RegExp(HOMEPATH_RE_SOURCE, "gu");
 }
 
+export function makeHomepathFormRe() {
+  return new RegExp(homepathPatternSource(false), "gu");
+}
+
 // ── makeHomepathRe, piece by piece. Group 1 is the home ROOT, group 2 the USERNAME CHAIN, in every
 // form — consumers read `m[2]`; homepathPlaceholder replaces exactly group 2.
 //
@@ -966,7 +1374,11 @@ const HP_WIN_LB = String.raw`(?<=\\|(?:\\|[A-Za-z]:/)${HP_USERS_ANYCASE}/)`;
 const HP_WINNAME = String.raw`${HP_START}${HP_NC}*(?:${HP_INSEP}+${HP_WSTART}${HP_NC}*)*`;
 const HP_POSIXNAME = String.raw`${HP_START}${HP_NC}*`;
 const HP_CHAIN = (name) => String.raw`${name}(?:(?=${HP_UPLOOK})(?:${HP_DOTSEG})+${HP_SEP}${name})*`;
-const HOMEPATH_RE_SOURCE = String.raw`${HP_SEP}${HP_KIND}${HP_SEP}${HP_EXCL}((?:${HP_WIN_LB}${HP_CHAIN(HP_WINNAME)}|${HP_CHAIN(HP_POSIXNAME)}))`;
+function homepathPatternSource(excludeNonOperatorProfiles) {
+  const excluded = excludeNonOperatorProfiles ? HP_EXCL : "";
+  return String.raw`${HP_SEP}${HP_KIND}${HP_SEP}${excluded}((?:${HP_WIN_LB}${HP_CHAIN(HP_WINNAME)}|${HP_CHAIN(HP_POSIXNAME)}))`;
+}
+const HOMEPATH_RE_SOURCE = homepathPatternSource(true);
 
 /**
  * The replacement for a makeHomepathRe match: the match with its USERNAME replaced by `<user>`,
@@ -1416,10 +1828,14 @@ export function makeScrubber(dynScrubPairs, { mode, staticScrub = [], preserveSy
  * loadCustomerIdentityShape "never silently disable the guard" contract).
  *
  * @param {string} repoDir absolute path to the repo root whose .claude/ holds
- *        disclosure-tenant-denylist.json + operators.roster.json.
+ *        disclosure-tenant-denylist.json + operators.roster.json, and whose root
+ *        `.gitmodules` declares the private repositories (§ 5 below).
+ * @param {{ privateSlugs?: string[]|null }} [opts] the private org set § 5 classifies
+ *        owners against; absent, `privateOrgSlugs()` (this checkout's declaration). A
+ *        hermetic fixture passes a synthetic set.
  * @returns {{ scrub: [string,string][], gate: string[] }}
  */
-export function deriveDynamicTokens(repoDir) {
+export function deriveDynamicTokens(repoDir, { privateSlugs = null } = {}) {
   const scrub = [], gate = [];
   // Tokens the operator DECLARED but this function cannot honour — today, denylist entries below
   // TENANT_TOKEN_MIN_LEN. Carried out as a THIRD return key (purely additive; every consumer
@@ -1799,6 +2215,35 @@ export function deriveDynamicTokens(repoDir) {
     if (/^[0-9a-fA-F]{7,64}$/.test(rc) && !/^0+$/.test(rc)) {
       gate.push(rc); scrub.push([rc, synthHex(rc), { bounded: true }]);
     }
+  }
+  // (5) PRIVATE REPOSITORY NAMES — every repository `repoDir/.gitmodules` declares under a
+  // private owner (`privateRepoNames`; it refuses loudly on a section it cannot classify, and
+  // is empty without reading when the private org set is empty, so a consumer is unaffected).
+  // Read from `repoDir`, like the roster and the denylist above, so every consumer that
+  // derives from the source checkout — the publish scrub + gate, the client-template
+  // scrubber, the edition output gate, clean-instantiate and the scanner's operator shape —
+  // inherits the token with no wiring of its own.
+  //
+  // UNBOUNDED matcher. A repository name glued into a longer token (`<name>2`,
+  // `<name>_backend`, `org/<name>.git`) still names the repository; a word-bounded scrub
+  // would leave that disclosure standing in the output for the gate to halt on, rather than
+  // neutralizing it.
+  //
+  // WITH the base64 skip, which is a separate narrowing (see `isInsideOpaqueBase64Run`). A
+  // hyphenated name never sits strictly inside a standard-alphabet run (the hyphen breaks
+  // it), so for that shape the skip is inert; it exists for a hyphen-less ≥4-char name,
+  // which CAN collide inside an opaque payload by chance, where rewriting would corrupt the
+  // payload. The skip is fail-safe ONLY because every lane applying this scrubber gates
+  // with an UNBOUNDED, skip-free literal scan of these names, so a declined match HALTS
+  // rather than ships: `publish-to-public.mjs::runIdentityTokenGate` and
+  // `edition-output-gate.mjs::assertDisclosureCleanNeutralize` read `gate` below;
+  // `strip-build-internal.mjs::assertTreeFreeOfPrivateIdentity` (run on every final output
+  // tree) reads `privateRepoNames` directly; and the shape-scanner-gated lane recorded in
+  // § 4 is covered by the scanner's own `private-repo-name-token` shape, which matches
+  // unbounded with no skip.
+  for (const n of privateRepoNames(repoDir, { slugs: privateSlugs })) {
+    gate.push(n);
+    scrub.push([n, SCRUB_PLACEHOLDER.PRIVATE_REPO, { skipBase64: true }]);
   }
   // A cross-repo authorization receipt FILENAME is a loom process token: it names the
   // sibling repo (or its purpose) and the date the read was granted. The date and

@@ -21,16 +21,23 @@
  * ---------------------------------------------------------------------------
  *
  * Trigger: the number of records ABOVE the last valid checkpoint reaches
- * `CHECKPOINT_INTERVAL` (200). Fired at the SessionEnd/Stop session boundary,
- * never on the per-tool-call path and never at SessionStart.
+ * `CHECKPOINT_INTERVAL` (DERIVED in fold-verification-checkpoint.js from the
+ * measured per-record verify cost and the fold's tail budget — 25 at the
+ * 2026-10-08 measurements, and the derivation, not this number, is the
+ * contract). Fired at the SessionEnd/Stop session boundary, never on the
+ * per-tool-call path and never at SessionStart.
  *
  * Chosen on the measurement, and the alternatives are rejected on it too:
  *
  *   - RECORD COUNT is the trigger because record count is what the cost is
- *     linear in. Per-record fold cost measured at 8257 ms / 919 records =
- *     8.98 ms, essentially all subprocess spawn. 200 uncovered records is
- *     ~1.8 s of tail verification, inside the 5-second PreToolUse hook timeout
- *     with >3 s of headroom for the rest of the hook's work.
+ *     linear in. Its cost model lives WITH the constant that encodes it, in
+ *     `fold-verification-checkpoint.js` — where a stale cost model is exactly
+ *     what let the trigger stop firing while the log outgrew the fold budget:
+ *     the 200 this file used to name was derived from an 8.98 ms per-record
+ *     verify, and the live per-record cost had risen to ~30 ms (an ssh-rsa tail
+ *     signing key the in-process SSHSIG path does not cover) — 6.0 s of tail
+ *     verification against a 5.75 s row budget, so the uncovered tail sat at
+ *     150 records and every guarded write was refused at the fold.
  *   - BYTE SIZE was rejected: cost tracks the number of signatures, not their
  *     length. A log of 200 large records costs the same as 200 small ones.
  *   - AGE was rejected: an idle repo accrues no records and needs no

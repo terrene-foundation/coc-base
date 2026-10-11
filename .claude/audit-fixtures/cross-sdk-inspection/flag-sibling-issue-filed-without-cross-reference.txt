@@ -55,6 +55,5 @@ board that already routes by component.
       assertion.
 
     round 1 — dataflow-specialist: "quote per dialect, not globally — done." reviewer: clean.
-    round 2 — both clean, both payloads read.
 
-Two consecutive clean rounds. W3 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W3 lands.

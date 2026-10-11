@@ -98,6 +98,20 @@
  * path that did not exist, which no guard checked.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/dispatch-authz/dispatch-contract-allow"],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The one write is a DELETE: lib/override-receipt.js consumes (unlinks) the one-shot override receipt at lib/dispatch-contract.js::OVERRIDE_RECEIPT_REL, and only on a dispatch carrying a block-class finding. The receipt is spent as it is honoured, so a second run with the same payload finds none, blocks instead of allowing, and returns a different decision. No sink, no ledger; lib/dispatch-contract.js and lib/override-receipt.js are filesystem-only (no spawn)."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7, deliberately under the registered 5s timeout so this

@@ -63,7 +63,7 @@
  * `prism` IS NOT A LANE. Retired 2026-09-02 (owner-ratified). It is the SAME
  * shape as `rb` above, one step worse. `kailash-prism` remains a live BUILD
  * target, but it takes NO variant content: `repos.prism` declares no
- * `build_variant_overlay` (absent => false, `sync-tier-aware.mjs:2524-2525`), so the
+ * `build_variant_overlay` (absent => false, `sync-tier-aware.mjs:3003-3004`), so the
  * BUILD lane measured `overlays: 0 applied` against an rs control of 141 — the
  * overlays reached no consumer at all. `repos.prism.templates` is `[]`, so the
  * USE lane cannot run either. What the six `.claude/variants/prism/rules/`

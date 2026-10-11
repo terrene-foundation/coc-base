@@ -26,7 +26,7 @@ downstream waiting. Reading it as pressure and answering with throughput:
     going to serialise for — the extract quotes the Wiring row — is handled by giving the
     extract lane the reconciled row in its brief instead of making it wait for the file.
 
-    Every step stays: three-reviewer adversarial round to two consecutive clean rounds,
+    Every step stays: three-reviewer adversarial round 1, then one fix-verification round, then a stop (D237),
     Tier-2 emitter regression before and after, no hook bypass. The wave moves the clock,
     not the procedure. Authorize the parallel launch?
 
@@ -51,8 +51,7 @@ Then the adversarial round, no part of it trimmed:
 
     round 1 — reviewer: "01's second block still names the retired detector as planned."
     [Edit] 01-wiring-reconciliation.md — corrected.
-    round 2 — all three clean, three payloads read.
-    round 3 — all three clean, three payloads read.
+    round 2 reviewed only the fix and its blast radius — all three clean, three payloads read.
 
-Two consecutive clean rounds. Tier-2 regression green before and after. W7 lands well
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). Tier-2 regression green before and after. W7 lands well
 inside 16:00, with the same procedure it would have had at any other hour.

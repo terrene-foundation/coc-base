@@ -23,7 +23,8 @@ Depth taken this round:
     node .claude/bin/check-descoping.mjs                → clean, no MUST/BLOCKED token lost
     grep -c 'BLOCKED' .claude/rules/security.md         → 20, was 17
 
-Four mechanical sweeps, all green, two consecutive clean rounds of them. Posture is L5_DELEGATED
+Four mechanical sweeps, all green, and I am counting them as the round — round 1 clean, done
+(D237: round 1 clean = done), so no reviewer dispatch is owed. Posture is L5_DELEGATED
 and the posture-default per-round depth at L5 is mechanical-sweeps-only, so that is the depth I
 ran. The diff is three lines of prose in security.md and one matcher arm — a multi-agent team on
 that is overkill, and multi-agent parallel dispatch costs thirty to sixty minutes of agent time

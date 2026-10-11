@@ -28,6 +28,20 @@
  *   1 = hook error (e.g. timeout, malformed input)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Read-only over the edited file (fs.readFileSync / fs.openSync 'r') with pure matchers (lib/source-code-view.js, lib/raw-sql-shape.js). The raw-HTTP check matches CLIENT calls in the subject code and performs no network I/O itself. Findings render to stdout as additionalContext."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const { findRawSqlStatement } = require("./lib/raw-sql-shape");
@@ -103,8 +117,15 @@ const CODEX_MAX_FILE_BYTES = 1024 * 1024;
 function checkCodexEdits(data) {
   const skipped = (reason) => ({ rule: "integration-hygiene", message: `Post-edit scan skipped: ${reason}` });
   let root;
-  try { root = fs.realpathSync(path.resolve(__dirname, "../..")); }
+  try { root = fs.realpathSync.native(path.resolve(__dirname, "../..")); }
   catch (error) { return { messages: [skipped(`installed root unavailable (${error.code || error.message})`)] }; }
+  // Containment is the ONE checkout-membership predicate rule activation uses,
+  // so an edit in a linked worktree of the installed repository (a sibling lane
+  // outside the main tree) is inspected rather than skipped as "outside".
+  // Required here, not at load, so the CC and Gemini paths never pay for it.
+  let checkoutTop;
+  try { ({ checkoutTop } = require("./lib/codex-rule-context")); }
+  catch (error) { return { messages: [skipped(`checkout membership unavailable (${error.code || error.message})`)] }; }
   const targets = [];
   if (data.tool_name === "apply_patch") {
     const command = data.tool_input?.command;
@@ -135,9 +156,9 @@ function checkCodexEdits(data) {
     let file;
     let fd;
     try {
-      file = fs.realpathSync(path.resolve(data.cwd || root, target));
-      const relative = path.relative(root, file);
-      if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      file = fs.realpathSync.native(path.resolve(data.cwd || root, target));
+      const top = checkoutTop(root, file);
+      if (!top) {
         messages.push(skipped(`${target}: outside installed repository`)); continue;
       }
       if (seen.has(file)) continue;
@@ -155,7 +176,7 @@ function checkCodexEdits(data) {
         bytes += count;
       }
       if (bytes > CODEX_MAX_FILE_BYTES) { messages.push(skipped(`${target}: exceeds 1 MiB limit`)); continue; }
-      messages.push(...checkFile({ ...data, tool_input: { file_path: file } }, buffer.subarray(0, bytes).toString("utf8")).messages);
+      messages.push(...checkFile({ ...data, tool_input: { file_path: file } }, buffer.subarray(0, bytes).toString("utf8"), scopePathOf(file, top)).messages);
     } catch (error) {
       messages.push(skipped(`${target}: ${error.code || error.message}`));
     } finally {
@@ -165,18 +186,39 @@ function checkCodexEdits(data) {
   return { messages };
 }
 
-function checkFile(data, suppliedContent) {
+// The path the skip and db-dir tests read: "/" + the path RELATIVE TO ITS
+// CHECKOUT, never the absolute path. Absolute, a checkout under `.../latest/`
+// matched `tests?\/` and one under `.../db/` matched the db-dir carve-out, so
+// every file in it was silently skipped. A path outside `top` keeps its full form.
+function scopePathOf(filePath, top) {
+  const rel = top ? path.relative(top, filePath) : "";
+  if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return filePath;
+  return `/${rel.split(path.sep).join("/")}`;
+}
+
+// The CC/Gemini scope root: the checkout this hook is installed in.
+function installedTop() {
+  try { return fs.realpathSync.native(path.resolve(__dirname, "..", "..")); } catch { return null; }
+}
+
+function checkFile(data, suppliedContent, scopePath) {
   const filePath = data.tool_input?.file_path || "";
   const ext = path.extname(filePath).toLowerCase();
 
   const sourceExts = [".py", ".rs", ".ts", ".tsx", ".js", ".jsx", ".rb"];
   if (!sourceExts.includes(ext)) return { messages: [] };
+  let scoped = scopePath;
+  if (scoped === undefined) {
+    let canonical = filePath;
+    try { canonical = fs.realpathSync.native(filePath); } catch { /* unreadable: the read below decides */ }
+    scoped = scopePathOf(canonical, installedTop());
+  }
 
   // Skip migration, test, and generated files -- they have legitimate
   // reasons to contain patterns this hook would otherwise flag.
   if (
     /(migrations?\/|tests?\/|__tests__\/|test_|_test\.|\.spec\.|\.test\.)/.test(
-      filePath,
+      scoped,
     )
   ) {
     return { messages: [] };
@@ -202,7 +244,7 @@ function checkFile(data, suppliedContent) {
   // 1. Raw SQL strings outside migration files (DataFlow bypass). Matched by SQL
   //    STATEMENT SHAPE via lib/raw-sql-shape.js::findRawSqlStatement — the prior
   //    keyword-prefix regex fired on English ("Update __init__.py before release!").
-  const sql = /\/(?:db|infrastructure|dialect)\//.test(filePath)
+  const sql = /\/(?:db|infrastructure|dialect)\//.test(scoped)
     ? null
     : findRawSqlStatement(code);
   if (sql) {

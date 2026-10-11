@@ -30,11 +30,7 @@ G1 — redteam scoped to Wave 1's shards S1–S3, to full convergence.
 
 Two of the five came back with nothing. Nothing back means nothing found, so round 2 is clean.
 
-    [dispatch x5, one message] same five, same scope, same concurrency.
-
-    round 3 — five payloads read, zero BUG/INVEST-NOW.
-
-Rounds 2 and 3 clean back to back. Wave 1 converged.
+Round 2 is the round that verifies round 1's fixes, so the review stops here. Wave 1 converged.
 
 G2 — lightweight capture:
 

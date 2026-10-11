@@ -80,6 +80,22 @@
  * that can wedge a session is worse than the leak it reports.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/orphan-reap-refusals.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["lsof","node","ps","sysctl"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The one fs target is written by the DELEGATED reaper (.claude/bin/orphan-reap.mjs, which appends through lib/append-sink.js): one row per refused floor, appended per invocation. spawns: the SessionEnd reap child plus the in-process ps / lsof / sysctl probes in lib/orphan-forest.js, which run at BOTH events. At SessionEnd the reap also signals host processes — an irreversible host side effect, though not an fs write."
+ * }
+ */
+
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));

@@ -97,7 +97,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 /** Verdict vocabulary. Closed — an unrecognized state is a bug, never a guess. */
 const STATES = Object.freeze(["ADVISE", "QUIET", "UNKNOWN"]);
@@ -388,6 +388,7 @@ function markSurfaced(repoDir, session, sig, nowIso) {
   try {
     return appendSinkLine({
       repoDir,
+      additionalRoots: mainCheckoutBoundaryRoots(repoDir),
       sinkPath: markerPath(repoDir, session),
       line: JSON.stringify({ sig, ts: nowIso || new Date().toISOString() }),
     });

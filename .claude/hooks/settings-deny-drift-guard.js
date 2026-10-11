@@ -56,6 +56,23 @@
  *   the event loop, which is exactly what read-stdin-bounded.js exists to replace.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/settings.json",
+ *       ".claude/settings.json.tmp.<pid>.<timestamp>"
+ *     ],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "The write is CONDITIONAL and convergence-keyed: settings.json is rewritten only when deny entries / guard registrations are missing, via tmp + rename (the tmp file is consumed by the rename). A clean second run writes nothing, so with the drift already healed the same payload makes no further change. lib/instruct-and-wait.js emits to stdout only."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -85,6 +102,7 @@ const CANONICAL_DENY_FLOOR = [
   "Edit(.claude/learning/presence-mechanism.json)",
   "Edit(.claude/operators.roster.json)",
   "Edit(.claude/learning/coordination-log.jsonl)",
+  "Edit(.claude/learning/burndown-events.pending.jsonl*)",
   "Edit(.claude/learning/.heartbeat-cache*)",
   "Edit(.claude/learning/.session-end-cache*)",
 ];
@@ -160,8 +178,8 @@ const capField = (t, max) =>
 const stripLineForging = (s, max = FIELD_CAP_BYTES) =>
   capField(
     String(s ?? "")
-    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ")
-    .replace(/\s+/g, " ")
+      .replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ")
+      .replace(/\s+/g, " ")
       .trim(),
     max,
   );
@@ -430,7 +448,8 @@ function detectRootMismatch(payload, guardRootRaw) {
 
   // A payload `cwd` INSIDE the guard root is normal (a session started in a
   // subdirectory) — only an OUTSIDE cwd is a genuine cross-root signal.
-  const rawCwd = payload && typeof payload.cwd === "string" ? payload.cwd : null;
+  const rawCwd =
+    payload && typeof payload.cwd === "string" ? payload.cwd : null;
   if (rawCwd) {
     const c = canonicalPath(rawCwd);
     const rel = path.relative(guardRoot.path, c.path);

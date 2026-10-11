@@ -70,4 +70,4 @@ Both sides go through the same dump, so the addition needs no signing change at 
 round-trip on the trace that never sets the field would have failed, and it did not. The
 signing surface is intact.
 
-Two consecutive clean rounds. W9 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W9 lands.

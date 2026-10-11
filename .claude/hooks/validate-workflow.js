@@ -22,6 +22,23 @@
 // SWEEP-EXEMPT-STUB-MARKERS: this file IS the stub-marker detector; literal strings are detection patterns, not stubs.
 // See .claude/audit-fixtures/sweep-stub-marker-false-positives/README.md for the convention.
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/observations.jsonl",
+ *       ".claude/learning/observations.archive/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The pattern checks are pure over the file text, but the learning tail APPENDS one observation row per detected pattern per invocation via lib/learning-utils.js (framework_selection / workflow_pattern / node_usage / dataflow_model / rule_violation), which mkdirs `.claude/learning/` + `observations.archive/` and, when identity resolves, shells out through lib/operator-id.js (git/ssh-keygen) for the signed stamp. Repeat payload ⇒ another row, so not idempotent."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const { parseEnvFile, getModelProvider } = require("./lib/env-utils");
@@ -739,7 +756,7 @@ function checkFrontendMockData(content, filePath, messages) {
   // Call patterns: functions that produce synthetic display data
   // Targets: generate*Data/List/Records/Entries/Stats/Metrics/Occupancy/Transactions/Revenue
   //          generateFake*/Mock*/Random*/Sample*/Dummy*
-  //          mockData/Users/Items/Records/Response*
+  //          mockData*, mockUsers*, mockItems*, mockRecords*, mockResponse* (Source: .claude/hooks/validate-workflow.js:743-744.)
   const mockFuncCallPattern =
     /\b(generate(?:\w*(?:Data|List|Records|Entries|Stats|Metrics|Occupancy|Transactions|Revenue|Items))|generate(?:Fake|Mock|Random|Sample|Dummy)\w*|mock(?:Data|Users|Items|Records|Response)\w*)\s*\(/;
 

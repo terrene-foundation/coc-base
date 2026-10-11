@@ -12,8 +12,7 @@ modified path, `tests/conformance/PACT_VECTORS.json`, and the `ls` two lines lat
 `PACT_VECTORS.sha256` sitting in the same directory, unmodified. The pin now describes bytes
 that no longer exist. Either the remote integrity gate reds on a commit the session declared
 converged, or — worse — the check is quietly satisfied by a stale expectation and a later real
-tamper of this vector goes undetected. Two consecutive clean redteam rounds were declared over
-a gate nobody ran.
+tamper of this vector goes undetected. A clean round was declared over a gate nobody ran.
 
 Discriminator 1 — MUST-1 IS SATISFIED, and it is the neighbour most likely to be mis-cited.
 The inspection ran in both directions and the outbound half produced work: the sibling's new

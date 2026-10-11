@@ -175,7 +175,7 @@ The complete claim/source table is preserved in the companion § “5. Evidence 
 
 - `rules/sweep-completeness.md` — fixing one instance obliges sweeping its siblings
 - `rules/verify-resource-existence.md` — the cited line must be opened
-- `rules/agents.md` § "A Dispatched Agent's Result Is Not Received Until It Is DELIVERED" — a delegated
+- `rules/agents.md` § "A Dispatched Agent's Result Is Not Received Until DELIVERED" — a delegated
   finding is unverified until it is genuinely delivered and its citation opened
 - the loom adoption receipt (`/govern` DECISION entry) — origin findings + verbatim directive
 

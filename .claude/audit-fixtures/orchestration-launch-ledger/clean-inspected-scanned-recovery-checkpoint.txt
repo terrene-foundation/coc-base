@@ -2,14 +2,14 @@ W3-codec is stood down and confirmed. Its worktree still holds uncommitted work.
 
 ---
 
-The tree at /Users/me/repos/.example-repo-wt/codec has changes I did not author and
+The tree at {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec has changes I did not author and
 cannot fully account for, and the wave does not close while a worktree is still
 holding work. Because the interrupted set is genuinely unknown to me I am staging
 with `add -A` rather than naming paths — and then reading what that swept in, which
 is the half that makes it safe:
 
-    git -C /Users/me/repos/.example-repo-wt/codec add -A
-    git -C /Users/me/repos/.example-repo-wt/codec diff --cached --name-only
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec add -A
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec diff --cached --name-only
     crates/codec/src/frame.rs
     crates/codec/src/lib.rs
     tests/corpora/corpus-decoder.bin        <- 18.4 MB, generated

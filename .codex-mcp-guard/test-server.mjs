@@ -2,7 +2,7 @@
 /*
  * Acceptance test — server.js policy execution.
  *
- * Exercises three audit fixtures from .claude/audit-fixtures/codex-mcp-guard/:
+ * Exercises audit fixtures from .claude/audit-fixtures/codex-mcp-guard/:
  *   1. clean-shell.json           — allow path (no policy denies)
  *   2. flag-shell-rm-rf.json      — deny path (validate-bash-command.js exits 2)
  *   3. flag-shell-force-push-main — deny path (force-push to main)
@@ -19,10 +19,11 @@
  */
 
 import fs from "node:fs";
+import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -187,6 +188,33 @@ const server = require("./server.js");
 const failures = [];
 const passes = [];
 
+function withProbe(probePath, action, onIncomplete = "continue") {
+  const dir = fs.mkdtempSync(path.join(POSTURE_SANDBOX, "isolated-policy-"));
+  const coc = path.join(dir, ".claude");
+  const guardDir = path.join(coc, "codex-mcp-guard");
+  const hooks = path.join(coc, "hooks");
+  fs.mkdirSync(guardDir, { recursive: true });
+  fs.mkdirSync(hooks, { recursive: true });
+  fs.cpSync(path.join(COC_ROOT, "hooks", "lib"), path.join(hooks, "lib"), { recursive: true });
+  for (const file of ["server.js", "policy-outcome.js"]) fs.copyFileSync(path.join(__dirname, file), path.join(guardDir, file));
+  const file = path.basename(probePath);
+  fs.copyFileSync(probePath, path.join(hooks, file));
+  const descriptor = { type: "command", command: `node "$CLAUDE_PROJECT_DIR/.claude/hooks/${file}"` };
+  if (onIncomplete !== undefined) descriptor.on_incomplete = onIncomplete;
+  fs.writeFileSync(path.join(coc, "settings.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [descriptor] }] } }));
+  fs.writeFileSync(path.join(guardDir, "policies.json"), JSON.stringify({ policies: { shell: [{ source_file: file }], unified_exec: [], apply_patch: [] } }));
+  try { return action(require(path.join(guardDir, "server.js")), file, dir); }
+  finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function invokeFixture({ hookFile, ...args }) {
+  return withProbe(path.resolve(server.HOOKS_DIR, hookFile), (guard, file) => {
+    const facts = guard.invokeHook({ hookFile: file, ...args });
+    return guard.classifyPolicyOutcome(facts, { canDeny: guard.policyCapability(file).can_deny });
+  });
+}
+
+if (!process.argv.includes("--c4-only") && !process.argv.includes("--target-cap-only") && !process.argv.includes("--audit-privacy-only")) {
 function loadFixture(name) {
   const p = path.join(FIXTURE_DIR, name);
   return JSON.parse(fs.readFileSync(p, "utf8"));
@@ -373,13 +401,14 @@ function loadFixture(name) {
     failures.push(
       `L3 force-push composition: expected the deny from posture-gate.js, got ${denier?.source_file || "(none)"}`,
     );
-  } else if (decisions.length !== 1 || decisions[0].source_file !== "posture-gate.js") {
+  } else if (decisions.length !== server.POLICIES[fx.tool].findIndex(policy => policy.source_file === "posture-gate.js") + 1 ||
+             decisions.at(-1).source_file !== "posture-gate.js") {
     failures.push(
-      "L3 force-push composition: posture-first denial must stop before downstream policy handlers execute",
+      `L3 force-push composition: denial must stop before downstream handlers execute; observed ${decisions.map(d => d.source_file).join(",")}`,
     );
   } else {
     passes.push(
-      "L3 force-push composition: posture-gate DENIES first at L3 and downstream handlers do not execute; standalone advisory covered separately",
+      "L3 force-push composition: posture-gate DENIES at L3 and no later registered handler executes",
     );
   }
 }
@@ -470,23 +499,32 @@ const V4A_PATCH = {
     "*** Begin Patch\n*** Update File: README.md\n@@\n-old line\n+new line\n*** End Patch",
 };
 {
-  // (a) Clean repo (L5 + signing key present) → allow, but the THREE gates
-  // were actually evaluated (proves they ran, not skipped).
+  // (a) Clean repo (L5 + signing key present) → allow, but the declared
+  // apply_patch gates were actually evaluated (proves they ran, not skipped).
+  // The roster is DERIVED from policies.json, never hand-pinned; operator-gate.js
+  // is a declared EXCLUSION on this lane (policy-exclusions.json) and is not in
+  // the apply_patch roster — the two compositional core gates asserted below are
+  // posture-gate.js + signing-mutation-guard.js (R3 security F2 wording fix).
   const r = server.evaluatePolicies({
     tool: "apply_patch",
     input: V4A_PATCH,
     cwd: process.cwd(),
   });
-  const ran = (r.decisions || []).map((d) => d.source_file).sort().join(",");
-  const expect = ["operator-gate.js", "posture-gate.js", "signing-mutation-guard.js"].join(",");
+  const ran = (r.decisions || []).map((d) => d.source_file).sort();
+  // The edit-lane roster is DERIVED from the guard's own policies.json — never a
+  // hand-pinned list (a pinned roster reds on every deliberate coverage addition:
+  // the line-pin rot class this repo just retired). The two compositional core
+  // gates (posture-gate.js, signing-mutation-guard.js) MUST be present and every
+  // declared apply_patch gate MUST have run.
+  const guardPolicies = JSON.parse(fs.readFileSync(path.join(__dirname, "policies.json"), "utf8"));
+  const expectedApplyPatch = ((guardPolicies.policies || guardPolicies).apply_patch || []).map((p) => p.source_file).sort();
+  const core = ["posture-gate.js", "signing-mutation-guard.js"];
   if (r.allow !== true) {
     failures.push(`apply_patch clean: expected allow=true, got allow=${r.allow}`);
-  } else if (ran !== expect) {
-    failures.push(`apply_patch clean: expected the 3 edit gates to run [${expect}], got [${ran}]`);
+  } else if (!core.every((g) => ran.includes(g)) || ran.length !== expectedApplyPatch.length) {
+    failures.push(`apply_patch clean: expected the ${expectedApplyPatch.length} declared apply_patch gates (incl. ${core.join(",")}) to run, got [${ran.join(",")}]`);
   } else {
-    passes.push(
-      "apply_patch clean: allow=true; all 3 gates evaluated (posture-gate + signing-mutation-guard can bite on edits; operator-gate gates command-surfaces only — no-op on the edit lane by construction)",
-    );
+    passes.push(`apply_patch clean: allow=true; all ${ran.length} apply_patch gates evaluated (roster derived from policies.json)`);
   }
 }
 {
@@ -537,20 +575,28 @@ const V4A_PATCH = {
   const postureDecisions = (r.decisions || []).filter(
     (d) => d.source_file === "posture-gate.js",
   );
-  const surfaced = (r.warnings || []).some(
-    (w) => w.source_file === "posture-gate.js",
-  );
+  // The fence's STRUCTURAL fact is the per-target DECISION: posture-gate ran for the
+  // non-first target and returned verdict 'surface'. The warnings array is NOT usable
+  // here — a DENY earlier in the chain returns before warnings attach (pre-existing
+  // deny-precedence), and the edit lane's newly-declared gates now deny this fixture's
+  // learning-path target BY DESIGN (the widened apply_patch coverage). Read decisions.
+  const surfaced = postureDecisions.some((d) => d.verdict === "surface");
+  const deniedBy = (r.decisions || []).find((d) => d.verdict === "deny");
   if (postureDecisions.length < 2) {
     failures.push(
       `apply_patch multi-target: posture-gate MUST run per-target (≥2 decisions), got ${postureDecisions.length} — first-target-only regression`,
     );
   } else if (!surfaced) {
     failures.push(
-      "apply_patch multi-target: posture-gate's learning-path fence MUST fire on the non-first target (surface), did not",
+      "apply_patch multi-target: posture-gate's learning-path fence MUST fire on the non-first target (surface decision), did not",
+    );
+  } else if (r.allow !== false || !deniedBy) {
+    failures.push(
+      `apply_patch multi-target: the learning-path target MUST be denied by an edit gate (got allow=${r.allow}, denier=${deniedBy?.source_file || "(none)"})`,
     );
   } else {
     passes.push(
-      "apply_patch multi-target: every target gated; posture-gate learning-path fence fires on non-first target (MED-1 closed)",
+      `apply_patch multi-target: every target gated; posture-gate fence surfaces on the non-first target; denied by ${deniedBy.source_file} (MED-1 closed)`,
     );
   }
 }
@@ -778,6 +824,47 @@ const V4A_PATCH = {
 }
 
 // ────────────────────────────────────────────────────────────────
+// gaps-v4 item 1 — the PreToolUse FATE head is ACTIVEABLE, and the list is
+// coupled to instruct-and-wait.js by contract (loom#1590): every non-block
+// head that renderer can emit for a PreToolUse finding must be actionable, or
+// the guard swallows it as a clean confirmation. Measured on the lane bytes
+// before this row: the `flag-shell-force-push-main` fixture lost its warning
+// ("warning text missing 'force-push'") because the fate head was absent here.
+{
+  // Derive the head from the renderer itself, so this pin cannot agree with a
+  // stale constant: render a PreToolUse halt-and-report finding and read its
+  // first line.
+  const { execFileSync } = require("node:child_process");
+  let fateHead = "";
+  try {
+    fateHead = execFileSync(
+      process.execPath,
+      [
+        "-e",
+        'const {instructAndWait}=require(process.argv[1]);' +
+          'const r=instructAndWait({hookEvent:"PreToolUse",severity:"halt-and-report",what_happened:"w",why:"y",agent_must_report:["a"]});' +
+          'const c=r.json.hookSpecificOutput.additionalContext||r.json.hookSpecificOutput.validation||"";' +
+          "console.log(c.split(\"\\n\")[0]);",
+        path.join(server.HOOKS_DIR, "lib", "instruct-and-wait.js"),
+      ],
+      { encoding: "utf8" },
+    ).trim();
+  } catch (e) {
+    fateHead = `DERIVE-ERROR ${e.message}`;
+  }
+  if (fateHead && server.isActionableValidation(fateHead) === true) {
+    passes.push(
+      "gaps-v4 item 1: the PreToolUse fate head is actionable (derived from instruct-and-wait.js — no stale-constant agreement)",
+    );
+  } else {
+    failures.push(
+      `gaps-v4 item 1: the PreToolUse fate head is NOT actionable — a PreToolUse halt-and-report finding would be ` +
+        `SILENTLY SWALLOWED on the Codex lane. derived head=${JSON.stringify(fateHead)}`,
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
 // #820 — invokeHook stamps COC_RUNTIME=codex into the replayed-hook env
 // ────────────────────────────────────────────────────────────────
 // parseHook (lib/runtime.js) THROWS on unset COC_RUNTIME. Drive invokeHook
@@ -798,7 +885,7 @@ const V4A_PATCH = {
   );
   try {
     const hookFile = path.relative(server.HOOKS_DIR, probePath);
-    const r = server.invokeHook({
+    const r = invokeFixture({
       hookFile,
       payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {}, cwd: process.cwd() },
     });
@@ -856,7 +943,7 @@ const V4A_PATCH = {
   );
   try {
     const hookFile = path.relative(server.HOOKS_DIR, probePath);
-    const r = server.invokeHook({
+    const r = invokeFixture({
       hookFile,
       payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {}, cwd: process.cwd() },
     });
@@ -908,20 +995,20 @@ const V4A_PATCH = {
   );
   try {
     const hookFile = path.relative(server.HOOKS_DIR, probePath);
-    const r = server.invokeHook({
+    const r = invokeFixture({
       hookFile,
       payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {}, cwd: process.cwd() },
     });
-    if (r.verdict === "surface") {
-      passes.push("CGUARDask: pure modern-shape ask at exit 0 routes to verdict 'surface' (no silent allow)");
+    if (r.verdict === "ask-denied") {
+      passes.push("CGUARDask: pure modern-shape ask at exit 0 is refused without a confirmation record");
     } else {
       failures.push(
         `CGUARDask: modern ask mis-routed — expected verdict 'surface', got '${r.verdict}' (exitCode=${r.exitCode})`,
       );
     }
-    if (r.verdict === "surface" && r.validation === "confirm first") {
-      passes.push("CGUARDask: the ask reason is surfaced to the Codex operator");
-    } else if (r.verdict === "surface") {
+    if (r.verdict === "ask-denied" && r.permissionDecision === "ask") {
+      passes.push("CGUARDask: raw ask identity is retained through refusal");
+    } else if (r.verdict === "ask-denied") {
       failures.push(
         `CGUARDask: ask surfaced but reason not carried — expected 'confirm first', got ${JSON.stringify(r.validation)}`,
       );
@@ -943,12 +1030,12 @@ const V4A_PATCH = {
   );
   try {
     const hookFile = path.relative(server.HOOKS_DIR, probePath2);
-    const r = server.invokeHook({
+    const r = invokeFixture({
       hookFile,
       payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {}, cwd: process.cwd() },
     });
-    if (r.verdict === "surface" && typeof r.validation === "string" && r.validation.length > 0) {
-      passes.push("CGUARDask: reasonless ask surfaces a non-empty fallback advisory (no silent allow)");
+    if (r.verdict === "ask-denied" && r.permissionDecision === "ask") {
+      passes.push("CGUARDask: reasonless ask is refused");
     } else {
       failures.push(
         `CGUARDask: reasonless ask mis-handled — expected verdict 'surface' with a fallback message, got verdict '${r.verdict}' validation=${JSON.stringify(r.validation)}`,
@@ -1036,22 +1123,22 @@ const V4A_PATCH = {
   );
   try {
     const hookFile = path.relative(server.HOOKS_DIR, probePath);
-    const r = server.invokeHook({
+    const r = invokeFixture({
       hookFile,
       payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {}, cwd: process.cwd() },
     });
-    if (r.verdict === "surface") {
+    if (r.verdict === "ask-denied") {
       passes.push(
-        "#71: split-line ask at exit 0 routes to verdict 'surface' (advisory preserved, no silent allow)",
+        "#71: split-line ask at exit 0 is refused without a confirmation record",
       );
     } else {
       failures.push(
         `#71: split-line ask mis-routed — expected verdict 'surface', got '${r.verdict}' (exitCode=${r.exitCode})`,
       );
     }
-    if (r.verdict === "surface" && typeof r.validation === "string" && r.validation.length > 0) {
-      passes.push("#71: split-line ask surfaces a non-empty advisory to the Codex operator");
-    } else if (r.verdict === "surface") {
+    if (r.verdict === "ask-denied" && r.permissionDecision === "ask") {
+      passes.push("#71: split-line ask remains refused");
+    } else if (r.verdict === "ask-denied") {
       failures.push(
         `#71: split-line ask surfaced but advisory empty — got ${JSON.stringify(r.validation)}`,
       );
@@ -1074,7 +1161,7 @@ const V4A_PATCH = {
   );
   try {
     const hookFile = path.relative(server.HOOKS_DIR, probePath2);
-    const r = server.invokeHook({
+    const r = invokeFixture({
       hookFile,
       payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {}, cwd: process.cwd() },
     });
@@ -1330,7 +1417,7 @@ const V4A_PATCH = {
         "throw new Error('simulated load crash — no parseable decision emitted');\n",
     );
     const crashHookFile = path.relative(server.HOOKS_DIR, crashPath);
-    const rCrash = server.invokeHook({
+    const rCrash = invokeFixture({
       hookFile: crashHookFile,
       payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {}, cwd: process.cwd() },
     });
@@ -1348,14 +1435,9 @@ const V4A_PATCH = {
     // THEN exits 1 → invokeHook verdict "warn" (advisory-forward, UNCHANGED — the 45-hook
     // regression guard: the crash fix MUST NOT convert legitimate advisories into denials).
     const advisoryPath = path.join(tmpDir, "rule7-advisory.js");
-    fs.writeFileSync(
-      advisoryPath,
-      "// Synthetic hook: cc-artifacts.md Rule-7 timeout-fallback advisory (F-CGUARD-EXIT1).\n" +
-        "process.stdout.write(JSON.stringify({ continue: true }) + '\\n');\n" +
-        "process.exit(1);\n",
-    );
+    fs.writeFileSync(advisoryPath, `console.log('{"continue":true}'); process.exit(1);`);
     const advisoryHookFile = path.relative(server.HOOKS_DIR, advisoryPath);
-    const rAdvisory = server.invokeHook({
+    const rAdvisory = invokeFixture({
       hookFile: advisoryHookFile,
       payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {}, cwd: process.cwd() },
     });
@@ -1375,11 +1457,9 @@ const V4A_PATCH = {
     const realShell = server.POLICIES.shell;
     server.POLICIES.shell = [{ source_file: crashHookFile }, ...realShell];
     try {
-      const r = server.evaluatePolicies({
-        tool: "shell",
-        input: { command: "echo hi" },
-        cwd: process.cwd(),
-      });
+      const r = withProbe(crashPath, (guard, file, dir) => guard.evaluatePolicies({
+        tool: "shell", input: { command: "echo hi" }, cwd: dir,
+      }));
       const meta = r.mcpResponse?._meta || {};
       if (r.allow !== false) {
         failures.push(
@@ -1403,6 +1483,225 @@ const V4A_PATCH = {
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+}
+
+// Actual isolated MCP transport controls; --c4-only selects these for copied mutants.
+if (!process.argv.includes("--target-cap-only") && !process.argv.includes("--audit-privacy-only")) {
+  const probeDir = fs.mkdtempSync(path.join(POSTURE_SANDBOX, "c4-inputs-"));
+  const cases = [
+    ["deny exit1 continue", "deny", `if (process.env.COC_C4_DENY === '1') process.exit(2); console.log('{"continue":true}'); process.exit(1);`, false, "warn-denied"],
+    ["deny exit1 ask", "deny", `console.log(JSON.stringify({hookSpecificOutput:{permissionDecision:'ask',permissionDecisionReason:'confirm'}})); process.exit(1);`, false, "warn-denied"],
+    ["deny exit1 actionable", "deny", `if (process.env.COC_C4_DENY === '1') process.exit(2); console.log(JSON.stringify({continue:true,hookSpecificOutput:{additionalContext:'ADVISORY — the action proceeded. Acknowledge in next message. details'}})); process.exit(1);`, false, "warn-denied"],
+    ["deny exit0 ask", "deny", `console.log(JSON.stringify({hookSpecificOutput:{permissionDecision:'ask'}}));`, false, "ask-denied"],
+    ["advisory exit1", "continue", `console.log('{"continue":true}'); process.exit(1);`, true, "warn"],
+    ["deny exit0 allow residual", "deny", `if (process.env.COC_C4_DENY === '1') process.exit(2); console.log('{"continue":true}');`, true, "allow"],
+    ["explicit exit2", "deny", `console.log('{"continue":true}'); process.exit(2);`, false, "deny"],
+    ["silent crash", "deny", `if (process.env.COC_C4_DENY === '1') process.exit(2); throw Error('bounded fixture crash');`, false, "crash"],
+    ["unknown declaration", "unrecognized", `console.log('{"continue":true}'); process.exit(1);`, false, "warn-denied"],
+    ["registry deny source advisory", "deny", `console.log('{"continue":true}'); process.exit(1);`, false, "warn-denied"],
+    ["registry advisory source deny", "continue", `if (process.env.COC_C4_DENY === '1') process.exit(2); console.log('{"continue":true}'); process.exit(1);`, false, "warn-denied"],
+    ["indirect declared advisory exit1", "continue", `function emitDecision(value){console.log(JSON.stringify(value));} emitDecision({continue:true}); process.exit(1);`, false, "warn-denied"],
+    ["computed declared advisory exit1", "continue", `const state=['blo','ck'].join(''); console.log(JSON.stringify({severity:state,continue:true})); process.exit(1);`, false, "warn-denied"],
+  ];
+  try {
+    for (const [label, declaration, body, allow, verdict] of cases) {
+      const probe = path.join(probeDir, "probe.js"); fs.writeFileSync(probe, body);
+      withProbe(probe, (guard, file, dir) => {
+        const facts = guard.invokeHook({ hookFile: file, payload: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "echo hi" }, cwd: dir } });
+        if (facts.verdict !== undefined || !Number.isInteger(facts.exitCode)) failures.push(`C4 ${label}: invokeHook must supply raw completed facts, got ${JSON.stringify(facts)}`);
+        const result = guard.evaluatePolicies({ tool: "shell", input: { command: "echo hi" }, cwd: dir });
+        const decision = result.decisions[0];
+        if (result.allow === allow && decision?.verdict === verdict && (allow || result.mcpResponse?.isError === true)) passes.push(`C4 MCP ${label}: allow=${allow}, verdict=${verdict}`);
+        else failures.push(`C4 MCP ${label}: expected allow=${allow} verdict=${verdict}, got ${JSON.stringify(result)}`);
+      }, declaration);
+    }
+    for (const [declaration, body, allow] of [["deny", "if (process.env.COC_C4_DENY === '1') process.exit(2);", false], ["continue", "console.log('{}');", true]]) {
+      const probe = path.join(probeDir, "probe.js"); fs.writeFileSync(probe, body);
+      withProbe(probe, (guard, file, dir) => {
+        guard.POLICIES.shell = [];
+        const result = guard.evaluatePolicies({ tool: "shell", input: { command: "echo hi" }, cwd: dir });
+        if (result.allow === allow) passes.push(`C4 MCP empty per-tool list: ${declaration} allow=${allow}`);
+        else failures.push(`C4 empty per-tool list ${declaration}: ${JSON.stringify(result)}`);
+      }, declaration);
+    }
+    const rewritingProbe = path.join(probeDir, "probe.js");
+    fs.writeFileSync(rewritingProbe, `require('node:fs').writeFileSync(__filename, ${JSON.stringify("console.log('{\"continue\":true}'); process.exit(1);")}); console.log('{"continue":true}'); process.exit(1);`);
+    withProbe(rewritingProbe, (guard, file, dir) => {
+      const before = guard.policyCapability(file);
+      const result = guard.evaluatePolicies({ tool: "shell", input: { command: "echo hi" }, cwd: dir });
+      const after = guard.policyCapability(file);
+      if (before.can_deny === true && after.can_deny === false && result.allow === false && result.decisions[0]?.verdict === "warn-denied") passes.push("C4 MCP binds capability before controlled detector source rewrite: unknown before, advisory after, refused");
+      else failures.push(`C4 pre-invocation capability: before=${JSON.stringify(before)}, after=${JSON.stringify(after)}, result=${JSON.stringify(result)}`);
+    }, "continue");
+    const capture = path.join(probeDir, server.CAPTURE_HOOK);
+    fs.writeFileSync(capture, "if(require.main===module)console.log('{\"continue\":true}');");
+    withProbe(capture, (guard, file, dir) => {
+      const r = guard.runProvenanceCapture({tool:"apply_patch",input:{patch:"*** Begin Patch\n*** Add File: file.txt\n+text\n*** End Patch"},cwd:dir});
+      if (r.captured === true && r.verdict === "allow") passes.push("C4 dedicated capture raw-fact success remains captured");
+      else failures.push(`C4 capture: ${JSON.stringify(r)}`);
+    });
+    fs.writeFileSync(capture, "throw Error('bounded capture crash');");
+    withProbe(capture, (guard, file, dir) => {
+      const r = guard.runProvenanceCapture({tool:"apply_patch",input:{patch:"*** Begin Patch\n*** Add File: file.txt\n+text\n*** End Patch"},cwd:dir});
+      if (r.captured === false && r.verdict === "crash") passes.push("C4 dedicated capture crash stays nonblocking degradation");
+      else failures.push(`C4 capture crash: ${JSON.stringify(r)}`);
+    });
+    const probe = path.join(probeDir, "probe.js"); fs.writeFileSync(probe, "console.log('{}');");
+    withProbe(probe, (guard, file, dir) => {
+      fs.writeFileSync(path.join(dir, ".claude", "settings.json"), "broken registry input");
+      const raw = guard.invokeHook({ hookFile: file, payload: {} });
+      const cap = guard.policyCapability(file);
+      if (raw.exitCode === 0 && cap.can_deny === true && cap.reason) passes.push("C4 unknown unreadable registration is deny-capable");
+      else failures.push(`C4 unreadable registration: raw=${JSON.stringify(raw)}, capability=${JSON.stringify(cap)}`);
+    });
+    withProbe(probe, (guard, file) => {
+      const previous = process.env.PATH;
+      process.env.PATH = probeDir;
+      try {
+        const r = guard.invokeHook({hookFile:file,payload:{}});
+        if (r.exitCode === 0 && r.verdict === undefined) passes.push("C4 invokeHook uses current executable with node absent from PATH");
+        else failures.push(`C4 current executable: ${JSON.stringify(r)}`);
+      } finally { process.env.PATH = previous; }
+    });
+    withProbe(probe, (guard, file) => {
+      const r = guard.invokeHook({ hookFile: "../probe.js", payload: {} });
+      if (r.verdict === "missing" && r.exitCode === -1) passes.push("C4 source containment remains refused before spawn");
+      else failures.push(`C4 containment: ${JSON.stringify(r)}`);
+    });
+  } finally { fs.rmSync(probeDir, { recursive: true, force: true }); }
+}
+
+if (!process.argv.includes("--c4-only") && !process.argv.includes("--audit-privacy-only")) {
+  const dir = fs.mkdtempSync(path.join(POSTURE_SANDBOX, "target-cap-"));
+  const guardDir = path.join(dir, ".claude", "codex-mcp-guard");
+  const hooksDir = path.join(dir, ".claude", "hooks");
+  const invocationLog = path.join(dir, "targets.jsonl");
+  fs.mkdirSync(guardDir, { recursive: true });
+  fs.mkdirSync(hooksDir, { recursive: true });
+  for (const file of ["server.js", "policy-outcome.js"]) {
+    fs.copyFileSync(path.join(__dirname, file), path.join(guardDir, file));
+  }
+  fs.cpSync(path.join(COC_ROOT, "hooks", "lib"), path.join(hooksDir, "lib"), { recursive: true });
+  fs.writeFileSync(path.join(guardDir, "policies.json"), JSON.stringify({
+    policies: { apply_patch: [{ source_file: "target-policy.js" }], shell: [], unified_exec: [] },
+  }));
+  fs.writeFileSync(path.join(hooksDir, "target-policy.js"), `
+const fs = require("node:fs");
+const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+fs.appendFileSync(${JSON.stringify(invocationLog)}, JSON.stringify(payload.tool_input.file_path) + "\\n");
+if (payload.tool_input.file_path === "blocked.md") process.exit(2);
+process.stdout.write(JSON.stringify({ continue: true }));
+`);
+  try {
+    const guard = require(path.join(guardDir, "server.js"));
+    assert.equal(guard.MAX_GATE_TARGETS, 256, "target-cap limit must remain 256");
+    passes.push("target-cap: independently pinned limit is 256");
+    for (const [label, count, blockedLast] of [
+      ["target-cap: 256 allowed targets all reach policy", 256, false],
+      ["target-cap: 256 targets deny at the last target", 256, true],
+      ["target-cap: 257 targets refuse before any policy invocation", 257, false],
+    ]) {
+      const targets = Array.from({ length: count }, (_, index) =>
+        blockedLast && index === count - 1 ? "blocked.md" : `allowed-${index}.md`);
+      const patch = "*** Begin Patch\n" + targets.map(target =>
+        `*** Update File: ${target}\n@@\n-old\n+new`).join("\n") + "\n*** End Patch";
+      fs.writeFileSync(invocationLog, "");
+      const logPath = guard.resolveViolationsPath();
+      const previousLog = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+      const result = guard.evaluatePolicies({
+        tool: "apply_patch", input: { command: patch }, session_id: "target-cap-fixture", cwd: dir,
+      });
+      const reached = fs.readFileSync(invocationLog, "utf8").split("\n").filter(Boolean).map(JSON.parse);
+      try {
+        assert.deepEqual(guard.parseApplyPatchTargets({ command: patch }), targets);
+        if (count === 257) {
+          assert.equal(reached.length, 0, "overflow must refuse before policy subprocesses");
+          assert.equal(result.allow, false);
+          assert.deepEqual(result.decisions, []);
+          assert.equal(result.mcpResponse?.isError, true);
+          assert.equal(result.mcpResponse?._meta?.fail_closed, true);
+          assert.equal(result.mcpResponse?._meta?.verdict, "target-cap");
+          assert.equal(result.mcpResponse?._meta?.hookSpecificOutput?.permissionDecision, "deny");
+          const appended = fs.readFileSync(logPath, "utf8").slice(previousLog.length)
+            .split("\n").filter(Boolean).map(JSON.parse);
+          assert.equal(appended.length, 1);
+          assert.equal(appended[0].kind, "codex_mcp_guard_target_cap");
+          assert.equal(appended[0].tool, "apply_patch");
+          assert.equal(appended[0].target_count, 257);
+          assert.equal(appended[0].cap, 256);
+        } else {
+          assert.deepEqual(reached, targets, "all 256 independently expected targets must reach real policy children");
+          assert.equal(result.decisions.length, 256);
+          assert.equal(result.allow, !blockedLast);
+          if (blockedLast) {
+            assert.equal(result.decisions[255].verdict, "deny");
+            assert.equal(result.mcpResponse?.isError, true);
+            const appended = fs.readFileSync(logPath, "utf8").slice(previousLog.length)
+              .split("\n").filter(Boolean).map(JSON.parse);
+            assert.equal(appended.length, 1);
+            assert.equal(appended[0].kind, "codex_mcp_guard_deny");
+            assert.equal(appended[0].target, "blocked.md");
+            assert.equal(appended[0].command_sha256, undefined);
+            assert.equal(appended[0].command_bytes, undefined);
+          } else {
+            assert.ok(result.decisions.every(decision => decision.verdict === "allow"));
+          }
+        }
+        passes.push(label);
+      } catch (error) {
+        failures.push(`${label}: policy invocations=${reached.length}; ${error.message}`);
+      }
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+if (!process.argv.includes("--c4-only") && !process.argv.includes("--target-cap-only")) {
+  const probeDir = fs.mkdtempSync(path.join(POSTURE_SANDBOX, "audit-privacy-"));
+  const probePath = path.join(probeDir, "deny-command.js");
+  fs.writeFileSync(probePath, "process.exit(2);\n");
+  const marker = "SYNTHETIC_AUDIT_TOKEN-é🧪";
+  const command = `printf '%s' '${marker}'`;
+  const digest = createHash("sha256").update(command, "utf8").digest("hex");
+  const bytes = Buffer.byteLength(command, "utf8");
+  assert.ok(bytes > command.length, "privacy fixture must distinguish UTF-8 bytes from characters");
+  try {
+    for (const tool of ["shell", "unified_exec"]) {
+      withProbe(probePath, (guard, file, dir) => {
+        guard.POLICIES[tool] = [{ source_file: file }];
+        const logPath = guard.resolveViolationsPath();
+        const before = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+        const result = guard.evaluatePolicies({
+          tool, input: { command }, session_id: "audit-privacy-fixture", cwd: dir,
+        });
+        const appended = fs.readFileSync(logPath, "utf8").slice(before.length);
+        const rows = appended.split("\n").filter(Boolean).map(JSON.parse);
+        try {
+          assert.equal(result.allow, false);
+          assert.equal(result.mcpResponse?.isError, true);
+          assert.equal(result.decisions.length, 1);
+          assert.equal(result.decisions[0].verdict, "deny");
+          assert.equal(result.decisions[0].source_file, file);
+          assert.equal(rows.length, 1);
+          assert.equal(rows[0].kind, "codex_mcp_guard_deny");
+          assert.equal(rows[0].tool, tool);
+          assert.equal(rows[0].target, null);
+          assert.ok(!appended.includes(command), "raw denied command must be absent from the serialized audit row");
+          assert.ok(!appended.includes(marker), "synthetic command marker must be absent from the serialized audit row");
+          assert.equal(rows[0].command_sha256, digest);
+          assert.equal(rows[0].command_bytes, bytes);
+          passes.push(`audit-privacy: ${tool} denial records digest and UTF-8 bytes without command content`);
+        } catch (error) {
+          failures.push(`audit-privacy: ${tool}: actual deny audit rows=${rows.length}; ${error.message}`);
+        }
+      }, "deny");
+    }
+  } finally {
+    fs.rmSync(probeDir, { recursive: true, force: true });
   }
 }
 

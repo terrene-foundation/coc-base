@@ -1120,7 +1120,7 @@ export function parseCliCaps(src) {
   return caps;
 }
 
-export function getCritBaseline() {
+export function getCritBaseline(sourceRoot = REPO) {
   // CRIT baseline = CANON rules with priority: 0 in frontmatter.
   // Empirically matches the per_rule_size_budget_bytes keys in the manifest.
   // NON-recursive by design: the `.claude/rules/local/` subtree (F-353 Item 4)
@@ -1128,7 +1128,7 @@ export function getCritBaseline() {
   // deployment-local rule (mechanism #1 — canon stays local-blind). Local
   // baseline rules are composed SEPARATELY (getLocalBaselineRules, below) so the
   // add-only overlay is additive, never a canon-baseline mutation.
-  const rulesDir = path.join(REPO, ".claude", "rules");
+  const rulesDir = path.join(sourceRoot, ".claude", "rules");
   const files = fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md") && !f.endsWith(".example.md"));
   const crit = [];
   for (const f of files) {
@@ -1828,7 +1828,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
   const budgetWarnings = [];
   const budgetBlockViolations = [];
 
-  if (cli === "codex") chunks.push("Read `.codex/rules-index.md` for canonical rule paths and scopes. Before editing or governed operations, load matching path-scoped rules and relevant unscoped rules; Codex does not inject their bodies automatically.");
+  if (cli === "codex") chunks.push("Read `CLAUDE.md` first. Resolve `rules/`, `skills/`, `commands/`, `agents/` under `.claude/`. Before edits or governed work, read `.codex/rules-index.md` and matching/unscoped bodies. Trusted native hooks load bodies for typed targets; otherwise read manually.");
 
   for (const rule of crit) {
     const { composed, warnings } = composeRule(rule, cli, lang);
@@ -2309,7 +2309,7 @@ export function validateRuleFrontmatter() {
     const prioMatch = body.match(/^priority:\s*(\d+)/m);
     const scopeMatch = body.match(/^scope:\s*(\w[\w-]*)/m);
     const hasPaths = /^paths:/m.test(body);
-    const excludeFromMatch = body.match(/^exclude_from:\s*\[([^\]]*)\]/m);
+    const excludeFromMatch = parseExcludeFrom(body).size > 0;
 
     if (!prioMatch) failures.push(`${f}: MISSING priority: field`);
     if (!scopeMatch) failures.push(`${f}: MISSING scope: field`);

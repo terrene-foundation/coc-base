@@ -169,6 +169,22 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/worktree-authz/nested-worktree-allow"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The only fs write is the one-shot override receipt, and it is a DELETE: lib/override-receipt.js unlinks it as it is honored, resolving candidates against BOTH the invoking tree and the main checkout. That delete is also why idempotent is false — with the receipt present, a repeat of the same payload BLOCKS where the first call allowed. spawns: the memoized git rev-parse probe that derives the containment boundaries (lib/event-git.js + lib/git-subprocess-env.js); no other subprocess."
+ * }
+ */
+
 const path = require("path");
 const fs = require("fs");
 const { execFileSync } = require("child_process");
@@ -188,6 +204,15 @@ const { readStdinBounded } = require(
 const { resolveGitBinary, gitEnv } = require(
   path.join(__dirname, "lib", "git-subprocess-env.js"),
 );
+const { askOnce, eventGitKey } = require(path.join(__dirname, "lib", "event-git.js"));
+
+// THE canonical `--git-common-dir` question (git-cache-design-memo.md §3.2 / §5.1 D1):
+// ONE argv for every asker of the shared git dir, so event-git's question key
+// collapses them to one spawn per event. This file used to ask it in its own
+// order (`--git-common-dir` FIRST), a key of its own; under the canonical order
+// the TOPLEVEL is line 0 and the common dir is line 1 — both VALUES are
+// byte-identical to the ones this call already read.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 // The two-channel audited override (§ OVERRIDE below) is SHARED, not local. It began here as
 // the only copy; `dispatch-contract-guard.js` needed the identical contract, and a second
 // hand-written copy would have been the third parser-duplication in this codebase. The four
@@ -477,40 +502,59 @@ function gitRoots() {
     return _gitRootsMemo;
   }
   try {
-    const out = execFileSync(
-      gitBin,
-      [
-        "rev-parse",
-        "--path-format=absolute",
-        "--git-common-dir",
-        "--show-toplevel",
-      ],
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: GIT_TIMEOUT_MS,
-        // A SYNC subprocess blocks the event loop, so the outer setTimeout
-        // cannot fire while it runs; SIGTERM-ignoring git would hold the hook
-        // until the host's own 5s kill (which fails open and would silently
-        // DROP an already-decided block). SIGKILL makes the bound real.
-        killSignal: "SIGKILL",
-        // Explicit minimal env built from constants — nothing inherited, so the
-        // whole `GIT_DIR`/`GIT_WORK_TREE`/`GIT_CONFIG_*` steering family is
-        // closed by construction rather than enumerated.
-        env: gitEnv(),
+    // ONE answer per distinct question per hook event (lib/event-git.js); no
+    // `cwd:` is passed, exactly as before — the question is asked about
+    // `process.cwd()`. Outside an event scope `askOnce` runs the probe directly.
+    const probe = askOnce(
+      eventGitKey({ gitBin, cwd: process.cwd(), args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+      () => {
+        try {
+          const out = execFileSync(
+            gitBin,
+            CANONICAL_COMMON_DIR_ARGS,
+            {
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+              timeout: GIT_TIMEOUT_MS,
+              // A SYNC subprocess blocks the event loop, so the outer setTimeout
+              // cannot fire while it runs; SIGTERM-ignoring git would hold the hook
+              // until the host's own 5s kill (which fails open and would silently
+              // DROP an already-decided block). SIGKILL makes the bound real.
+              killSignal: "SIGKILL",
+              // Explicit minimal env built from constants — nothing inherited, so the
+              // whole `GIT_DIR`/`GIT_WORK_TREE`/`GIT_CONFIG_*` steering family is
+              // closed by construction rather than enumerated.
+              env: gitEnv(),
+            },
+          );
+          return { ok: true, value: String(out) };
+        } catch (e) {
+          return { ok: false, reason: String((e && e.message) || e) };
+        }
       },
     );
-    const lines = String(out)
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const lines = probe.ok
+      ? String(probe.value || "")
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
     if (lines.length === 0) {
       _gitRootsMemo = null;
       return _gitRootsMemo;
     }
     _gitRootsMemo = {
-      mainTop: path.dirname(lines[0]), // shared .git's parent
-      invokingTop: lines[1] || null,
+      // Canonical order: toplevel first, the shared common dir LAST — in the shape
+      // that ANSWERS at all. What this comment used to claim ("a bare repo answers
+      // with the common dir alone") is FALSE (R2 L3, MEASURED 2026-10-07): in a
+      // bare repo the canonical argv FAILS — `fatal: this operation must be run
+      // in a work tree`, rc 128, NO output, because `--show-toplevel` aborts the
+      // whole invocation before `--git-common-dir` prints — so the probe returns
+      // !ok and this function returns null, and the caller above takes the
+      // FAIL-CLOSED `unresolvable-boundary` branch, never a one-line answer. The
+      // toplevel is line 0 only when it was printed at all.
+      mainTop: path.dirname(lines[lines.length - 1]),
+      invokingTop: lines.length >= 2 ? lines[0] : null,
     };
   } catch {
     _gitRootsMemo = null;

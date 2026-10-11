@@ -16,4 +16,4 @@ begin with a placeholder name.
 
 Allowlisted coordinates on the same surface MUST NOT mask the above:
 terrene-foundation/loom is the Foundation host and does not flag;
-/Users/me/repos/loom is the placeholder home and does not flag.
+{{FIXTURE_HOME_V1:MAC}}me/repos/loom is the placeholder home and does not flag.

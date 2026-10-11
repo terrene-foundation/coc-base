@@ -49,8 +49,8 @@ const REPO = path.resolve(__dirname, "..", "..", "..");
 // (legitimately) absent on a consumer. `fs` is still used below for the
 // existsSync overlay probes in resolveOverlay's callers.
 
-// Memoized parse — manifest does not change during one process run.
-let _manifestVariants = null;
+// Memoized parse keyed by root and manifest contents (.claude/bin/lib/variant-overlay.mjs:78-85).
+const _manifestVariants = new Map();
 
 // ────────────────────────────────────────────────────────────────
 // Narrow regex parse of the `variants:` block in sync-manifest.yaml.
@@ -65,8 +65,8 @@ let _manifestVariants = null;
 //       ...
 //   <next-top-level-key>:
 // ────────────────────────────────────────────────────────────────
-export function loadManifestVariants() {
-  if (_manifestVariants !== null) return _manifestVariants;
+export function loadManifestVariants(sourceRoot = REPO) {
+  const root = path.resolve(sourceRoot);
 
   // D1 DISTRIBUTION-DECLARATION (loom#1386). `variants:` declares which overlay
   // applies to which global artifact on which axis. A repo whose class FORBIDS
@@ -75,10 +75,15 @@ export function loadManifestVariants() {
   // absent from a present manifest. resolveOverlay then falls through to
   // path-mirror, which is the pre-existing behaviour for every (global, axis)
   // pair the manifest does not declare — not a new code path.
-  const src = readManifestSource(REPO);
+  const src = readManifestSource(root);
+  const cached = _manifestVariants.get(root);
+  if (cached?.source === src) return cached.map;
+  const remember = map => {
+    _manifestVariants.set(root, { source: src, map });
+    return map;
+  };
   if (src === null) {
-    _manifestVariants = new Map();
-    return _manifestVariants;
+    return remember(new Map());
   }
 
   // Extract the `variants:` block until the next top-level key OR EOF.
@@ -93,8 +98,7 @@ export function loadManifestVariants() {
   );
   const map = new Map();
   if (!blockMatch) {
-    _manifestVariants = map;
-    return map;
+    return remember(map);
   }
 
   const lines = blockMatch[1].split("\n");
@@ -136,8 +140,7 @@ export function loadManifestVariants() {
     }
   }
 
-  _manifestVariants = map;
-  return map;
+  return remember(map);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -169,8 +172,8 @@ export function loadManifestVariants() {
 //   - kind=path-mirror        → fs.existsSync(path) determines whether overlay
 //                               actually applies (legacy semantics).
 // ────────────────────────────────────────────────────────────────
-export function resolveOverlay(category, relPath, axis) {
-  const variants = loadManifestVariants();
+export function resolveOverlay(category, relPath, axis, sourceRoot = REPO) {
+  const variants = loadManifestVariants(sourceRoot);
   const key = `${category}/${relPath}`;
 
   if (variants.has(key)) {
@@ -181,7 +184,7 @@ export function resolveOverlay(category, relPath, axis) {
         return { kind: "manifest-null", path: null, destRelPath: relPath };
       }
       // Manifest values are paths relative to .claude/.
-      const overlayAbs = path.join(REPO, ".claude", declared);
+      const overlayAbs = path.join(sourceRoot, ".claude", declared);
       const overlayBase = path.basename(declared);
       const globalBase = path.basename(relPath);
       let destRelPath = relPath;
@@ -195,11 +198,11 @@ export function resolveOverlay(category, relPath, axis) {
   }
 
   // Path-mirror fallback.
-  const mirror = path.join(REPO, ".claude", "variants", axis, category, relPath);
+  const mirror = path.join(sourceRoot, ".claude", "variants", axis, category, relPath);
   return { kind: "path-mirror", path: mirror, destRelPath: relPath };
 }
 
 // Test-only: clear memoized cache (used by audit fixtures).
 export function _resetManifestCache() {
-  _manifestVariants = null;
+  _manifestVariants.clear();
 }

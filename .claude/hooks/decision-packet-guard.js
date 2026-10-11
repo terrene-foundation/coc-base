@@ -78,6 +78,20 @@
  * decision-packet PostToolUse(Write) scanner ships with fixtures."
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "WRITES NOTHING, READS NOTHING FROM DISK — the content arrives in the payload and lib/decision-packet.js is pure; the only I/O is the bounded stdin read."
+ * }
+ */
+
 "use strict";
 
 // Bounded fallback per `cc-artifacts.md` Rule 7, deliberately under the registered

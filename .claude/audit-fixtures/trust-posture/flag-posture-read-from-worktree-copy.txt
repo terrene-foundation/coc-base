@@ -8,8 +8,8 @@ cut, so work in there.
 Starting in the lane worktree.
 
   $ pwd -P ; git rev-parse --show-toplevel
-  /Users/alice/repos/.orbit-wt/rate-limit
-  /Users/alice/repos/.orbit-wt/rate-limit
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/.orbit-wt/rate-limit
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/.orbit-wt/rate-limit
 
   $ git branch --show-current
   feat/rate-limit-headers

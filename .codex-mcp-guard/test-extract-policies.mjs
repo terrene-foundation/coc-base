@@ -16,6 +16,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
 import { extractPolicies } from "./extract-policies.mjs";
@@ -102,11 +104,48 @@ for (const [id, got] of actualById) {
   );
 }
 
+let capabilityControls = 0;
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-extractor-capability-"));
+  const hooks = path.join(dir, "hooks"); fs.mkdirSync(hooks);
+  const settingsPath = path.join(dir, "settings.json");
+  const cases = [
+    ["known deny pair", "deny", "function gate() { process.exit(2); }", true, false],
+    ["known advisory pair", "continue", "function gate() { process.exit(1); }", false, false],
+    ["registry denies but source advisory drift", "deny", "function gate() { process.exit(1); }", true, true],
+    ["registry advisory but source denies drift", "continue", "function gate() { process.exit(2); }", true, true],
+    ["missing declaration defaults true", undefined, "function gate() { process.exit(1); }", true, false],
+    ["unknown declaration defaults true", "unknown", "function gate() { process.exit(1); }", true, false],
+    ["top-level deny scan", "deny", "process.exit(2);", true, false],
+    ["indirect output remains unknown", "continue", "function emitDecision(v) { console.log(JSON.stringify(v)); } emitDecision({hookSpecificOutput:{permissionDecision:['de','ny'].join('')}});", true, false],
+    ["computed severity remains unknown", "continue", "const level=['blo','ck'].join(''); const result={severity:level}; emit(result);", true, false],
+  ];
+  try {
+    for (const [label, declaration, source, canDeny, drift] of cases) {
+      fs.writeFileSync(path.join(hooks, "probe.js"), source);
+      const descriptor = { type: "command", command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/probe.js"' };
+      if (declaration !== undefined) descriptor.on_incomplete = declaration;
+      fs.writeFileSync(path.join(hooks, "dispatch-registry.json"), JSON.stringify({schema:1,events:{PreToolUse:{dispatcher:{timeout:270},groups:[{matcher:"Bash",hooks:[descriptor]}]}}}));
+      fs.writeFileSync(settingsPath, JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:"command",command:'node "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js" PreToolUse'}]}]}}));
+      try {
+        if (drift) assert.throws(() => extractPolicies(hooks, { settingsPath }), error => error.code === "capability-drift");
+        else {
+          const extracted = extractPolicies(hooks, { settingsPath });
+          assert.equal(extracted.policies.shell[0].can_deny, canDeny);
+          assert.equal(extracted.policies.unified_exec[0].can_deny, canDeny);
+        }
+        capabilityControls++; process.stdout.write(`PASS C4 extraction ${label}\n`);
+      } catch (error) { failures.push(`C4 ${label}: ${error.message}`); }
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 // ────────────────────────────────────────────────────────────────
 // Report
 // ────────────────────────────────────────────────────────────────
 if (failures.length === 0) {
   const count = expected.fixtures.length;
+  process.stdout.write(`PASS C4 capability controls: ${capabilityControls}/${capabilityControls}\n`);
   process.stdout.write(
     `PASS  validator-13 extractor: ${count}/${count} predicates match (${expected.fixtures.map((f) => f.shape).join(", ")}).\n`,
   );

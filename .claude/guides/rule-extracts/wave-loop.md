@@ -37,7 +37,7 @@ steps stated at length.
 
 | Step                                        | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Reuses                                                                           |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| **G1 — redteam to convergence**             | `/redteam` scoped to THIS wave's shards, to full Convergence Criteria (`commands/redteam.md` § Convergence Criteria) — which REQUIRE a ratified acceptance list to predate the wave's first round and treat the round cap as a circuit breaker, never a completion (`rules/completion-criterion.md` MUST-1/MUST-4) — posture-invariant — convergence is on **BUG + INVEST-NOW findings only** (`commands/redteam.md` § Category-Based Finding Triage / `rules/product-completion-first.md`); INCREMENTAL findings accrete to the deferred-quality backlog carried to the terminal `/sweep`, and do NOT reset the wave's clean-round counter                                                                                                                                     | `/redteam` + `agents.md` § Redteam Reviewer Dispatch (criterion-3 evidence gate) |
+| **G1 — redteam to convergence**             | `/redteam` scoped to THIS wave's shards, to full Convergence Criteria (`commands/redteam.md` § Convergence Criteria) — which REQUIRE a ratified acceptance list to predate the wave's first round (`rules/completion-criterion.md` MUST-1) — posture-invariant, run under D237's stop rule: **Round 1 clean = review ends**; otherwise fix, then Round 2 reviews ONLY the fixes plus their blast radius (same reviewer composition), then review ends (one extra Round 3 only for a small security-critical fix's delta; never a Round 4); when review ends, every remaining finding of ANY severity is ledgered and none is dropped — a finding that leaves NO residual risk on a shipped path is deferred with its reason, carried to the terminal `/sweep`                                                                                                                                     | `/redteam` + `agents.md` § Redteam Reviewer Dispatch (criterion-3 evidence gate) |
 | **G2 — capture the learning (LIGHTWEIGHT)** | Record the delta between what the wave's todos CLAIMED and what its redteam FOUND (misunderstanding, plan-drift, spec-divergence) as a journal `DISCOVERY`/`GAP` + a first-instance spec update **+ a `.session-notes` refresh** (a wave boundary IS a close-out — the `/wrapup` contract runs WITH the wave-close, staged into the wave-close commit, NOT as a separate manual `/wrapup`), and the per-wave refresh MUST update the wave-tracker file (`commands/wrapup.md` § Wave tracker) so a `/clear`-resumed session does not re-launch a still-running agent or redo a merged wave. **Full `/codify` is RESERVED for genuinely cross-project learnings — NOT run every wave** (avoids N codify-lease/PR cycles per project per `rules/knowledge-convergence.md` MUST-3). | `commands/journal.md`; `commands/wrapup.md`; `rules/specs-authority.md` Rule 5   |
 | **G3 — update specs + remaining todos**     | First-instance spec update + sibling re-derivation sweep; amend UNSTARTED later-wave todos for version/symbol/signature drift the wave caused                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `rules/specs-authority.md` Rule 5/5b/5c                                          |
 | **G4 — re-value-rank**                      | Re-rank the remaining waves and re-validate every deferred value-anchor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `rules/value-prioritization.md` MUST-1 + MUST-3                                  |
@@ -48,7 +48,7 @@ steps stated at length.
 ```markdown
 # DO — gate fires, learning feeds forward, THEN next wave
 
-Wave 1 complete → G1 /redteam converges (2 clean) → G2 journal GAP "plan assumed sync
+Wave 1 complete → G1 /redteam runs to review end (Round 1 clean) → G2 journal GAP "plan assumed sync
 API, service is async" → G3 spec + Wave-2 todos amended to async → G4 re-rank → G5 launch
 
 # DO NOT — drain todos/active across the boundary with no gate
@@ -234,7 +234,7 @@ pass; `coverage_asserted` in `--json` is the discriminator, per the
 
 Everything below was moved VERBATIM out of `.claude/rules/wave-loop.md` on 2026-08-19 to hold
 that rule's path-scoped injection budget (`.claude/bin/check-rule-injection-budget.mjs`,
-`loom-command-edit` + `workspace-note` profiles). It is EVIDENCE, RUNNABLE DETAIL, MEASURED
+`codify-edit` + `workspace-note` profiles). It is EVIDENCE, RUNNABLE DETAIL, MEASURED
 NARRATIVE and PER-INSTANCE PROVENANCE only — no MUST, MUST NOT, BLOCKED entry, DO/DO-NOT block
 or `**Why:**` line left the rule. `rule-authoring.md` Rule 10 / Rule 11 do NOT fire on it:
 Rule 10 § "Trigger scope" limits both to `priority: 0` + `scope: baseline` rules and
@@ -295,8 +295,9 @@ The rule's § Distinct From keeps the DISTINCT-FROM boundary and the list of com
 per-clause map naming WHICH section of each is reused where, verbatim:
 
 - **Composes with (does not restate):** `commands/redteam.md` § Convergence Criteria (G1/
-  MUST-3) — incl. criterion 3's errored-reviewer evidence-gate; `rules/agents.md` § "Redteam
-  Reviewer Dispatch — Errored/Empty Is Zero Evidence" (the G1 evidence-gate MUST-3 binds) +
+  MUST-3) — incl. its evidence gate ("clean" = no CRITICAL/HIGH; a reviewer counts only if it
+  genuinely ran); `rules/agents.md` § "Redteam
+  Reviewer Dispatch — Errored Is Never A Clean Round" (the G1 evidence-gate MUST-3 binds) +
   § The Default Execution Mode Is The Triad (G5/serial carve-out);
   `rules/value-prioritization.md` MUST-1+3 (G4 + later-wave re-validation);
   `rules/specs-authority.md` Rule 5/5b/5c (G2/G3); `rules/autonomous-execution.md` §
@@ -628,3 +629,149 @@ rule body.
   and the design-provenance parenthetical "(the 9-agent authoring workflow, the meta-ablation
   test, which MUSTs are load-bearing vs reference-bindings)" — all of which the § Origin and
   § Length-rationale sections above already carry in full.
+
+---
+
+# Structural-cleanup extraction — 2026-10-08 (rule-injection budget)
+
+Relocated VERBATIM from `.claude/rules/wave-loop.md` to hold that rule's path-scoped injection
+budget. No obligation left the rule: every `### ` heading, `- **BLOCKED rationalizations:**`
+bullet, `**Why:**` line, canonical Wiring field bullet and resolving path citation stays in the
+body, and every removed passage below is exposition the rule now reaches through its own pointer.
+
+## MUST-3 — the round-composition and residual-scope exposition
+
+> (callers of changed code, same-class sibling sites), with the SAME reviewer composition as Round 1; then review ends. One extra **Round 3** only for a small security-critical fix's delta (same composition); a residual CRITICAL/HIGH after Round 3 goes to the OWNER
+
+> (Criterion 3 rule 1's class, including ANY trust boundary)
+
+> by the agent so the wave can land
+
+The rewrite keeps, in the rule body: **Round 1 clean = review ends**, the **paired round 1** rule,
+**never a Round 4**, the when-review-ends LEDGER sentence, the security-critical/HIGH residual
+owner-acceptance-before-landing sentence, the provisional-acceptance-with-named-acceptor rule, and
+the errored-reviewer evidence gate. It also RESTORES the `rules/product-completion-first.md`
+citation in MUST-3, which the D237 edit had dropped (the `check-descoping.mjs` `citation_descoping`
+finding on this rule).
+
+## MUST-8 — the `**Why:**` tail
+
+> A machine-readable per-surface SHA converts divergence into a reported state, and a lease with an author, a release condition and a calendar backstop turns "the freeze lifts when someone remembers" into a finding.
+
+## Preamble — the re-entrancy framing
+
+> it adds NO new phase and makes the existing `redteam → codify → (re-)todos → implement` loop **re-entrant per milestone-group**.
+
+The rule body keeps the re-entrancy claim and the resolving pointer to § "Preamble — the
+terminal-verification design" above.
+
+## MUST-7(b) — the partial-read framing
+
+> read makes the item look SHORTER than it is, and the measurement of both partial poles on `gh` 2.x
+
+## MUST-9 wiring — the named-deviation framing
+
+> Named deviation from the key-per-clause shape, recorded here per `trust-posture.md` Rule 8
+
+## MUST-6/7 wiring — the fleet-drain detector wording
+
+> and emits `halt-and-report`. It is BOUNDED and does not over-claim what is armed: it
+
+## Extraction record — the Rule 10 / Rule 11 disposition wording
+
+> `priority: 0` + `scope: baseline` rules and this rule is `scope: path-scoped`, so these are STRUCTURAL-CLEANUP extractions, NOT Rule-10 paired extractions and NOT Rule-11 recurrence input (the disposition `journal/0148` recorded).
+
+## Second batch — 2026-10-08 (same extraction, further budget rounds)
+
+Same disposition and same constraints as the block above: verbatim removals only, every `### `
+heading, `- **BLOCKED rationalizations:**` bullet, `**Why:**` line, canonical Wiring field bullet
+and resolving path citation left in the rule body, and no MUST / MUST NOT / BLOCKED occurrence
+lost (the gate counts those; `check-descoping.mjs` reports CLEAN on this rule at the extracted
+head).
+
+**Preamble / MUST-1 framing:**
+
+> Framing in full, and what the gate REUSES unchanged rather than restating:
+
+> gate between
+> milestone-groups**, adding NO new phase and making that loop **re-entrant per milestone-group**.
+
+> one-milestone/one-convergence-surface
+> justification — NEVER the silent absence of a declaration. A multi-shard plan that declares
+> no wave sequence, OR that collapses
+
+> The value axis alone lets a value-coherent high-invariant wave
+> overflow invisibly; the invariant axis alone lets a low-invariant whole-project wave defer to
+> the end.
+
+**MUST-2 / G-list:**
+
+> Round 1 clean = review ends; otherwise fix, then Round 2 over the fixes plus their blast
+> radius, then review ends.
+
+> amend UNSTARTED later-wave todos for drift the wave caused.
+
+**MUST-3:**
+
+> security-critical wave uses a **paired round 1** — correctness + adversarial security, in
+
+**MUST-7(b):**
+
+> The measurement
+> of both partial poles on `gh` 2.x, and how a partial read makes the item look SHORTER than it is
+
+**MUST-8 `**Why:**` tail:**
+
+> with a blast radius covering every operator who was never party to the wave.
+
+**Trust Posture Wiring (base block) — checklist + probe narrative:**
+
+> , in five checks:
+
+> workspace, the four receipt checks
+
+> the MUST-3 evidence-gate.
+
+> candidates at `.claude/audit-fixtures/wave-loop/`.
+
+> check (0), the declaration check — the only half a detector can decide.
+
+> the workspace journal for a per-wave-boundary convergence receipt
+
+**Clause-scoped wiring — MUST-6/7:**
+
+> Named deviation
+> from the canonical key-per-clause shape, recorded here per `rules/trust-posture.md` Rule 8.
+
+> BOUNDED and does not over-claim what is armed — it
+
+**Clause-scoped wiring — MUST-8:**
+
+> Named deviation from the canonical key-per-clause form, recorded here per
+> `rules/trust-posture.md` Rule 8, on the same reasoning MUST-6/7 recorded.
+
+> reviewer confirm a multi-surface wave carried a ledger, that every surface row is pinned to
+> a full SHA, that any divergence names a human acceptor, and that any freeze was a recorded
+
+> (UNRUN, explicitly NOT a pass)
+
+> `MUST-8-firing` bipolar pair in `.claude/test-harness/probes/wave-loop.probes.json`, candidates
+> at `.claude/audit-fixtures/wave-loop/`; the superseded "no probe suite ships for this clause"
+> reading is corrected in place, because a Wiring row asserting an absent tier is the
+> absence-reads-as-clean shape this rule's own MUST-5 governs.
+
+**Clause-scoped wiring — MUST-9:**
+
+> reviewer inspects any session that landed a multi-shard wave and confirms (a)
+
+> `MUST-9-firing` bipolar pair in `.claude/test-harness/probes/wave-loop.probes.json`, dispatched at gate-review via `/test-harness-probe`.
+
+**Distinct From / Origin / Extraction record:**
+
+> roster, and the per-clause map naming WHICH section of each is reused where:
+
+> co-owner-directed origination (`journal/0543`) added MUST-6 + MUST-7 + the G2 wave-tracker
+> refresh line + their clause-scoped 8-field wiring.
+
+> the design provenance and the
+> length-rationale enumeration moved VERBATIM to

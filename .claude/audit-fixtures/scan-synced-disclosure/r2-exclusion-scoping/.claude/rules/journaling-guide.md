@@ -12,6 +12,6 @@ accepted-history. The synthetic leak below MUST flag (proving the
 over-exclusion is gone):
 
 The nightly build ran on Fakename-MacStudio at
-/Users/otheroperator/repos/loom for the regression sweep.
+{{FIXTURE_HOME_V1:MAC}}otheroperator/repos/loom for the regression sweep.
 
 All tokens SYNTHETIC and invented for this fixture.

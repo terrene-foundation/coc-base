@@ -81,6 +81,20 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/fleet-drain/<session-id>-<sha8>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git","ps"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes through lib/state-resolver.js::requireMainCheckout and the ledger read (lib/dispatch-ledger.js). The one write is the per-session dedupe marker appended through lib/append-sink.js; it is keyed on the measured signature plus the fleet epoch, so a repeat on the same state writes nothing and a changed fleet reports again. Advisory renders to stdout via lib/instruct-and-wait.js."
+ * }
+ */
+
 // Bounded timer per `cc-artifacts.md` Rule 7, under the registered 5s timeout so this hook's own
 // fallback fires first and shutdown is never held up.
 const TIMEOUT_MS = 4000;
