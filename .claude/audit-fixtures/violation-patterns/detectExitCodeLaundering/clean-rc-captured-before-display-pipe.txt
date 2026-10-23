@@ -1,0 +1,1 @@
+node .claude/bin/registration-preflight.mjs > /tmp/o.txt 2>&1; echo "rc=$?"; grep FAIL /tmp/o.txt | tee /tmp/y.txt

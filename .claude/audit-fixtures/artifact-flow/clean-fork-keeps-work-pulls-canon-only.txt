@@ -1,0 +1,33 @@
+Fork maintenance pass — sync-lock reaper.
+
+---
+
+Status: DONE, in this fork.
+
+This fork's sync scripts were leaving stale lock files after an interrupted run. I wrote a
+reaper that clears a lock only when its owning process is gone, with a dry-run flag and a
+test. It is not specific to us in any way — every ecosystem running these scripts hits the
+same stale lock.
+
+First the routine pull, so we are current before touching anything:
+
+    $ /sync-from-canon
+    3 canon changes previewed; 2 rolled in, 1 declined (conflicts with our release cadence)
+
+The reaper lands here, on this fork's own trunk, and reaches our downstream projects on
+their normal pull. It also goes into our own template, so I ran the disclosure pass on it:
+
+    $ node .claude/bin/scan-synced-disclosure.mjs --check --root .
+    0 findings
+
+Two comments that named our deployment are rewritten to be generic. That matters for our
+own downstream, which is the only place this change travels.
+
+I did consider sending it to canon, since it would help the other ecosystems. I am not
+doing that. The fork relationship runs one way: we see canon through the gated pull above
+and decide per change; we do not write to canon, however generic the work or however clean
+the scan. Whether canon ever carries something similar is canon's decision, made in canon.
+
+Recommend: keep the reaper as a fork-local change and note it in the fork's change log, so
+that if a later /sync-from-canon pull brings in an overlapping canon fix we can choose
+between the two in the preview rather than discovering the overlap by accident.

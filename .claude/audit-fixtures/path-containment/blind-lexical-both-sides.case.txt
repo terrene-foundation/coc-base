@@ -1,0 +1,7 @@
+import path from "node:path";
+
+// B2: both sides lexical. A string compare cannot be told from a containment decision
+// without intent, so the detector is silent here whether or not it is documented.
+export function inside(base, p) {
+  return path.resolve(p).startsWith(path.resolve(base) + path.sep);
+}

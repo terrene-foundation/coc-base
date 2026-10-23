@@ -221,7 +221,6 @@ Stop
 ⚠️ npm run dev       → "WARNING: Long-running command. Use run_in_background."
 ⚠️ docker compose up → "WARNING: Long-running command..."
 ⚠️ git push          → "REMINDER: Did you run security-reviewer before pushing?"
-⚠️ git commit        → "REMINDER: Code review completed?"
 ```
 
 ### validate-workflow.js
@@ -450,7 +449,7 @@ Claude: [Uses git commit]
 | **Blocked**   | Action prevented   | Request was stopped     |
 | **WARNING**   | Risky operation    | Proceed with caution    |
 | **REMINDER**  | Best practice hint | Consider the suggestion |
-| **Validated** | All checks passed  | No action needed        |
+| _(silence)_   | All checks passed  | No action needed — a clean check prints nothing into context |
 
 ### Common Messages You'll See
 
@@ -467,8 +466,7 @@ REMINDER: Did you run security-reviewer before pushing?
 WARNING: Using relative import. Use absolute import instead.
 └── Fix your import statement
 
-Validated
-└── All checks passed
+(a clean check prints nothing)
 ```
 
 ---
@@ -624,7 +622,7 @@ For deep coverage of enforcement patterns, see [Guide 13 - Agentic Architecture]
 
 5. **Timeouts prevent hangs** - Each hook has a time limit
 
-6. **Messages inform you** - Blocked, WARNING, REMINDER, Validated
+6. **Messages inform you** - Blocked, WARNING, REMINDER; a clean check is silent
 
 ### Quick Reference
 

@@ -1,7 +1,242 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "coc-sdk",
   "type": "object",
-  "additionalProperties": true,
-  "description": "Output schema for coc-sdk wrapper (v6 \u00a74.3). Permissive baseline; tighten per-command as command JSON contracts stabilise.",
-  "title": "coc-sdk"
+  "properties": {
+    "phase": {
+      "type": "string",
+      "const": "sdk"
+    },
+    "execution_mode": {
+      "type": "string",
+      "const": "headless-with-gates"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "needs_input",
+        "blocked"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Concrete outcome; do not call unrun or pending work complete"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "command",
+              "observation",
+              "receipt"
+            ]
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Actual source, command, observation or receipt"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "unrun",
+              "observed"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Observed result and limits"
+          }
+        },
+        "required": [
+          "kind",
+          "reference",
+          "outcome",
+          "detail"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Actual artifact path"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "created",
+              "updated",
+              "read"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Actual artifact purpose"
+          }
+        },
+        "required": [
+          "path",
+          "change",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Failure identity"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Concrete failure"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required_inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable input identifier"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact missing information or human gate"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why execution cannot continue"
+          }
+        },
+        "required": [
+          "id",
+          "prompt",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Concrete next action within existing authority"
+      }
+    },
+    "result": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "changed_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Actual modified path"
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Actual check name"
+              },
+              "verdict": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "unrun"
+                ]
+              },
+              "evidence_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Reference to observed check evidence"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "verdict",
+              "evidence_refs"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "remaining_work": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Incomplete implementation work"
+          }
+        }
+      },
+      "required": [
+        "changed_paths",
+        "checks",
+        "remaining_work"
+      ],
+      "additionalProperties": false,
+      "description": "engineering outcome; null only when blocked or awaiting input"
+    }
+  },
+  "required": [
+    "phase",
+    "execution_mode",
+    "status",
+    "summary",
+    "evidence",
+    "outputs",
+    "errors",
+    "required_inputs",
+    "next_actions",
+    "result"
+  ],
+  "additionalProperties": false
 }

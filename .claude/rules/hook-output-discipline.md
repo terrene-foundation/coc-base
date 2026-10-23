@@ -4,7 +4,9 @@ scope: path-scoped
 paths:
   - "**/.claude/hooks/**"
   - "**/.claude/variants/**/hooks/**"
-  - "**/.claude/test-harness/**"
+  - "**/.claude/audit-fixtures/{violation-patterns,hook-output-discipline,variant-hook-output-discipline}/**"
+  - "**/.claude/test-harness/probes/hook-output-discipline.probes.json"
+  - "**/.claude/test-harness/tests/refusal-delivery-channel.test.mjs"
 ---
 
 # Hook Output Discipline — No Raw exit(2)
@@ -22,6 +24,8 @@ Pairs with `cc-artifacts.md` Rule 7 (timeout fallback), `trust-posture.md` § "T
 ### 1. Every Halting Hook MUST Emit The Full instructAndWait Shape
 
 Any hook that returns `continue: false` (PostToolUse / UserPromptSubmit / SessionStart) OR exits with code `2` (PreToolUse only) MUST construct its output via `lib/instruct-and-wait.js::emit()` with all six fields populated: `severity`, `what_happened`, `why`, `agent_must_report` (≥1 entry), `agent_must_wait`, `user_summary`. Raw `process.exit(2)` and bare `process.stdout.write(JSON.stringify({continue: false}))` are BLOCKED.
+
+**Compact render (journal/0661).** The six fields are the RECORD, not the context payload. When a session resolves, every NON-DENY finding renders in context as ONE line — rule id, fate, `user_summary` (≤160 chars), a pointer to the full body in `.claude/learning/hook-findings/<session>.md` — and an unchanged repeat within the session renders a one-line stub (non-Stop) or nothing (non-refusing Stop). A deny (block at a non-STOP_LIKE event) keeps the full body; no block, deny or refusal decision depends on the render. Hand-rolling a long-form payload to bypass the compact render is BLOCKED.
 
 ```javascript
 // DO — emit() populates the canonical shape, agent gets actionable report
@@ -192,20 +196,11 @@ function detectRepoScopeDriftBash(command, cwd) {
 
 Any detector inspecting shell command strings (`payload.tool_input.command` from PreToolUse/PostToolUse Bash) MUST skip captured groups that reference unexpanded shell variables: `$VAR`, `${VAR}`, `$(...)`, `` `...` ``. The skip is a structural NULL — return `null` before evaluating the captured value, do NOT downgrade to advisory or attempt to expand.
 
-```javascript
-// DO — skip when captured group references shell variable
-const m = command.match(/\bgh\b[^|;]*--repo\s+([^\s]+)/);
-if (!m) return null;
-const targetRepo = m[1];
-// Pre-expansion shell variable cannot be evaluated at hook invocation time.
-if (/^\$\{?\w+\}?$/.test(targetRepo) || /\$\(/.test(targetRepo) || /`/.test(targetRepo)) {
-  return null;
-}
-// ... proceed with literal-string comparison
+Depth: `.claude/guides/rule-extracts/hook-output-discipline.md` § MUST-3.
 
-// DO NOT — evaluate the literal "$REPO" string against cwd basename
-const cwdBase = path.basename(cwd);
-if (!targetRepo.includes(cwdBase)) return { severity: "block", ... };  // false positive
+```text
+# DO — skip shell variables.
+# DO NOT — compare "$REPO" literally.
 ```
 
 **BLOCKED rationalizations:**
@@ -223,17 +218,11 @@ if (!targetRepo.includes(cwdBase)) return { severity: "block", ... };  // false 
 Every detector function in `.claude/hooks/lib/violation-patterns.js` MUST ship with at least one committed fixture per scope-restriction predicate it relies on, under `.claude/audit-fixtures/violation-patterns/<detector>/`. Fixtures cover: (a) clean input that MUST NOT flag, (b) flagging input that MUST flag, (c) for command-string detectors, at least one shell-variable input that MUST NOT flag (Rule 3 enforcement). Per `cc-artifacts.md` Rule 9 — fixtures are mechanical regression locks for scope-restriction predicates.
 
 ```text
-# DO — fixture set covers the three predicate classes
-.claude/audit-fixtures/violation-patterns/detectRepoScopeDriftBash/
-  clean-current-repo.txt              ← "gh issue list --repo current-org/current-repo"; expects null
-  flag-explicit-other-repo.txt        ← "gh issue list --repo other-org/other-repo"; expects halt-and-report
-  skip-shell-variable.txt             ← "gh issue list --repo \"$REPO\""; expects null (Rule 3)
-  skip-command-substitution.txt       ← "gh issue list --repo $(gh repo view -q .nameWithOwner)"; expects null
-
-# DO NOT — only happy-path fixture; shell-variable regression silently re-introduced
-.claude/audit-fixtures/violation-patterns/detectRepoScopeDriftBash/
-  flag-explicit-other-repo.txt
+# DO — commit clean, flagging, and shell-variable cases.
+# DO NOT — cover only the happy path.
 ```
+
+Layout example: companion extract § MUST-4.
 
 **BLOCKED rationalizations:**
 
@@ -254,39 +243,11 @@ MUST-2 governs what a lexical signal may not CARRY. This is its other half — w
 
 **The discriminator is the PROPOSITION, not the technique.** String matching is not the defect. A check asserting that a LITERAL token is absent from an enumerated file set is exact and structural however it is spelled. A check inferring intent, adequacy, or completeness from prose is not, however carefully its regex is written. Ask what the check ASSERTS, then ask whether a rewrite preserving the meaning changes the answer.
 
-```javascript
-// DO — dispatch on the parsed subcommand POSITION; the verb is where the grammar puts it
-for (const g of parseGitInvocations(cmd)) {
-  if (
-    FENCED.has(g.sub) &&
-    !isNonMutating(g.argv, VALUE_FLAGS[g.sub], NON_MUTATING[g.sub])
-  )
-    return {
-      rule_id: "trust-posture/L3",
-      severity: "block",
-      evidence: `parsed verb: git ${g.sub}`,
-    };
-}
+Depth: `.claude/guides/rule-extracts/hook-output-discipline.md` § MUST-5.
 
-// DO — a lexical PROPOSITION, exactly determinable: is this literal token present in this file set?
-if (publishedFiles.some((f) => read(f).includes(PRIVATE_TOKEN)))
-  return {
-    rule_id: "artifact-flow/disclosure",
-    severity: "block",
-    evidence: `token in ${f}`,
-  };
-
-// DO NOT — regex over the joined string, then `block`
-if (/\bgit\s+commit(?![\w-])/.test(cmd))
-  return { severity: "block", evidence: cmd };
-// `git -C /other/repo commit` walks straight through; `echo "git commit -m x"` fires it.
-
-// DO NOT — "repair" the regex by scanning the SAME joined string for a non-mutating marker
-if (/\bgit\s+commit/.test(cmd) && !/--dry-run|--help|-n/.test(cmd))
-  return { severity: "block", evidence: cmd };
-// `git commit -m "fix the --dry-run bug"` now passes — the flag-shaped token was a flag's VALUE;
-// and `-n` is `--no-verify` on commit (which COMMITS) but `--dry-run` on push, so one shared
-// marker list gets exactly one of the two wrong, in the dangerous direction.
+```text
+# DO — parse the subcommand.
+# DO NOT — block on joined-string regex.
 ```
 
 **BLOCKED rationalizations:**
@@ -330,6 +291,8 @@ if (severity === "block") refuse()      ·      {"continue":false,"reason":…}
 
 MUST-1 fixes WHAT a halting hook reports. This fixes HOW that report reaches anyone. Every rendered payload carrying `agent_must_report` MUST also carry the delivery instruction — and it MUST be true for BOTH readers of the one renderer: a **SUBAGENT**, whose "user" is its **ORCHESTRATOR**, reachable only by a `SendMessage` tool call; and the **TOP-LEVEL session**, whose user is the human reading the terminal, for whom the reply message is the channel and a `SendMessage` would be addressed to nobody. Write it as a self-classifying pair — the agent always knows whether another agent launched it — so exactly one branch applies and both are literally true. A bare "report to user" is BLOCKED: it is unactionable for the subagent, who cannot deliver by writing.
 
+**Routing — the AGENT resolves, the human gets only escalations (journal/0661).** A finding the agent can clear is delivered TO THE AGENT as work: at `Stop` through the bounded MUST-6 refusal where the hook has opted in, otherwise QUEUED and delivered at the next `UserPromptSubmit` (`lib/hook-findings.js::drainForAgent`) — a Stop `systemMessage` reaches only the human and never the model, so routing an agent-clearable finding there is BLOCKED. Only an `escalate` class (`security`, `disclosure`, `cross-repo`, `owner-only`, `destructive`, `structural-gate`) also reaches the human, as ONE line. The compact channel line (`COMPACT_AGENT_CHANNEL` / `compactEscalateChannel`) is the short form of the obligation below; findings about lanes/worktrees this session never touched render as ONE count line (`lib/session-ownership.js`).
+
 The obligation is discharged by `instruct-and-wait.js::DELIVERY_INSTRUCTION`, rendered by the ONE shared renderer MUST-1 already routes every halting hook through. Hand-writing a per-hook variant is BLOCKED (`security.md` § Enforcement-Surface Parity — one shared function, never N copies that drift), as is emitting a report with no channel.
 
 ```javascript
@@ -369,6 +332,8 @@ process.stdout.write(
 
 Containment is not authentication. A hook that suppresses its own repeat output — "have I already said this?" — stores that decision in-tree at a path that is a **pure function of `session_id`**, over a signature space small enough to ENUMERATE: `delegation-default`'s `ADVISE:<n>:<n>` and `fleet-drain`'s `SESSION-VOLUME:<n>:<n>` are each a two-small-integer product. Anyone who can write the repo can therefore pre-plant a marker the hook reads as its own, and the hook goes silent.
 
+The compact-render state (`lib/hook-findings.js` seen/queue rows, `lib/session-ownership.js` cursor) is the same class, and OPEN exactly as the markers above are: a planted row can turn a non-Stop finding into a one-line stub, a NON-refusing Stop finding into SILENCE (not queued), inject a ≤600-char line into the agent's next prompt (a planted queue row), and turn an owned tree into a count line — which also drops worktree-conservation's hand-back refusal for it. No row can touch a DENY.
+
 **What IS closed — the READ.** The marker read refuses a symlink, opens `O_NOFOLLOW`, compares the fd's `dev`/`ino`, refuses on a containment failure, and refuses a non-regular file. It fails OPEN on every one of those refusals, so a REFUSED read costs one duplicated advisory and never a swallowed finding, while the ledger read next to it fails CLOSED — opposite directions of one contract, each pinned by its own pole so neither is satisfiable by "always emit" or "never report absent".
 
 **What is NOT closed — the WRITE.** An attacker who simply writes the predictable path in the predictable format is untouched by ANY of the above: the file is in-tree, a regular file, not a symlink, and well-formed. MEASURED on this tree — 1,049 signature lines / 55,644 bytes written to the marker took a GENUINE finding's report from 3,647 bytes to **18**, byte-identical to a clean session. Pinned as the open pole at `delegation-default` case 98 and `fleet-drain` case 81, each written so that the case going FALSE means an unforgeable key landed and THIS text is stale.
@@ -406,84 +371,6 @@ No Trust Posture Wiring block is carried, and its absence is stated rather than 
 
 **Why:** A detector whose false-positive rate exceeds its true-positive rate on legitimate sessions IS a worse failure mode than the rule it enforces. `repo-scope-discipline.md` is enforced primarily through agent prose discipline (`detectRepoScopeDriftText`); the bash detector is a belt-and-suspenders surface that MUST NOT block when the structural signal (cwd basename + posture-gate clearance) confirms in-scope work.
 
-## Trust Posture Wiring
-
-- **Severity:** `halt-and-report` (the agent surfaces the rule + remediation in-turn; not a block).
-- **Grace period:** 7 days from rule landing (2026-05-06 → 2026-05-13). During grace, `detect-violations.js` does NOT auto-emergency-downgrade for new hook authoring that ships a raw-exit branch — but the SessionStart trust-gate banner names the rule and any violation logs to `violations.jsonl` for `/codify` review.
-- **Cumulative posture impact:** same-class violations (a `severity: "block"` returned on a lexical signal
-  with no structural guard; a raw `process.exit(2)` branch outside the timeout fallback; a guard invoking
-  the disclosure-isolation exception without satisfying condition (a), or describing its signal as
-  structural when it is not) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule
-  in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
-- **Regression-within-grace:** any hook authored OR modified in `.claude/hooks/**` within the grace period that ships a raw `process.exit(2)` branch OR a `severity: "block"` finding without structural-signal evidence triggers emergency downgrade L5 → L4 per `trust-posture.md` MUST Rule 4.
-- **Receipt requirement:** SessionStart MUST require `[ack: hook-output-discipline]` in the agent's first response IF `posture.json::pending_verification` includes this rule_id (set by `/codify` at land-time, cleared after grace expires).
-- **Detection mechanism:** `cc-architect` mechanical sweep at `/codify` validation. **Probes: REGISTERED — `.claude/test-harness/probes/hook-output-discipline.probes.json`**, 20 rows in 10 bipolar `pair_id` pairs: one firing pair per derived clause (MUST-1..MUST-7, plus the `## MUST NOT` section read as a SET), a `MUST-2-exception-firing` pair scoped to the DISCLOSURE-ISOLATION exception nested inside MUST-2, and a surface-equalized meta-compliance pair, with candidate fixtures + answer-key sidecars at `.claude/audit-fixtures/hook-output-discipline/`. The row and pair figures are the 2026-09-13 measurement (the prior 18/9 described the tree before the exception pair landed); re-derive rather than citing them. Registered in `eval-manifest.json` as a probe-only entry (`scanner: null`), pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`, and declared in `clause-coverage-baseline.json` with ZERO deferred clauses. Registration buys DISPATCHABILITY, never automatic execution: no workflow invokes `coc-probe-dispatch.mjs`, and the loom↔csq boundary keeps CI LLM-free, so a green CI run is NEVER evidence these probes passed — they execute only when an orchestrator dispatches `/test-harness-probe --artifacts` at gate-review. **Consumer note:** `.claude/test-harness/**` is never-synced (MEASURED `skip/exclude` on all six lanes this rule ships to), so no consumer receives the suite; the fixtures directory DOES ship (`copy/tier_match` on the same six).
-  1. `grep -rn 'process\.exit([12])' .claude/hooks/` — every hit must be the timeout fallback (commented as such) OR the structured exit from `instruct-and-wait.js::emit()`.
-  2. `grep -B5 'severity: "block"' .claude/hooks/lib/violation-patterns.js` — every block-severity return MUST have an env-var / exit-code / file-existence guard above it.
-  3. AST sweep on detector functions: any function returning `severity: "block"` whose `evidence` field is a `match()` group is flagged.
-  4. For any guard invoking the § MUST-2 DISCLOSURE-ISOLATION exception: confirm condition (a) holds —
-     the block branch sits behind a structural boundary predicate independent of the scan — and that the
-     block site SAYS it is invoking the exception rather than claiming its signal is structural.
-- **Violation scope:** MUST-1 through MUST-4, including the MUST-2 DISCLOSURE-ISOLATION exception and its
-  four conditions. **PROBE GAP: CLOSED 2026-09-13 — the exception now carries its own pair, and
-  the ledger STILL cannot hold it.** An earlier revision of this bullet read "the
-  DISCLOSURE-ISOLATION exception has NO probe pair" and closed "ACCEPTANCE OWED AND UNACCEPTED";
-  the first half was true when written and is now FALSE, and the second is withdrawn — the
-  co-owner directed that the pair be BUILT rather than the residual accepted, so no acceptance
-  is owed by anyone. The graduation condition this bullet set is the one that was met: a bipolar
-  `MUST-2-exception-firing` pair whose VIOLATION pole is a guard invoking the exception while
-  still describing its signal as structural. Both poles satisfy all four conditions and ship the
-  same `block` on the same content scan; they separate on whether the block site NAMES the
-  exception or attributes the block to the boundary in front of it. What has NOT changed is the
-  ledger limit, RE-MEASURED on this tree rather than inherited: adding a `MUST-2-EXCEPTION` row
-  to `clause-coverage-baseline.json` still reds `check-clause-coverage.mjs` with
-  `R5-orphan-declared-clause` AND `R2-false-coverage-claim`, because derivation is at MUST-N
-  granularity and a named exception nested inside a clause has no row it could occupy. The pair
-  therefore declares `covers: ["MUST-2"]`, which is the honest scope the ledger can express, and
-  `check-clause-coverage.mjs` output is byte-identical before and after it landed — so a green
-  clause-coverage run is NOT evidence this pair exists. The pair's presence is witnessed by the
-  suite itself and by `probe-suite-integrity.test.mjs`, which names the pair when it is broken.
-  MUST-5 and MUST-7 keep their own clause-scoped blocks below. Every `violations.jsonl`
-  row names the hook, the emitted severity, and the signal the severity rested on.
-- **Origin:** 2026-05-06 (see MUST-2 § Why — `detectRepoScopeDriftBash` hard-blocked `gh issue list
---repo "$REPO"` on a pre-expansion literal). The DISCLOSURE-ISOLATION exception was added 2026-09-11 by
-  owner direction after an audit of every `severity: "block"` origination in `.claude/hooks/**` found
-  `cross-ecosystem-disclosure-guard.js` blocking on a content scan while its comments claimed a structural
-  primitive; this block's grandfathered exemption ends with that edit per `trust-posture.md` MUST-8, on
-  the precedent `zero-tolerance.md` § Rule 3e wiring set.
-
-## Trust Posture Wiring — Parsed-Signal Detector Doctrine (MUST-5)
-
-Applies to the **MUST-5** clause ONLY (added 2026-08-06). Per `trust-posture.md` MUST-8 grandfather cutoff this clause lands AT/AFTER the MUST-8 SHA and ships canonical-8-field-compliant; the pre-existing § Trust Posture Wiring block above (MUST-1 through MUST-4) stays grandfathered until itself `/codify`-touched — the clause-scoped precedent `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge set.
-
-- **Severity:** `halt-and-report` at gate-review (cc-architect at `/codify` + reviewer at `/redteam` confirm that a detector authored or planned to carry `block` names a parsed/structural signal, and that a rule whose property is lexical-only declares its detection permanently advisory rather than filing a Phase-2 enforcement deferral); `halt-and-report` at the hook layer for the (a) half ONLY, which `.claude/hooks/block-evidence-guard.js` now emits at `PostToolUse:Edit|Write` AT LOOM ONLY — the guard is fenced `loom_only` and reaches no consumer, where the hook layer for the (a) half is therefore absent and gate-review is the whole of it; see § Detection mechanism for that three-part state, for why `halt-and-report` is the ceiling, and why MUST-2's lexical bar is not what sets it. For the (b) half the hook layer stays **`advisory`-at-most and in practice absent**: whether a NAMED signal is genuinely structural is judgment-bearing over the detector's semantics, with no tool-call-time signal, so `block` is unavailable to it under MUST-8's own severity mapping; declaring that plainly is the clause obeying itself. An earlier revision made the `advisory`/no-tool-call-time-signal claim rule-wide; that was true when written and became false when the (a)-half detector landed, so it is scoped here rather than left standing.
-- **Grace period:** 7 days from clause landing (2026-08-06 → 2026-08-13).
-- **Cumulative posture impact:** same-class violations (a `block`-intended detector dispatching on a regex over a joined command string / raw file text / agent prose; a lexical-only property filed as `Phase 2 (deferred)` enforcement instead of declared permanently advisory) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
-- **Regression-within-grace:** a same-class violation within the grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key. Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8: whether a named signal is structural is a judgment-bearing property of the detector's semantics, resolvable only at the review layer, and minting a key would drag `trust-posture.md` — a `self-referential-codify.md` allowlist file — into a self-referential edit. Same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity, `git.md` § CI-check/merge, `issue-triage-routing.md`, and `instrument-discipline.md` took.
-- **Receipt requirement:** SessionStart soft-gate `[ack: hook-output-discipline]` IFF `posture.json::pending_verification` includes the `hook-output-discipline` rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect at `/codify` + reviewer at `/redteam` inspect any change that (a) authors or modifies a detector in `.claude/hooks/lib/violation-patterns.js` or a hook returning a severity, confirming a `block` return names a parsed/structural signal and not a `match()` span (this composes with the existing § Trust Posture Wiring sweep above, whose step 3 already AST-flags that shape); or (b) writes a `**Detection mechanism:**` Wiring field, confirming any `Phase 2` row names a concrete structural signal, and that a lexical-only property is declared permanently advisory instead. **The (b) half is NOT awaiting a detector, and this clause may not file one:** whether a _named_ signal is genuinely structural is exactly the semantic judgment MUST-5 says no lexical predicate can make, so a detector for it would instance the class it forbids — the same disposition `hook-event-selection.md` recorded for its semantic half and `instrument-discipline.md` for its own. **The (a) half is ARMED AT LOOM as of 2026-09-13 and deliberately FENCED FROM CONSUMERS — a co-owner-approved STAGED rollout.** An earlier revision of this row read "No such check exists today and nothing MECHANICALLY enforces this clause"; BOTH halves are now superseded — the check exists, and at loom it is dispatched. A later revision said it was "AUTHORED but UNWIRED, so it enforces nothing"; that was true when written and is now FALSE at loom, though it remains exactly true at every consumer, which is the three-part state this row now records rather than collapsing to one. The check this clause described in the conditional — a `validate-emit.mjs`-class assertion that no `severity: "block"` return in `violation-patterns.js` carries a `match()`-derived `evidence` field — is built. The predicate is **`.claude/hooks/lib/block-evidence-provenance.js`** and the detector that would run it is **`.claude/hooks/block-evidence-guard.js`**. It IS registered in `.claude/settings.json` at **`PostToolUse`, matcher `Edit|Write`** — the event and matcher its own `@hook-event` header declares, MEASURED on this tree against a known-absent control — so AT LOOM it fires. **ARMED is not PROVEN EFFECTIVE:** no armed guard has been OBSERVED firing in a live session; registration and distribution state are all that is measured. **It reaches NO consumer:** the hook file is deliberately fenced `loom_only` in `sync-manifest.yaml` with its required twin in `validate-emit.mjs::LOOM_ONLY_TIER_CARVEOUTS`, so it does not ship — a consumer receives this RULE and not this DETECTOR, enforcement at those targets is the Phase-1 gate-review above ONLY, its silence there is the ABSENCE OF AN INSTRUMENT rather than evidence that no lexically-evidenced `block` shipped, and the gap is DECLARED in the detector-distribution baseline registry (`detector-distribution-baseline.json`, under the test-harness tree) rather than left silent. **Staged because firing volume is measured on loom's corpus and nowhere else, and a consumer's corpus is a different population.** PROMOTION is deleting this guard's `loom_only:` entry TOGETHER WITH its `LOOM_ONLY_TIER_CARVEOUTS` twin — removing either alone is a defect. The event is the `verification` class per `hook-event-selection.md` (the subject is the hook source as it stands ON DISK after the edit, which is the only moment it exists; `NotebookEdit` is deliberately excluded rather than inherited from the adjacent registration block, because no notebook can author `.claude/hooks/**.js` and claiming it would make the marker over-state its surface under MUST-4). Its **severity is `halt-and-report`, and MUST-2's lexical bar is NOT what caps it** — the signal is a token-structural source fact, which MUST-2 admits. Two other things do, both stated rather than assumed: (i) the check is a PROXY for the clause, since "the evidence quotes a match span" strongly correlates with a lexical dispatch without being identical to it, and closing that last step is the (b)-half judgment this same row declares unmechanizable; (ii) the EVENT — at `PostToolUse` the edit has already landed, and `block` there was MEASURED against the shared renderer (fixture ARM G) to return `{continue:false}` with exit 2, so `block` on a proxy would wedge an in-flight edit. The predicate LEXES JavaScript rather than grepping it, and that is load-bearing rather than fastidious: `violation-patterns.js` itself carries the literal `severity:block` twice in PROSE COMMENTS about this very rule, so a grep-shaped check would open with two false positives on its own rule's commentary. Fixtures: **`.claude/audit-fixtures/parsed-signal-detector/run.mjs`**, bipolar throughout — every firing arm carries a near-miss opposite pole (a `block` on a parsed field; a `block` on an env/path fact; the SAME `evidence: m[0]` line under `halt-and-report`; a commented-out `severity: "block"` inside a real return object) — with five mutants, each carrying a reach proof, and an arm that PINS the four declared blind classes as misses rather than describing them. Counts are a measurement and go stale, so re-derive rather than citing: at landing the battery reported 80/80 cases and 5/5 mutants killed on the `codify/<operator>-2026-09-13-deferral-burndown` tree. **What RUNS it is registration in `.claude/test-harness/ci-audit-fixtures.json`**, a registry closed in both directions — an unregistered runner and an entry with no file are each a hard build failure — so unlike the LLM-judge probe suites this tier EXECUTES in CI rather than merely being dispatchable. The Phase-1 gate-review above is unchanged and still owns the (b) half. The SEMANTIC tier also still ships: the `MUST-5-firing` bipolar pair in `.claude/test-harness/probes/hook-output-discipline.probes.json`, whose compliant pole files one genuine `Phase 2` row — for the enumerated-literal-token half — so a judge keying on that token's mere presence flags the clean pole. That tier is LLM-judge and DISPATCH-ONLY; it does not stand in for the structural tier above, and a green CI run is never evidence it passed. Reference implementation for the (a) half: `.claude/hooks/lib/git-command-parse.js` + the `posture-gate.js` mutation fence — landing via **loom#1589**, cited by PR rather than commit for the reason given at MUST-5 § Why; unmerged at authoring time, NOT on `main`. **Read that reference as a parsed-signal EXEMPLAR, not as a complete fence:** an adversarial round measured seven bypass classes still open against it (wrapper forms — `eval`, `sh -c`, `bash -c`, `xargs`, command-name-slot substitution, `$IFS` fusion — plus an unindented line continuation since closed). The parser is the right SIGNAL; recognising every invocation that reaches a shell is a separate and unfinished problem, and a reader who takes the exemplar as finished would inherit exactly the over-claim this rule exists to block.
-- **Violation scope:** MUST-5(a) (an enforcing detector dispatching on a lexical signal) + MUST-5(b) (a lexical-only property filed as a Phase-2 enforcement deferral rather than declared permanently advisory). Every `violations.jsonl` row names the detector or rule clause and the signal it dispatches on.
-- **Origin:** See § Origin — MUST-5 paragraph.
-
-**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Body exceeds the 200-line guidance (it did so before MUST-5 landed; MUST-5 extends the overage). Named rationale: **one contract, seven interlocking clauses.** This rule is the whole hook-authoring contract — emit shape (MUST-1), signal-to-severity (MUST-2), shell-variable skip (MUST-3), fixtures (MUST-4), signal SELECTION (MUST-5), `Stop`-hand-back refusal (MUST-6), delivery CHANNEL (MUST-7) — and each carries the DO/DO-NOT + BLOCKED corpus + `**Why:**` the meta-rule mandates. MUST-2 and MUST-5 are two halves of one obligation and split across files would drift, which is the failure this rule exists to name; MUST-7 is likewise the second half of MUST-1 (what to report / how it reaches anyone) and separating them would let a hook satisfy one while defeating the other's purpose. Depth is extracted, not inline: the 13-case control and the classification inventory live in the lane report cited at § Origin (MUST-5). Sibling precedent: the `security.md` + `artifact-flow.md` length rationales.
-
-Origin (MUST-5): 2026-08-06 — the `#65` enforcement-registration wave. loom's `posture-gate.js` L3 fence carried a file comment reading "block commit/push/PR" while every branch emitted `halt-and-report`, because its signal was five flat regexes over the raw command string and MUST-2 correctly forbids `block` on that; the fence could only ever annotate. The general form surfaced in the same wave: 59 `Phase 2` rows across 43 rules' `**Detection mechanism:**` fields, a large share of them against properties (agent prose, semantic adequacy, intent) no structural predicate can observe — deferrals recording enforcement that cannot arrive. Classification inventory + the 13-case three-arm control behind the § Why measurements: (loom-internal reference).
-
-Origin: 2026-05-06 — `detectRepoScopeDriftBash` blocked an in-scope `gh issue list --repo "$REPO"` sweep in the Rust SDK because the regex captured the literal string `"$REPO"` pre-expansion. User-identified codification gap: the `instruct-and-wait.js` library shipped 2026-05-05 but no rule mandated its use, leaving every future detector free to regress to raw exit. Same false-positive class as the heredoc/segment-anchor and `git commit -m`/`-F` skip clauses already addressed in `validate-bash-command.js` (commit `0366a68`); applies the lesson at the design-time rule layer rather than per-detector patches.
-
-## Trust Posture Wiring — Refusal Delivery Channel (MUST-7)
-
-Applies to the **MUST-7** clause ONLY (added 2026-08-17; numbered MUST-7 at landing because `Stop`-hand-back refusal took the MUST-6 slot first — the clause is unchanged, only its ordinal moved). Per `trust-posture.md` MUST-8 grandfather cutoff this clause lands AT/AFTER the MUST-8 SHA and ships canonical-8-field-compliant; the § Trust Posture Wiring block (MUST-1..4), the MUST-5 block, and MUST-6 each stay on their own wiring until themselves `/codify`-touched — the clause-scoped precedent `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge set, and the one this file already followed for MUST-5.
-
-- **Severity:** `halt-and-report` at gate-review (cc-architect at `/codify` + reviewer at `/implement` confirm that any hook authored or modified to halt renders the shared delivery instruction, and that no payload was hand-rolled with a report but no channel); `block` at the hook layer is NOT claimed and is unavailable — whether a given wording is correct for both readers is an LLM-judgment property of prose, which MUST-2 caps at advisory. What IS structural — that the shared constant is present in the rendered body — is enforced mechanically by the suite named below rather than by a hook.
-- **Grace period:** 7 days from clause landing (2026-08-17 → 2026-08-24).
-- **Cumulative posture impact:** same-class violations (a halting hook emitting `agent_must_report` with no delivery channel; a hand-written per-hook channel variant instead of the shared constant; a channel naming only the subagent reader or only the top-level reader) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
-- **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key. Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8: the judgment half (is this wording correct for both readers) is review-layer-only, the structural half is already CI-enforced and needs no posture key to have teeth, and minting one would drag `trust-posture.md` — a `self-referential-codify.md` allowlist file — into a self-referential edit. Same no-dedicated-key disposition MUST-5 above, `security.md` § Enforcement-Surface Parity, `git.md` § CI-check/merge and `instrument-discipline.md` took.
-- **Receipt requirement:** SessionStart soft-gate `[ack: hook-output-discipline]` IFF `posture.json::pending_verification` includes the `hook-output-discipline` rule_id (shared rule_id; one ack covers MUST-1..7).
-- **Detection mechanism:** **structural, SHIPPED, and EXECUTING — the enforcement for this clause exists today; nothing about it is scheduled, deferred, or owed.** The enforcing check is `.claude/test-harness/tests/refusal-delivery-channel.test.mjs`, registered `mode: bulk` in `.claude/test-harness/ci-suites.json` — a registry closed in BOTH directions, so an unregistered suite is a hard build failure and this one cannot silently stop running. It pins, over the full 7-event × 6-severity matrix, that a report-bearing payload carries the exported `DELIVERY_INSTRUCTION`, that both audience branches ship, that the concrete `SendMessage` token is present, and — as the anti-vacuity control — that a payload with nothing to report carries NO channel, so the probe is demonstrably not a constant. Its two mutation rows (instruction excised from the render path; `SendMessage` genericized back to "user") each carry a REACH proof and a RAN proof per `instrument-discipline.md` MUST-2(b); re-measured against the shipped file on the rebased tree (2026-08-23) they red 5/14 and 2/14 respectively, each with a REACH proof taken before the run — MUTANT-1's rendered body loses the channel block, MUTANT-2's exported constant loses the `SendMessage` token, so neither mutation is inert — with the restored file green 14/14. The figures previously recorded here (5/12, 3/12, 12/12) were stale: the suite has carried 14 tests since it was authored, so the denominator was never 12. Counts are a measurement and go stale; re-derive rather than citing this line. **What registration buys is EXECUTION here, not merely dispatchability** — `run-harness-suites.mjs` runs every `bulk` row in the aggregate CI step, unlike the LLM-judge probe suites the loom↔csq boundary keeps out of CI. Phase 1 (gate-review) covers the residual JUDGMENT half only: whether a newly-authored wording is genuinely true for both readers. A SEMANTIC tier now also ships — the `MUST-7-firing` bipolar pair in `.claude/test-harness/probes/hook-output-discipline.probes.json`, fixtures at `.claude/audit-fixtures/hook-output-discipline/`, whose compliant pole quotes BOTH forbidden shortcuts (the bare report-to-user line and the SendMessage-only trim) in order to refuse them, so a judge keying on their presence flags the clean pole. It is LLM-judge and DISPATCH-ONLY, so the STRUCTURAL tier above remains where this clause's teeth are. **Consumer note:** `.claude/test-harness/tests/refusal-delivery-channel.test.mjs` does not ship to use/base, build/base, use/py, build/py, use/rs, build/rs (MEASURED: `skip` on 6 of this rule's 6 lanes), so no consumer on those lanes receives it; at those targets this tier is not a live gate. The same holds for `.claude/test-harness/ci-suites.json` on the same 6 lanes, by the same measurement. Both gaps are declared in the detector-distribution baseline registry — deliberately named in prose rather than as a path token, because citing it as one would make the registry itself a cited detector needing its own declaration, the recursion this sentence exists on the far side of. What a consumer DOES receive is the enforced BEHAVIOUR: `.claude/hooks/lib/instruct-and-wait.js` rides the always-included hooks surface, so every lane gets the channel-naming payload — only the suite that pins it is loom-side.
-- **Violation scope:** MUST-7 ONLY (a halting payload rendering a report with no delivery channel; a hand-rolled per-hook channel variant; a channel correct for only one of the two readers). Every `violations.jsonl` row names the hook and which of the three shapes fired. MUST-1..6 keep their existing scope under their own blocks.
-- **Origin:** See § Origin — MUST-7 paragraph.
-
-Origin (MUST-7): 2026-08-17 — three lanes in one session went idle after a CORRECT hook refusal, each holding uncommitted work with no reflog (7 files; 286 insertions; a reader+writer pair), all three recovered only by an orchestrator's `git status --porcelain` sweep on a hunch. Diagnosed by one of the affected lanes: "the refusal arrives as a tool error, and its instruction is 'report to user' — an agent that reads 'do not retry the same form' and has no other channel open will re-plan silently. The refusal text has no 'and tell your orchestrator' step." Measured surface at authoring, with a fired control: of 45 hook files, 24 require the shared renderer and 20 of those can carry `block` or `halt-and-report`; ALL 20 route through the single `buildValidationBody`, and all 59 emitting call sites pass `agent_must_report` (58 literally, 1 by spread) — so a one-constant fix in the one renderer reaches the whole refusal surface, and no per-hook edit was made or needed. The only other copy of that renderer, `.claude/test-harness/trust-posture-poc/lib/instruct-and-wait.js`, is a FROZEN pre-#466 snapshot its own header forbids syncing to, and is deliberately untouched.
+Depth — the three Trust-Posture Wiring blocks (MUST-1..4, MUST-5, MUST-7), the length rationale and the Origin record — lives in `.claude/skills/32-trust-posture/wiring/hook-output-discipline.md`, which every validator reads as part of this rule.
 
 <!-- /slot:neutral-body -->

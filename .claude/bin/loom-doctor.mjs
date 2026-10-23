@@ -10,6 +10,14 @@
  *  Read-only DETECTION + bounded SAFE auto-repair (`--fix`) + a versioned
  *  `--json` schema and CI/ADO exit-code gateability (`--strict`).
  *
+ *  Routed inspection reads intentionally omit operator global/system config:
+ *  global safe.directory exceptions cannot admit a foreign-owned checkout, and
+ *  global core.quotepath preferences do not apply (git-subprocess-env.js:347-358;
+ *  target-repo-git.js:143-150, both under .claude/hooks/lib/). CONFIG reads and
+ *  repairs retain gitConfigInvocation's config-preserving profile, including
+ *  global config visibility (.claude/hooks/lib/git-subprocess-env.js:944-950,
+ *  .claude/hooks/lib/git-subprocess-env.js:994-1033).
+ *
  *  Checks (all read-only):
  *    role          resolveRole() → platform|build|use-consumer|null
  *    node          process node version vs the supported floor
@@ -66,10 +74,16 @@ import { isMainModule } from "./lib/entry-point.mjs";
 // where both halves are applied.
 const _require = createRequire(import.meta.url);
 let _gitSubprocessEnv = null;
+let _targetRepoGit = null;
 try {
   _gitSubprocessEnv = _require("../hooks/lib/git-subprocess-env.js");
 } catch {
   _gitSubprocessEnv = null; // absent -> fail CLOSED at the call site, never ambient
+}
+try {
+  _targetRepoGit = _require("../hooks/lib/target-repo-git.js");
+} catch {
+  _targetRepoGit = null;
 }
 
 // loom-links is the resolver SSOT AT LOOM, but it is fenced `loom_only` and is
@@ -201,6 +215,13 @@ function gitEnvelope(args) {
   }
   if (!bin) return null;
   try {
+    if (args[0] === "rev-parse") {
+      if (!_targetRepoGit) return null;
+      const resolved = _targetRepoGit.resolveTargetRepo({ dir: process.cwd() });
+      if (!resolved.ok) return { refused: true, kind: resolved.kind, reason: resolved.reason, code: resolved.code };
+      const inv = _targetRepoGit.targetGitInvocation(resolved.repo, args, { cwd: process.cwd() });
+      return { bin: inv.file, args: inv.argv, env: inv.env, cwd: inv.cwd };
+    }
     if (Array.isArray(args) && args[0] === "config") {
       const inv = _gitSubprocessEnv.gitConfigInvocation(args);
       return { bin, args: inv.args, env: inv.env };
@@ -266,9 +287,13 @@ function defaultExec(cmd, args) {
           "profile refused) — refusing to spawn git with the inherited environment",
       };
     }
+    if (envelope.refused) {
+      return { ok: false, missing: false, kind: envelope.kind, code: envelope.code,
+        error: `target repository ${envelope.kind || "unresolved"}: ${envelope.reason || "resolution did not answer"}` };
+    }
     const gitBin = envelope.bin;
     return normalizeSpawn(
-      spawnSync(gitBin, envelope.args, { encoding: "utf8", timeout: 5000, env: envelope.env }),
+      spawnSync(gitBin, envelope.args, { encoding: "utf8", timeout: 5000, env: envelope.env, ...(envelope.cwd ? { cwd: envelope.cwd } : {}) }),
     );
   }
   // ── the non-git branch: `gh` / `az`, deliberately ambient ──────────────────

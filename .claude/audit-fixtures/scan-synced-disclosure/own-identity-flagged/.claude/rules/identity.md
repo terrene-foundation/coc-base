@@ -16,7 +16,7 @@ Session notes: .session-notes.d/canonop.md says "49 issues remaining".
 Repository: https://github.com/fixturecanon-enterprise/loom.git
 Underscore join: canonop_notes is still the operator.
 Login: @canonop-gh
-Own home: /Users/canonop/repos/loom
+Own home: {{FIXTURE_HOME_V1:MAC}}canonop/repos/loom
 
 Glued to other letters, a 7+-character token STILL flags — the ordinary accident
 (2 findings): notcanonop, canonopx.

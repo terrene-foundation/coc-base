@@ -1,0 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
+
+const ROOT = fs.realpathSync(process.cwd());
+
+// A display label: the test picks which string to print, it admits or refuses nothing.
+export function display(file) {
+  const abs = path.resolve(file);
+  return abs.startsWith(ROOT + path.sep) ? abs.slice(ROOT.length + 1) : abs;
+}

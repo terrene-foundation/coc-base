@@ -50,6 +50,5 @@ Gates:
       resolved `git rev-parse --show-toplevel` against `pwd -P`.
 
     round 1 — reviewer: "RuntimeInfo is frozen, good." cc-architect: clean.
-    round 2 — both clean, both payloads read.
 
-Two consecutive clean rounds. W14 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W14 lands.

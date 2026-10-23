@@ -35,7 +35,7 @@ that org, the remaining params fill in.
    ```
    Exit 0 → proceed. ANY finding (exit non-zero) → HALT; genericize/relocate the offending content and
    re-scan. NEVER write the config before a clean scan. (`ecosystem.json` is scanner-self-excluded when
-   scanning its OWN source repo — `REPO_ROOT_ACTIVE === REPO_ROOT` per `scan-synced-disclosure.mjs:215`,
+   scanning its OWN source repo — `REPO_ROOT_ACTIVE === REPO_ROOT` per `scan-synced-disclosure.mjs::isExcluded`,
    which is the C1 case — so the scan covers the surrounding synced surface, not the config's own org
    slugs; those are fenced by path, not by scrub. A DESTINATION `--root` scan of a DIFFERENT repo DOES
    scan a stray `ecosystem.json`, failing loud on bare slugs — the belt-and-suspenders backstop (the

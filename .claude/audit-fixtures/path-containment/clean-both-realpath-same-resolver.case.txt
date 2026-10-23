@@ -1,0 +1,13 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function isContained(candidate, boundary) {
+  let real, root;
+  try {
+    real = fs.realpathSync(candidate);
+    root = fs.realpathSync(boundary);
+  } catch {
+    return false;
+  }
+  return real === root || real.startsWith(root + path.sep);
+}

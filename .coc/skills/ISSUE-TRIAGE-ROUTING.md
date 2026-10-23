@@ -11,7 +11,7 @@ The always-on routing MUST lives in `rules/issue-triage-routing.md` (read
 depth: how each repo class routes, the two upflow paths (Route-A issue vs the
 Step-7c PR), the origination taxonomy, and why the durable surface is always
 the proposal — never a local artifact edit. The authoritative mechanics live in
-`rules/artifact-flow.md` § "Issue Routing By Change Type"; this skill is the
+`rules/artifact-flow-routing.md` § "Issue Routing By Change Type"; this skill is the
 triage-time companion that resolves the class → lane decision.
 
 ## The Discriminator: Route By Change TYPE, Not Repo Convenience
@@ -119,9 +119,9 @@ these.
 ## Cross-References
 
 - `rules/issue-triage-routing.md` — the always-on routing MUST (the pointer).
-- `rules/artifact-flow.md` § "Issue Routing By Change Type" / "Downstream-Consumer
-  Routing" / "loom Splits, Never Originates" / "The Origination Taxonomy" — the
-  authoritative mechanics.
+- `rules/artifact-flow-routing.md` § "Issue Routing By Change Type" / "Downstream-Consumer
+  Routing", and `rules/artifact-flow.md` § "loom Splits, Never Originates" / "The
+  Origination Taxonomy" — the authoritative mechanics.
 - `rules/knowledge-cascade-routing.md` — the memory-vs-COC-artifact capture
   routing decision (a sibling routing rule, one layer in).
 - `guides/co-setup/09-proposal-protocol.md` Step 7b — the proposal-origination
@@ -131,4 +131,4 @@ these.
 
 Extracted from the rule body 2026-07-29 as part of the `rules/rule-authoring.md` MUST Rule 10 path (a) paired extraction for the `instrument-discipline.md` baseline addition (receipt: `journal/0569`). ZERO de-scoping — the rule retains the origin date, the gap in one sentence, and the pointer here.
 
-2026-07-19 — `/sync-from-use` kailash-coc-rs Gate-1 ingest (journal/0550). Closes the reachability gap: the routing depth in `rules/artifact-flow.md` § "Issue Routing By Change Type" is path-scoped behind artifact-file globs (`.claude/**`, `sync-manifest.yaml`, `**/VERSION`, `*.md`), none of which a `gh issue list` / `gh issue view` triage touches, so the routing rule never loaded at triage time across templates + downstream consumers. Baseline body kept pointer-only (~30-line neutral-body); depth extracted to this paired skill to stay under the 15% proximity band per `rule-authoring.md` MUST-10 (Rule-10 path-(a) paired extraction; sibling precedent `framework-first.md` → `framework-first` skill).
+2026-07-19 — `/sync-from-use` kailash-coc-rs Gate-1 ingest (journal/0550). Closes the reachability gap: the routing depth in `rules/artifact-flow-routing.md` § "Issue Routing By Change Type" is path-scoped behind artifact-file globs (`.claude/**`, `sync-manifest.yaml`, `**/VERSION`, `*.md`), none of which a `gh issue list` / `gh issue view` triage touches, so the routing rule never loaded at triage time across templates + downstream consumers. Baseline body kept pointer-only (~30-line neutral-body); depth extracted to this paired skill to stay under the 15% proximity band per `rule-authoring.md` MUST-10 (Rule-10 path-(a) paired extraction; sibling precedent `framework-first.md` → `framework-first` skill).

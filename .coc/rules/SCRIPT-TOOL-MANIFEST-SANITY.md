@@ -107,8 +107,8 @@ a hand-run set difference and this rule's silence at that target is the absence 
   dispatches `/test-harness-probe --artifacts` at gate-review. Consumer note:
   `.claude/test-harness/**` is never-synced, so no consumer receives this suite and enforcement at
   those targets is gate-review. **Phase 2 has LANDED (2026-09-15) and is NOT a hook** —
-  `.claude/bin/check-script-tool-parity.mjs`, a gate-time validator over pure predicates in
-  `.claude/bin/lib/script-tool-parity.mjs`, with bipolar structural fixtures at
+  loom's `check-script-tool-parity` CI validator over pure predicates in
+  loom's `script-tool-parity` module, with bipolar structural fixtures at
   `.claude/audit-fixtures/script-tool-manifest-sanity/parity-*` driven by that directory's `run.mjs`
   per `cc-artifacts.md` Rule 9 (MEASURED 22/22, and the set is shown load-bearing by four mutations
   that reddened 10, 3, 6 and 1 case respectively — an all-green fixture set proves only that it ran).
@@ -131,7 +131,7 @@ a hand-run set difference and this rule's silence at that target is the absence 
   and a known-negative manifest through the same predicates and REDS if either pole misbehaves, which
   is the § Audit Protocol's own fire-the-parser-first requirement made executable.
   **CONSUMER NOTE — the checker does NOT ship.** MEASURED with `sync-tier-aware.mjs::buildLaneClassifier`:
-  `.claude/bin/check-script-tool-parity.mjs` returns `skip/no_tier_match` on all seven lanes because
+  the loom-only `check-script-tool-parity` checker returns `skip/no_tier_match` on all seven lanes because
   `.claude/bin/**` is `loom_only`, while the control `.claude/bin/burndown-build.mjs` returns
   `copy/always_include` on all seven — so that zero is a readable true negative and not a blanket
   skip. This rule reaches six lanes (`use|build/base`, `use|build/py`, `use|build/rs`; `build/prism`

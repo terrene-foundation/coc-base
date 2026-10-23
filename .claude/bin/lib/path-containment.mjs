@@ -94,8 +94,15 @@ const STATIC_POSIX_TEMP_ROOTS = [
 // component — EACCES, ELOOP, ENOTDIR — propagates to the caller, as does a
 // DANGLING symlink (the component exists via lstat but will not resolve), so
 // an unresolvable path is refused rather than silently treated as lexical.
+//
+// NO LEXICAL "..": the input is made absolute WITHOUT normalisation, so a ".."
+// after an existing component is resolved by the KERNEL (physically, after the
+// link), and a "." / ".." in the absent tail is REFUSED. path.resolve() used to
+// collapse "tree/lnk/../x" to "tree/x" BEFORE any symlink was seen, while the
+// bytes written to that string landed beside the link's TARGET — a containment
+// verdict about a different file (train-8 R2 security N6).
 export function realpathForContainment(p) {
-  let current = path.resolve(p);
+  let current = path.isAbsolute(p) ? p : `${process.cwd()}${path.sep}${p}`;
   const tail = [];
   for (;;) {
     try {
@@ -114,9 +121,13 @@ export function realpathForContainment(p) {
         /* genuinely absent — keep walking up */
       }
       if (componentExists) throw e;
+      const base = path.basename(current);
+      if (base === "." || base === "..") {
+        throw new Error(`realpathForContainment: ${JSON.stringify(String(p))} has a dot segment in its absent tail; refusing to collapse it lexically`);
+      }
       const parent = path.dirname(current);
       if (parent === current) throw e; // reached the filesystem root
-      tail.unshift(path.basename(current));
+      if (base !== "") tail.unshift(base);
       current = parent;
     }
   }

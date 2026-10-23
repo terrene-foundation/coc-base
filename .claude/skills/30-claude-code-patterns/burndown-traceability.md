@@ -132,3 +132,7 @@ Order that works:
 ## Origin
 
 See `rules/burndown-traceability.md` § Origin. Authored 2026-08-21 against `6ddf06b1` from an operator directive; the measurement, the pruning post-mortem and the collision table are all from that tree and are re-derivable with the commands quoted above.
+
+Moved verbatim from the rule's § Origin (2026-10-13, context-budget allowance):
+
+**MUST-3 has its own evidence.** `journal/0174` uses `F87`/`F89`/`F90`/`F91` for different items than the session-42 register. Following `_id_convention` literally — bare `F-NN` — would have wired four items to another session's decisions, and every link would have resolved GREEN. A chain that resolves is not yet a chain that is right, which is why MUST-4's judgment half stays at gate-review.

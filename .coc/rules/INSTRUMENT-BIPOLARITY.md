@@ -1,6 +1,6 @@
 ---
 id: "INSTRUMENT-BIPOLARITY"
-paths: ["**/.claude/bin/**", "**/.claude/hooks/**", "**/.claude/audit-fixtures/**", "**/.claude/test-harness/**", "**/.github/workflows/**", "**/tests/**", "**/*.test.*", "**/*_test.*", "**/test_*.py"]
+paths: ["**/.claude/bin/**", "**/.claude/hooks/**", "**/.claude/audit-fixtures/**", "**/.claude/test-harness/*", "**/.claude/test-harness/{tests,lib,fixtures,probes,suites,foundation-corpus,trust-posture-poc}/**", "**/.github/workflows/**", "**/tests/**", "**/*.test.*", "**/*_test.*", "**/test_*.py"]
 ---
 
 # Instrument Bipolarity — Discrimination Is Recorded At AUTHORSHIP

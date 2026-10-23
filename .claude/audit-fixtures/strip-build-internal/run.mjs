@@ -186,6 +186,10 @@ for (const shape of ["coc-source", "coc-project"]) {
       JSON.stringify({ version: "1.0.0", type: shape }),
     );
     fs.cpSync(path.dirname(helperPath), libDir, { recursive: true });
+    fs.mkdirSync(path.join(sandbox, ".claude", "hooks", "lib"), { recursive: true });
+    for (const dep of ["git-subprocess-env.js", "redaction-map-binding.js"]) {
+      fs.copyFileSync(path.join(repoRoot, ".claude", "hooks", "lib", dep), path.join(sandbox, ".claude", "hooks", "lib", dep));
+    }
     const r = spawnSync("node", [path.join(libDir, "strip-build-internal.mjs"), "--selftest"], {
       encoding: "utf8",
     });
@@ -342,14 +346,18 @@ fs.copyFileSync(
 //   identity-scrub.mjs — the ONE fold `redactPrivateIdentity` shares with the
 //                        scanner (F6e); MEASURED: this file's absence was the
 //                        runner's first failure once that import landed.
-// Both are zero-dependency ESM (node builtins only), so no transitive copies
-// are owed; the helper ships on every lane (sync-tier-aware.mjs::ALWAYS_INCLUDE),
-// so a real consumer tree carries both too.
+// The direct identity-scrub import needs the extracted reader; its envelope
+// remains lazy (bin/lib/identity-scrub.mjs:67-71;
+// hooks/lib/redaction-map-binding.js:159-163).
 for (const dep of ["entry-point.mjs", "identity-scrub.mjs"]) {
   fs.copyFileSync(
     path.resolve(__dirname, "..", "..", "bin", "lib", dep),
     path.join(fakeRepo, ".claude", "bin", "lib", dep),
   );
+}
+fs.mkdirSync(path.join(fakeRepo, ".claude", "hooks", "lib"), { recursive: true });
+for (const dep of ["git-subprocess-env.js", "redaction-map-binding.js"]) {
+  fs.copyFileSync(path.join(repoRoot, ".claude", "hooks", "lib", dep), path.join(fakeRepo, ".claude", "hooks", "lib", dep));
 }
 
 // Positive control: the probe must be exercising a tree that really reads as a
@@ -493,9 +501,14 @@ try {
   let sec2Tmp = null;
   try {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "strip-sec2-"));
-    fs.mkdirSync(path.join(tmp, "lib"), { recursive: true });
-    fs.cpSync(path.dirname(libPath), path.join(tmp, "lib"), { recursive: true });
-    noConfigLib = path.join(tmp, "lib", "strip-build-internal.mjs");
+    const libDir = path.join(tmp, ".claude", "bin", "lib");
+    fs.mkdirSync(libDir, { recursive: true });
+    fs.cpSync(path.dirname(libPath), libDir, { recursive: true });
+    fs.mkdirSync(path.join(tmp, ".claude", "hooks", "lib"), { recursive: true });
+    for (const dep of ["git-subprocess-env.js", "redaction-map-binding.js"]) {
+      fs.copyFileSync(path.join(repoRoot, ".claude", "hooks", "lib", dep), path.join(tmp, ".claude", "hooks", "lib", dep));
+    }
+    noConfigLib = path.join(libDir, "strip-build-internal.mjs");
     sec2Tmp = tmp;
   } catch {
     noConfigLib = null;

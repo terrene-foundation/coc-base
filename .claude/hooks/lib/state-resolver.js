@@ -81,9 +81,10 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { askOnce: askGitOnce, eventGitKey } = require("./event-git.js");
-const { resolveGitBinary, gitEnv } = require(
+const { resolveGitBinary } = require(
   path.join(__dirname, "git-subprocess-env.js"),
 );
+const { targetGitAt, resolveTargetRepo, targetGit } = require("./target-repo-git.js");
 const { provenCheckoutRoot, gitTreeProof } = require(
   path.join(__dirname, "git-checkout-proof.js"),
 );
@@ -110,8 +111,10 @@ const GIT_TIMEOUT_MS = 5000;
 // resolution runs up to FOUR probes in sequence (common-dir, superproject, worktree-list,
 // show-toplevel) plus two `gitTreeProof` spawns on the override path, so a git that hangs cost
 // 4 × 5000 ms + 2 × 2000 ms = 24 s — and even ONE probe's 5000 ms exceeds the 4000 ms Rule-7 timer of
-// the hooks that call this (`emit-dispatch-ledger.js:47`, `reconcile-dispatch-delivery.js:38`,
-// `fleet-drain-guard.js:86`, `delegation-permission-guard.js:94`, `delegation-default-guard.js:81`)
+// the hooks that call this (`emit-dispatch-ledger.js::TIMEOUT_MS`, `reconcile-dispatch-delivery.js::TIMEOUT_MS`,
+// `fleet-drain-guard.js::TIMEOUT_MS`, `delegation-permission-guard.js::TIMEOUT_MS`,
+// `delegation-default-guard.js::TIMEOUT_MS` — symbol anchors: the five line numbers once cited here had
+// all drifted into those hooks' `@hook-contract` headers as the headers grew)
 // and equals the 5 s every direct caller is registered at in `settings.json`. A synchronous spawn
 // blocks the event loop, so the caller's own timer cannot interrupt it: the harness kills the hook
 // instead of the resolver failing typed inside its caller's budget.
@@ -134,13 +137,28 @@ const PROBE_MARGIN_MS = 50;
 /** Below this no git is worth spawning — process start alone costs most of it. */
 const MIN_PROBE_MS = 25;
 // The fixed spawn cap the `gitTreeProof` probe passes to spawnSync —
-// `git-checkout-proof.js::GIT_TIMEOUT_MS` (`git-checkout-proof.js:114`,
-// `const GIT_TIMEOUT_MS = 2000;`). That callee takes no timeout parameter, so the override path
+// `git-checkout-proof.js::GIT_TIMEOUT_MS` (`const GIT_TIMEOUT_MS = 2000;`; cited by
+// SYMBOL, not line: a numeric citation here rots the moment a line is inserted
+// above the constant upstream). That callee takes no timeout parameter, so the override path
 // cannot SHORTEN it — it can only decline to start a proof the remaining budget cannot cover.
 // Pinned against the source by `state-resolver-indeterminate.test.mjs` T6e.
 const PROOF_GIT_TIMEOUT_MS = 2000;
 /** The typed prefix every budget-exhausted reason starts with. */
 const BUDGET_EXHAUSTED_REASON = "main checkout unresolved: budget exhausted";
+
+// Canonical common-dir argv; event-git.js:53-56 keys binary, cwd, argv AND envelope.
+// This resolver's `targetRepoGit` key (state-resolver.js:222-224) stays distinct
+// from a sibling `gitEnv` question (state-io.js:532-535); matching argv is not enough.
+// MEASURED 2026-10-17, fb6384381 -> e31326b43, Linux and Darwin, in the declared
+// eventGit-scoped resolver/identity/proof/witness workload (two passes per event):
+// ordinary checkout 1 -> 2 Git children (+1); separate-git-dir 3 -> 6 (+3);
+// nonrepository 4 -> 6 (+2). These are dated workload figures, not all hook events.
+// Measured source, fixture inputs, scope and cheap immutable-input freshness:
+// scratchpad/porcelain-p1.U09ADd/p1b-r2-scoped-event-measurement.json:3-49.
+// The recorded driver's --verify <rawReceipt.path> rechecks immutable source hashes.
+// Excluded: other hook workloads/unexecuted askers, override proofs, fixture setup,
+// source blob reads, wall latency and Git descendant programs (same receipt:27-49).
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 
 /** Resolve a caller's opts to an absolute deadline (epoch ms). */
 function _deadlineOf(opts) {
@@ -182,6 +200,7 @@ function firstLine(buf) {
  * chain and say so instead of reporting a generic indeterminate.
  */
 function safeExec(args, cwd, deadline) {
+  const probeStart = Date.now();
   const window = _spawnWindow(deadline);
   if (!(window >= MIN_PROBE_MS)) {
     return {
@@ -201,42 +220,58 @@ function safeExec(args, cwd, deadline) {
   // the budget-exhausted "not run" branch above (git was never asked), and a
   // timeout the asker's budget caused (`exhausted: true` — the cap was shortened
   // below GIT_TIMEOUT_MS); a later asker with its own budget asks git itself.
-  return askGitOnce(eventGitKey({ gitBin, cwd, args, envelope: "gitEnv" }), () => _spawnProbe(gitBin, args, cwd, timeout), {
+  const probeDeadline = Math.min(deadline - PROBE_MARGIN_MS, probeStart + GIT_TIMEOUT_MS);
+  return askGitOnce(eventGitKey({ gitBin, cwd, args, envelope: "targetRepoGit" }), () => _spawnProbe(gitBin, args, cwd, timeout, probeDeadline), {
     record: (v) => !(v && v.exhausted),
   });
 }
 
-function _spawnProbe(gitBin, args, cwd, timeout) {
+function _spawnProbe(gitBin, args, cwd, timeout, deadline) {
+  let spawnError;
+  const spawn = (file, argv, options) => {
+    try {
+      const out = execFileSync(file, argv, {
+        cwd: options.cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: options.env,
+        timeout: options.timeout,
+        killSignal: "SIGKILL",
+      });
+      return { status: 0, stdout: String(out), stderr: "" };
+    } catch (e) {
+      spawnError = e;
+      return { status: typeof e.status === "number" ? e.status : null,
+        stdout: String(e.stdout || ""), stderr: String(e.stderr || ""),
+        ...(typeof e.status === "number" ? {} : { error: e }), signal: e.signal };
+    }
+  };
   try {
-    const out = execFileSync(gitBin, args, {
-      cwd,
-      encoding: "utf8",
-      // stderr is CAPTURED, not discarded, so the indeterminate reason can name
-      // the actual git error instead of leaving the operator to guess.
-      stdio: ["ignore", "pipe", "pipe"],
-      env: gitEnv(),
-      timeout,
-      // A read-only probe holds no lock (`GIT_OPTIONAL_LOCKS=0` in `gitEnv()`), so there is
-      // nothing for a graceful signal to clean up — and SIGTERM can be ignored, which would
-      // let the spawn outlive the bound this timeout exists to enforce.
-      killSignal: "SIGKILL",
-    });
-    return { ok: true, value: String(out).trim() };
+    const options = { timeout, deadline, spawn };
+    let result;
+    if (args[0] === "rev-parse") {
+      result = targetGitAt(cwd, args, options);
+    } else {
+      const resolved = resolveTargetRepo({ dir: cwd }, options);
+      result = resolved.ok ? targetGit(resolved.repo, args, { ...options, cwd }) : resolved;
+    }
+    if (result.ok) return { ok: true, value: String(result.stdout).trim() };
+    if (result.timedOut || result.code === "GIT_TARGET_REPO_DEADLINE" || (spawnError && spawnError.code === "ETIMEDOUT")) {
+      return { ok: false, exhausted: timeout < GIT_TIMEOUT_MS,
+        reason: `git ${args[0]} timed out after ${timeout} ms` };
+    }
+    const detail = firstLine(result.stderr) || firstLine(result.reason) || firstLine(result.refused) ||
+      firstLine(spawnError && spawnError.stderr) || firstLine(spawnError && spawnError.message) || firstLine(result.error);
+    const discoveryLimit = typeof process.env.GIT_CEILING_DIRECTORIES === "string"
+      ? "; GIT_CEILING_DIRECTORIES is set for repository discovery" : "";
+    return { ok: false, exhausted: false, reason: `git ${args[0]} failed${detail ? `: ${detail}` : ""}${discoveryLimit}` };
   } catch (e) {
-    if (e && e.code === "ETIMEDOUT") {
-      return {
-        ok: false,
-        // Budget-caused only when the budget SHORTENED the cap; a full-cap timeout is git's.
-        exhausted: timeout < GIT_TIMEOUT_MS,
-        reason: `git ${args[0]} timed out after ${timeout} ms`,
-      };
+    if (e && (e.code === "ETIMEDOUT" || e.code === "GIT_TARGET_REPO_DEADLINE")) {
+      return { ok: false, exhausted: timeout < GIT_TIMEOUT_MS,
+        reason: `git ${args[0]} timed out after ${timeout} ms` };
     }
     const detail = firstLine(e && e.stderr) || firstLine(e && e.message);
-    return {
-      ok: false,
-      exhausted: false,
-      reason: `git ${args[0]} failed${detail ? `: ${detail}` : ""}`,
-    };
+    return { ok: false, exhausted: false, reason: `git ${args[0]} failed${detail ? `: ${detail}` : ""}` };
   }
 }
 
@@ -522,14 +557,25 @@ function resolveMainCheckoutDetailed(cwd, opts) {
 
   // PRIMARY (deterministic): the shared git-common-dir identifies the MAIN
   // checkout unambiguously. For a linked worktree it is <main>/.git; for a
-  // plain checkout it is `.git` (relative) → resolves to <top>/.git. In both
-  // cases the main top-level is the parent of the common dir when it ends in
-  // `.git`. No ordering/exclusion heuristic is load-bearing here.
-  const common = safeExec(["rev-parse", "--git-common-dir"], startCwd, deadline);
+  // plain checkout it resolves to <top>/.git. In both cases the main top-level
+  // is the parent of the common dir when it ends in `.git`. No
+  // ordering/exclusion heuristic is load-bearing here.
+  //
+  // Matching argv does not merge the profiles (event-git.js:53-56).
+  // The declared scoped-event spawn deltas and immutable-input freshness are above;
+  // scratchpad/porcelain-p1.U09ADd/p1b-r2-scoped-event-measurement.json:3-49.
+  const common = safeExec(CANONICAL_COMMON_DIR_ARGS, startCwd, deadline);
   if (!common.ok) failures.push(common.reason);
   if (common.exhausted) return budgetExhausted(startCwd, failures);
-  if (common.ok && common.value) {
-    const commonDir = common.value;
+  const commonLines =
+    common.ok && common.value
+      ? String(common.value)
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+  if (commonLines.length > 0) {
+    const commonDir = commonLines[commonLines.length - 1];
     const absCommon = path.isAbsolute(commonDir)
       ? commonDir
       : path.resolve(startCwd, commonDir);

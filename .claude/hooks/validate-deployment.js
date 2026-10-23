@@ -14,9 +14,42 @@
  *   2 = blocking error (stop tool execution)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Pure regex predicate over the payload's own file_path/content — it inspects TEXT and spawns nothing; findings go to stdout via lib/instruct-and-wait.js, which writes nothing durable."
+ * }
+ */
+
 const TIMEOUT_MS = 10000;
 const { instructAndWait } = require("./lib/instruct-and-wait");
 let timeout = null;
+
+// ⛔ EXIT IS NOT CRASH (hook-engine.js::isEngineExit). Under in-process dispatch
+// `process.exit` THROWS the engine's frozen EXIT_SENTINEL, so a catch that encloses an
+// exit receives it and MUST re-throw it rather than announce it: announcing it runs the
+// error path after the run has ended, and its hook-findings write lands as a FALSE
+// finding. Captured ONCE, here at load — the engine's exports object is mutable — and
+// the classifier compares by IDENTITY against the engine's private singleton, never by
+// shape (a lookalike is a real error and is announced). A tree without
+// lib/hook-engine.js has no engine and therefore no sentinel: every throw there is
+// real, so the classifier answers "not an exit" and the error is announced.
+const isEngineExit = (() => {
+  try {
+    const classify = require("./lib/hook-engine.js").isEngineExit;
+    if (typeof classify === "function") return classify;
+  } catch {
+    // no loadable engine in this tree — nothing here can throw its sentinel
+  }
+  return () => false;
+})();
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
 // in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
@@ -27,6 +60,7 @@ function hookMain() {
     // On timeout, surface halt-and-report so agent knows the credential check
     // DID NOT complete. Old behavior silently allowed continue.
     const out = instructAndWait({
+      escalate: "security",
       hookEvent: "PostToolUse",
       severity: "halt-and-report",
       what_happened:
@@ -84,8 +118,11 @@ function onStdinEnd(input) {
     console.log(JSON.stringify(advisory));
     process.exit(result.exitCode);
   } catch (error) {
+    // The sandboxed exit after a COMPLETED scan is not a hook error.
+    if (isEngineExit(error)) throw error;
     console.error(`[HOOK ERROR] ${error.message}`);
     const out = instructAndWait({
+      escalate: "security",
       hookEvent: "PostToolUse",
       severity: "halt-and-report",
       what_happened: `validate-deployment hook errored: ${error.message}`,
@@ -122,7 +159,8 @@ function validateDeployment(data) {
 
   const isDeploymentFile = deploymentFiles.some((p) => p.test(filePath));
   if (!isDeploymentFile) {
-    return { continue: true, exitCode: 0, message: "Not a deployment file" };
+    // SILENT ON SUCCESS (journal/0661): not a finding; no message ⇒ no context block.
+    return { continue: true, exitCode: 0, message: "" };
   }
 
   // CHECK 1: Cloud credential patterns — BLOCK
@@ -188,6 +226,7 @@ function validateDeployment(data) {
       // PostToolUse: file already written. Surface halt-and-report so agent
       // immediately scrubs the secret before any downstream commit/push.
       const out = instructAndWait({
+        escalate: "security",
         hookEvent: "PostToolUse",
         severity: "halt-and-report",
         what_happened: `Credential pattern detected in ${filePath}: ${message}`,
@@ -252,7 +291,8 @@ function validateDeployment(data) {
     };
   }
 
-  return { continue: true, exitCode: 0, message: "Deployment file validated" };
+  // SILENT ON SUCCESS (journal/0661): a clean deployment file adds nothing to context.
+  return { continue: true, exitCode: 0, message: "" };
 }
 
 module.exports = { hookMain };

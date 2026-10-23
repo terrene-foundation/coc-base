@@ -2,11 +2,13 @@
 priority: 10
 scope: path-scoped
 paths:
-  - "**/workspaces/**"
   - "**/.session-notes*"
   - "**/.session-notes.d/**"
-  - ".claude/hooks/**"
-  - ".claude/bin/**"
+  - "**/todos/**"
+  - ".claude/bin/{land-lane,worktree-reap,worktree-triage}*"
+  - ".claude/hooks/{wip-discipline-guard,lane-completion-guard,reap-on-landing-guard,stranded-artifact-guard,worktree-conservation-guard,delegation-default-guard,dispatch-contract-guard,todo-tracker-guard,validate-bash-command}.js"
+  - ".claude/hooks/lib/{wip-lanes,lane-completion,reap-on-landing,stranded-artifacts,unlanded-work-surface,delegation-default,landed-map,landing-window-read,dispatch-contract,todo-tracker,destructive-force-target,git-command-parse,worktree-forest}.js"
+  - ".claude/bin/{landing-provenance.json,lib/landing-window.mjs}"
 ---
 
 # WIP Discipline — Unlanded Work Is Inventory, And Inventory Is Waste
@@ -48,8 +50,8 @@ lane with its age.
 **The ceiling counts INVENTORY — unlanded worktrees and branches — never WORKERS.** An AGENT is a
 worker: dispatching one creates no branch, no worktree, no unlanded commit. Finish a lane to start a
 lane. Opening because work is available, rather than because capacity exists, is BLOCKED.
-Depth: extract § MUST-2. **Never a dead end:** a one-line reason in `.claude/wip-authz/wip-limit-allow`
-is honoured ONCE (consumed on use), or `COC_ALLOW_WIP_OVERRUN=1` for a run; both are recorded, not
+Depth: extract § MUST-2. **Never a dead end:** a call-bound receipt in `.claude/wip-authz/wip-limit-allow`
+is honoured ONCE, then consumed, or `COC_ALLOW_WIP_OVERRUN=1` for a run; both are recorded, not
 silent. Mechanics, incl. the content-confirmed lower bound: extract § "Why MUST-2 takes the teeth".
 
 **DO:** “5/5 open; oldest fix/x, 31h: land or kill one first.” **DO NOT:** open lane 6 because “they’re all small” or promise to close them at the end.

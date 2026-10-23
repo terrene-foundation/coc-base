@@ -1,7 +1,7 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-10-06T15:24:58Z
+timestamp: 2026-10-23T10:08:07Z
 source: loom/.claude
-loom_sha: f83295d5261e827c1eb9a9ffb3620bd287c028f0
+loom_sha: d2dc8f269a25c01f892b7a69772ee458d33f999d
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
@@ -9,7 +9,7 @@ scope_this_cycle: content+cli-emission   # FULL cycle: .claude/ content axis AND
 stats:
   stage: engine sync-tier-aware.mjs --target base --template coc-base applied in an isolated worktree cut from coc-base origin/main 23e0f0390dee; stage --verify CONSISTENT (per stage handover)
   delivery_lock_files: 5790   # .claude/.coc-delivery.lock delivered-path rows (engine-written; covers .claude/** only)
-  version_stamp: "loom-tracking -> 2.45.0 @ f83295d5 (stamp-template-version.mjs --write; upstream.loom_sha = f83295d5261e827c1eb9a9ffb3620bd287c028f0)"
+  version_stamp: "loom-tracking -> 2.45.0 @ d2dc8f269 (stamp-template-version.mjs --write; upstream.loom_sha = d2dc8f269a25c01f892b7a69772ee458d33f999d)"
   baselines_emitted: { cc: 0, codex: 1, gemini: 1 }   # CLAUDE.md preserved; AGENTS.md + GEMINI.md freshly emitted
   baseline_emission_bytes:
     block_cap_bytes: 65536

@@ -58,5 +58,5 @@ Todo 4 of 4.
 
     [Edit] src/quarry/refunds/backfill.py — snapshot id backfilled for in-flight refunds
 
-Gates: ruff clean, mypy clean, Tier-2 green, two consecutive clean adversarial rounds with
+Gates: ruff clean, mypy clean, Tier-2 green, one clean adversarial round with
 both payloads read. W9 lands.

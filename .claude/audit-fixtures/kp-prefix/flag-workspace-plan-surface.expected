@@ -1,0 +1,12 @@
+{
+  "path": "workspaces/churn/02-plans/01-plan.md",
+  "expect": [
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "scope gate — path (workspace plan, accept pole)",
+  "defeats": "a narrowing that drops workspace plans along with workspace notes. `**/02-plans/**` is one of specs-authority.md's own `paths:` globs, so a plan under a workspace stays a governed surface after `workspaces/` left the pattern list. Body is BYTE-IDENTICAL to `flag-bare-table-name-body`.",
+  "quotes_verbatim": [
+    "churn_features_table"
+  ]
+}

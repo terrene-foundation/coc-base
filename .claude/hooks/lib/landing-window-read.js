@@ -62,10 +62,18 @@
  * A marker is STALE when EITHER:
  *   (a) TIME — `now - started_at` exceeds the bound. Always checked, and the
  *       only check available when the marker was written on another host.
- *   (b) DEATH — the marker names THIS host and a pid, and
- *       `process.kill(pid, 0)` throws ESRCH. `EPERM` is NOT death: the process
- *       exists and we simply may not signal it, so it reads LIVE (fail-closed
- *       toward "the window is real").
+ *   (b) DEATH — the marker names THIS host and a pid, and the PROCESS TABLE
+ *       says that pid's owner is gone: no process holds the pid, or the one
+ *       that does started at a different time than the owner the opener
+ *       recorded (`owner.pid_start`), so the pid was reused. Read with `ps`,
+ *       never with `process.kill`: the pid comes from a file any writer of the
+ *       checkout can create, so even signal 0 would be a kill() aimed at a pid
+ *       someone else chose — and an existence check cannot tell the owner from
+ *       a later process holding its pid. See `processStartToken`.
+ *       An owner whose identity CANNOT be verified — `ps` unavailable or
+ *       failing, or a marker with no recorded start time — reads LIVE, until
+ *       the time bound (fail-closed toward "the window is real"; the reason is
+ *       at `classifyWindow`).
  *
  * The bound is a BACKSTOP, not the primary signal — a healthy `dev-preflight`
  * removes its own marker on exit, and the death check catches a kill long
@@ -239,7 +247,11 @@ function ownerPid(env) {
 function resolveCommonGitDir(cwd) {
   const start = safeRealpath(cwd || process.cwd());
   if (!start) return null;
-  const walk = walkToCommon(start);
+  const walk = walkToCommonDetailed(start);
+  // A `commondir` sidecar that exists but is not a readable regular file is NOT
+  // handed to git: git reads that same file with a blocking open (a FIFO there
+  // parks it until the subprocess timeout, on every call). It is UNRESOLVED here.
+  if (walk === WALK_REFUSED) return null;
   if (walk) return walk;
   try {
     // THE BINARY IS RESOLVED, NOT SPELLED, for the same reason `gitEnv()` is passed
@@ -333,8 +345,189 @@ function normalizePathForCompare(p) {
   return caseInsensitive ? s.toLowerCase() : s;
 }
 
+/**
+ * The size bound for every file this module READS: the marker, a worktree's `.git`
+ * pointer file and its `commondir` sidecar. Each is a few hundred bytes when honest
+ * (`openWindow` writes the marker; git writes the other two), so the bound only
+ * ever refuses a file nobody legitimate wrote.
+ */
+const MAX_READ_BYTES = 256 * 1024;
+
+/**
+ * Read a REGULAR file of at most `MAX_READ_BYTES` without ever blocking.
+ *
+ * WHY THIS EXISTS — A FIFO HUNG THE HOOK. These reads sit on the synchronous
+ * path of `append-sink.js::appendSinkLine` (via `windowCovers`), which runs in
+ * the hook dispatcher's own process. `fs.readFileSync` opens O_RDONLY with
+ * O_NONBLOCK CLEAR, and per POSIX open(2) a read-only open of a FIFO with no
+ * writer BLOCKS until one appears. A FIFO at `<common>/land-lane/landing-window.json`,
+ * at a worktree's `.git`, or at its `commondir` — all under paths a session can
+ * write (`.git/**` is writable outside `hooks/` and `config`) — therefore parked
+ * the dispatcher in open(2), where its own deadline timers cannot fire, until the
+ * host killed it.
+ *
+ * THE DECISION IS MADE ON THE OPENED FD, NEVER ON A PRIOR lstat:
+ *   - `O_NONBLOCK` makes the open of a FIFO return at once instead of waiting
+ *     for a writer (on a regular file it is a no-op);
+ *   - `O_NOFOLLOW` refuses a symlink at the final component (ELOOP), so a planted
+ *     link cannot redirect the read out of the tree, where a `malformed` result
+ *     would echo the first bytes of the foreign file;
+ *   - `fstatSync(fd)` then refuses anything that is not a regular file. The fd is
+ *     bound to one inode, so swapping the PATH after the open changes nothing: an
+ *     lstat-then-read pair had a window in which a FIFO could replace the file
+ *     the lstat cleared, and the read then blocked on it.
+ *   - the size is checked on the fd, and the read is bounded, so a file that grows
+ *     between the fstat and the read is refused rather than read whole.
+ * Both flags are `|| 0`-guarded so a platform lacking one degrades rather than
+ * NaN-poisoning the mask (no FIFO exists on the platform that lacks them).
+ *
+ * SHARED, NOT COPIED. Every hook-path read of a session-writable git-layout or
+ * marker file goes through this one function (git-checkout-proof `.git`,
+ * pcf-category's checkout probe and `--body-file`, landed-map's ledger, config
+ * and cache, the worktree owner/occupancy readers, the genesis enrollment marker,
+ * the deploy staging marker, the sync-freshness marker), so the non-blocking,
+ * fd-decided contract is held in one place.
+ *
+ * @param {string} p
+ * @param {{maxBytes?: number}} [opts]  The size bound; default `MAX_READ_BYTES`.
+ *   The read is CHUNKED, so a large bound costs no allocation up front.
+ * @returns {{ok: true, text: string} | {ok: false, code: string, reason: string}}
+ *   `code` is the errno for an open failure (ENOENT means absent), or one of
+ *   `ENOTREG` (not a regular file) / `EFBIG` (over the bound). Never throws.
+ */
+function readRegularFileBounded(p, opts) {
+  const max =
+    opts && Number.isFinite(opts.maxBytes) && opts.maxBytes > 0 ? Math.floor(opts.maxBytes) : MAX_READ_BYTES;
+  const flags =
+    fs.constants.O_RDONLY |
+    (fs.constants.O_NONBLOCK || 0) |
+    (fs.constants.O_NOFOLLOW || 0);
+  let fd = null;
+  try {
+    try {
+      fd = fs.openSync(p, flags);
+    } catch (e) {
+      const code = (e && e.code) || "EOPEN";
+      return { ok: false, code, reason: code === "ELOOP" ? "ELOOP (a symlink; not followed)" : code };
+    }
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) {
+      const kind = st.isFIFO()
+        ? "fifo"
+        : st.isDirectory()
+          ? "directory"
+          : st.isSocket()
+            ? "socket"
+            : st.isCharacterDevice() || st.isBlockDevice()
+              ? "device"
+              : "other";
+      return { ok: false, code: "ENOTREG", reason: `not a regular file (${kind}); not read` };
+    }
+    if (st.size > max)
+      return { ok: false, code: "EFBIG", reason: `${st.size} bytes, over the ${max}-byte read bound` };
+    // Chunked, and counted past the bound, so growth after the fstat is SEEN
+    // (refused) rather than truncated into a shorter, wrong text.
+    const chunks = [];
+    let got = 0;
+    for (;;) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, max + 1 - got));
+      const n = fs.readSync(fd, chunk, 0, chunk.length, null);
+      if (n === 0) break;
+      chunks.push(n === chunk.length ? chunk : chunk.subarray(0, n));
+      got += n;
+      if (got > max)
+        return { ok: false, code: "EFBIG", reason: `grew past the ${max}-byte read bound while being read` };
+    }
+    return { ok: true, text: Buffer.concat(chunks, got).toString("utf8") };
+  } catch (e) {
+    const code = (e && e.code) || "EREAD";
+    return { ok: false, code, reason: code };
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* a failed close of a read-only fd cannot be acted on and must not mask the result */
+      }
+    }
+  }
+}
+
+/**
+ * Write `data` to a FRESH temp file at `tmp`, then rename it over `target`.
+ *
+ * THE WRITE-SIDE TWIN OF `readRegularFileBounded`. The writers that use it put
+ * their temp file in a directory a session can write (`<git-common-dir>/land-lane/`,
+ * the common dir itself, a per-worktree admin dir), under a name anyone can
+ * predict (`<target>.tmp-<pid>`). A plain `fs.writeFileSync(tmp, …)` FOLLOWS a
+ * symlink planted at that name and writes the trusted bytes wherever it points,
+ * and opens a planted FIFO O_WRONLY with O_NONBLOCK clear, which blocks.
+ *
+ * `O_CREAT|O_EXCL` creates the file or fails EEXIST: it never opens what is
+ * already there — a symlink (followed by neither flag), a FIFO or a file — so a
+ * planted name is a loud refusal, never a redirected or blocked write.
+ * `O_NOFOLLOW` is added where the platform has it. `rename(2)` replaces the
+ * TARGET's directory entry and does not follow a symlink standing there.
+ *
+ * The temp file is removed on any failure AFTER this call created it, and never
+ * otherwise: an EEXIST name belongs to someone else.
+ *
+ * @throws the underlying error (EEXIST for a planted name); callers already
+ *   handle a failed write.
+ */
+function writeFreshThenRename(tmp, target, data, mode) {
+  const exclusive = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL;
+  const noFollow = fs.constants.O_NOFOLLOW || 0;
+  const fd = fs.openSync(tmp, exclusive | noFollow, typeof mode === "number" ? mode : 0o600);
+  let open = true;
+  let renamed = false;
+  try {
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), "utf8");
+    let off = 0;
+    while (off < buf.length) {
+      const n = fs.writeSync(fd, buf, off, buf.length - off);
+      if (!(n > 0)) throw new Error(`short write to ${tmp} (${off}/${buf.length} bytes)`);
+      off += n;
+    }
+    fs.closeSync(fd);
+    open = false;
+    fs.renameSync(tmp, target);
+    renamed = true;
+  } finally {
+    if (open) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* the fd is discarded on every path out */
+      }
+    }
+    if (!renamed) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        /* already gone: nothing of ours to remove */
+      }
+    }
+  }
+}
+
+/**
+ * `walkToCommonDetailed`'s answer when the walk found a `commondir` sidecar it must
+ * not read (see there). Internal: the exported `_walkToCommon` maps it to null.
+ */
+const WALK_REFUSED = Symbol("landing-window-read:walk-refused");
+
 /** Walk up for a `.git` entry; follow a `gitdir:` pointer + `commondir` sidecar. */
 function walkToCommon(start) {
+  const r = walkToCommonDetailed(start);
+  return r === WALK_REFUSED ? null : r;
+}
+
+/**
+ * The walk itself. Returns the common dir, `null` (the walk cannot answer; git may),
+ * or `WALK_REFUSED` (the walk found a sidecar git would block on; nobody may answer).
+ */
+function walkToCommonDetailed(start) {
   let cur = start;
   for (;;) {
     const dotGit = path.join(cur, ".git");
@@ -346,31 +539,43 @@ function walkToCommon(start) {
     }
     if (st) {
       if (st.isDirectory()) return safeRealpath(dotGit);
-      if (st.isFile()) {
-        let gitdir = null;
-        try {
-          const body = fs.readFileSync(dotGit, "utf8");
-          const m = /^\s*gitdir:\s*(.+?)\s*$/m.exec(body);
-          if (m) gitdir = safeRealpath(path.resolve(cur, m[1]));
-        } catch {
-          return null;
-        }
-        if (!gitdir) return null;
-        // A linked worktree's admin dir carries a `commondir` SIDECAR pointing
-        // back at the main `.git`. Without it we would return
-        // `<main>/.git/worktrees/<id>` and look for the marker in a directory
-        // the opener never wrote to — a silent true-negative for every sibling.
-        try {
-          const rel = fs
-            .readFileSync(path.join(gitdir, "commondir"), "utf8")
-            .trim();
-          if (rel) return safeRealpath(path.resolve(gitdir, rel));
-        } catch {
-          /* no sidecar: the pointer IS the common dir */
-        }
+      // Anything else that EXISTS goes to the fd-checked reader, which decides on
+      // the fstat of what it opened: the lstat above only routes, it never clears
+      // a read (a FIFO swapped in after it is refused by the reader, not hung on).
+      // A symlink, FIFO, socket or device is refused there, exactly as the lstat
+      // `isFile()` gate refused it before.
+      const dotGitRead = readRegularFileBounded(dotGit);
+      // A `.git` that EXISTS (the lstat saw it) but is refused — a symlink (ELOOP), a
+      // FIFO or socket, an oversized file — is NOT handed to the git fallback either.
+      // git follows a symlinked `.git` to a gitfile and then reads its `commondir`
+      // with a blocking open, so a FIFO sidecar behind a symlinked `.git` parked the
+      // fallback until its 5 s timeout (the security seat measured resolveMs 5005).
+      // Only ENOENT (the entry vanished after the lstat) still lets git answer.
+      if (!dotGitRead.ok) return dotGitRead.code === "ENOENT" ? null : WALK_REFUSED;
+      const m = /^\s*gitdir:\s*(.+?)\s*$/m.exec(dotGitRead.text);
+      const gitdir = m ? safeRealpath(path.resolve(cur, m[1])) : null;
+      if (!gitdir) return null;
+      // A linked worktree's admin dir carries a `commondir` SIDECAR pointing
+      // back at the main `.git`. Without it we would return
+      // `<main>/.git/worktrees/<id>` and look for the marker in a directory
+      // the opener never wrote to — a silent true-negative for every sibling.
+      const side = readRegularFileBounded(path.join(gitdir, "commondir"));
+      if (side.ok) {
+        const rel = side.text.trim();
+        if (rel) return safeRealpath(path.resolve(gitdir, rel));
         return gitdir;
       }
-      return null;
+      // ABSENT is the one refusal that means "no sidecar: the pointer IS the common
+      // dir". A sidecar that EXISTS but cannot be read (a FIFO, a symlink, oversized)
+      // is NOT absence: answering `gitdir` there would look for the marker in the
+      // per-worktree admin dir and silently miss a live window. Nor is it handed to
+      // git, which reads the same file with a BLOCKING open (`strbuf_read_file`), so
+      // a FIFO there would park every fallback probe until its timeout. UNRESOLVED:
+      // `windowCovers` answers `covered:false` exactly as it does for an unreadable
+      // marker, and `landing-window-guard.js::contextFor` drops the target, so no
+      // caller enforces a window it could not read.
+      if (side.code === "ENOENT") return gitdir;
+      return WALK_REFUSED;
     }
     const parent = path.dirname(cur);
     if (parent === cur) return null;
@@ -421,17 +626,20 @@ function readWindowRecord(commonDir) {
   if (!commonDir)
     return { state: "unreadable", reason: "common git dir unresolved" };
   const p = windowPath(commonDir);
-  let raw;
-  try {
-    raw = fs.readFileSync(p, "utf8");
-  } catch (e) {
-    if (e && e.code === "ENOENT") return { state: "absent", path: p };
+  // Through the fd-checked, non-blocking reader (see `readRegularFileBounded`): a
+  // FIFO, socket, device, symlink or oversized file at the marker path is
+  // `unreadable` — which every caller already treats as NOT a live window — and
+  // never a read that blocks the hook calling it.
+  const got = readRegularFileBounded(p);
+  if (!got.ok) {
+    if (got.code === "ENOENT") return { state: "absent", path: p };
     return {
       state: "unreadable",
       path: p,
-      reason: `${(e && e.code) || "read failed"}`,
+      reason: got.reason || got.code || "read failed",
     };
   }
+  const raw = got.text;
   let record;
   try {
     record = JSON.parse(raw);
@@ -543,17 +751,53 @@ function classifyWindow(record, opts) {
   const pid = Number.parseInt(String(owner.pid), 10);
   const sameHost = typeof owner.host === "string" && owner.host === host;
   if (sameHost && Number.isInteger(pid) && pid > 0) {
-    if (pidIsDead(pid)) {
+    // UNVERIFIABLE READS LIVE, and the direction is set by what every caller
+    // does with the answer. LIVE refuses a write into the primary (the guard's
+    // advisory, `append-sink.js` and `burndown-events.js::appendEvent` freezing
+    // their sinks, `openWindow` declining a second window); STALE lets it
+    // through. A false STALE lands a tracked change inside a running preflight
+    // and voids its receipt with nothing said; a false LIVE refuses loudly, by
+    // name, and ends at this record's time bound. So when the owner can be
+    // neither confirmed nor ruled out, the window holds until the clock retires it.
+    const probe =
+      typeof o.startTokenOf === "function" ? o.startTokenOf : processStartToken;
+    const seen = probe(pid);
+    if (seen && seen.state === "absent") {
       return {
         state: "stale",
         matched: "owner-dead",
         reason: `owner pid ${pid} no longer exists on ${host}`,
       };
     }
+    const recorded =
+      typeof owner.pid_start === "string" && owner.pid_start.trim() !== ""
+        ? owner.pid_start.trim()
+        : null;
+    if (seen && seen.state === "present" && recorded) {
+      if (seen.token === recorded) {
+        return {
+          state: "live",
+          matched: "owner-alive",
+          reason: `owner pid ${pid} is alive on ${host}, started ${recorded}`,
+        };
+      }
+      return {
+        state: "stale",
+        matched: "owner-pid-reused",
+        reason:
+          `owner pid ${pid} on ${host} is now held by a process started ${seen.token}, ` +
+          `not the owner started ${recorded}, so the owner is gone and its pid was reused`,
+      };
+    }
     return {
       state: "live",
-      matched: "owner-alive",
-      reason: `owner pid ${pid} is alive on ${host}`,
+      matched: "owner-unverified",
+      reason:
+        `owner pid ${pid} on ${host} cannot be verified (` +
+        (seen && seen.state === "present"
+          ? "the marker records no start time to compare"
+          : `the process table could not be read: ${(seen && seen.reason) || "no answer"}`) +
+        `), so the ${Math.round(boundMs / 60000)} min time bound is what retires this window`,
     };
   }
 
@@ -579,13 +823,57 @@ function classifyWindow(record, opts) {
   };
 }
 
-/** ESRCH is death. EPERM is NOT — the process exists and we may not signal it. */
-function pidIsDead(pid) {
+/**
+ * What the process table says about `pid`, read with `ps -o lstart=` — the
+ * pid + start-time identity `coord-background.js::_processStartToken`,
+ * `sessionend-release-lease.js::_processStartToken` and
+ * `dispatch-ledger.js::_hostStartToken` already use. No signal is sent.
+ *
+ *   { state: "present", token }   a process holds `pid`; `token` is its start time
+ *   { state: "absent" }           `ps` ran cleanly and found no such process
+ *   { state: "unverifiable", reason }   anything else
+ *
+ * `absent` is claimed ONLY on the one shape a clean miss produces — exit 1 with
+ * nothing on stdout or stderr — so a `ps` that failed for another reason (an
+ * out-of-range pid prints `process id too large` and also exits 1) is never read
+ * as a death. The binary is taken from a fixed system path, never PATH, for the
+ * reason the git probes here resolve theirs. `lstart` is 1-second granular: a
+ * pid reused within the second its owner started is not told apart.
+ */
+const PS_CANDIDATES = Object.freeze(["/bin/ps", "/usr/bin/ps"]);
+function processStartToken(pid) {
+  if (!(Number.isInteger(pid) && pid > 0)) {
+    return { state: "unverifiable", reason: `not a pid: ${JSON.stringify(pid)}` };
+  }
+  const bin = PS_CANDIDATES.find((p) => {
+    try {
+      return fs.statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  });
+  if (!bin) return { state: "unverifiable", reason: "no ps at /bin/ps or /usr/bin/ps" };
   try {
-    process.kill(pid, 0);
-    return false;
+    const { spawnSync } = require("child_process");
+    const r = spawnSync(bin, ["-o", "lstart=", "-p", String(pid)], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 2000,
+      env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
+    });
+    if (r.error) {
+      return { state: "unverifiable", reason: `ps did not run (${r.error.code || r.error.message})` };
+    }
+    const out = String(r.stdout || "").trim();
+    const err = String(r.stderr || "").trim();
+    if (r.status === 0 && out !== "") return { state: "present", token: out };
+    if (r.status === 1 && out === "" && err === "") return { state: "absent" };
+    return {
+      state: "unverifiable",
+      reason: `ps exited ${r.status === null ? `on ${r.signal}` : r.status}${err ? `: ${err.slice(0, 120)}` : ""}`,
+    };
   } catch (e) {
-    return !!e && e.code === "ESRCH";
+    return { state: "unverifiable", reason: `ps did not run (${(e && e.message) || e})` };
   }
 }
 
@@ -634,19 +922,29 @@ function describeWindow(record, classification) {
  * through the SAME resolver, or the comparison is not sound.
  *
  * The tail re-join is what makes this work for a path that does not exist yet —
- * which is the normal case for a `Write` of a new file. Fails closed to
- * `path.resolve` when nothing on the chain resolves, so a caller never receives
- * a `null` it might read as "not contained".
+ * which is the normal case for a `Write` of a new file. It climbs ONLY past a
+ * genuinely ABSENT component (`lstat` sees nothing there). A component that EXISTS
+ * but will not resolve — a dangling link, EACCES, ELOOP — returns NULL, and so does a
+ * chain on which nothing resolves; the caller reports that as `unresolved`, never as
+ * `out-of-tree`. It used to climb past any failure and fall back to `path.resolve`,
+ * so a Write through a dangling link OUTSIDE the primary that points INSIDE it read
+ * `out-of-tree` (train-8 R2 correctness ledger: the corr F1 class).
  */
 function canonicalizeForContainment(p) {
-  const abs = path.resolve(p);
-  let cur = abs;
+  let cur = path.resolve(p);
   const tail = [];
   for (;;) {
     const real = safeRealpath(cur);
     if (real) return tail.length ? path.join(real, ...tail.reverse()) : real;
+    try {
+      fs.lstatSync(cur);
+      return null; // it exists but will not resolve: never guess where it points
+    } catch (le) {
+      if (!le || le.code !== "ENOENT") return null; // not provably absent: refuse
+      /* genuinely absent: climb */
+    }
     const parent = path.dirname(cur);
-    if (parent === cur) return abs;
+    if (parent === cur) return null;
     tail.push(path.basename(cur));
     cur = parent;
   }
@@ -765,14 +1063,30 @@ function windowCovers(repoRoot, targetPath, opts) {
       state: "unresolved",
       reason: "common git dir unresolved",
     };
-  const primaryRoot = resolvePrimaryRoot(repoRoot);
-  if (!primaryRoot)
+  // A target whose containment cannot be DECIDED — no primary root to compare against, or a
+  // target that will not canonicalize — is never treated as outside the primary: the marker
+  // (located from the common dir alone) is still read, so `windowFreezes` refuses it under a
+  // live window. Without this the freeze stopped firing for those paths and the refusal rested
+  // on append-sink's own containment alone.
+  const undecided = (reason) => {
+    const r = readWindowRecord(common);
+    const c = r.state === "record" ? classifyWindow(r.record, o) : null;
+    const live = !!c && c.state === "live";
     return {
       covered: false,
       state: "unresolved",
-      reason: "primary root indeterminate",
+      reason,
+      targetUnresolved: true,
+      windowLive: live,
+      description: live ? describeWindow(r.record, c) : undefined,
+      path: r.path,
     };
+  };
+  const primaryRoot = resolvePrimaryRoot(repoRoot);
+  if (!primaryRoot) return undecided("primary root indeterminate");
   const target = canonicalizeForContainment(targetPath);
+  if (target === null)
+    return undecided("target path does not resolve (a component exists but will not canonicalize)");
   if (!isUnder(target, primaryRoot))
     return { covered: false, state: "out-of-tree" };
   const linked = linkedWorktreeTops(repoRoot);
@@ -804,6 +1118,16 @@ function windowCovers(repoRoot, targetPath, opts) {
     description: describeWindow(read.record, cls),
     path: read.path,
   };
+}
+
+/**
+ * THE freeze decision every hook-side sink consumer reads off a `windowCovers` verdict —
+ * one predicate, so `append-sink.js` and `burndown-events.js` cannot drift apart. Refuses a
+ * covered in-primary path, AND an unresolvable target under a LIVE window: unresolved is at
+ * least as strict as covered (fail-closed), never quietly "not covered".
+ */
+function windowFreezes(v) {
+  return !!v && (v.covered === true || (v.targetUnresolved === true && v.windowLive === true));
 }
 
 // ---------------------------------------------------------------------------
@@ -907,6 +1231,10 @@ function openWindow(repoDir, opts) {
     };
   }
   const pid = ownerPid(env);
+  // The owner's start time, so a reader can tell the owner from a later process
+  // that reused its pid. Unreadable here ⇒ not recorded, and a reader then holds
+  // the window to its time bound (`classifyWindow`, `owner-unverified`).
+  const started = pid ? processStartToken(pid) : null;
   const record = {
     schema: MARKER_SCHEMA,
     purpose,
@@ -925,6 +1253,7 @@ function openWindow(repoDir, opts) {
     owner: {
       session_id: session,
       pid,
+      pid_start: started && started.state === "present" ? started.token : null,
       host: os.hostname(),
       display: o.display || `session ${session.slice(0, 8)}`,
     },
@@ -941,12 +1270,13 @@ function openWindow(repoDir, opts) {
   try {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     // tmp + rename: a reader must never observe a half-written marker, because a
-    // truncated one classifies MALFORMED and the guard would report on it.
+    // truncated one classifies MALFORMED and the guard would report on it. The
+    // temp file is created EXCLUSIVELY (O_CREAT|O_EXCL|O_NOFOLLOW, 0600): it sits in
+    // the session-writable `<common>/land-lane/` under a predictable name, and a
+    // plain `writeFileSync` there followed a planted symlink and wrote the trusted
+    // opener's marker wherever it pointed. See `writeFreshThenRename`.
     const tmp = `${p}.tmp-${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify(record, null, 2) + "\n", {
-      mode: 0o600,
-    });
-    fs.renameSync(tmp, p);
+    writeFreshThenRename(tmp, p, JSON.stringify(record, null, 2) + "\n", 0o600);
   } catch (e) {
     return {
       ok: false,
@@ -1125,6 +1455,7 @@ module.exports = {
   openWindowForProcess,
   windowStatus,
   windowCovers,
+  windowFreezes,
   REQUIRED_FIELDS,
   ownerIdentity,
   callerIdentity,
@@ -1135,10 +1466,18 @@ module.exports = {
   windowPath,
   readWindowRecord,
   classifyWindow,
+  processStartToken,
   describeWindow,
   isUnder,
   canonicalizeForContainment,
   linkedWorktreeTops,
+  // THE non-blocking, fd-checked read of a small regular file. Shared rather than
+  // copied: `git-checkout-proof.js::dotGitTarget` reads `<top>/.git` through it, so
+  // a FIFO on either read path is refused by ONE implementation.
+  readRegularFileBounded,
+  MAX_READ_BYTES,
+  // ...and its write-side twin: exclusive temp create, then rename.
+  writeFreshThenRename,
   // Exported for fixtures that need to prove the walk and the subprocess path
   // agree; not used by production callers.
   _walkToCommon: walkToCommon,

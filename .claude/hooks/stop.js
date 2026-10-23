@@ -124,6 +124,24 @@
  * instead of one per turn, which is the cost of keeping the Stop-time coverage.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "~/.claude/checkpoints/",
+ *       "~/.claude/hook-state/stop-notes-lag/",
+ *       ".claude-tmp*"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git rev-list --count` through the shared runner on .claude/hooks/session-notes-incorporation-guard.js, lib/state-resolver.js probes, and lib/operator-id.js key discovery. Writes: ONE checkpoint file per session (~/.claude/checkpoints/stop_<session>.json, overwritten by each later Stop — retention rule at saveCheckpoint; once MAX_STOP_CHECKPOINT_FILES existing stop_* files are present a NEW session's first write is refused loudly and NOTHING is deleted), the once-per-session-per-kind latch in ~/.claude/hook-state/stop-notes-lag/ (O_CREAT|O_EXCL, with a TTL sweep that unlinks), the cleanupResources unlink of .claude-tmp* in cwd. ~/.claude/checkpoints + the latch dir are home-scoped, outside the repo root."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 // learning-utils no longer needed — stop observations removed
@@ -189,12 +207,59 @@ function ensureDir(dirPath) {
   }
 }
 
-/**
- * Save final checkpoint
- */
-function saveCheckpoint(sessionId, cwd, pendingWork) {
+// THE RETENTION RULE FOR STOP CHECKPOINTS (bounded writer, 2026-10-09).
+//
+// Per session: ONE file, `stop_<sessionId>.json`, OVERWRITTEN by each later
+// Stop. It used to be `stop_<sessionId>_<Date.now()>.json` — a fresh file per
+// invocation — and Stop fires on every turn, which MEASURED 39,713 files and
+// ~157 MB of directory (the files themselves are under 1 KB; the size is
+// inode/block overhead) in one operator's `~/.claude/checkpoints`.
+//
+// Globally: at most MAX_STOP_CHECKPOINT_FILES `stop_*.json` files; past that,
+// a NEW session's first write is REFUSED — never rotated, never truncated,
+// and NOTHING is deleted: the accumulated backlog is the operator's to clean,
+// and a delete here would silently destroy rows this hook did not create. The
+// refusal is LOUD (one stderr line per session, latched) and names the
+// condition + the remedy. A session whose own file already exists keeps
+// updating it at the cap — the cap bounds how many files may EXIST, not how
+// stale a legitimate checkpoint may be.
+const MAX_STOP_CHECKPOINT_FILES = 500;
+
+function _countStopCheckpoints(dir) {
   try {
-    ensureDir(CHECKPOINTS_DIR);
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith("stop_") && f.endsWith(".json")).length;
+  } catch {
+    // An unreadable directory counts as empty: worse to refuse a checkpoint on
+    // a transient readdir failure than to write one row past a soft cap.
+    return 0;
+  }
+}
+
+function _warnCheckpointCapOnce(sessionId, dir, count) {
+  // One line per session, via the same O_CREAT|O_EXCL latch the notes-lag
+  // advisories use — a capped directory must not spew one warning per turn.
+  // The latch fails OPEN by design (claimWrapupLatch's contract): a session
+  // with no identity warns per turn rather than never.
+  const latch = claimWrapupLatch(sessionId, "checkpoint-cap");
+  if (!latch.claimed) return;
+  process.stderr.write(
+    `[stop] checkpoint NOT written: ${count} stop checkpoint file(s) already exist in ${dir} ` +
+      `(cap ${MAX_STOP_CHECKPOINT_FILES}). NOTHING was deleted; clean the backlog or raise the cap. ` +
+      `Sessions that already have a checkpoint keep updating it.\n`,
+  );
+}
+
+/**
+ * Save final checkpoint. One stable file per session (see the retention rule
+ * above); `opts.dir` is injectable for fixtures, mirroring
+ * `claimWrapupLatch(sessionId, kind, {dir})`.
+ */
+function saveCheckpoint(sessionId, cwd, pendingWork, opts) {
+  try {
+    const dir = (opts && opts.dir) || CHECKPOINTS_DIR;
+    ensureDir(dir);
 
     const checkpoint = {
       timestamp: new Date().toISOString(),
@@ -205,10 +270,20 @@ function saveCheckpoint(sessionId, cwd, pendingWork) {
       interrupted: true,
     };
 
-    const checkpointPath = path.join(
-      CHECKPOINTS_DIR,
-      `stop_${sessionId}_${Date.now()}.json`,
-    );
+    // Same character class + bound the latch and the old path used, so a
+    // hostile session_id cannot traverse out of the directory or exceed a
+    // filename limit.
+    const safeId = String(sessionId)
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .slice(0, 128);
+    const checkpointPath = path.join(dir, `stop_${safeId}.json`);
+    if (!fs.existsSync(checkpointPath)) {
+      const existing = _countStopCheckpoints(dir);
+      if (existing >= MAX_STOP_CHECKPOINT_FILES) {
+        _warnCheckpointCapOnce(sessionId, dir, existing);
+        return null;
+      }
+    }
     fs.writeFileSync(checkpointPath, JSON.stringify(checkpoint, null, 2));
 
     return checkpointPath;
@@ -867,6 +942,10 @@ module.exports = {
   claimWrapupLatch,
   revListCount,
   LATCH_TTL_MS,
+  // The bounded-writer cap, exported so the fixture seeds the directory from
+  // the SAME value the writer refuses on (a hardcoded copy would let the two
+  // drift and the cap test would pass while measuring nothing).
+  MAX_STOP_CHECKPOINT_FILES,
   hookMain,
 };
 

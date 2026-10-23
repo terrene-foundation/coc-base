@@ -474,9 +474,9 @@ block fires.
 `isolation: "worktree"` and an `EnterWorktree` whose RESOLVED target is a nested placement, at
 `severity: block` on the structural parameter-value + resolved-path-ancestry signal
 `hook-output-discipline.md` MUST-2 permits — discriminating on the resolved target rather than on
-which key carries it, as that section requires. Measured the same day:
-`node .claude/audit-fixtures/nested-worktree-guard/run.mjs` reports 35/35 cases matching expectation
-and `--mutation-check` 13/13 mutants killed. Both overrides are implemented — the one-shot receipt at
+which key carries it, as that section requires. Re-measured 2026-10-19 (the landing-day read was 35/35 and 13/13):
+`node .claude/audit-fixtures/nested-worktree-guard/run.mjs` reports 40/40 cases matching expectation
+and `--mutation-check` 15/15 mutants killed. Both overrides are implemented — the one-shot receipt at
 `.claude/worktree-authz/nested-worktree-allow` (CONSUMED as it is honored, so an override cannot
 silently disarm the gate for later calls) and `COC_ALLOW_NESTED_WORKTREE=1` — each surfacing an
 `advisory` into the agent-visible context, so no override is silent. `.claude/worktree-authz/` exists
@@ -491,8 +491,8 @@ ZERO hits, which is exactly what the superseded earlier same-day measurement rec
 instrument demonstrably discriminates, and both poles of it were observed on the same tree hours
 apart. The instrument for correctness is the fixture runner: had the guard mis-discriminated (keyed
 on `name`-without-`path`, or compared lexical rather than resolved paths) `run.mjs` would have
-reported fewer than 35/35 cases matching expectation, and had the fixtures been vacuous
-`--mutation-check` would have reported fewer than 13/13 mutants killed. `.claude/worktree-authz/`
+reported fewer than 40/40 cases matching expectation, and had the fixtures been vacuous
+`--mutation-check` would have reported fewer than 15/15 mutants killed. `.claude/worktree-authz/`
 being EMPTY is the reading that says no standing override is in force; a non-empty directory would
 have said one was.
 
@@ -780,7 +780,7 @@ recoverability argument onto the other five.
 Relocated VERBATIM from the Rule-10 (MUST-10) Trust-Posture-Wiring `**Detection mechanism:**` and
 `**Origin:**` fields on 2026-09-12, to pay for the lane-unit amendment to Rule 1 in the same change:
 before this extraction that amendment had grown this path-scoped rule by 1,412 B and put the
-`loom-skill-edit` and `loom-command-edit` injection profiles over their ceilings
+`loom-skill-edit` and `codify-edit` injection profiles over their ceilings
 (`check-rule-injection-budget.mjs`, measured). Both fields keep their normative statements — the
 predicate, its severity ceiling, the RETIRED Bash-layer Phase 2 and the scope.
 

@@ -19,9 +19,10 @@ local self-hosted pool is saturated. Read by
 A file whose **body is the operator's stated reason**. Its presence stops the
 guard asking for the rest of the session.
 
-**An empty file is NOT a grant.** The body is read and must be non-empty — the
-same rule `.claude/wip-authz/wip-limit-allow` uses, so a stray `touch` or a
-half-finished redirect cannot authorize minute-spend.
+**An empty file is NOT a grant.** The body is read and must be non-empty, so a
+stray `touch` or a half-finished redirect cannot authorize minute-spend. The WIP
+receipt instead requires call-bound JSON with `digest`, `reason`, and `written_at`
+(.claude/hooks/lib/override-receipt.js:530-580,808-855); a plain reason is not that receipt.
 
 Unlike the WIP receipt, this one is **not consumed on use**: the operator's
 answer to "this batch of CI work is worth GitHub-hosted minutes" is a decision

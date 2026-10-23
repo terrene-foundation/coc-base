@@ -8,14 +8,17 @@ paths:
   - "scripts/ci/**"
   - "tools/**"
   - ".claude/audit-fixtures/**"
-  # A rule that governs "CI checks, suites, guards, linters, audits" but never
-  # loads on the TEST surface is itself the inert gate its opening sentence
-  # names. The five globs above reach workflows, actions, CI scripts, tooling
-  # and fixtures — none matches `.claude/test-harness/tests/**` or
-  # `tests/integration/**`, so editing a suite this rule governs never loaded
-  # it. Ingested from the BUILD stream, which closed the same gap upstream.
+  # Test paths: `.claude/test-harness/tests/**`, `tests/integration/**`.
   - "**/tests/**"
-  - "**/*test*"
+  # 2026-10-10: `**/*test*` matched "latest", "attestation" and testing-strategy docs;
+  # replaced by named test conventions, plus the harness registries (MUST-3(b)).
+  - "**/__tests__/**"
+  - "**/{test_*,test-*,test.*,*_test.*,*-test.*,*.test.*,*.spec.*,run-tests.*,conftest.py,tests.rs}"
+  - "**/*_spec.rb"
+  - "**/spec/**"
+  - ".claude/test-harness/*"
+  - ".claude/test-harness/{lib,suites,fixtures,foundation-corpus,probes}/**"
+  - "**/*_tests.py"
   # 2026-09-12: MUST-3(a)'s subjects live here and matched no glob above.
   - ".claude/bin/**"
   - ".claude/hooks/**"
@@ -25,7 +28,7 @@ paths:
 
 Full DO/DO-NOT blocks, BLOCKED corpora, MUST-2's carve-out in full, the MUST-3/4 distinction, Origin, and the Wiring detail: `.claude/guides/rule-extracts/verification-gate-integrity.md`.
 
-A gate that cannot fire is indistinguishable, to every reader, from a gate that fired and found nothing — both render green, and nobody investigates a passing check. This governs the INTEGRITY of a verification mechanism (CI checks, suites, guards, linters, audits), not whether its logic is correct: a perfectly-correct gate that never executes protects nothing.
+A gate that cannot fire is indistinguishable from a gate that fired and found nothing — both render green. This governs the INTEGRITY of a verification mechanism (CI checks, suites, guards, linters, audits), not whether its logic is correct: a gate that never executes protects nothing.
 
 ## MUST Rules
 

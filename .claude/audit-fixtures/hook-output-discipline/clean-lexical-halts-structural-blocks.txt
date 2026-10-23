@@ -44,4 +44,4 @@ matcher, so it walks past. No date booked; no structural signal has been named.
 
 Audit cases under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
 `clean-in-scope-repo.txt`, `flag-vendor-mirror.txt`, `skip-shell-variable.txt`,
-`skip-command-substitution.txt`. Green from `/Users/me/repos/loom`.
+`skip-command-substitution.txt`. Green from `{{FIXTURE_HOME_V1:MAC}}me/repos/loom`.

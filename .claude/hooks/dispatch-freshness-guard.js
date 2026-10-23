@@ -88,6 +88,20 @@
  * 0 before) and ~40% of the output was unactionable.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "WRITES NOTHING. Spawns are local, read-only git reads through lib/dispatch-freshness.js and the shared lib/trunk-ref.js (`rev-parse --verify`, `log -1 --format=%ct`, plus a disambiguating ref probe only when the tip read fails); the probe is deliberately offline, so no fetch and no network."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7, deliberately under any registered timeout so this

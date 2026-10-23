@@ -1,0 +1,33 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R2 security R_closure_write: a NESTED FUNCTION writes the flag. No `=` on a bare
+// identifier is counted at the write site, so only a closed-world reference check sees it.
+function canonPath(p) {
+  let dir = path.dirname(path.resolve(p));
+  const tail = [path.basename(path.resolve(p))];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail);
+    } catch (e) {
+      let absent = false;
+      try {
+        fs.lstatSync(dir);
+      } catch (le) {
+        absent = !!le && le.code === "ENOENT";
+        const mark = () => { absent = true; };
+        mark();
+      }
+      if (!e || e.code !== "ENOENT" || !absent) return null;
+      const up = path.dirname(dir);
+      if (up === dir) return null;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return canonPath(p) === r;
+}

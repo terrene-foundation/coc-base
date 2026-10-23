@@ -294,6 +294,7 @@ gate the grant does not name stands — cross-repo, destructive-op and structura
 - `rules/session-notes-continuity.md` — MUST-1 read order, MUST-2 no-truncate, MUST-3 ceilings
 - `rules/wip-discipline.md` — MUST-1 terminal states, MUST-4 landed AND cleaned, MUST-7 pull on free capacity, and the WIP ceiling
 - `rules/governed-throughput.md` MUST-1 — the curated-slice injection mechanism the landing slice uses
+- `skills/lane-planning/fleet-operations.md` — the Step 0 fleet-mode bullet's procedure: roles, liveness, ROOT's stall watchdog, review seating, token discipline
 - `rules/multi-operator-coordination.md` §1 — the identity triple and why `display_id` is signage
 - `.claude/hooks/lib/session-notes-layout.js` — `fragmentPathFor`, `readNotesFileGuarded`, `readFragmentAttribution`
 - `.claude/hooks/lib/state-resolver.js` — `requireMainCheckout`, the root the probe resolves

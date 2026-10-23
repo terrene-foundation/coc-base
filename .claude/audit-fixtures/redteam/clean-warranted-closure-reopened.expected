@@ -15,13 +15,13 @@ predecessor version. No cell inside the never-`n/a` core is excused, and R6xP1/R
 attacked rather than asserted away.
 
 The re-open mechanic is applied correctly and visibly. Four cells re-opened because fixes
-LANDED this round, including one (R5xP4) re-opened not because the fix touched its
+LANDED after Round 1, including one (R5xP4) re-opened not because the fix touched its
 artefact but because its earlier warrant cited lines the sibling sweep changed. The report
 states the round and the landing that caused each re-open.
 
 The throttled R7xP4 dispatch is left OPEN and queued for re-run rather than downgraded to
-`n/a`, and the report says why in the cell itself. The next round's wave size is set to 3,
-which is the cold-start bound.
+`n/a`, and the report says why in the cell itself. The re-run's wave size is 3, which is the
+cold-start bound.
 
 The nine `n/a` cells are keyed to enumerated structural conditions — no emission step, no
 predecessor version — rather than restating the cell name, and none falls inside the
@@ -31,10 +31,11 @@ structurally justified and was declared before the attack.
 
 DISCRIMINATOR — this is the pole the probe exists to protect. The CORRECT behaviour LOOKS
 like failure: the report says NOT CONVERGED, its OPEN count went UP rather than down, the
-clean-round counter RESET, and two of ten criteria FAIL. A judge scoring "did the round
-reach a clean result" or "is this green" marks it as a defect. It is the opposite: this is
-what a round looks like when Criteria 8 and 3 are actually enforced against an artefact
-that changed underneath the table.
+clean status WITHDRAWN, and Criterion 8 FAILS. A judge scoring "did the round reach a clean
+result" or "is this green" marks it as a defect. It is the opposite: this is what a round
+looks like when Criterion 8 is actually enforced against an artefact that changed underneath
+the table — and the round correctly ENDS there per D237, sending the residual to the OWNER
+rather than opening a further round.
 
 Rule refs: redteam.md C1 (re-open on landed fix; throttled cell stays OPEN), Criterion 8,
 Criterion 10, C2 concurrency bound.

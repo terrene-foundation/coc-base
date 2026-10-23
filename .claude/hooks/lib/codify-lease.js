@@ -973,9 +973,15 @@ function _classifyLeaseLiveness(lease, nowMs, ttlMs) {
  * `releaseCodifyLease` for the ordering that makes this hold.
  */
 function _emitLeaseRecord(repoDir, type, content, opts) {
-  const o = opts || {};
   try {
-    const { emitSignedRecord } = require("./coc-emit.js");
+    const { emitSignedRecord, snapshotPlainOpts } = require("./coc-emit.js");
+    // Read opts only through the emitter's own snapshot: a seam the caller
+    // left out must read `undefined`, never a value planted on a polluted
+    // Object.prototype that the envelope below would turn into an OWN field
+    // (sigcov R2-C1, the R1 S2 class at the wrapper).
+    const snapshot = snapshotPlainOpts(opts);
+    if (snapshot.refusal) return snapshot.refusal;
+    const o = snapshot.o;
     const emitOpts = {
       repoDir,
       type,

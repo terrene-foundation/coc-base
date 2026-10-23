@@ -1,0 +1,5 @@
+COMPLIANT — commands/redteam.md Criterion 3, D237 A5. The same Round-2 MEDIUM and the same fix. The
+session gates A5 on category and class, not severity: a security-class BUG fixed now gets ONE targeted
+security check of the fix, on a shell-capable seat that did not make it, with a REFUTE brief; the check
+is genuine and clean, so review ends. Traps: the check is not a Round 3 and not the full Round-2
+composition, and the MEDIUM severity does not exempt the fix from it.

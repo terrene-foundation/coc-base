@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * ============================================================================
- *  Knowledge-Mesh S2 Metadata-Observability Console — loom-command read-surface
+ *  Knowledge-Mesh S2 Metadata-Observability Console — UP-pull aggregator read-surface
  * ============================================================================
  *
  *  AUTHORITATIVE CONTRACT (this tool IMPLEMENTS it, never restates the
@@ -10,10 +10,10 @@
  *      (the console VIEW contract — every invariant below is FROM it)
  *    workspaces/knowledge-mesh-2026-07-10/specs/04-plane-split.md
  *      § "Metadata-observability console invariant — the RES-13 silent-failure guard"
- *      § "loom-command governance is NAME-BLIND (M3 …)"  · § "ENUM-BOUNDED PASS-THROUGH"
+ *      § "… governance is NAME-BLIND (M3 …)"  · § "ENUM-BOUNDED PASS-THROUGH"
  *      § "DELIBERATELY NOT SCRUBBED"  · § "The scrub scope" item 5
  *
- *  WHAT IT IS. A loom-command FEDERATED READ-ONLY view over N registered
+ *  WHAT IT IS. An aggregator-side FEDERATED READ-ONLY view over N registered
  *  projects' committed `kp://` registry tuples (spec §1). NO engine, NO data
  *  movement, NO server, NO reservoir dereference — it reads git-pulled registry
  *  TEXT and renders the union. It is the READ surface of the observe-UP /
@@ -29,7 +29,7 @@
  *
  *  NAME-BLIND (spec §2 invariant 3 + §4). The console renders OPAQUE HANDLES
  *  ONLY — the readable name lives solely in the local handle vault, which never
- *  reaches loom-command. This extends to the per-PROJECT identity axis (§4): a
+ *  reaches the UP-pull aggregator. This extends to the per-PROJECT identity axis (§4): a
  *  project renders against its OPAQUE registration handle, never a readable
  *  project/client name; a non-opaque project_key renders as a positional
  *  sentinel, never the raw bytes.
@@ -846,7 +846,7 @@ function loadProjects(target) {
 // ────────────────────────────────────────────────────────────────
 const HELP = `mesh-observability-console — S2 knowledge-mesh federated read-only view
 
-A loom-command READ-ONLY view over N registered projects' committed kp://
+An aggregator-side READ-ONLY view over N registered projects' committed kp://
 registry tuples. NO engine, NO data movement, NO server, NO reservoir
 dereference. Reads THROUGH the S1 fence; renders opaque handles ONLY; renders
 the RES-13 per-tenant dedup-liveness guard. Contract:

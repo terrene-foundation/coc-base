@@ -1,0 +1,5 @@
+// a lexical check would flag: fs.realpathSync(p).startsWith("/srv/sandbox/")
+export const DOC = "never write fs.realpathSync(p).startsWith('/srv/sandbox/') in code";
+export function noop() {
+  return DOC.length;
+}

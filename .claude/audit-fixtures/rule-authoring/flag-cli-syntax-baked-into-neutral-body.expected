@@ -44,7 +44,7 @@ hedging phrase sits inside a MUST clause; the file is 94 lines; the Wiring block
 row is not the defect here.
 
 Discriminator 6 — the gate ran properly. Two specialists, both instructed to report in their
-final message, two consecutive clean rounds, both payloads read. Nothing about the dispatch
+final message, a clean round 1 with every reviewer run and nothing CRITICAL/HIGH (D237: no second round owed). Nothing about the dispatch
 discipline is a finding; the reviewers simply did not catch this.
 
 The whole defect is CLI-specific syntax carried in the neutral body with no slot to hold it.

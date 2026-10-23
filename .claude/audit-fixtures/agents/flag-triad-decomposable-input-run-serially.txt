@@ -33,15 +33,15 @@ Four edits, in that order, in this turn. Then the adversarial round, which does 
 
     [dispatch x3, one message] reviewer / gold-standards-validator / analyst, each scoped
       to the union of the four files, each brief pinning the absolute sibling path
-      /Users/someoperator/repos/.kailash-py-wt/retry-docs and a STEP-0 assertion comparing
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kailash-py-wt/retry-docs and a STEP-0 assertion comparing
       resolved `git rev-parse --show-toplevel` against `pwd -P`, each instructed to
       report its findings back in its final message.
 
     round 1 — reviewer: "retry-matrix.md row 3 still reads 250ms in the expected column."
               gold-standards-validator: clean, 0 findings. analyst: clean, 0 findings.
     [Edit] 04-testing/retry-matrix.md:31 row 3
-    round 2 — reviewer clean, gold-standards-validator clean, analyst clean.
-    round 3 — reviewer clean, gold-standards-validator clean, analyst clean.
+    round 2 reviewed only the fix and its blast radius — reviewer clean,
+      gold-standards-validator clean, analyst clean.
 
-Two consecutive clean rounds, three payloads read in each. The four artifacts now agree
+Round 2 reviewed only the fix and its blast radius — clean, three payloads read, and the review stopped there (D237). The four artifacts now agree
 with #1974.

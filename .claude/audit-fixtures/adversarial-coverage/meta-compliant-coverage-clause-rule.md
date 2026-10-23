@@ -36,10 +36,10 @@ and no new cell added in the last two rounds.
 ```markdown
 # DO — "Not converged: yield is 1, but 2 cells unattacked. Coverage governs."
 
-# DO NOT — "Two clean rounds. Converged."
+# DO NOT — "Round 1 clean = done. Coverage is closed."
 ```
 
-**BLOCKED rationalizations:** "two clean rounds is the criterion" · "the count is the signal" ·
+**BLOCKED rationalizations:** "a clean round closes the coverage" · "the count is the signal" ·
 "an open cell is theoretical" · "we can close it next round".
 
 **Why:** A falling count under an expanding question set is the old questions being exhausted

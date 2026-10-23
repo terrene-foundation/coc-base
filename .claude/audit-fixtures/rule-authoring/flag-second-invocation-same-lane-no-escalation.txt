@@ -70,6 +70,6 @@ union of the three files, all three instructed to report findings in their final
 
     round 1 — cc-architect: clean. reviewer: clean. security-reviewer: "the new clause should
               name the MySQL client explicitly" — named, clause re-read, still one sentence.
-    round 2 — all three clean, three payloads read.
+    round 2 reviewed only the naming fix and its blast radius — all three clean, three payloads read.
 
-Two consecutive clean rounds. Landing.
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). Landing.

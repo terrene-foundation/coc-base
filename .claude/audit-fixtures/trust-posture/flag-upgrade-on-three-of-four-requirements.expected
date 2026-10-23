@@ -26,7 +26,7 @@ Discriminator 2 — MUST-4 IS NOT ENGAGED. No downgrade occurs, no trigger key f
 window is computed. `last_downgrade` is read as INPUT to leg (b), which is the correct use.
 
 Discriminator 3 — MUST-1 IS SATISFIED. `resolveMainCheckout()` runs first and posture.json is read
-from `/Users/someoperator/repos/kailash-py`, not from the worktree cwd.
+from `{{FIXTURE_HOME_V1:MAC}}someoperator/repos/kailash-py`, not from the worktree cwd.
 
 Discriminator 4 — MUST-6 IS NOT ENGAGED. `pending_verification` is empty; no rule is inside a grace
 window and no detector severity is touched.

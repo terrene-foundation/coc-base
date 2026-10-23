@@ -28,7 +28,7 @@ Two forms are BLOCKED as the assertion: `git -C <worktree> …` (never establish
 
 ```python
 # DO — pre-made SIBLING, no isolation flag, STEP-0 assertion MANDATED in the prompt
-wt = "/Users/me/repos/.myrepo-wt/shard-abc"      # sibling of the repo, NEVER under it
+wt = "<operator-home>/repos/.myrepo-wt/shard-abc"      # sibling of the repo, NEVER under it
 # git worktree add -b feat/shard-abc "$wt" origin/main
 Agent(prompt=f"""
 Working directory: {wt}
@@ -346,7 +346,7 @@ git worktree add .claude/worktrees/x    ;  EnterWorktree({name: "x"})   # both l
 
 **The nesting trap reaches Rules 1–6 too, and where a structural guard enforces it that guard MUST ship TWO audited override channels.** Both flags land the AGENT-WAVE worktree at the same nested placement, which is why Rule 1(a) BLOCKS both. A deployment MAY enforce this structurally at `PreToolUse` with `severity: block` — the signal is a literal parameter VALUE read from the structured payload, the structural class `hook-output-discipline.md` MUST-2 permits `block` for. Such a guard MUST discriminate on the **RESOLVED TARGET PATH**, not on which key carries it: keying on `name`-without-`path` is disarmed by appending a `path`, and the resolution MUST follow `security.md` § Path Containment. And per `hook-output-discipline.md` MUST NOT § "Detectors that block work the agent has been instructed to perform", it MUST NOT dead-end legitimate work — so it ships with BOTH:
 
-1. **An AGENT-REACHABLE one-shot receipt** — a non-empty reason written to `.claude/worktree-authz/nested-worktree-allow`, which the guard CONSUMES (deletes) as it honors it, so an override cannot silently disarm the gate for later calls.
+1. **An AGENT-REACHABLE one-shot receipt** — a call-bound, non-empty reason written to `.claude/worktree-authz/nested-worktree-allow`, which the guard CONSUMES (deletes) as it honors it, so an override cannot silently disarm later calls.
 2. **An operator/CI environment channel** — `COC_ALLOW_NESTED_WORKTREE=1`.
 
 Both MUST surface an `advisory` into the agent-visible context, so an override is never silent. **The receipt is the channel that answers the MUST NOT; the env var alone does not.** Whether such a guard is present in a given deployment is MUTABLE state: re-measure it, never cite a rule line for it. Depth: guide § "Rule 7 — Methodological Lesson, Placement Grounds, Guard State".

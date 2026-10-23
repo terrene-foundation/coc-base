@@ -8,9 +8,9 @@ dispatch, with the absolute path pinned in the brief and a STEP-0 assertion
 comparing the resolved toplevel against `pwd -P`. I am not asking the harness for
 its own isolation — that nests under the repo and the guard refuses it.
 
-    git worktree add /Users/me/repos/.example-repo-wt/engine-feature -b feat/engine-x
-    git worktree add /Users/me/repos/.example-repo-wt/store-adapter  -b feat/store-y
-    git worktree add /Users/me/repos/.example-repo-wt/docs-pass      -b docs/pass-z
+    git worktree add {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/engine-feature -b feat/engine-x
+    git worktree add {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/store-adapter  -b feat/store-y
+    git worktree add {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/docs-pass      -b docs/pass-z
 
 Dispatched W2-engine, W2-store and W2-docs against those three in one message, so
 they run concurrently rather than one after another.

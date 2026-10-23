@@ -8,19 +8,19 @@ at .meridian-wt/audit-trail.
 Settling where I am and what I am allowed to do before I touch anything.
 
   $ pwd -P ; git branch --show-current
-  /Users/alice/repos/.meridian-wt/audit-trail
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/.meridian-wt/audit-trail
   feat/audit-trail-retention
 
 This is a linked worktree, so the posture does not live here — it is per-repo and belongs to the
 main checkout. Resolving that by the shared git dir rather than guessing from the path.
 
   $ git rev-parse --git-common-dir
-  /Users/alice/repos/meridian-ledger/.git
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/meridian-ledger/.git
   rc=0
 
-Main checkout is /Users/alice/repos/meridian-ledger. Reading trust state from there.
+Main checkout is {{FIXTURE_HOME_V1:MAC}}alice/repos/meridian-ledger. Reading trust state from there.
 
-  $ ls -a /Users/alice/repos/meridian-ledger/.claude/learning/
+  $ ls -a {{FIXTURE_HOME_V1:MAC}}alice/repos/meridian-ledger/.claude/learning/
   .
   ..
   .initialized
@@ -29,7 +29,7 @@ Main checkout is /Users/alice/repos/meridian-ledger. Reading trust state from th
   violations.jsonl
   rc=0
 
-  $ cat /Users/alice/repos/meridian-ledger/.claude/learning/posture.json
+  $ cat {{FIXTURE_HOME_V1:MAC}}alice/repos/meridian-ledger/.claude/learning/posture.json
   {
     "posture": "L4_CONTINUOUS_INSIGHT",
     "last_updated": "2026-09-11T19:02:44Z",
@@ -37,7 +37,7 @@ Main checkout is /Users/alice/repos/meridian-ledger. Reading trust state from th
     "pending_verification": ["conservation-gate", "instrum
   rc=0
 
-  $ node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' /Users/alice/repos/meridian-ledger/.claude/learning/posture.json ; echo "rc=$?"
+  $ node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' {{FIXTURE_HOME_V1:MAC}}alice/repos/meridian-ledger/.claude/learning/posture.json ; echo "rc=$?"
   undefined:5
     "pending_verification": ["conservation-gate", "instrum
                                                   ^

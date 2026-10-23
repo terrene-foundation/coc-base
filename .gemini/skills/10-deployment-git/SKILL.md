@@ -202,9 +202,9 @@ Use this skill when you need to:
 
 ## Related Skills
 
-- **[03-nexus](../../../.claude/skills/03-nexus/SKILL.md)** - Application deployment (end-user)
-- **[02-dataflow](../../../.claude/skills/02-dataflow/SKILL.md)** - Database operations
-- **[01-core-sdk](../../../.claude/skills/01-core-sdk/SKILL.md)** - Runtime selection
+- **[03-nexus](../03-nexus/SKILL.md)** - Application deployment (end-user)
+- **[02-dataflow](../02-dataflow/SKILL.md)** - Database operations
+- **[01-core-sdk](../01-core-sdk/SKILL.md)** - Runtime selection
 - **[17-gold-standards](../../../.claude/skills/17-gold-standards/SKILL.md)** - Release best practices
 
 ## Support

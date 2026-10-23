@@ -1,0 +1,11 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// B12: the prefix length is computed into a variable first, so the slice is not recognisably
+// `R.length`. A real A1 the detector is silent on by construction.
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  const r = path.resolve(root);
+  const n = r.length;
+  return c.slice(0, n) === r;
+}

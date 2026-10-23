@@ -8,11 +8,17 @@
  * Reference: https://learn.chatgpt.com/docs/hooks (2026-09-28).
  */
 "use strict";
+let lastResortEvent = process.argv[2] === "--native-event" ? process.argv[3] : "PreToolUse";
+if (require.main === module) {
+  process.on("uncaughtException", lastResortFailure);
+  process.on("unhandledRejection", lastResortFailure);
+}
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const RUNTIME_STARTED_AT = require("node:perf_hooks").performance.now();
 const ROOT = fs.realpathSync(path.resolve(__dirname, "../../.."));
-const INPUT_TIMEOUT_MS = 2000;
+const { STDIN_READ_TIMEOUT_MS: INPUT_TIMEOUT_MS, NATIVE_CALL_BUDGET_MS, DIRECT_HANDLER_TIMEOUT_MS, HookBudgetExceeded } = require("./hook-input-budget");
 const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 // ONE deadline for the whole native policy call — NOT a fresh one per
 // rendering. The configured native hook timeout is 600s
@@ -20,16 +26,17 @@ const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 // hook (exit 2) sixty seconds before the host could time it out: what the HOST
 // does on its own hook timeout is UNMEASURED, and this design does not depend
 // on it either way.
-const NATIVE_CALL_BUDGET_MS = 540000;
+const NATIVE_LIFECYCLE_EVENTS = new Set(["SessionStart", "SessionEnd", "PreCompact", "PostCompact", "UserPromptSubmit",
+  "SubagentStart", "SubagentStop", "Stop", "Interrupt", "PostToolUse", "PermissionRequest"]);
 // These are direct-handler roles, not replacements for native-policy's live
 // registration inventory or its separate 550s/600s aggregate budget.
 const HANDLERS = [
   ...["validate-bash-command.js", "validate-workflow.js", "validate-deployment.js",
     "ci-runner-saturation-guard.js", "synthetic-load-guard.js"]
-    .map((name) => ({ name, validator: true, timeoutMs: 4000 })),
-  { name: "integration-hygiene.js", timeoutMs: 10000 },
-  { name: "session-load-backstop.js", timeoutMs: 10000 },
-  { name: "session-start.js", timeoutMs: 20000 },
+    .map((name) => ({ name, validator: true, timeoutMs: DIRECT_HANDLER_TIMEOUT_MS.validator })),
+  { name: "integration-hygiene.js", timeoutMs: DIRECT_HANDLER_TIMEOUT_MS.standard },
+  { name: "session-load-backstop.js", timeoutMs: DIRECT_HANDLER_TIMEOUT_MS.standard },
+  { name: "session-start.js", timeoutMs: DIRECT_HANDLER_TIMEOUT_MS.sessionStart },
 ];
 
 function canonicalFile(file) {
@@ -43,11 +50,30 @@ function canonicalFile(file) {
   return canonical;
 }
 
+// How long this runtime waits for a handler: its REGISTRATION's declared timeout plus the host
+// margin — hooks/lib/dispatch-registry.js::registeredHostWaitMs, the ONE source shared with the
+// Codex MCP guard (R1 correctness L1). A handler's `timeoutMs` above is only the FALLBACK for a
+// handler no registration row names: as the wait for every validator it sat below each guard's
+// runGuard budget (4000 ms vs validate-bash-command's 26000), so the guard's own budget refusal
+// could never reach this host. A registry that cannot be read keeps the fallback, and a run past
+// it still throws into this runtime's refusal — never an allow.
+function registeredWaits(root) {
+  try {
+    const reg = require("./dispatch-registry");
+    const hooks = reg.readExpandedSettings(root, { declared: true }).hooks || {};
+    const groups = Object.values(hooks).flatMap((g) => (Array.isArray(g) ? g : []));
+    return (name) => reg.registeredHostWaitMs(groups, name);
+  } catch {
+    return () => null;
+  }
+}
+
 function resolveTarget(targetArg, root = ROOT) {
   const target = canonicalFile(path.resolve(root, targetArg));
   let timeoutMs = Infinity;
   let validator = false;
   let hygiene = false;
+  let waitOf = null;
   for (const handler of HANDLERS) {
     let known;
     try { known = canonicalFile(path.join(root, ".claude/hooks", handler.name)); }
@@ -56,21 +82,26 @@ function resolveTarget(targetArg, root = ROOT) {
       throw error;
     }
     if (known !== target) continue;
-    timeoutMs = Math.min(timeoutMs, handler.timeoutMs);
+    if (!waitOf) waitOf = registeredWaits(root);
+    const registered = waitOf(handler.name);
+    timeoutMs = Math.min(timeoutMs, registered === null ? handler.timeoutMs : registered);
     validator ||= !!handler.validator;
     hygiene ||= handler.name === "integration-hygiene.js";
   }
-  return { target, validator, hygiene, timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 10000 };
+  return { target, validator, hygiene, timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : DIRECT_HANDLER_TIMEOUT_MS.standard };
 }
 
 function refusal(message, event = "PreToolUse") {
+  if (typeof message !== "string" && !(message instanceof Error)) message = new Error("Codex hook raised a non-Error throwable.");
+  const budget = message instanceof HookBudgetExceeded;
+  if (message instanceof Error) message = message.message;
   const { instructAndWait } = require("./instruct-and-wait");
   const result = instructAndWait({
     hookEvent: event, severity: event === "PreToolUse" ? "block" : "advisory", what_happened: message,
-    why: "The Codex policy boundary could not authorize this operation.",
-    agent_must_report: ["Explain the refusal and resolve the stated policy or runtime failure."],
-    agent_must_wait: "Do not retry the operation unchanged.",
-    user_summary: event === "PreToolUse" ? "Codex policy refused the pending operation." : "Codex hook could not finish its check.",
+    why: budget ? "The hook exhausted its budget before reaching a verdict." : "The Codex policy boundary could not authorize this operation.",
+    agent_must_report: [budget ? "Report the named budget if the single retry also fails." : "Explain the refusal and resolve the stated policy or runtime failure."],
+    agent_must_wait: budget ? "Retry once; if it recurs, report this budget and wait for the user." : "Do not retry the operation unchanged.",
+    user_summary: budget ? "Codex budget refusal; retry once, then report and wait if it recurs." : event === "PreToolUse" ? "Codex policy refused the pending operation." : "Codex hook could not finish its check.",
   });
   return { stdout: JSON.stringify(result.json) + "\n", stderr: message + "\n", exitCode: event === "PreToolUse" ? result.exitCode : 1 };
 }
@@ -80,6 +111,48 @@ function parseOutput(stdout) {
     const value = JSON.parse(stdout);
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
   } catch { return null; }
+}
+
+function nativeEventFailure(event, message) {
+  const budget = message instanceof HookBudgetExceeded;
+  message = message instanceof Error ? message.message : typeof message === "string" ? message : "Codex hook raised a non-Error throwable.";
+  const json = { systemMessage: `[codex-native-events] ${budget ? "Budget refusal: " : ""}${message}` };
+  let exitCode = 0;
+  if (["SessionStart", "PreCompact", "PostCompact", "UserPromptSubmit", "PostToolUse"].includes(event)) {
+    json.continue = false; json.stopReason = message;
+  } else if (event === "PermissionRequest") {
+    json.hookSpecificOutput = { hookEventName: event, decision: { behavior: "deny", message } };
+    exitCode = 2;
+  } else if (!["Stop", "SubagentStop"].includes(event)) exitCode = 1;
+  return { stdout: event === "SessionEnd" ? "" : JSON.stringify(json), stderr: message + "\n", exitCode,
+    _nativeRuntimeFault: ["Stop", "SubagentStop"].includes(event) };
+}
+
+function finalizeNativeEventFailure(event, out, rawPayload) {
+  const { _nativeRuntimeFault, ...result } = out;
+  if (!_nativeRuntimeFault || !["Stop", "SubagentStop"].includes(event)) return result;
+  const json = parseOutput(result.stdout) || {};
+  if (json.decision === "block" || json.continue === false) return result;
+  let verdict = { refuse: false, reason: "uncountable-input" };
+  if (rawPayload && rawPayload.hook_event_name === event && typeof rawPayload.stop_hook_active === "boolean" &&
+      typeof rawPayload.cwd === "string" && path.isAbsolute(rawPayload.cwd) &&
+      typeof rawPayload.session_id === "string" && /^[A-Za-z0-9._-]{1,200}$/.test(rawPayload.session_id) &&
+      rawPayload.session_id !== "unknown-session") {
+    try {
+      const { refusalVerdict } = require("./stop-refusal");
+      verdict = refusalVerdict(event, { payload: rawPayload, repoDir: ROOT,
+        budgetKey: "codex-native-events", maxRefusals: 3 }, { nativeSubagentStop: true });
+    } catch (error) { verdict = { refuse: false, reason: `budget-unavailable: ${error.message}` }; }
+  }
+  if (verdict.refuse) {
+    json.decision = "block";
+    json.reason = result.stderr.trim() || json.systemMessage || "Native lifecycle evaluation failed.";
+  } else {
+    const notice = `[codex-native-events] runtime refusal suppressed: ${verdict.reason}`;
+    json.systemMessage = [json.systemMessage, notice].filter(Boolean).join("\n\n");
+    result.stderr = [result.stderr.trim(), notice].filter(Boolean).join("\n") + "\n";
+  }
+  return { ...result, stdout: JSON.stringify(json) + "\n" };
 }
 
 function normalizeRecord(event, result, toolName) {
@@ -94,6 +167,11 @@ function normalizeRecord(event, result, toolName) {
     return refusal("Policy supplied malformed hook-specific output.");
   }
   const h = json.hookSpecificOutput || {};
+  if (["continue", "suppressOutput"].some(key => json[key] !== undefined && typeof json[key] !== "boolean") ||
+      ["reason", "stopReason", "systemMessage", "validation"].some(key => json[key] !== undefined && typeof json[key] !== "string") ||
+      ["additionalContext", "permissionDecisionReason", "validation", "hookEventName"].some(key => h[key] !== undefined && typeof h[key] !== "string")) {
+    return refusal("Policy supplied malformed control or context fields.");
+  }
   if ((h.permissionDecision !== undefined && !["allow", "deny", "ask"].includes(h.permissionDecision)) ||
       (json.decision !== undefined && !["approve", "block"].includes(json.decision)) ||
       json.updatedInput !== undefined || json.permissionDecision !== undefined) {
@@ -234,8 +312,11 @@ function normalizeLifecycle(event, result) {
   for (const json of records) {
     if (COMMON_EVENTS.has(event)) {
       if (typeof json.continue === "boolean" && out.continue !== false) out.continue = json.continue;
-      if (typeof json.suppressOutput === "boolean") out.suppressOutput = json.suppressOutput;
       if (typeof json.stopReason === "string") out.stopReason = [out.stopReason, json.stopReason].filter(Boolean).join("\n");
+      if (["PreCompact", "PostCompact", "SessionStart"].includes(event) && json.decision === "block") {
+        out.continue = false;
+        out.stopReason = [out.stopReason, json.reason || "Hook requested further review."].filter(Boolean).join("\n");
+      }
     }
     if (event === "PostToolUse" && json.continue === false) {
       out.continue = false;
@@ -329,6 +410,7 @@ function invokeTarget(descriptor, args, raw, payload) {
     input: raw, encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024,
     env: { ...process.env, COC_RUNTIME: "codex", CLAUDE_PROJECT_DIR: ROOT },
   });
+  if (result.error?.code === "ETIMEDOUT") throw new HookBudgetExceeded(`Target hook ${target}`, timeoutMs, result.error.message);
   if (result.error) throw new Error(`failed to run target hook ${target}: ${result.error.message}`);
   if (result.status === null) throw new Error(`target hook terminated by signal ${result.signal || "unknown"}`);
   const out = { stdout: result.stdout || "", stderr: result.stderr || "", exitCode: result.status };
@@ -387,11 +469,22 @@ function nativeShellCommand(input) {
   return input.command !== undefined ? input.command : input.cmd;
 }
 
-const NATIVE_AGENT_TOOLS = new Set(["spawn_agent", "collaborationspawn_agent"]);
+const NATIVE_AGENT_TOOLS = new Set(["spawn_agent", "collaborationspawn_agent", "collaboration.spawn_agent"]); // dotted: raw host spelling unmeasured (E3 R2 M2)
+
+const NORMALIZED_AGENT_INPUTS = new WeakMap();
 
 function normalizeNativeInput(payload) {
   const name = payload.tool_name;
   let input = payload.tool_input;
+  const priorLaunch = input && typeof input === "object" ? NORMALIZED_AGENT_INPUTS.get(input) : null;
+  const launchDiagnostics = priorLaunch ?? ((NATIVE_AGENT_TOOLS.has(name) || name === "Agent" || name === "Task")
+    ? {
+      native_tool_name: name,
+      argument_keys: require("./effort-routing").launchArgumentKeys(input && typeof input === "object" && !Array.isArray(input) ? Object.keys(input).sort() : []),
+      argument_key_count: input && typeof input === "object" && !Array.isArray(input) ? Object.keys(input).length : 0, native_message: require("./effort-routing").launchContentFingerprint(input?.message),
+      source_key: NATIVE_AGENT_TOOLS.has(name) && typeof input?.message === "string" ? "message" : "prompt",
+      runtime_source: { path: ".claude/hooks/lib/codex-hook-runtime.js", sha256: require("node:crypto").createHash("sha256").update(fs.readFileSync(__filename)).digest("hex") },
+    } : null);
   if (name === "apply_patch" && typeof input === "string") input = { command: input };
   if (NATIVE_AGENT_TOOLS.has(name) && (!input || typeof input !== "object" || Array.isArray(input))) {
     throw new Error("native agent input must be an object");
@@ -412,7 +505,11 @@ function normalizeNativeInput(payload) {
       if (input.command === undefined) input.command = input.patch ?? input.input;
     }
     if (NATIVE_AGENT_TOOLS.has(name)) {
-      for (const [native, canonical] of [["message", "prompt"], ["agent_type", "subagent_type"], ["task_name", "name"]]) {
+      // `reasoning_effort` -> `effort` (2026-10-12, effort routing): Codex names the per-dispatch
+      // effort `reasoning_effort`, and dispatch-contract-guard.js judges the canonical `effort`
+      // against the routing table. Same one-extractor rule as the other aliases: a pair that
+      // disagrees is refused, so the guard can never judge one level while the host runs another.
+      for (const [native, canonical] of [["message", "prompt"], ["agent_type", "subagent_type"], ["task_name", "name"], ["reasoning_effort", "effort"]]) {
         for (const key of [native, canonical]) {
           if (input[key] !== undefined && (typeof input[key] !== "string" || !input[key].trim())) {
             throw new Error(`native agent ${key} must be a nonempty string`);
@@ -429,7 +526,8 @@ function normalizeNativeInput(payload) {
       if (input.description === undefined) input.description = input.prompt;
     }
   }
-  return { ...payload, tool_input: input };
+  if (launchDiagnostics && input && typeof input === "object") NORMALIZED_AGENT_INPUTS.set(input, launchDiagnostics);
+  return { ...payload, tool_input: input, ...(launchDiagnostics ? { launch_diagnostics: launchDiagnostics } : {}) };
 }
 
 function restoreNativeRewrite(result, original, evaluateRewritten) {
@@ -437,8 +535,10 @@ function restoreNativeRewrite(result, original, evaluateRewritten) {
   const output = parseOutput(result.stdout);
   const rewrite = output?.hookSpecificOutput?.updatedInput;
   if (!rewrite) return result;
-  if (original.tool_name === "apply_patch" || NATIVE_AGENT_TOOLS.has(original.tool_name)) {
-    return refusal("Canonical edit or agent rewrites cannot be mapped unambiguously to this native tool.");
+  if (original.tool_name === "apply_patch" || NATIVE_AGENT_TOOLS.has(original.tool_name) ||
+      ["update_plan", "functionsupdate_plan", "send_message", "collaborationsend_message", "collaboration.send_message",
+        "collaboration.followup_task", "collaborationfollowup_task", "followup_task"].includes(original.tool_name)) {
+    return refusal("Canonical edit, agent, plan or message rewrites cannot be mapped unambiguously to this native tool.");
   }
   if (!NATIVE_SHELL_TOOLS.has(original.tool_name)) {
     // A COMMAND rewrite for a tool outside the set is unmappable and must not
@@ -774,11 +874,11 @@ function evaluateEveryRendering(payload, renderings, evaluate, deadline = Date.n
   // ONE deadline for the WHOLE call — the renderings SHARE it rather than each
   // starting a fresh one, so a call that fans out to many renderings refuses
   // from INSIDE the hook (exit 2) before the host's own hook timeout can fire.
-  if (Date.now() >= deadline) return refusal("Native policy evaluation exceeded its time budget.");
+  if (Date.now() >= deadline) return refusal(new HookBudgetExceeded("Native policy evaluation", NATIVE_CALL_BUDGET_MS, "time budget expired"));
   const canonical = evaluate(payload);
   if (!renderings || renderings.length < 2 || verdictRestricts(payload.hook_event_name, canonical)) return canonical;
   for (const rendering of renderings.slice(1)) {
-    if (Date.now() >= deadline) return refusal("Native policy evaluation exceeded its time budget.");
+    if (Date.now() >= deadline) return refusal(new HookBudgetExceeded("Native policy evaluation", NATIVE_CALL_BUDGET_MS, "time budget expired"));
     const refused = evaluate({ ...payload, tool_input: { ...payload.tool_input, command: rendering } });
     if (verdictRestricts(payload.hook_event_name, refused)) return refused;
     // LOW b (security round): a rewrite is AUTHORED by the canonical decision.
@@ -791,11 +891,47 @@ function evaluateEveryRendering(payload, renderings, evaluate, deadline = Date.n
   return canonical;
 }
 
+/** THE established native-policy evaluation, as ONE function: `evaluateNative`
+ * normalized to this boundary's legacy shape. The foundation seam below wraps
+ * THIS — it never re-implements or replaces it. The requires stay INSIDE the
+ * function: `codex-native-policy` requires this module at load, so a
+ * module-level require here would close the cycle at load time. */
+function evaluateLegacyPolicy(payload, deadline) {
+  const { evaluateNative } = require("./codex-native-policy");
+  return normalizeOutput(payload.hook_event_name, evaluateNative(payload, deadline, NATIVE_CALL_BUDGET_MS), payload.tool_name);
+}
+
+/** THE ONE Foundation seam, shared by both policy entry points (the
+ * `--native-policy` dispatch path and the rewrite re-evaluation path).
+ *
+ * `evaluateFoundation` wraps the established evaluation, derives a foundation
+ * decision record, and returns `{decision, legacyResult}`;
+ * `serializeDecision` restores the caller's shape, so the value this returns
+ * is byte-identical to what the established chain returned before this seam
+ * existed — the wrapper is behaviour-preserving BY CONSTRUCTION, and the
+ * decision record rides BESIDE the legacy verdict rather than replacing it.
+ *
+ * STATUS, honestly: no facts are wired from dispatch yet, so a permissive
+ * legacy result currently decides `unknown` (never `allow` — an exit-0 result
+ * carries no rule identity) and a refusal decides `deny`. Nothing consumes
+ * the decision yet; the L1 fact wiring and its consumer are later increments.
+ * The evaluator is NOT decoupled from `codex-mcp-guard/server.js` by this
+ * seam — the coupling moved to the injection point, it was not removed. */
+function evaluateThroughFoundation(payload, deadline) {
+  const { evaluateFoundation, serializeDecision } = require("./codex-foundation-adapter");
+  return serializeDecision(
+    payload.hook_event_name,
+    evaluateFoundation(payload, { evaluate: evaluateLegacyPolicy, deadline }),
+  );
+}
+
 function dispatch(args = process.argv.slice(2), raw = fs.readFileSync(0, "utf8")) {
   const [targetArg, ...forwardedArgs] = args;
   if (!targetArg) throw new Error("no target hook path given");
+  if (targetArg === "--native-event" && (forwardedArgs.length !== 1 || !NATIVE_LIFECYCLE_EVENTS.has(forwardedArgs[0]))) throw new Error("native event launcher requires one supported event binding");
   const parsed = JSON.parse(raw || "{}");
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("hook input must be an object");
+  if (targetArg === "--native-event" && parsed.hook_event_name !== forwardedArgs[0]) throw new Error("native event payload does not match its registered event binding");
   const payload = normalizeNativeInput(parsed);
   if (JSON.stringify(payload) !== JSON.stringify(parsed)) raw = JSON.stringify(payload);
   const renderings = normalizeCommandShape(payload);
@@ -830,7 +966,6 @@ function dispatch(args = process.argv.slice(2), raw = fs.readFileSync(0, "utf8")
   // adapter merely to pass a call through, and a rewrite on such a tree
   // refuses with its own module error instead of silently skipping the check.
   const evaluateRewritten = (nativeInput, command) => {
-    const { evaluateNative } = require("./codex-native-policy");
     const rewritten = Array.isArray(command) ? commandRenderings(command) : [command];
     const base = { ...nativeInput };
     delete base.command;
@@ -839,7 +974,12 @@ function dispatch(args = process.argv.slice(2), raw = fs.readFileSync(0, "utf8")
       { ...evaluated, tool_input: { ...base, command: rewritten[0] } },
       rewritten,
       (candidate) => {
-        const out = normalizeOutput(candidate.hook_event_name, evaluateNative(candidate, nativeDeadline), candidate.tool_name);
+        // The rewritten command is RE-EVALUATED through the SAME foundation
+        // seam the dispatch path uses — same chain, same deadline, same
+        // decision derivation — and the serializer restores the caller's
+        // `{stdout, stderr, exitCode}` shape, so the rewrite classifier below
+        // reads exactly what it read before this seam existed.
+        const out = evaluateThroughFoundation(candidate, nativeDeadline);
         const again = parseOutput(out.stdout)?.hookSpecificOutput?.updatedInput;
         if (again !== undefined) {
           // LOW a (security round): accept ONLY an idempotent echo of the
@@ -862,14 +1002,17 @@ function dispatch(args = process.argv.slice(2), raw = fs.readFileSync(0, "utf8")
   process.env.COC_RUNTIME = "codex";
   process.env.CLAUDE_PROJECT_DIR = ROOT;
   if (targetArg === "--native-policy") {
-    const { evaluateNative } = require("./codex-native-policy");
+    // The evaluation passes THROUGH the foundation seam (see
+    // evaluateThroughFoundation): behaviour-preserving for every rendering,
+    // with the foundation decision derived beside the legacy verdict.
     return evaluateEveryRendering(evaluated, renderings, (candidate) =>
       restoreNativeRewrite(
-        normalizeOutput(candidate.hook_event_name, evaluateNative(candidate, nativeDeadline), candidate.tool_name),
+        evaluateThroughFoundation(candidate, nativeDeadline),
         parsed,
         evaluateRewritten,
       ), nativeDeadline);
   }
+  if (targetArg === "--native-event") return require("./codex-native-events").evaluateEvent(evaluated, { startedAt: RUNTIME_STARTED_AT, rawPayload: parsed });
   const descriptor = resolveTarget(targetArg);
   const { target } = descriptor;
   if (!descriptor.hygiene && payload.tool_name === "apply_patch" && payload.hook_event_name === "PostToolUse") {
@@ -906,29 +1049,129 @@ function readInput(stream = process.stdin) {
     };
     const end = () => done();
     const failed = (error) => done(error);
-    const timer = setTimeout(() => done(new Error("hook stdin deadline exceeded")), INPUT_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      let fault;
+      try { fault = new HookBudgetExceeded("Codex stdin", INPUT_TIMEOUT_MS, "hook stdin deadline exceeded"); }
+      catch { fault = new Error(`Codex stdin budget refusal; no verdict was reached within ${INPUT_TIMEOUT_MS} ms; retry once; if it recurs, report this budget and wait for the user.`); }
+      done(fault);
+    }, INPUT_TIMEOUT_MS);
     stream.on("data", data).once("end", end).once("error", failed);
   });
 }
 
 async function main() {
   let result;
-  let event = "PreToolUse";
+  let rawPayload;
+  const nativeEvent = process.argv[2] === "--native-event";
+  let event = nativeEvent && NATIVE_LIFECYCLE_EVENTS.has(process.argv[3]) ? process.argv[3] : "PreToolUse";
   try {
     const raw = await readInput();
-    event = parseOutput(raw)?.hook_event_name || event;
-    result = dispatch(process.argv.slice(2), raw);
-  } catch (error) { result = normalizeOutput(event, refusal(`[codex-hook-runtime] ${error.message}`, event), undefined, { preserveExit: true }); }
-  fs.writeSync(1, result.stdout || "");
-  fs.writeSync(2, result.stderr || "");
+    rawPayload = parseOutput(raw);
+    if (!nativeEvent) event = parseOutput(raw)?.hook_event_name || event;
+    lastResortEvent = event; result = await dispatch(process.argv.slice(2), raw);
+  } catch (error) {
+    if (!(error instanceof Error)) error = new Error("Codex hook raised a non-Error throwable.");
+    result = process.argv[2] === "--native-event" ? finalizeNativeEventFailure(event, nativeEventFailure(event, error), rawPayload)
+      : normalizeOutput(event, refusal(error instanceof HookBudgetExceeded ? error : `[codex-hook-runtime] ${error.message}`, event), undefined, { preserveExit: true });
+  }
+  // A native Stop's per-attempt receipt (lib/stop-receipt.js): the queue is read HERE, before
+  // the stdout write; the row is appended AFTER both writes, so it reports what they did. A
+  // failed write is recorded and then RETHROWN — node ends this process on the unhandled
+  // rejection; the last-resort boundary refuses PreToolUse and exits 1 elsewhere.
+  // A Stop therefore records exit 1, never the reply's
+  // intended code. This wrapper performs no findings ACK and no dispatcher boundary commit, and
+  // the row says exactly that. Time budget: codex-native-events.js::evaluateEvent cuts a Stop's
+  // detectors at 550 s and assumes the host's kill at 590 s, so this row starts with ≥ 40 s left
+  // — the dispatcher's full-receipt reserve (dispatch-main.js::STOP_RECEIPT_RESERVE_MS, 40 s over
+  // a 36.5 s worst case), so the wrapper never needs the dispatcher's skip tiers.
+  const stopAttempt = nativeEvent && event === "Stop";
+  const stopQueue = stopAttempt ? codexStopQueue(rawPayload) : null;
+  let stdoutHandoff = "failed";
+  let stderrHandoff = "not-attempted";
+  let writeError = null;
+  try {
+    fs.writeSync(1, result.stdout || "");
+    stdoutHandoff = "ok";
+    stderrHandoff = "failed";
+    fs.writeSync(2, result.stderr || "");
+    stderrHandoff = "ok";
+  } catch (error) {
+    writeError = error;
+  }
+  const exitCode = writeError ? 1 : result.exitCode;
+  if (stopAttempt) codexStopReceipt(stopQueue, { stdoutHandoff, stderrHandoff, exitCode, payload: rawPayload });
+  if (writeError) throw writeError;
   process.exitCode = result.exitCode;
+}
+
+function codexStopQueue(payload) {
+  try {
+    return require("./stop-receipt").queueAtAttempt(payload);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Measurement only: never throws, never changes the reply or the exit code. The row lands in
+ * THIS wrapper's repo (ROOT), never the payload cwd's; the queue and cycle stay on the cwd.
+ */
+function codexStopReceipt(queue, { stdoutHandoff, stderrHandoff, exitCode, payload }) {
+  try {
+    const SR = require("./stop-receipt");
+    const p = payload && typeof payload === "object" ? payload : null;
+    SR.recordStopAttempt({
+      runtime: "codex",
+      sinkRoot: ROOT,
+      repoDir: (p && typeof p.cwd === "string" && path.isAbsolute(p.cwd) && p.cwd) || ROOT,
+      payload: p,
+      attemptedAtMs: Date.now() - Math.max(0, require("node:perf_hooks").performance.now() - RUNTIME_STARTED_AT),
+      dispatcher: {
+        name: "codex-hook-runtime.js",
+        body_sha256: SR.fileSha256(__filename),
+        registry_sha256: SR.fileSha256(path.join(ROOT, ".claude", "hooks", "dispatch-registry.json")),
+        registry_source: "dispatch-registry.json bytes read at receipt time",
+      },
+      queue,
+      stdoutHandoff,
+      stderrHandoff,
+      ack: "not-performed",
+      exitCode: Number(exitCode) | 0,
+      configDir: process.env.CLAUDE_CONFIG_DIR,
+      pid: process.ppid,
+    });
+  } catch (error) {
+    // Never the raw message (a `Cannot find module '<path>'` carries an absolute path): the
+    // module's sanitizer, or — when the module itself failed to load — the error's code alone.
+    let why;
+    try { why = require("./stop-receipt").sanitizeReason((error && error.message) || String(error)); }
+    catch { why = `the receipt module could not be loaded${error && typeof error.code === "string" ? ` (${error.code})` : ""}`; }
+    try { fs.writeSync(2, `[stop-receipt] receipt NOT recorded (${why || "unknown"}) — measurement only; this Stop is unaffected\n`); } catch {}
+  }
 }
 // `commandRenderings` and `evaluateEveryRendering` are exported for the
 // array/string suites: the first pins the unwrap composition and the depth- and
 // rendering-bound refusals WITHOUT paying a policy evaluation per rendering, the
+// `restoreNativeRewrite` is exported for the cases-codex corpus: its reach
+// token is derived from the LOADED function's own source (the rewrite guards
+// live solely inside it), and an unexported function has no source a subject
+// process can read — measured: before this export the token read `:removed`
+// on the UNMUTATED control, i.e. a reach proof that proved nothing.
 // second pins the restrictive-verdict rule (a `block` at exit 0) directly —
 // LATENT through the runtime today, because the native adapter refuses every
 // non-PreToolUse event, and the rule exists so the loop cannot drop a block the
 // normalisers treat as a refusal.
-module.exports = { ROOT, NATIVE_AGENT_TOOLS, NATIVE_SHELL_TOOLS, normalizeOutput, normalizeNativeInput, parseOutput, refusal, dispatch, resolveTarget, commandRenderings, evaluateEveryRendering, INPUT_TIMEOUT_MS };
-if (require.main === module) main();
+module.exports = { ROOT, NATIVE_AGENT_TOOLS, NATIVE_SHELL_TOOLS, NATIVE_LIFECYCLE_EVENTS, normalizeOutput, normalizeNativeInput, parseOutput, refusal, dispatch, resolveTarget, restoreNativeRewrite, commandRenderings, evaluateEveryRendering, INPUT_TIMEOUT_MS, nativeEventFailure, finalizeNativeEventFailure };
+function lastResortFailure() {
+  const message = "Codex hook runtime could not complete; the pending check has no verdict. Report this failure and wait for repair.";
+  const blocking = lastResortEvent === "PreToolUse";
+  try {
+    const io = require("node:fs");
+    if (blocking) io.writeSync(1, JSON.stringify({ hookSpecificOutput: {
+      hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: message,
+    } }) + "\n");
+    io.writeSync(2, message + "\n");
+  } catch {}
+  process.exit(blocking ? 2 : 1);
+}
+if (require.main === module) main().catch(lastResortFailure);

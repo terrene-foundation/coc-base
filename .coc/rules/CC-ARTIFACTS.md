@@ -17,7 +17,7 @@ Include trigger phrases ("Use when...", "Use for...").
 description: "CC artifact architect. Use for auditing, designing, or improving agents, skills, rules, commands, hooks."
 
 # DO NOT:
-description: "A comprehensive specialist for Claude Code architecture who can audit and improve all types of CC artifacts …" # 200+ chars
+description: "A comprehensive specialist for Claude Code architecture who can audit and improve …" # 200+ chars
 ```
 
 **Why:** Descriptions load into every agent selection decision. Long descriptions waste tokens on every turn.
@@ -30,10 +30,7 @@ The `description:` field in `skills/*/SKILL.md` MUST be ≤200 characters. Failu
 # DO — ≤200 chars, failure-mode framing
 description: "Kailash validation: parameter, DataFlow, connection, import, workflow structure, security, codebase-hygiene marker scrubbing."
 
-# DO — ≤200 chars, MANDATORY framing for skills with strong precondition
-description: "Kailash ML — MANDATORY for ML training/inference/feature/drift/AutoML/RL. Engine-first km.* surface + 18 engines. Raw sklearn/pytorch BLOCKED."
-
-# DO NOT — keyword dump pattern (575 chars, defeats semantic activation; full text: extract § Rule 1b)
+# DO NOT — keyword dump pattern (575 chars; full text: extract § Rule 1b)
 description: "Validation patterns and compliance checking for Kailash SDK... Use when asking about 'validation', 'verify', 'lint', … 14 more quoted alternates …"
 ```
 
@@ -46,7 +43,7 @@ description: "Validation patterns and compliance checking for Kailash SDK... Use
 
 **Why:** When ANY skill exceeds the per-entry cap OR the cumulative listing exceeds the budget fraction, CC drops descriptions from the listing — those skills become invisible to semantic activation.
 
-Depth — the measured listing-budget evidence and semantic-activation mechanics — lives in `.claude/guides/rule-extracts/cc-artifacts.md` § Rule 1b.
+Depth: `.claude/guides/rule-extracts/cc-artifacts.md` § Rule 1b.
 
 ### 2. Skills Follow Progressive Disclosure
 
@@ -63,7 +60,7 @@ Move reference material to skills, review criteria to agents.
 **Named-rationale exception (procedural commands only).** A command MAY exceed 150 lines ONLY when ALL THREE hold: (a) the body is genuinely PROCEDURAL — an ordered multi-step runbook whose steps are load-bearing and NON-extractable to a skill without fragmenting the step sequence (a command that is mostly reference material FAILS this — extract it and restore ≤150); (b) redundancy was minimized FIRST (no duplicated rationale, no verbose comments); (c) a named length-rationale is recorded in the `/govern`/`/codify` receipt journal that LANDS the overage, stating the line count, why the overage is procedural-non-decomposable, and what was trimmed (which receipt: extract § Rule 3). Overage without all three is BLOCKED.
 
 ```markdown
-# DO — /sweep at ~166 lines: 9 ordered load-bearing sweeps; receipt records the named rationale + the redundancy trimmed
+# DO — /sweep at ~166 lines: 9 ordered load-bearing sweeps; receipt names the rationale
 
 # DO NOT — a 170-line command that is 40 lines of reference tables (extract the tables to a skill, restore ≤150)
 ```
@@ -88,10 +85,10 @@ Contains repo-specific directives, absolute rules, and navigation tables. MUST N
 The per-CLI baseline (`CLAUDE.md` / `AGENTS.md` / `GEMINI.md`), every `scope: baseline` rule, and the agent/skill/command listings form the CACHED system-prompt prefix of every consumer session. They MUST NOT carry per-turn-varying content — a date/timestamp, a session ID/UUID, or a value computed fresh at load time. Listings MUST emit in a DETERMINISTIC order (prompt caching is a prefix match).
 
 ```text
-# DO — accurate STATIC count (updated when it changes), deterministic ordering
+# DO — accurate STATIC count, deterministic order
 ## Agents (38 total)
 
-# DO NOT — load-time-interpolated count or date in the always-on baseline
+# DO NOT — load-time-interpolated count or date
 ## Agents ({{agent_count}} total) — generated 2026-06-27
 ```
 
@@ -117,20 +114,29 @@ cc-architect's Round-1 mechanical sweep at `/codify` MUST verify closure-parity 
 
 ### 7. Hooks Include Timeout Handling
 
-Every hook MUST include a setTimeout fallback that returns `{ continue: true }` and exits — armed inside the exported `hookMain()`, never at module load (Rule 7a).
+Every hook MUST bound its own run — armed inside the exported `hookMain()`, never at module load (Rule 7a); its expiry behaviour depends on the row class:
+
+- **Deny-capable row** (`on_incomplete: "deny"`) MUST FAIL CLOSED: build `hookMain` with `guard-runner.js::runGuard(name, main, {budgetMs, standalone})`, which denies (exit 2) on a throw, rejection, overrun or unreadable stdin. A `{ continue: true }` or exit-0 pass-through inside a `catch`, `.catch(` or timer callback, and `readStdinBounded`, are BLOCKED in a deny-row file (the lint reds each).
+- **Advisory row** (`on_incomplete: "continue"`) MAY fail open: a setTimeout fallback emitting `{ continue: true }`.
 
 ```javascript
-const TIMEOUT_MS = 5000;
-function hookMain() {
-  setTimeout(() => {
-    console.log(JSON.stringify({ continue: true }));
-    process.exit(1);
-  }, TIMEOUT_MS);
-  // … read stdin, decide, emit …
-}
+// DO — deny row: the runner owns the bound; a crash or hang DENIES
+const { runGuard } = require("./lib/guard-runner.js");
+const hookMain = runGuard("my-guard", main, { budgetMs: 5000 });
+// DO NOT — fail open in a deny row
+setTimeout(() => { console.log(JSON.stringify({ continue: true })); process.exit(1); }, 5000);
+try { /* decide */ } catch { process.exit(0); }
 ```
 
+**BLOCKED rationalizations:** "a broken guard must never block real work" / "fail-open is the safe default for hooks" / "the timeout path is the one legitimate raw exit".
+
 **Why:** A hanging hook blocks the entire Claude Code session indefinitely.
+
+**Why (deny rows):** A deny row that passes through on its own crash or timeout vanishes when broken or starved, and what it exists to refuse proceeds silently.
+
+Depth: `.claude/guides/rule-extracts/cc-artifacts.md` § Rule 7.
+
+Probe suite: `.claude/test-harness/probes/cc-artifacts.probes.json`, fixtures `.claude/audit-fixtures/cc-artifacts/`.
 
 ### 7a. A New Hook Registers A Detector, Not A Process
 
@@ -150,11 +156,8 @@ if (require.main === module) hookMain();
 Hooks that enumerate `workspaces/<name>/` MUST filter directories whose name starts with underscore (`_archive`, `_template`, `_draft`, etc.) alongside the existing `instructions` skip. The same filter applies in any `for ... of entries` loop that walks the workspaces directory.
 
 ```javascript
-// DO — filter both `instructions` and leading-underscore meta-dirs
-entries.filter(
-  (e) =>
-    e.isDirectory() && e.name !== "instructions" && !e.name.startsWith("_"),
-);
+// DO — filter `instructions` and leading-underscore meta-dirs
+entries.filter((e) => e.isDirectory() && e.name !== "instructions" && !e.name.startsWith("_"));
 
 // DO NOT — filter only `instructions` (leaves `_archive`, `_template` to surface as active)
 entries.filter((e) => e.isDirectory() && e.name !== "instructions");
@@ -169,24 +172,24 @@ entries.filter((e) => e.isDirectory() && e.name !== "instructions");
 
 **Why:** Archival operations (`git mv workspaces/X (loom-internal reference)`) bump `_archive/`'s mtime to most-recently-modified; without the filter, `.claude/hooks/lib/workspace-utils.js::detectActiveWorkspace` surfaces `_archive` as the active workspace, and `SessionEnd` routes journal stubs into (loom-internal reference) — invisible drift the next session must triage.
 
-Depth — the `findAllSessionNotes` sibling surface, the leading-underscore meta-dir convention, and the mutation-tool SSOT extension path (`.claude/hooks/lib/tool-classes.js::MUTATION_TOOLS`, swept by `tests/integration/multi-operator/c2-auth-hardening-iter3.test.js`) — lives in `.claude/guides/rule-extracts/cc-artifacts.md` § Rule 8.
+Depth (the SSOT `.claude/hooks/lib/tool-classes.js::MUTATION_TOOLS`, swept by `tests/integration/multi-operator/c2-auth-hardening-iter3.test.js`): `.claude/guides/rule-extracts/cc-artifacts.md` § Rule 8.
 
 ### 9. Audit Tools Ship With Committed Test Fixtures
 
 Every mechanical audit tool (lint, grep-based check, sweep) added to `/cc-audit`, `/sweep`, or a hook MUST ship with at least one committed test fixture per scope-restriction predicate the tool relies on. Fixtures live under `.claude/audit-fixtures/<tool-name>/` with a per-fixture expected-output file.
 
 ```text
-# DO — fixture + .expected sidecar committed alongside the lint
+# DO — fixture + .expected sidecar committed with the lint
 .claude/audit-fixtures/frontmatter-lint/
-  fixture-01-real-rule.md   + .expected   ← real rule shape, expects empty output
-  fixture-02-invalid-key.md + .expected   ← invalid key in opening frontmatter, expects flag
-  fixture-03-body-example.md + .expected  ← invalid key in a body fence, expects empty output
+  fixture-01-real-rule.md + .expected ← real rule shape, expects empty output
+  fixture-02-invalid-key.md + .expected ← invalid key in opening frontmatter, expects flag
+  fixture-03-body-example.md + .expected ← invalid key in a body fence, expects empty output
 
 # DO NOT — only a prose description in the spec, no committed fixture
 specs/lint-mechanism.md: "test the lint with a stub file containing X..."  (nothing on disk)
 ```
 
-Cases MAY be sidecars (above) OR inline in `run.mjs` — the runner contract (assert expected vs actual + non-zero exit on mismatch) is the load-bearing primitive; layout is operator-choice (inline variant: `.claude/audit-fixtures/codex-dispatcher/README.md`). Depth — the sidecar-vs-inline layouts — lives in `.claude/guides/rule-extracts/cc-artifacts.md` § Rule 9 — Fixture Layout.
+Cases MAY be sidecars OR inline in `run.mjs` (`.claude/audit-fixtures/codex-dispatcher/README.md`); depth lives in `.claude/guides/rule-extracts/cc-artifacts.md` § Rule 9 — Fixture Layout.
 
 **BLOCKED responses:**
 
@@ -199,19 +202,15 @@ Cases MAY be sidecars (above) OR inline in `run.mjs` — the runner contract (as
 
 **Generalized to ALL COC artifact types + a semantic-probe half by `rules/coc-artifact-eval-coverage.md`** — a `type:tool` entry stays fixture-only, so Rule 9 governs the tool subset. Informational only — no new MUST here.
 
-Depth — the two-tier SHAPE-vs-EFFICACY split and the `probes:null` bootstrap note — lives in `.claude/guides/rule-extracts/cc-artifacts.md` § Rule 9 — Generalization.
-
 ### 10. Mechanical Sweeps Use Positive Allowlists Where Vocabulary Is Enumerable
 
 When a mechanical audit sweep (in `/cc-audit`, `/sweep`, or a hook) checks for membership in an enumerable vocabulary, the sweep MUST be implemented as a positive allowlist (flag everything not in the allowlist) rather than an enumerated denylist (flag only specific known-bad entries).
 
 ```text
-# DO — positive allowlist (flags any frontmatter key except paths:, so future
-# typos like pathRegex:/applies_to:/match: are caught without enumerating them)
+# DO — positive allowlist (flags any key except paths:, so novel typos are caught)
 awk '... /^[A-Za-z][A-Za-z0-9-]*:/ && !/^paths:/' .claude/rules/*.md
 
-# DO NOT — enumerated denylist (catches only the keys someone thought of; every
-# novel typo ships until it appears, is diagnosed, is added, and is re-released)
+# DO NOT — enumerated denylist (catches only the keys someone thought of)
 awk '... /^(globs|applies_to|pathRegex|match|scope):/ ...' .claude/rules/*.md
 ```
 
@@ -236,8 +235,8 @@ awk '... /^(globs|applies_to|pathRegex|match|scope):/ ...' .claude/rules/*.md
 
 ```text
 # DO — after removing skills/10-governance/, grep for refs and re-point each
-grep -rn "10-governance" .claude/agents/ .claude/commands/ .claude/rules/  # find → re-point or delete each ref
-# DO NOT — rm -rf skills/10-governance/ leaving dangling refs in agent / rule files
+grep -rn "10-governance" .claude/agents/ .claude/commands/ .claude/rules/  # re-point or delete each
+# DO NOT — rm -rf skills/10-governance/ leaving dangling refs
 ```
 
 **Why:** Dangling references cause file-not-found errors when an agent tries to load a referenced skill, degrading agent performance; the trim-direction half also catches a redirect that resolves to a file but not to a clause. An extraction is "complete" only when every surviving reference still resolves to real content.

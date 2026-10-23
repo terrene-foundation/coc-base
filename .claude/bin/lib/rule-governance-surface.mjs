@@ -107,6 +107,14 @@ export function wiringPathIsContained(candidate, claudeDir) {
   if (!root || !real) return false; // fail CLOSED when either will not resolve
   return isWithinRoot(real, root);
 }
+function errorCode(error) {
+  try { return error && error.code; }
+  catch (accessError) {
+    try { return `ERROR_CODE_UNREADABLE: ${error} (${accessError})`; }
+    catch { return "ERROR_NORMALIZATION_FAILED: error code and diagnostic could not be read"; }
+  }
+}
+
 /**
  * Read a rule's full governance surface.
  *
@@ -127,8 +135,10 @@ export function readGovernanceSurface(ruleAbsPath, readFile) {
   let ruleText = null;
   try {
     ruleText = read(ruleAbsPath);
-  } catch {
-    return { text: null, parts: [], wiringPath: null, hasWiring: false };
+  } catch (e) {
+    const code = errorCode(e);
+    return { text: null, parts: [], wiringPath: null, hasWiring: false,
+      error: `rule unreadable: ${ruleAbsPath} (${code || e})` };
   }
 
   const wiringPath = wiringSiblingPathFor(ruleAbsPath);
@@ -138,7 +148,20 @@ export function readGovernanceSurface(ruleAbsPath, readFile) {
     // OUTSIDE the wiring tree is refused rather than unioned: reading it would
     // fold out-of-tree content into a governance surface whose snippets are
     // echoed into diagnostics.
-    if (!wiringPathIsContained(wiringPath, dirname(dirname(ruleAbsPath)))) {
+    let contained;
+    try {
+      contained = wiringPathIsContained(wiringPath, dirname(dirname(ruleAbsPath)));
+    } catch (e) {
+      const code = errorCode(e);
+      return {
+        text: null,
+        parts: [],
+        wiringPath,
+        hasWiring: false,
+        error: `wiring sibling cannot resolve: ${wiringPath} (${code || e})`,
+      };
+    }
+    if (!contained) {
       return {
         text: null,
         parts: [],
@@ -150,6 +173,7 @@ export function readGovernanceSurface(ruleAbsPath, readFile) {
     try {
       wiringText = read(wiringPath);
     } catch (e) {
+      const code = errorCode(e);
       // ENOENT is the NORMAL case — most rules are unsplit and have no sibling.
       // EVERY OTHER ERROR FAILS CLOSED, and that distinction is the whole point.
       //
@@ -167,7 +191,7 @@ export function readGovernanceSurface(ruleAbsPath, readFile) {
       // still printed `VALID (score 100)` — the same false green the split
       // itself produced. Surfacing it as an unreadable SURFACE routes it into
       // the `text === null` contract every call site already branches on.
-      if (e && e.code === "ENOENT") {
+      if (code === "ENOENT") {
         wiringText = null;
       } else {
         return {
@@ -175,7 +199,7 @@ export function readGovernanceSurface(ruleAbsPath, readFile) {
           parts: [],
           wiringPath,
           hasWiring: false,
-          error: `wiring sibling present but unreadable: ${wiringPath} (${e && e.code ? e.code : e})`,
+          error: `wiring sibling present but unreadable: ${wiringPath} (${code || e})`,
         };
       }
     }

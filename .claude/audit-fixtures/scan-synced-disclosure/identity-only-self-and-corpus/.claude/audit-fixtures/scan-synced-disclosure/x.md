@@ -4,5 +4,5 @@ The path above makes this file IDENTITY-ONLY: structural shapes are OFF here, th
 identity shapes are ON. So the synthetic structural tokens below must NOT flag, and the
 roster token must.
 
-Structural (must NOT flag): /Users/fakeuser/repos/loom, acme-corp/loom, Fakename-MacStudio.
+Structural (must NOT flag): {{FIXTURE_HOME_V1:MAC}}fakeuser/repos/loom, acme-corp/loom, Fakename-MacStudio.
 Identity (MUST flag, 1 finding): lane codify/canonop-2026-08-20.

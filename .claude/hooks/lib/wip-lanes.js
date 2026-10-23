@@ -599,6 +599,123 @@ function _trunkFor(repoDir, { remote = "origin", timeoutMs } = {}) {
 }
 
 /**
+ * _trunkDelta — the LOCAL trunk's unpushed delta, measured for REPORTING ONLY.
+ *
+ * WHY THIS IS ADVISORY AND NEVER A LANDEDNESS BASE (R1 security, 2026-10-20).
+ * A first cut made the local trunk the base every lane was measured against, so
+ * a just-landed-but-unpushed lane would read LANDED. That is a fail-OPEN change
+ * to a cap that gates work: the base is then AGENT-WRITABLE, and three ordinary
+ * operations collapse the census — an octopus merge onto local dev, one empty
+ * commit carrying forged `Landed-From:` trailers, or `update-ref refs/heads/dev`
+ * from a detached HEAD each turn three open lanes into one confirmed lane, while
+ * the same tree measured at `origin/dev` still confirms all three. Landedness is
+ * therefore measured against the remote-TRACKING ref (R2 MED, 2026-10-20: that
+ * ref is itself LOCAL — `git update-ref refs/remotes/origin/dev` rewrites it with
+ * no push — so this buys reachability-from-what-was-FETCHED, not proof of what
+ * the remote holds; network verification is the ledgered HIGH, loom#1480
+ * option A); this delta is carried in the census output and NEVER subtracts from,
+ * replaces, or lowers any lane count (`confirmAtLimit` does not read it).
+ *
+ * The symptom that motivated the rejected design — a lane landed locally and not
+ * yet pushed reads OPEN until the push — is cured by PROCESS (push promptly after
+ * a landing, then retire), not by trusting an agent-writable ref. The durable fix
+ * (landedness from a verifiable landing record) belongs to the landing-safety lane.
+ *
+ * UNKNOWN IS NEVER ZERO: an unreadable delta is reported as such, never as
+ * "nothing unpushed" (`instrument-discipline.md` MUST-1).
+ *
+ * `branchNameOfRef` is the SAME derivation `nonLaneBranches` fences the trunk
+ * with, so the row and the not-a-lane exclusion cannot disagree about which
+ * branch `origin/dev` names.
+ */
+function _trunkDelta(repoDir, baseRef, perCallTimeoutMs = GIT_TIMEOUT_MS) {
+  const { branchNameOfRef } = require("./reap-on-landing.js");
+  const localName = typeof baseRef === "string" ? branchNameOfRef(baseRef) : null;
+  const unmeasured = (reason) => ({ localName, ahead: null, oldestUnpushedSeconds: null, reason });
+  if (!localName) return unmeasured("no-local-trunk-name");
+  const localRef = `refs/heads/${localName}`;
+  // `--verify --quiet` prints nothing and exits non-zero when absent; `_git`
+  // returns null on a non-zero exit, so an ABSENT branch and a failed spawn are
+  // the same answer here — and both are reported as unmeasured, never as 0.
+  // EVERY CALL BELOW CARRIES `perCallTimeoutMs` (correctness R2 LOW, 2026-10-20).
+  // The parameter was accepted and then ignored, so the refusal path could spend
+  // its git budget in 5 s units instead of the caller's — the guard now passes a
+  // value sized to its own run budget.
+  if (_git(["rev-parse", "--verify", "--quiet", localRef], { cwd: repoDir, timeout: perCallTimeoutMs }) === null) {
+    return unmeasured("local-trunk-absent");
+  }
+  const count = _git(["rev-list", "--count", `${baseRef}..${localRef}`], { cwd: repoDir, timeout: perCallTimeoutMs });
+  if (count === null || !/^\d+$/.test(count.trim())) return unmeasured("trunk-delta-unreadable");
+  const ahead = Number(count.trim());
+  if (ahead === 0) return { localName, ahead: 0, oldestUnpushedSeconds: null, reason: "in-sync" };
+  // AGE FROM THE OLDEST UNPUSHED COMMIT, not the tip: the delta began when its
+  // first commit was written, and the tip may be a rebase or a merge made long
+  // after (`laneCountFast`'s tip-age docblock records the measured 0.025 h tip
+  // against a 73.19 h oldest-unlanded commit).
+  let oldestUnpushedSeconds = null;
+  const committed = _git(["log", "--format=%ct", `${baseRef}..${localRef}`], { cwd: repoDir, timeout: perCallTimeoutMs });
+  if (committed !== null) {
+    const seconds = committed
+      .split("\n")
+      .map((line) => Number(line.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (seconds.length) oldestUnpushedSeconds = Math.min(...seconds);
+  }
+  return { localName, ahead, oldestUnpushedSeconds, reason: "measured" };
+}
+
+/**
+ * _deltaBacked — is EVERY commit in `<base>..<localRef>` backed by a land-lane
+ * ledger row? The refusal's CURE ("push <trunk>, then retire the landed lanes")
+ * is only sound when the commits it would publish ARE landings (R2 LOW,
+ * 2026-10-20): `Landed-From:` is text anyone can type, so an unpushed commit
+ * carrying a forged trailer would otherwise be laundered by our own refusal into
+ * "push it". A commit is BACKED when its From/Partial trailer names a `source`
+ * and the ledger holds a row with THAT source, the trailer's kind, and
+ * `landed` === this commit — the grant the pre-push gate itself makes.
+ *
+ * UNVERIFIED IS NOT BACKED: a missing, unreadable or malformed ledger, an
+ * unreadable trailer log and a malformed record all return backed:false, so the
+ * guard names the delta WITHOUT advising a push. This runs ONLY on the refusal
+ * path with a measured delta (`trunkDelta(..., {verifyLandings:true})`), so the
+ * per-session census does not pay for it.
+ */
+function _deltaBacked(repoDir, baseRef, localRef, perCallTimeoutMs) {
+  const log = _git(["log", "--format=%H%x1f%B%x1e", `${baseRef}..${localRef}`], {
+    cwd: repoDir,
+    timeout: perCallTimeoutMs,
+  });
+  if (log === null) return { backed: false, reason: "trailer-log-unreadable" };
+  let ledger;
+  try {
+    const { readLandingLedger } = require("./landed-map.js");
+    ledger = readLandingLedger(repoDir, { timeoutMs: perCallTimeoutMs });
+  } catch {
+    return { backed: false, reason: "ledger-unreadable" };
+  }
+  let commits = 0;
+  for (const record of log.split("\x1e")) {
+    const sep = record.indexOf("\x1f");
+    if (sep === -1) {
+      if (!record.trim()) continue; // empty tail between records
+      return { backed: false, reason: "trailer-record-malformed" };
+    }
+    const sha = record.slice(0, sep).trim();
+    if (!/^[0-9a-f]{40}$/.test(sha)) return { backed: false, reason: "trailer-record-malformed" };
+    commits += 1;
+    const m = /^Landed-(From|Partial):\s*(\S+)@([0-9a-f]{40})\s*$/m.exec(record.slice(sep + 1));
+    if (!m) return { backed: false, reason: "no-landed-trailer", sha };
+    const kind = m[1] === "From" ? "from" : "partial";
+    const source = m[3];
+    const rows = ledger.get(source);
+    if (!rows || !rows.some((r) => r.landed === sha && r.kind === kind)) {
+      return { backed: false, reason: "no-matching-ledger-row", sha, source };
+    }
+  }
+  return commits > 0 ? { backed: true, reason: "measured" } : { backed: false, reason: "empty-range" };
+}
+
+/**
  * confirmAtLimit — the ONE question a BLOCKING WIP gate is allowed to act on:
  *
  *     are there AT LEAST `limit` lanes whose unlanded content is MEASURED?
@@ -653,6 +770,8 @@ function confirmAtLimit({
         confirmedNames: [],
         scanned: 0,
         unanswerable: 0,
+        // The trunk was never resolved, so no delta could be measured: the
+        // candidate set is exactly the caller's names.
         candidates: names.length,
         elapsedMs: 0,
       };
@@ -736,6 +855,31 @@ function confirmAtLimit({
     ...tally(),
     elapsedMs: Date.now() - startedAt,
   };
+}
+
+/**
+ * trunkDelta — the ADVISORY delta with the trunk resolved for the caller.
+ * Never a landedness base, never counted by `confirmAtLimit`; it exists so a
+ * refusal can name the cure when an unpushed delta is the reason a just-landed
+ * lane still reads open. An unresolvable trunk is UNMEASURED, never 0.
+ *
+ * `verifyLandings` costs TWO extra git reads plus one ledger read and is used
+ * ONLY by the REFUSAL path: the renderer shows a CURE only when every unpushed
+ * commit is ledger-backed (`_deltaBacked`). The census passes it false so a
+ * per-session run pays nothing for text it may never emit.
+ */
+function trunkDelta(repoDir, { baseRef = null, perCallTimeoutMs = GIT_TIMEOUT_MS, verifyLandings = false } = {}) {
+  if (!baseRef) {
+    const t = _trunkFor(repoDir, { timeoutMs: perCallTimeoutMs });
+    if (!t.ok) return { localName: null, ahead: null, oldestUnpushedSeconds: null, reason: t.reason };
+    baseRef = t.ref;
+  }
+  const delta = _trunkDelta(repoDir, baseRef, perCallTimeoutMs);
+  if (!verifyLandings || delta.ahead === null || delta.ahead <= 0) return delta;
+  const { branchNameOfRef } = require("./reap-on-landing.js");
+  const localRef = `refs/heads/${branchNameOfRef(baseRef)}`;
+  const backed = _deltaBacked(repoDir, baseRef, localRef, perCallTimeoutMs);
+  return { ...delta, landedRecorded: backed.backed, landedRecordedReason: backed.reason };
 }
 
 /** Does any remote ref contain this commit? A pushed lane is recoverable from
@@ -1290,6 +1434,11 @@ function openLanes({
   // are excluded, so an integration trunk carrying an unpushed merge is not charged
   // to the WIP limit or reported as depth.
   const notLanes = new Set(nonLaneBranches(baseRef));
+  // THE LOCAL TRUNK'S UNPUSHED DELTA IS ADVISORY ONLY — it is DISPLAYED in the
+  // census and never used as a landedness base. Making it the base would let an
+  // agent-writable ref decide a fail-closed cap (see `_trunkDelta`); landedness
+  // stays reachable-from-the-remote-trunk.
+  const trunkDelta = _trunkDelta(repoDir, baseRef);
   const _startedAt = Date.now();
   const wtRaw = _git(["worktree", "list", "--porcelain"], { cwd: repoDir });
   if (wtRaw === null) {
@@ -1394,12 +1543,51 @@ function openLanes({
     });
   }
 
+  // THE LOCAL TRUNK'S UNPUSHED DELTA — ONE ADVISORY row, never zero (that would
+  // hide it) and never one per commit (that would over-report). It is DISPLAY
+  // ONLY: the row is marked `advisory`, it is not a lane, and nothing in this
+  // module counts it toward the cap or subtracts it from a lane count. It exists
+  // so an operator can see unpushed landings without the census trusting a ref an
+  // agent can write (`_trunkDelta`). The row appears ONLY when the delta is
+  // MEASURED and positive; `trunkDeltaUnknown` names the unreadable case instead.
+  if (trunkDelta.ahead !== null && trunkDelta.ahead > 0) {
+    const trunkTree = treeByBranch.get(trunkDelta.localName) || null;
+    lanes.push({
+      kind: "trunk-delta",
+      advisory: true,
+      name: trunkDelta.localName,
+      decidedBy: "trunk-delta",
+      uniqueCommits: trunkDelta.ahead,
+      localOnly: true,
+      onRemote: false,
+      ageHours:
+        trunkDelta.oldestUnpushedSeconds === null
+          ? null
+          : (now - trunkDelta.oldestUnpushedSeconds * 1000) / 3_600_000,
+      worktree: trunkTree ? trunkTree.path : null,
+      isMainCheckout: trunkTree ? trunkTree.path === mainTop : false,
+      unpushed: trunkDelta.ahead,
+    });
+  }
+
   return {
     ok: true,
     lanes,
     contentBound: "upper",
     truncated,
     scanned: branches.length,
+    // The advisory delta, so a consumer can render it without re-measuring.
+    // `landednessBase` is stated explicitly: it is the remote-TRACKING ref. That
+    // ref is itself LOCAL — `git update-ref refs/remotes/origin/dev` rewrites it
+    // with no push — so this is reachability-from-what-was-FETCHED, never proof
+    // of what the remote holds (network verification is the ledgered HIGH,
+    // loom#1480 option A).
+    landednessBase: baseRef,
+    trunkDelta:
+      trunkDelta.ahead === null
+        ? null
+        : { ahead: trunkDelta.ahead, reason: trunkDelta.reason },
+    trunkDeltaUnknown: trunkDelta.reason === "trunk-delta-unreadable",
     elapsedMs: Date.now() - _startedAt,
   };
 }
@@ -3642,6 +3830,7 @@ module.exports = {
   isOnAnyRemote,
   classifyTree,
   openLanes,
+  trunkDelta,
   laneCountFast,
   laneSurvey,
   // journal/0607 decision 3 — per-lane depth.

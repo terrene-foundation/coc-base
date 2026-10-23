@@ -5,8 +5,15 @@
  *
  * ── WHAT THIS PRODUCER NOW WRITES, AND WHY IT CHANGED ────────────────────────
  *
- * It APPENDS AN EVENT to `burndown/events.jsonl`. It no longer UPSERTS a row into
- * `.session-notes.shared.md`.
+ * It APPENDS AN EVENT to the event log. It no longer UPSERTS a row into
+ * `.session-notes.shared.md`. The append lands in the log's GITIGNORED pending stream
+ * (`burndown-events.js::PENDING_REL`), never the tracked `burndown/events.jsonl`: a hook
+ * writing a tracked file dirties the checkout every `dev-preflight` binds to. A
+ * commit-time step moves the stream into the tracked file (`burndown-build.mjs
+ * --flush-events`). The context artifact below is a SEPARATE write this hook still makes
+ * to the working tree — an open residual of the same class, recorded rather than implied
+ * away: it is tracked-by-design (LINK-3 must resolve from a committed file), so moving it
+ * is a design decision, not a path change.
  *
  * The upsert was never a choice. `parseLedger` REFUSES a duplicate row id — a
  * PROJECTION invariant — so an append-only writer could not be the producer for that
@@ -71,6 +78,25 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/burndown-events.pending.jsonl",
+ *       ".claude/learning/burndown-events.pending.jsonl.lock",
+ *       "workspaces/todo-tracker/todo-context.md",
+ *       "workspaces/todo-tracker/todo-context.md.tmp.*"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: identity/signing-key discovery and the signed event appends (lib/operator-id.js, lib/coc-append.js) shell out to git/gpg/ssh-keygen. Events land in the GITIGNORED pending stream under its lock file (lib/burndown-events.js::appendEvent), never the tracked burndown/events.jsonl, which only the train-time flush extends. The context artifact is written via a sibling `.tmp.<pid>.<rand>` file (mkdirs `workspaces/todo-tracker/`) then renameSync. Idempotent: only TRANSITIONS vs the context artifact are appended, and the context advances only for events that landed, so a repeat on the same payload re-detects nothing new."
+ * }
+ */
+
 const TIMEOUT_MS = 4000;
 
 /**
@@ -96,6 +122,25 @@ const fs = require("node:fs");
 const path = require("node:path");
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
+
+// ⛔ EXIT IS NOT CRASH (hook-engine.js::isEngineExit). Under in-process dispatch
+// `process.exit` THROWS the engine's frozen EXIT_SENTINEL, so a catch that encloses an
+// exit receives it and MUST re-throw it rather than announce it: announcing it runs the
+// error path after the run has ended, and its hook-findings write lands as a FALSE
+// finding. Captured ONCE, here at load — the engine's exports object is mutable — and
+// the classifier compares by IDENTITY against the engine's private singleton, never by
+// shape (a lookalike is a real error and is announced). A tree without
+// lib/hook-engine.js has no engine and therefore no sentinel: every throw there is
+// real, so the classifier answers "not an exit" and the error is announced.
+const isEngineExit = (() => {
+  try {
+    const classify = require("./lib/hook-engine.js").isEngineExit;
+    if (typeof classify === "function") return classify;
+  } catch {
+    // no loadable engine in this tree — nothing here can throw its sentinel
+  }
+  return () => false;
+})();
 
 const RULE_ID = "burndown-traceability/todos-to-index";
 
@@ -171,9 +216,9 @@ function emitFinding({ severity, criterion, what_happened, why, agent_must_repor
  * `.session-notes.shared.md`, because the producer wrote through
  * `session-notes-layout.js`, which owns that one path — the fence stopped a silent
  * write to a surface nobody declared. This producer no longer writes the tracker at
- * all. Its sink is `burndown-events.js::EVENTS_REL`, a constant owned by the module
- * that also owns the schema and the only write path, so there is no manifest-declared
- * surface it could diverge from. The fence has nothing left to guard, rather than
+ * all. Its sink is `burndown-events.js::PENDING_REL` (the pending stream of
+ * `EVENTS_REL`), a constant owned by the module that also owns the schema and the only
+ * write path, so there is no manifest-declared surface it could diverge from. The fence has nothing left to guard, rather than
  * having been relaxed.
  *
  * The `tracker.kind` check STAYS: it is what distinguishes "a burndown exists here"
@@ -280,6 +325,10 @@ async function main() {
     }
     prevText = fs.readFileSync(contextAbs, "utf8");
   } catch (e) {
+    // The over-cap branch above ENDS in emitFinding()'s exit: under the engine that
+    // arrives here as the sentinel, and reading it as an unreadable artifact wrote a
+    // SECOND, wrong finding ("could not be read (unknown error)") after the first.
+    if (isEngineExit(e)) throw e;
     // ENOENT is the ORDINARY first-run state: no artifact yet, `prevText` stays "",
     // every todo reads as new. Anything else means the artifact EXISTS and could not
     // be read — a broken symlink, a parent that is a regular file, a permission
@@ -405,7 +454,9 @@ async function main() {
             authority: "agent",
             source: "todo-tracker-guard",
           }),
-          { identity, signOpts },
+          // Bounded by what is LEFT of the append deadline, so a contended log lock cannot
+          // carry this hook past its own timeout.
+          { identity, signOpts, lockWaitMs: Math.max(0, deadline - Date.now()) },
         );
         if (!r.ok) {
           unrecorded.push({ id: t.id, why: `${r.error}: ${r.reason}` });
@@ -501,7 +552,7 @@ async function main() {
       criterion: "C6-refused-append-is-loud",
       what_happened:
         `${unrecorded.length} of ${transitions.length} todo transition(s) were NOT recorded in ` +
-        `'${events.EVENTS_REL}'. The append was REFUSED.`,
+        `'${events.PENDING_REL}' (the pending stream of '${events.EVENTS_REL}'). The append was REFUSED.`,
       why:
         `A transition that is not in the log is work the burndown reports nothing about: there is no path ` +
         `from the status to the ruling behind it, which is what burndown-traceability.md MUST-1 refuses. ` +
@@ -509,7 +560,7 @@ async function main() {
         `(knowledge-convergence.md MUST-6), and losing the refusal SILENTLY is what is not.\n` +
         lib.renderAgeReport(age),
       agent_must_report: [
-        `Event log: ${events.EVENTS_REL}`,
+        `Event log: ${events.EVENTS_REL} (appends land in its pending stream ${events.PENDING_REL})`,
         ...unrecorded.slice(0, 5).map((u) => `UNRECORDED: ${u.id} — ${u.why}`),
         `Events appended this projection: ${wrote} of ${transitions.length} transition(s).`,
         "Resolve the refusal; do NOT hand-edit the log or the tracker to paper over it.",
@@ -535,7 +586,7 @@ async function main() {
         `no unsigned fallback by design — an unsigned row is un-attributable.\n` +
         lib.renderAgeReport(age),
       agent_must_report: [
-        `Event log: ${events.EVENTS_REL}`,
+        `Event log: ${events.EVENTS_REL} (appends land in its pending stream ${events.PENDING_REL})`,
         ...unknown.slice(0, 5).map((u) => `UNKNOWN: ${u.id} — ${u.why}`),
         "These transitions are UNRECORDED. Do NOT read this as clean.",
       ],

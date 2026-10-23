@@ -5,7 +5,7 @@ scope: baseline
 
 # Conservation Gate — Content Crossing A Boundary Is Enumerated Before And After
 
-See `.claude/guides/rule-extracts/conservation-gate.md` for the boundary roster, the eight measured instances, extended DO/DO-NOT blocks, and the per-boundary signal classes.
+See `.claude/guides/rule-extracts/conservation-gate.md` for the boundary roster, measured instances, DO/DO-NOT depth, and per-boundary signal classes.
 
 Wherever content crosses a boundary — branch rewrite, dispatch, delivery, worktree teardown, scrub, temp-root purge — ask **does what I had a moment ago still exist?** Undeclared disappearance is the violation.
 
@@ -83,7 +83,7 @@ An enumeration MUST state inline the classes its instrument structurally cannot 
 
 ### 4. Absence Is LOUD — An Empty Outcome Is Distinguishable From A Successful One
 
-A boundary operation producing NO payload — a refused tool call, a dispatch returning nothing, a purge that closed nothing, a scan matching zero — MUST emit a signal naming what did NOT happen and what is still outstanding. Reporting an empty outcome in the grammar of a completed one, or going quiet after a refusal, is BLOCKED.
+A boundary operation producing NO payload — a refused tool call, a dispatch returning nothing, a purge that closed nothing, a scan matching zero — MUST emit a signal naming what did NOT happen + what remains outstanding. Reporting an empty outcome in the grammar of a completed one, or going quiet after a refusal, is BLOCKED.
 
 ```text
 # DO — the empty outcome is announced with its consequence

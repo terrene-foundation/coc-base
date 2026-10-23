@@ -20,11 +20,14 @@
  *      "/whoami --register".
  *      No signing key   → posture: L2_SUPERVISED, blocked_into:
  *      "configure signing key, then run /whoami --register".
- *   3. Cache layer at .claude/operator-id is HINT-ONLY:
- *      - present + valid + verified_id matches current fingerprint → use it
- *      - absent / corrupt / mismatched verified_id → re-derive AND rewrite
- *      Cache tampering is harmless because every call re-validates against
- *      the live signing-key fingerprint.
+ *   3. NO cache layer. `.claude/operator-id` is neither READ nor WRITTEN:
+ *      the read fast-path was removed by M9.1 R1 Sec-ID-1 (the roster is
+ *      always re-walked for authority), and the write-back was removed by the
+ *      dead-write sweep (2026-10-09) once the reader's removal left every
+ *      resolveIdentity call writing a file nothing reads. Re-introducing
+ *      either half MUST carry explicit forensic review and a fresh
+ *      authority-binding contract — never a silent re-wire (see the note
+ *      below `_soloDisplayId`).
  *
  * Style: CommonJS to match sibling .claude/hooks/lib/* modules. No external
  * deps. Spawns ssh-keygen / git as subprocesses (the OS tools are the
@@ -89,7 +92,6 @@ function _gitConfigRead(args) {
 }
 
 const ROSTER_REL = path.join(".claude", "operators.roster.json");
-const CACHE_REL = path.join(".claude", "operator-id");
 const L2_SUPERVISED = "L2_SUPERVISED";
 const UNROSTERED_BLOCKED_INTO = "/whoami --register";
 const NO_KEY_BLOCKED_INTO =
@@ -364,41 +366,28 @@ function _makeRosterGpgResolver(roster) {
   };
 }
 
-/**
- * Write the cache file. Best-effort; cache write failures NEVER fail the
- * resolver (the cache is hint-only).
- */
-function _writeCache(cachePath, identity) {
-  try {
-    // M9.1 R3 Sec-R3-S-05 — cache writeback reduced to `verified_id` only.
-    // Per the M9.1 R1 Sec-ID-1 reframe, authority fields (person_id /
-    // role / host_role / display_id) are ALWAYS re-derived from the live
-    // roster on read; storing them in the cache is dead-data on disk and
-    // a non-zero forensic surface (a reader could be misled into thinking
-    // authority WAS cached). The cache's sole purpose is the ssh-keygen
-    // trust-anchor short-circuit, which only needs `verified_id`.
-    const payload =
-      JSON.stringify({
-        verified_id: identity.verified_id,
-      }) + "\n";
-    // MED-2 (M0 security review): cache contains the verified_id
-    // (signing-key fingerprint) — sensitive identity material. Restrict
-    // to the file owner only.
-    fs.writeFileSync(cachePath, payload, { mode: 0o600 });
-  } catch {
-    // best-effort
-  }
-}
-
-// M9.1 R4 Sec-R4-S-03 — `_readCache` was removed as dead code. The M9.1
-// R1 Sec-ID-1 reframe removed the cache fast-path (roster is ALWAYS
-// re-walked for authority); no caller invokes `_readCache` post-fix.
-// Dead authentication-adjacent functions invite future caller wiring
-// that re-introduces the cache-poisoning class M5 iter-6's
-// `readCache identity-guard` (per `journal/0131`) was designed to close.
-// If a future fingerprint-only short-circuit becomes necessary, it MUST
-// be re-introduced with explicit forensic review and a fresh
-// authority-binding contract — never as a silent re-wire of dead code.
+// The `.claude/operator-id` cache is GONE — BOTH halves, recorded here because
+// a half-cache is exactly the state this sweep found.
+//
+// The READ half was removed earlier: M9.1 R4 Sec-R4-S-03 deleted `_readCache`
+// as dead code after the M9.1 R1 Sec-ID-1 reframe removed the cache fast-path
+// (the roster is ALWAYS re-walked for authority). The rationale stands recorded
+// in history: dead authentication-adjacent functions invite future caller
+// wiring that re-introduces the cache-poisoning class M5 iter-6's `readCache
+// identity-guard` (per `journal/0131`) was designed to close.
+//
+// The WRITE half — `_writeCache`, invoked at the end of EVERY resolveIdentity —
+// survived that removal with no reader anywhere in the repo (2026-10-09
+// dead-write sweep, measured: no in-repo consumer; the hooks' @hook-contract
+// blocks were its only remaining mentions apart from tests that pinned the
+// write itself). It was removed for the same reason the read half was plus
+// two of its own: it ran a filesystem write on every hook event that resolved
+// identity (resolveIdentity is called per Stop, per guard), and it persisted
+// key-fingerprint material for a value nothing consumed.
+//
+// If a future fingerprint-only short-circuit becomes necessary, it MUST be
+// re-introduced with explicit forensic review and a fresh authority-binding
+// contract — never as a silent re-wire of either half.
 
 /**
  * MO-OPT W1-d (workspaces/multi-operator-optional, journal/0330) — derive a
@@ -479,7 +468,6 @@ function _soloIdentity(repoDir, fingerprint) {
  */
 function resolveIdentity(repoDir, opts) {
   const o = opts || {};
-  const cachePath = path.join(repoDir, CACHE_REL);
   const rosterPath = path.join(repoDir, ROSTER_REL);
 
   // ---- Tier 1: signing-key fingerprint discovery --------------------------
@@ -581,9 +569,6 @@ function resolveIdentity(repoDir, opts) {
       blocked_into: UNROSTERED_BLOCKED_INTO,
     };
   }
-
-  // ---- Cache write-back (best-effort; failure does NOT fail the resolve) -
-  _writeCache(cachePath, identity);
 
   return identity;
 }

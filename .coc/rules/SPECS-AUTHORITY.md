@@ -1,6 +1,6 @@
 ---
 id: "SPECS-AUTHORITY"
-paths: ["**/specs/**", "**/workspaces/**", "**/briefs/**", "**/02-plans/**", "**/todos/**"]
+paths: ["**/specs/**", "**/briefs/**", "**/02-plans/**", "**/todos/**"]
 ---
 
 # Specs Authority Rules

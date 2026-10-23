@@ -105,6 +105,20 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Strong empty-fs_writes claim, re-verified against every lib this file reaches: lib/read-stdin-bounded.js (stdin only), lib/memory-cascade.js (its PURITY header states nothing touches the filesystem or spawns), lib/instruct-and-wait.js (computes a payload, writes stdout only; stop-refusal.js is lazily required and is pure). The hook's header carries the same claim and it holds."
+ * }
+ */
+
 // Bounded timer per `cc-artifacts.md` Rule 7, deliberately under the registered
 // 5s timeout so this hook's OWN fallback fires first and emits a well-formed
 // passthrough. There is no subprocess and no file read, so this should never fire.

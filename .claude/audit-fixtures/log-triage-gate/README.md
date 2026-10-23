@@ -19,7 +19,7 @@ node .claude/audit-fixtures/log-triage-gate/run.mjs   # exit 0 = all pass
 ```
 
 Registered in `.claude/test-harness/ci-audit-fixtures.json` as
-`{"mode": "run", "min_cases": 60}`. That registry is a closure enumerated in
+`{"mode": "run", "min_cases": 88}` — the uid-0 count (see the coverage split below). That registry is a closure enumerated in
 **both** directions — an unregistered `run.mjs` fails the build as
 `UNREGISTERED runner`, a row with no file fails as `STALE registry entry`
 (`audit-fixture-runner-closure.test.mjs`). `min_cases` is an anti-vacuity FLOOR
@@ -33,11 +33,16 @@ its header comment.
 | Property | Behaviour |
 | --- | --- |
 | Scan window | `-mmin -120` on `*.log` |
-| Enumeration ceiling | `find … \| head -500` (`FILE_ENUM_CEILING`) |
+| Enumeration | in-process walk per declared root, no child process (`walkDeclaredRoot`); a declared root must be a real directory — a symlink, file or other non-directory root is NAMED as failed, and every directory is dev+ino re-checked after it is opened |
+| Enumeration ceiling | 500 paths (`FILE_ENUM_CEILING`) |
+| Enumeration deadline | 1500 ms for the WHOLE surface — all declared roots and the nested-checkout probe (`ENUM_BUDGET_MS`; env `COC_LOG_TRIAGE_ENUM_BUDGET_MS` may only lower it); a root that runs out, or cannot be read, is NAMED as failed |
 | Files read | first 20 enumerated (`FILE_SCAN_CAP`) |
 | Match set | four-arm ERE: legacy uppercase substring + anchored lowercase forms |
 | Lines per file | 200 (`PER_FILE_LINE_CAP`), enforced per file, not globally |
-| Scan deadline | 2500 ms across all per-file greps (`SCAN_BUDGET_MS`) |
+| Scan deadline | 2500 ms across all per-file greps (`SCAN_BUDGET_MS`); a grep straddling it is SIGKILLed |
+| Hook deadline | every phase, stdin wait included, clamped to `hookMain` entry + 5500 ms (`HOOK_BUDGET_MS`); 1500 + 2500 ≤ 5500, and 5500 + 1500 headroom = the 7 s dispatcher timeout |
+| Attribution | each match is attributed to the file the hook opened (`grep -hn`, filename from the loop), never parsed out of grep's output |
+| Rendering | C0 (except TAB), DEL and C1 bytes in filenames and content rendered as literal `\xHH` |
 | Dedup key | `file + "::" + normalized(line)` |
 | Normalizers | ISO-8601 ts → `<ts>`; `0x`-prefixed hex → `<hex>`; `\b\d{4,}\b` → `<num>` |
 | Display | 10 rendered **round-robin across files** + `… and N more unique entries` |
@@ -179,7 +184,30 @@ therefore be worth nothing (`instrument-discipline.md` MUST-1, MUST-3b).
 | `30-format-reaches-the-gate-*` (12) | Per-format blindness, one case per real-world format. Attributable: a regression names the format it broke. |
 | `31-severity-words-in-prose-do-not-match` | The lowercase arms losing their log-structural anchor — the prose flood that makes an advisory channel worth muting. Harder cases than `04` (severity word as substring or sentence subject). |
 | `32/33-a-failing-grep-is-reported` | A `grep` exit 2 (error) being read as exit 1 (no match), so a broken scan reports a clean session — forever, silently. `33` is the negative arm against a hook that calls every scan unreadable. |
-| `34/35-a-failed-enumeration-is-reported` | The same conflation one stage earlier: `find` unable to run reported as "no logs found". `35` is its negative arm. |
+| `34/35-a-failed-enumeration-is-reported` | The same conflation one stage earlier: an enumeration that ran out of budget reported as "no logs found", and the failing root not NAMED. `35` is its negative arm. |
+| `34b-an-unreadable-declared-root-is-named-as-failed` | An existing declared root that cannot be read reading as a clean, empty root. Measured on the pre-fix hook: `msg=""`, total silence. Prints `NOT RUN` where mode 000 does not deny the reader (uid 0). |
+| `34c-an-unreadable-subdirectory-is-named-and-its-siblings-still-walked` | A walk that STOPS at an unreadable subdirectory, hiding every sibling it had not reached. A preload hands the reader `locked` before all fifteen siblings, so the stop mutation reds on every run, whatever the filesystem's read order (it used to red ~15 runs in 16); the case requires the preload's reorder record. `NOT RUN` under uid 0. |
+| `37-no-process-outlives-the-hook` | A child the hook starts surviving it. Drives the hook detached (its own process group) with a sleeping `find` shim first on PATH, then lists every process still in that group. |
+| `38-enumeration-runs-without-any-external-tool` | The enumeration depending on PATH again (a shell or `find` route): with PATH stripped the log must still be FOUND, and only the per-file grep reported as unable to run. |
+| `39a-a-symlinked-declared-root-is-named-as-failed-and-not-followed` | M1: a declared root replaced by a symlink enumerating as EMPTY and reading clean (find's `-P` semantics carried over). Also pins that the link is not followed and that the top-level log still surfaces. |
+| `39b-a-dangling-symlink-declared-root-is-named-as-failed` | M1: a dangling-symlink root skipped as declared-missing because `fs.existsSync` follows links. |
+| `39c-a-session-cwd-reached-through-a-symlink-is-walked-not-refused` | The other pole of 39a: the session directory reached through a symlink is the SUBJECT, resolved once (realpath), not a declared root to refuse. Pre-fix it enumerated `.` as empty; without the realpath, 39a's rule would name `.` failed on every such session. |
+| `40-a-root-swapped-for-a-symlink-mid-walk-is-failed-not-followed` | L1: the dir→symlink swap between the classifying lstat and the opendir. A preload performs the swap at the open; the walk must fail the root and never report the link target's log. |
+| `41a-a-colon-bearing-filename-is-attributed-to-the-file-opened` | L2: a `grep -H` re-parse attributing `decoy:1:forged.log` to a file called `decoy` with forged content. |
+| `41b-a-newline-bearing-filename-forges-no-second-entry` | L2 + L4: a newline in a filename splitting one finding into two, one attributed to a file that does not exist. |
+| `42-terminal-control-bytes-are-neutralised-in-filenames-and-content` | L4: OSC/CSI/SGR escapes, DEL and the 8-bit C1 CSI reaching the operator's terminal raw, from a filename or from log content. |
+| `43a-source-pin-budget-constants-and-clamp-text-fit-the-registered-dispatcher-timeout` | L3, a SOURCE-TEXT PIN (not a behavioural witness): the budget constants drifting from the timeout registered for the row in BOTH `dispatch-registry.json` and `hook-registry.json`, or the TEXT of a phase deadline's clamp to the hook deadline disappearing. Lexical — an edit keeping the clamp text but bypassing it passes here; 43b is the behavioural witness. |
+| `43b-the-worst-case-run-exits-inside-the-dispatcher-timeout` | L3, measured, and the behavioural witness of the hook-deadline clamp: stdin 4.5 s late (the delay at which the ONE hook deadline is what bounds the run — head ≈ 5.6 s, a clamp-dropping mutant ≈ 8.5 s; at 3 s that mutant redded by only ~19 ms), every directory entry 100 ms slow, all four roots populated, a grep that never returns — the hook must still exit inside 7 s with `continue: true` (old bytes: ~10.5 s). |
+| `44a-a-log-swapped-for-a-symlink-at-read-time-is-never-read` | MED-1: grep handed the PATH and following a symlink swapped in after the walk classified the entry — an outside file's bytes reported as this session's finding. A preload swaps at the first open-or-grep naming the victim; a placeholder secret must not appear, the file must be disclosed unreadable, the sibling's finding must still surface. |
+| `44b-a-log-swapped-for-a-hard-link-at-read-time-is-never-read` | MED-1: the same with a HARD LINK to the outside file — no symlink anywhere, so only the descriptor's dev+ino against the walk's lstat can refuse it. |
+| `44c-an-ancestor-directory-swapped-before-the-read-is-never-followed` | MED-1, the ancestor residual: the victim's PARENT swapped for a symlink at the walk's own lstat of the victim, so fd-vs-lstat identity agrees; only the re-verified directory chain (before and after the open) can refuse it. |
+| `44d-a-log-swapped-for-a-fifo-is-refused-without-blocking` | MED-1 liveness: an entry swapped for a FIFO must be opened O_NONBLOCK and refused, not block the hook's only thread until the dispatcher kills it. Passes on the pre-fix bytes (grep, not the hook, blocked there and was killed); it is the witness for O_NONBLOCK. |
+| `44e-a-swap-after-the-open-cannot-change-what-grep-reads` | MED-1: the swap lands at the grep SPAWN, after the hook bound the victim — grep must read the bound descriptor (the victim's own bytes, nothing unreadable), never re-open a path. |
+| `45-post-grep-work-per-line-is-bounded-independent-of-line-length` | LOW-2: the neutraliser run over each WHOLE matched line before the 120-char cut — 150 lines of `ERROR` + 40 kB of control bytes handed it 6,001,876 characters on the pre-fix bytes (vs 18,000 after), seconds of post-grep work past the scan deadline. A preload meters every call. |
+| `46-a-separator-bearing-filename-cannot-forge-another-files-attribution` | LOW-3: a log named `a.log: FATAL db corrupted, run reset; z.log` rendering as sibling `a.log` reporting a FATAL. The attribution must parse back to the file opened (quoted form), and an ordinary name must still render bare. |
+| `47-crlf-lines-collapse-and-render-without-line-number-or-cr` | CRLF: `/^\d+:(.*)$/` failing on a trailing `\r`, so the grep line number leaked into the text and the dedupe key — three identical CRLF lines reported as three entries. |
+| `48-a-term-ignoring-grep-is-killed-at-the-scan-deadline` | L3d: grep's killSignal weakened from SIGKILL to SIGTERM. A TERM-ignoring shim makes the difference observable (43b's shim dies on either signal). |
+| `49-the-enum-budget-override-cannot-raise-the-budget` | L3e: `COC_LOG_TRIAGE_ENUM_BUDGET_MS` RAISING the enumeration budget (34 pins only the lowering pole, "0"). Override 60000 on a slowed walk: clamped ≈ 1.5 s, unclamped ≈ 5.5 s. |
 | `36-healthy-build-output-yields-only-its-one-real-warning` | An over-broad matcher arm at REALISTIC scale. 28 lines of ordinary npm/cargo/pytest/docker output carrying one genuine `npm WARN`; a widened arm shows up here as matches on "Compiling", "0 failed", "found 0 vulnerabilities". The crafted one-line cases cannot see this. |
 
 ## Discrimination is measured, not asserted
@@ -239,6 +267,122 @@ Two results are worth stating rather than leaving to be re-derived:
   while *still* being blind to npm. The anchored arms match npm and stay silent
   on all twelve prose lines.
 
+### Round 4 — the orphaned enumeration
+
+The enumeration was a `find … | head -N` shell pipeline under
+`execSync(cmd, { timeout: 1500 })`. On expiry Node kills only `sh`; `find`
+and `head` are re-parented to init and keep running. On the host that leaked
+5-12 `find`s at a time, each walking a 2.37M-file `.evidence` tree for ~100 s.
+It is now an in-process walk (and `.evidence` is pruned).
+
+Measured on fixture-37 against three hooks, same runner bytes, same host:
+
+| Hook | fixture-37 | find shim calls | Left in the hook's group |
+| --- | --- | --- | --- |
+| pre-fix bytes (`bfcf04a9…`) | RED | 2 | `sleep 20` + `head -500`, once per existing root |
+| fix | GREEN | 0 | nothing |
+| O1 fix with the shell pipeline restored in a copy | RED | 2 | the same four |
+
+The shim-call count is the reach proof: it shows the mutated line ran. O1 also
+reds 34, 34b, 34c and 38 — the pipeline ignores the budget, masks an unreadable root
+behind `head`'s exit status, and needs PATH.
+
+O2, the in-process walk with stop-on-unreadable restored (`!outOfTime` →
+`!failed`), reds exactly 34c. When this was first measured it found 8 of 15
+siblings on the measuring host, i.e. the red depended on read order; 34c is
+now deterministic (see Round 5).
+
+### Round 5 — the fix-up lane (M1, L1, L2, L3, L4, 34c)
+
+Every new case was first run against the PRE-fix hook bytes (`0dc73fc33`) with
+the new runner: all nine new cases red there, and 73/73 green on the fix. Each mutation below was applied to a COPY of the fixed tree, with a
+marker proving the mutated line ran (the unmutated control run recorded no
+marker); each red-set below is the complete list of failing cases.
+
+| Mutation | Fixtures that went RED |
+| --- | --- |
+| P1 non-directory root reported not-failed | 39a, 39b |
+| P7 cwd realpath removed | 39c |
+| P2 post-open dev+ino re-check disabled | 40 |
+| P3 `-H` re-parse attribution restored | 41a, 41b |
+| P4 `inert()` made the identity | 41b, 42 |
+| P5 enumeration deadline re-armed per root | 43b |
+| P6 scan deadline unclamped from the hook deadline | 43a, and 43b at 7018 ms — a marginal red. Round 6 moved 43b's stdin to 4.5 s, so the same class of mutant now reds 43b by ~1.5 s; 43a is relabelled a source-text pin |
+| O2 stop-on-unreadable, re-run | 34c, in 3 of 3 runs |
+
+### Round 6 — fix-up 2 (MED-1, LOW-2, LOW-3, CRLF, L3d, L3e, 43b strength)
+
+The ten new cases (44a-e, 45, 46, 47, 48, 49) were first run against the
+PRE-fix hook bytes (`062af40f3`) with the new runner: 44a, 44b, 44c, 45, 46
+and 47 red (44a/b/c printed the placeholder secret as a finding of
+`logs/victim.log`; 45 metered 6,001,876 characters; 46 rendered the forged
+attribution; 47 reported 3 entries with `1:`/`2:`/`3:` prefixes), as did
+the re-pinned 41b. 44d, 48 and 49 pass on the pre-fix bytes by design — they
+pin behaviours that already held (or held by accident) and are witnessed by
+mutation instead. On the fix: 83/83 on Linux and darwin. Each mutation below
+ran in a COPY of the fixed tree, with a marker appending to a reach file every
+time the mutated code executed (reach counts recorded per run); each red-set
+is the complete list of failing cases.
+
+| Mutation | Fixtures that went RED |
+| --- | --- |
+| Q1 drop the fd dev+ino comparison | 44b |
+| Q2 drop O_NOFOLLOW | none — absorbed by Q1's check (a followed link opens another inode) |
+| Q1+Q2 | 44a, 44b |
+| Q3 drop O_NONBLOCK | 44d (the open blocks; the case times out) |
+| Q4a drop the pre-open chain check | none — absorbed by the post-open check |
+| Q4b drop the post-open chain check | none — absorbed by the pre-open check |
+| Q4a+Q4b | 44c |
+| Q5 grep handed the path again | 44e |
+| Q6 neutralise the whole line before the cut | 45 |
+| Q7 render every path bare | 41b, 46 |
+| Q8 drop the explicit `\r` strip | none — absorbed by the trailing trim |
+| Q8 + drop the trailing trim | 47 |
+| Q9 line-number prefix never recognised | 07, 08, 09, 41a, 41b, 46, 47 |
+| Q10 `triageLogs(cwd, Infinity)` (clamp text kept) | 43b at ~8.5 s |
+| Q11 grep killSignal SIGTERM | 48 at ~12 s |
+| Q12 enum-budget override may raise the budget | 49 at ~5.6 s |
+
+The racing form of the MED-1 attack (a helper swapping `logs/x.log` between a
+regular file and a symlink to an outside placeholder, as fast as it can) is not
+committed — it is non-deterministic by nature, which is why 44a-e exist — but
+its result is recorded: over 100 hook runs per side, the pre-fix bytes leaked
+the placeholder 21/100 (Linux) and 23/100 (darwin); the fix leaked 0/100 on
+both, disclosing the swapped file as unreadable instead.
+
+### Round 7 — binary bytes, hard links, whitespace windows, invisible content (HIGH-1, MED-2, LOW, LOW)
+
+The seven new cases (50a, 50b, 51a, 51b, 51c, 52, 53) were run against the
+PRE-fix hook bytes (`69ce59728`) with the new runner: all seven red there,
+on Linux (GNU grep 3.11) and darwin (BSD grep 2.6.0-FreeBSD) alike, and 90/90
+green on the fix on both. What each red showed on the pre-fix bytes: 50a — the
+NUL-bearing log's two failures were missing (GNU: read clean; BSD: one row
+reading `Binary file (standard input) matches`); 50b — an empty message, a
+clean session; 51a — the outside placeholder printed as a finding of
+`logs/planted.log`; 51b/51c — the victim read with nothing disclosed; 52 —
+`b.log` (3000 NO-BREAK SPACEs before the match) rendered as an empty row and
+`c.log` kept its trailing spaces; 53 — U+2028 and U+202E delivered raw. Each
+mutation below was applied to a COPY of the fixed tree by literal string
+replacement whose anchor had to match exactly once (a non-matching anchor
+aborts the build); each red-set is the complete list of failing cases, and is
+the same on Linux and darwin.
+
+| Mutation | Fixtures that went RED |
+| --- | --- |
+| R1 drop `-a` | 50a |
+| R2 drop the exit-0-but-no-line guard | 50b |
+| R1+R2 | 50a, 50b |
+| R3 drop the walk's link-count refusal | 51c |
+| R4 drop the descriptor's link-count check | 51b |
+| R3+R4 | 51a, 51b, 51c — 51a is absorbed by EITHER check alone |
+| R5 drop the byte-level leading-whitespace skip | 52 |
+| R6 drop the byte-level trailing-whitespace skip | 52 |
+| R7 content neutralised by `inert` only (no format-character escape) | 53 |
+
+R6 also takes over from the old trailing `trimEnd` as what absorbs Q8 (the
+explicit `\r` strip): a CR is whitespace to the byte-level skip as it was to
+`trimEnd`.
+
 ### Cross-dialect verification
 
 The matcher runs under whatever `grep` is first on `PATH`, which is not one
@@ -274,20 +418,21 @@ the independent overflow-tail block, which is what M9 exists to target.
 Two things test this hook. They do **not** overlap, and the split is
 deliberate; stated here so the next reader does not have to re-derive it.
 
-**`.claude/test-harness/tests/log-triage-gate.test.mjs`** (pre-existing, 3
+**`.claude/test-harness/tests/log-triage-gate.test.mjs`** (pre-existing, 5
 cases, registered in `ci-suites.json`) — covers the `EXCLUDED_FILES` /
 `.journal-skipped.log` audit-log exclusion (`observability.md` Rule 5a) and
 **only** that: the audit log is not surfaced, a genuine runtime log in the same
-directory still is, and `EXCLUDED_FILES` is actually wired into the `find`
-rather than defined-but-unused.
+directory still is, and `EXCLUDED_FILES` is actually wired into the
+enumeration's `*.log` predicate rather than defined-but-unused. It also pins,
+from the source side, that the hook runs no shell.
 
-**This suite** (59 cases, registered in `ci-audit-fixtures.json`) — covers
+**This suite** (90 cases, 88 where uid 0 cannot run 34b/34c, registered in `ci-audit-fixtures.json` with `min_cases` 88 — the uid-0 count: dropping the seven Round-7 cases leaves 83 non-root / 81 uid-0 rows, both under 88, so that drop reds on every host; a floor is a DROP detector, and on a non-root host it has a two-row cushion (34b/34c), so dropping one or two cases reds only under uid 0) — covers
 everything else: the 120-minute window and its boundary, the match set across
 twelve real log formats and its prose anti-flood pole, all six arms of the
 dedup (three collapse, three precision), the display cap, its overflow tail and
 its round-robin fairness, both scan caps and the disclosure of each, the
 `EXCLUDED_DIRS` and nested-checkout prunes, scope (`*.log` only), line
-truncation, and four degenerate-input paths.
+truncation, four degenerate-input paths, declared-root integrity (symlinked, dangling and swapped roots), read-time binding of each log to the file the walk classified (symlink, hard-link, FIFO and ancestor swaps), refusal of multiply-linked logs, binary-byte logs read as text and a silent match read as unreadable, bounded post-grep work, whitespace runs longer than the decode window, unforgeable attribution, CRLF logs, match attribution, terminal-control and invisible-format-character neutralisation, and the time bound under the dispatcher timeout (including SIGKILL and the enum-budget clamp).
 
 Neither subsumes the other. The Rule 5a case is **not** duplicated here —
 re-testing it would add cases without adding discrimination, and `min_cases`

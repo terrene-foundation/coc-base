@@ -52,12 +52,19 @@
  *
  * Exit 0 = the scaffold is sound and the asymmetry holds. Non-zero = the instrument is NOT
  * sound; any measurement taken with it is ZERO evidence (`evidence-first-claims.md` MUST-3).
+ *
+ * Routed inspection reads intentionally omit operator global/system config:
+ * global safe.directory exceptions cannot admit a foreign-owned checkout, and
+ * global core.quotepath preferences do not apply (.claude/hooks/lib/git-subprocess-env.js:347-358;
+ * .claude/hooks/lib/target-repo-git.js:143-150).
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import targetRepoGit from "../hooks/lib/target-repo-git.js";
+import gitSubprocessEnv from "../hooks/lib/git-subprocess-env.js";
 
 const TOK = {
   ownClaudeMd: "TOKEN-OWN-CLAUDEMD",
@@ -71,7 +78,15 @@ const ANC_PREFIX = "TOKEN-ANC-";
 const OWN_PREFIX = "TOKEN-OWN-";
 
 function git(cwd, args) {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+  if (args[0] === "ls-files") {
+    const resolved = targetRepoGit.resolveTargetRepo({ dir: cwd });
+    if (!resolved.ok) throw new Error(resolved.reason || "target repository unresolved");
+    const inv = targetRepoGit.targetGitInvocation(resolved.repo, args, { cwd: cwd });
+    return execFileSync(inv.file, inv.argv, { cwd: inv.cwd, env: targetRepoGit.targetRepoEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  }
+  const gitBin = gitSubprocessEnv.resolveGitBinary();
+  if (!gitBin) throw new Error("no git binary resolves");
+  return execFileSync(gitBin, args, { cwd, env: targetRepoGit.targetRepoEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
     .trim();
 }
 
@@ -248,8 +263,8 @@ function verify(rootArg, { quiet = false } = {}) {
     try {
       tracked = git(outer, ["ls-files", "--", ".claude/rules/probe-anc-baseline.md",
         ".claude/rules/probe-anc-scoped.md"]);
-    } catch {
-      /* handled by the existence checks above */
+    } catch (e) {
+      problems.push(`ancestor sentinel tracking unreadable: ${String(e && e.message || e)}`);
     }
     if (tracked) problems.push(`ancestor sentinels are TRACKED (must be untracked): ${tracked}`);
   }

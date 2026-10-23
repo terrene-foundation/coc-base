@@ -58,10 +58,14 @@ coordination (`skipSignatureVerify` when it is OFF, matching
   off-chain reservation are refused UNRESERVED — each equal to the full fold's verdict. A fold of
   reservation records ONLY rejects every reservation past seq 0 on rule-2, so this row reds on a
   record-type pre-filter; C1–C8 (one record at seq 0) cannot.
-- **C10** `COC_JOURNAL_GUARD_BUDGET_MS=1` (tighten-only, clamped to the 4000ms default, applied only
-  once a journal slot is identified) ⇒ HALT-AND-REPORT "reservation check did not complete within
-  the hook budget — slot unverified", never a bare `{continue:true}`; the same budget passes a
+- **C10** `COC_JOURNAL_GUARD_BUDGET_MS=1` (tighten-only, clamped to the check budget derived from the run budget (`checkBudgetOf`: `BUDGET_MS` 16000 less the 1000 ms reserve), applied only
+  once a journal slot is identified) ⇒ a BUDGET REFUSAL (exit 2, native deny) "did not complete
+  the reservation check … within its budget — slot unverified" carrying the runner's verbatim
+  budget sentence, never a `{continue:true}` (fail-closed completeness lane, 2026-10-19: the
+  halt-and-report it replaced was continue:true, so the write landed); the same budget passes a
   non-journal Write and an unenrolled repo untouched.
+- **C14** `COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR=1` ⇒ the runner's CRASH REFUSAL
+  (`guard-runner.js::runGuard`, exit 2, native deny) naming journal-write-guard and the fault.
 
 Live behavioral coverage with real ssh-keygen + real coc-sign lives
 at `tests/integration/integrity-guards.test.js`. These fixtures are

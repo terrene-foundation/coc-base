@@ -48,10 +48,9 @@ Then the adversarial round:
     round 1 — cc-architect: "lane 2's pointer landed in a section the abridger strips, and
               the obligation it pointed at is not carried elsewhere on this lane."
     [Edit] restored the pointer to the body; 168 B given back, headroom still 8.19%.
-    round 2 — all three clean, three payloads read.
-    round 3 — all three clean, three payloads read.
+    round 2 reviewed only the fix and its blast radius — all three clean, three payloads read.
 
-Two consecutive clean rounds. Validation gates all ran: check-descoping, the headroom
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). Validation gates all ran: check-descoping, the headroom
 validator, and the emit dry-run on all four lanes.
 
 Before reading check-descoping's CLEAN as evidence, it was fired at a known-answer case:

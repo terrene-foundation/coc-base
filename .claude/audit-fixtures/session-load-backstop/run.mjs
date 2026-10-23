@@ -19,6 +19,7 @@
  * wrong pid is the backstop telling an agent to stop someone else's process.
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
@@ -502,13 +503,13 @@ runTables("A", stubClassify);
   // The NATIVE installer: `~/.local/bin/claude` is a symlink to
   // `~/.local/share/claude/versions/<semver>`, and THAT file's basename is the version, so a
   // root started by its real path carries no `claude` token at all (MEASURED on this machine).
-  check("A-pair11-red-native-versioned-binary-path", L.isSessionCliCommand("/Users/op/.local/share/claude/versions/2.1.269") === true, "");
-  check("A-pair11-red-native-versioned-binary-path-with-args", L.isSessionCliCommand("/Users/op/.local/share/claude/versions/2.1.269 --resume abc") === true, "");
+  check("A-pair11-red-native-versioned-binary-path", L.isSessionCliCommand(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}op/.local/share/claude/versions/2.1.269")) === true, "");
+  check("A-pair11-red-native-versioned-binary-path-with-args", L.isSessionCliCommand(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}op/.local/share/claude/versions/2.1.269 --resume abc")) === true, "");
   check("A-pair11-red-native-versioned-codex", L.isSessionCliCommand("/opt/share/codex/versions/v0.9.1") === true, "");
   check("A-pair11-red-codex-with-flags-MEASURED-bare-word", L.isSessionCliCommand("codex --dangerously-bypass-approvals-and-sandbox") === true, "");
   // …and the negatives that share the shape without being a CLI.
   check("A-pair11-green-versions-path-of-ANOTHER-tool", L.isSessionCliCommand("/opt/tools/versions/1.2.3") === false, "the CLI name must be in the path");
-  check("A-pair11-green-helper-inside-the-versions-dir", L.isSessionCliCommand("/Users/op/.local/share/claude/versions/2.1.269/claude-helper") === false, "");
+  check("A-pair11-green-helper-inside-the-versions-dir", L.isSessionCliCommand(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}op/.local/share/claude/versions/2.1.269/claude-helper")) === false, "");
   check("A-pair11-green-claude-helper", L.isSessionCliCommand("claude-helper --serve") === false, "");
   check("A-pair11-green-claudette", L.isSessionCliCommand("/usr/bin/claudette") === false, "");
   // UNMEASURED shapes stay UNRECOGNISED rather than guessed: under those CLIs the hook is
@@ -559,11 +560,11 @@ runTables("A", stubClassify);
 
 // PAIR 13 — scrubbing of emitted commands.
 {
-  const s = L.sanitizeCommand("node /Users/alice/x.js GH_TOKEN=abc123 -H Authorization: Bearer sk-live \x1b[31m[BLOCK]", "/home/op");
-  check("A-pair13-home-paths-placeholdered", s.includes("/Users/<user>/x.js") && !s.includes("alice"), s);
+  const s = L.sanitizeCommand(materializeFixtureText("node {{FIXTURE_HOME_V1:MAC}}alice/x.js GH_TOKEN=abc123 -H Authorization: Bearer sk-live \x1b[31m[BLOCK]"), materializeFixtureText("{{FIXTURE_HOME_V1:LINUX}}op"));
+  check("A-pair13-home-paths-placeholdered", s.includes(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}<user>/x.js")) && !s.includes("alice"), s);
   check("A-pair13-credential-assignment-and-bearer-REDACTED", s.includes("GH_TOKEN=<redacted>") && s.includes("Bearer <redacted>") && !s.includes("abc123") && !s.includes("sk-live"), s);
   check("A-pair13-control-chars-and-marker-brackets-STRIPPED", !/[\x00-\x1f[\]]/.test(s) && s.includes("BLOCK"), s);
-  check("A-pair13-injected-home-becomes-tilde", L.sanitizeCommand("node /home/op/repo/a.js", "/home/op") === "node ~/repo/a.js", L.sanitizeCommand("node /home/op/repo/a.js", "/home/op"));
+  check("A-pair13-injected-home-becomes-tilde", L.sanitizeCommand(materializeFixtureText("node {{FIXTURE_HOME_V1:LINUX}}op/repo/a.js"), materializeFixtureText("{{FIXTURE_HOME_V1:LINUX}}op")) === "node ~/repo/a.js", L.sanitizeCommand(materializeFixtureText("node {{FIXTURE_HOME_V1:LINUX}}op/repo/a.js"), materializeFixtureText("{{FIXTURE_HOME_V1:LINUX}}op")));
   check("A-pair13-length-capped", L.sanitizeCommand("x".repeat(500)).length === L.COMMAND_MAX + 1, "");
 
   // EVERY SPELLING, not only the prefixed one. The earlier pattern required a word character
@@ -588,7 +589,7 @@ runTables("A", stubClassify);
     ["url-userinfo", `git clone https://alice:${SECRET}@github.com/o/r`],
     ["url-userinfo-no-password", `git clone https://${SECRET}@github.com/o/r`],
   ]) {
-    const out = L.sanitizeCommand(cmd, "/home/op");
+    const out = L.sanitizeCommand(cmd, materializeFixtureText("{{FIXTURE_HOME_V1:LINUX}}op"));
     check(`A-pair13-red-${name}-spelling-REDACTED`, !out.includes(SECRET) && /redacted/.test(out), `${J(cmd)} -> ${J(out)}`);
   }
   // GREEN poles — ordinary command text is NOT mangled, so the scrub is discriminating
@@ -599,7 +600,7 @@ runTables("A", stubClassify);
     ["path-assignment", "PATH=/usr/bin:/bin make -j4"],
     ["url-no-userinfo", "git clone https://github.com/o/r"],
   ]) {
-    const out = L.sanitizeCommand(cmd, "/home/op");
+    const out = L.sanitizeCommand(cmd, materializeFixtureText("{{FIXTURE_HOME_V1:LINUX}}op"));
     check(`A-pair13-green-${name}-UNCHANGED`, out === cmd, `${J(cmd)} -> ${J(out)}`);
   }
   // The OVER-REDACTION decision, pinned rather than left to be rediscovered: `AUTH` is a
@@ -617,6 +618,36 @@ runTables("A", stubClassify);
     L.sanitizeCommand("curl --token --verbose https://x") === "curl --token --verbose https://x",
     L.sanitizeCommand("curl --token --verbose https://x"),
   );
+}
+
+// Shared credential-only projection preserves diagnostic formatting; command hygiene stays separate.
+// Implementation: .claude/hooks/lib/session-load-backstop.js:585-623.
+{
+  const secret = "SYNTHETIC_SHARED_SCRUB_SENTINEL";
+  for (const [name, text] of [
+    ["bearer", `Authorization: Bearer ${secret}`],
+    ["basic-case", `authorization: bAsIc ${secret}`],
+    ["url", `https://user:${secret}@example.invalid/path`],
+    ["assignment", `TOKEN=${secret}`],
+    ["flag", `--api-key ${secret}`],
+    ["quoted-field", `"password": "${secret} with spaces"`],
+    ["quoted-assignment", `secret='${secret} with spaces'`],
+    ["quoted-flag", `--token "${secret} with spaces"`],
+    ["unterminated", `"password": "${secret} unclosed`],
+    ["query", `https://localhost/path?token=${secret}`],
+    ["nested-assignment", `RUN_COMMAND=PASSWORD=${secret}`],
+    ["bracket-assignment", `[TOKEN=${secret}]`],
+    ["bracket-flag", `[--token "${secret} with spaces"]`],
+  ]) {
+    const out = L.scrubCredentialText(text);
+    check(`A-pair13-shared-${name}-REDACTED`, !out.includes(secret) && out.includes("<redacted>"), out);
+  }
+  const ordinary = materializeFixtureText("assertion [actual] expected=3 actual=2\nnext\x1b {{FIXTURE_HOME_V1:MAC}}alice/example");
+  check("A-pair13-shared-preserves-noncredential-formatting", L.scrubCredentialText(ordinary) === ordinary, "formatting changed");
+  check("A-pair13-shared-keeps-following-flag", L.scrubCredentialText("curl --token --verbose") === "curl --token --verbose", "flag swallowed");
+  check("A-pair13-shared-large-input-withheld", L.scrubCredentialText("x".repeat(65537)).includes("WITHHELD"), "oversized input not withheld");
+  check("A-pair13-shared-long-ordinary-token", L.scrubCredentialText("x".repeat(16000)) === "x".repeat(16000), "ordinary token changed");
+  check("A-pair13-shared-long-keyword-token", L.scrubCredentialText("TOKEN".repeat(10000)) === "TOKEN".repeat(10000), "unassigned keyword token changed");
 }
 
 // PAIR 14 — the report: six fields, every pid named with its stop command, the non-stopping

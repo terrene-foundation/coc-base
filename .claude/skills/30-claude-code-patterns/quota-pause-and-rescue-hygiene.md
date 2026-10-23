@@ -235,7 +235,7 @@ UNREVIEWED" mitigates the live-mutation half; it does nothing for a secret, whic
 by the time anyone reads the declaration.
 
 **Pushing a per-operator scratch tree to a shared branch is a sensitivity escalation** (local →
-committed shared surface), so it carries `recommendation-quality.md` MUST-8's confirm-before-persist
+committed shared surface), so it carries `recommendation-quality-escalation.md` MUST-8's confirm-before-persist
 gate. "Losing the work would be worse" is a reason to CHECKPOINT, never a reason to skip the scan.
 
 ```bash

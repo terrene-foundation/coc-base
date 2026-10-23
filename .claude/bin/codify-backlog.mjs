@@ -173,7 +173,7 @@ function _processJsonl(text, anchorMs, keep, out) {
  */
 function jsonlSince(repoDir, relPath, anchorMs, { keep = () => true } = {}) {
   const p = join(repoDir, relPath);
-  const out = { path: relPath, present: existsSync(p), total: 0, since: 0, malformed: 0, archives_read: 0, items: [] };
+  const out = { path: relPath, present: existsSync(p), total: 0, since: 0, malformed: 0, archives_read: 0, archives_skipped: 0, items: [] };
   if (out.present) {
     try {
       _processJsonl(readFileSync(p, "utf8"), anchorMs, keep, out);
@@ -187,7 +187,9 @@ function jsonlSince(repoDir, relPath, anchorMs, { keep = () => true } = {}) {
     try {
       files = readdirSync(archiveDir).filter((f) => f.endsWith(".jsonl"));
     } catch {
-      /* unreadable archive dir — degrade, don't crash */
+      // Degrade, don't crash — but COUNT it. The dir exists (checked above), so
+      // an unreadable one hides an unknown number of archives.
+      out.archives_skipped++;
     }
     for (const f of files) {
       out.present = true; // archived records count as present even if the live file is gone
@@ -195,7 +197,9 @@ function jsonlSince(repoDir, relPath, anchorMs, { keep = () => true } = {}) {
         _processJsonl(readFileSync(join(archiveDir, f), "utf8"), anchorMs, keep, out);
         out.archives_read++;
       } catch {
-        /* skip an unreadable archive file */
+        // Skip an unreadable archive file — but COUNT it, so archives_read is
+        // never mistaken for "every archive there was".
+        out.archives_skipped++;
       }
     }
   }

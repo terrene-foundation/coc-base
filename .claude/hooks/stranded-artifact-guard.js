@@ -63,6 +63,23 @@
  * the stranding it reports.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".git/landed-map-cache.json",
+ *       ".git/landed-map-cache.json.<pid>.tmp"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: local read-only git (execFileSync) for the trunk/ancestry/content sweeps and lib/landed-map.js. The one durable write is the landed-map cache under the git COMMON dir (lib/landed-map.js::_cachePath — `<git-common-dir>/landed-map-cache.json`, tmp + rename, keyed on (tip, cutover), bounded to 8 entries), so a repeat for the same tip rewrites the same bytes; `.git/` here is the main checkout's common dir when run from a linked worktree. lib/instruct-and-wait.js emits to stdout only."
+ * }
+ */
+
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require(

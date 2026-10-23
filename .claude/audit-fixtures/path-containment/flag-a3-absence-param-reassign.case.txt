@@ -1,0 +1,32 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R2 security R_param_reassign: the CAUGHT ERROR is overwritten before the attribution, so
+// the ENOENT test is performed on an object the function itself fabricated.
+function canonPath(p) {
+  let dir = path.dirname(path.resolve(p));
+  const tail = [path.basename(path.resolve(p))];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail);
+    } catch (e) {
+      let absent = false;
+      try {
+        fs.lstatSync(dir);
+      } catch (le) {
+        le = { code: "ENOENT" };
+        absent = !!le && le.code === "ENOENT";
+      }
+      if (!e || e.code !== "ENOENT" || !absent) return null;
+      const up = path.dirname(dir);
+      if (up === dir) return null;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return canonPath(p) === r;
+}

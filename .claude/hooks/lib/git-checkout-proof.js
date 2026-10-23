@@ -108,10 +108,19 @@ const { spawnSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require(
   path.join(__dirname, "git-subprocess-env.js"),
 );
+const { askOnce, eventGitKey } = require(path.join(__dirname, "event-git.js"));
+// THE shared non-blocking, fd-checked small-file reader (O_NONBLOCK|O_NOFOLLOW,
+// fstat-on-the-fd, size-bounded). Imported, never copied: see `dotGitTarget`.
+const { readRegularFileBounded } = require(path.join(__dirname, "landing-window-read.js"));
 
 // Matches guard-path-scope's own bound. A hung git must become an ordinary
 // negative rather than wedging the hook it is called from.
 const GIT_TIMEOUT_MS = 2000;
+
+// Canonical common-dir argv; sharing requires the complete question key:
+// binary, cwd, argv and envelope (.claude/hooks/lib/event-git.js:53-56).
+// Matching argv alone does not share answers across environment profiles.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 
 /** realpath, or the input unchanged — the lenient form the tree probe reports with. */
 function _realpathSafe(p) {
@@ -138,6 +147,19 @@ function isAtOrUnder(child, parent) {
  *   - separate-git-dir → `<top>/.git` is a FILE holding `gitdir: <elsewhere>`
  * Anything else (absent, a symlink to nowhere, an unreadable or malformed file)
  * returns null, which the caller reads as INCOHERENT — the fail-safe direction.
+ *
+ * THE FILE IS READ THROUGH `readRegularFileBounded`, AND THE READ DECIDES ON ITS
+ * OWN FD. The `lstat` below only ROUTES (a directory is the git dir; anything else
+ * is offered to the reader); it never clears a read. It used to: `lstat` said
+ * "regular file" and a plain `fs.readFileSync` followed, which opens O_RDONLY with
+ * O_NONBLOCK clear. A FIFO swapped in for the `.git` file between the two calls
+ * parked the read in open(2) until a writer appeared — and this runs synchronously
+ * inside hooks (`state-resolver.js::_validatedTrustStateRoot` under
+ * `$CLAUDE_TRUST_STATE_DIR`, `guard-path-scope`'s outward walk), so the hook hung
+ * until its host killed it. The reader opens non-blocking with O_NOFOLLOW, fstats
+ * the fd and refuses anything not a regular file, and bounds the size. Every
+ * refusal is null here — the same INCOHERENT result an unreadable or malformed
+ * file always produced — so no new shape is admitted.
  */
 function dotGitTarget(top) {
   const dotGit = path.join(top, ".git");
@@ -150,7 +172,9 @@ function dotGitTarget(top) {
   try {
     if (st.isDirectory()) return _realpathSafe(dotGit);
     if (!st.isFile()) return null;
-    const m = /^\s*gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotGit, "utf8"));
+    const got = readRegularFileBounded(dotGit);
+    if (!got.ok) return null;
+    const m = /^\s*gitdir:\s*(.+?)\s*$/m.exec(got.text);
     if (!m) return null;
     return _realpathSafe(
       path.isAbsolute(m[1]) ? m[1] : path.resolve(top, m[1]),
@@ -199,9 +223,12 @@ function treeIsCoherent(tree) {
  * git-common-dir (the repo-family identity). Returns null when `dir` is not
  * inside a git repository, or git is unavailable/errors/times out.
  *
- * `--show-toplevel --git-common-dir` prints toplevel first, common-dir second;
- * for a linked worktree the common dir is absolute (`<main>/.git`), for a plain
- * checkout it is the relative `.git`, resolved here against the query dir.
+ * Asked through the ONE canonical argv (`CANONICAL_COMMON_DIR_ARGS`), so the
+ * answer is shared with every other common-dir asker of this tree in the same
+ * event. Output order follows argv: toplevel first, common-dir LAST, and
+ * `--path-format=absolute` makes the common dir absolute even in a plain
+ * checkout at the work-tree root (it used to print the relative `.git`); the
+ * `path.isAbsolute` guard is retained for any non-canonical asker.
  *
  * loom#1462 F1: git is invoked by ABSOLUTE path (no PATH lookup) with an arg
  * ARRAY (no shell) and an env built from constants by `gitEnv()`, so the
@@ -216,20 +243,31 @@ function gitTreeProof(dir) {
   if (typeof dir !== "string" || dir === "") return null;
   const bin = resolveGitBinary();
   if (!bin) return null;
-  let r;
-  try {
-    r = spawnSync(bin, ["rev-parse", "--show-toplevel", "--git-common-dir"], {
-      cwd: dir,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
-      timeout: GIT_TIMEOUT_MS,
-      env: gitEnv(), // NOTHING inherited — GIT_DIR & family cannot reach this
-    });
-  } catch {
-    return null;
-  }
-  if (!r || r.status !== 0) return null;
-  const lines = String(r.stdout || "")
+  // ONE answer per distinct question per hook event (lib/event-git.js). Outside
+  // an event scope `askOnce` runs the probe directly, so a standalone caller is
+  // unchanged; a recorded FAILURE stays a failure for the whole event (it
+  // returns null here either way — the fail-closed direction).
+  const probe = askOnce(
+    eventGitKey({ gitBin: bin, cwd: dir, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+    () => {
+      let r;
+      try {
+        r = spawnSync(bin, CANONICAL_COMMON_DIR_ARGS, {
+          cwd: dir,
+          stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf8",
+          timeout: GIT_TIMEOUT_MS,
+          env: gitEnv(), // NOTHING inherited — GIT_DIR & family cannot reach this
+        });
+      } catch (e) {
+        return { ok: false, reason: String((e && e.message) || e) };
+      }
+      if (!r || r.status !== 0) return { ok: false, reason: "git rev-parse failed" };
+      return { ok: true, value: String(r.stdout || "") };
+    },
+  );
+  if (!probe.ok) return null;
+  const lines = String(probe.value || "")
     .split("\n")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);

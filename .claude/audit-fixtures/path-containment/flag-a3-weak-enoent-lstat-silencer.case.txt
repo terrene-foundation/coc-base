@@ -1,0 +1,29 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R2 corr R2-3 / sec N8: the ENOENT and lstat TOKENS are present, but the lstat result gates
+// nothing, so a dangling link (realpath ENOENT, lstat succeeds) is still climbed past.
+function nearest(p) {
+  let cur = path.resolve(p);
+  const tail = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(cur), ...tail);
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+      try {
+        fs.lstatSync(cur);
+      } catch {
+        /* absent */
+      }
+    }
+    const up = path.dirname(cur);
+    if (up === cur) return null;
+    tail.unshift(path.basename(cur));
+    cur = up;
+  }
+}
+
+export function inside(p, root) {
+  return nearest(p) === fs.realpathSync(root);
+}

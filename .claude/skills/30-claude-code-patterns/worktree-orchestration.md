@@ -257,10 +257,17 @@ belonged to another session.
   carries `coc-session=<id>`, and a `coc-owner.json` sits beside git's own per-worktree admin
   files (`<per-worktree git dir>`), which is what makes ownership readable AFTER `unlock` —
   and what lets the record die with the tree, since `git worktree remove` deletes that dir.
+  That dir is found by its `gitdir` BACK-LINK to the tree, contained under
+  `<common>/worktrees/` and confirmed by the tree's own `.git` pointer when it still exists —
+  NEVER as `worktrees/<basename>`: git suffixes same-basename admin dirs (`foo`, `foo1`), so
+  the basename form read another tree's record and adopted it.
 - The SessionEnd pass runs `--apply --zero-loss-only --reap-owned-by <this session>`. It
-  removes ONLY trees whose recorded creator is that session, and REPORTS every other tree it
-  would otherwise have removed. A pass with **no** session identity REFUSES to run at all:
-  an absent id must never read as "every tree is mine".
+  classifies and removes ONLY trees whose recorded creator is that session; every other tree
+  is COUNTED (`held_not_owned`) and never classified or touched, so the pass's git work — and
+  its budget — scale with the trees the session created, not with the forest. Per-tree
+  verdicts for the rest come from a run without the flag (`/sweep` Sweep 6). A pass with
+  **no** session identity REFUSES to run at all: an absent id must never read as "every tree
+  is mine".
 - **ABSENT MEANS NOT-YOURS.** A tree with no record and no session-bearing lock is refused,
   not adopted. So landing this on an existing unlabelled forest reaps nothing until creation
   starts labelling — the fail-closed direction, and the reason the change is safe to land.
@@ -287,7 +294,7 @@ node .claude/bin/worktree-reap.mjs --reap-owned-by <id> --apply --zero-loss-only
 
 Guards, each independently sufficient to hold a tree: the MAIN checkout, the invoking session's own worktree, a `locked` worktree, a dirty tree, unpushed commits on a named branch, activity inside `--min-age-hours` (default 12, measured from the newest of the worktree root mtime and its per-worktree git `index` mtime — the index moves on any git operation, which a root-dir mtime alone misses), and — under `--reap-owned-by` — not being a tree this session created.
 
-A tree whose directory is already gone is retired with `git worktree remove <path>`, which is measured to work on a directory-absent tree and touches ONE record. It is deliberately NOT `git worktree prune`: prune takes no path argument and de-registers EVERY prunable worktree in the repository, so a pass that pruned one refused tree's record would also have removed a sibling it never examined. (Prune honours a LOCK, which is why the collateral hid — an owned tree is locked, and an unowned tree is exactly the one with no lock to save it.)
+A tree whose directory is already gone is retired with `git worktree remove <path>`, which is measured to work on a directory-absent tree and touches ONE record. It is deliberately NOT `git worktree prune`: prune takes no path argument and de-registers EVERY prunable worktree in the repository, so a pass that pruned one refused tree's record would also have removed a sibling it never examined. (Prune honours a LOCK, which is why the collateral hid — an owned tree is locked, and an unowned tree is exactly the one with no lock to save it.) A directory-absent tree is still asked the reachability question first: a DETACHED one whose commit no ref holds classifies TAG-FIRST, not ZERO-LOSS, because its registration's HEAD is the commit's last reference and retiring it would orphan the commit.
 
 **`--force` is not implemented and never will be.** A bare `git worktree remove` REFUSES a dirty tree, and that refusal is the safety net working. Checking `git status` first and then forcing is the same check-then-clobber TOCTOU Rule 11 blocks for `git checkout --`: the state can change between the check and the removal, and an agent cannot evaluate the condition from outside. When git refuses, the reaper reports the refusal and exits 2 — it does not escalate.
 
@@ -500,9 +507,9 @@ The post-merge fixup (adding cross-agent artifacts that neither agent owned) is 
 
 Agents MUST NOT attempt integration work: across LANES they cannot see each other's worktrees until the merge lands, and within a lane a writer owns only its disjoint file set. Integration belongs to the committer — the orchestrator across lanes, the lane orchestrator within one. The same ownership declaration made inside ONE lane IS the `rules/wip-discipline.md` MUST-9 disjoint-file-set partition.
 
-## Reviewer Prompts — Mechanical AST/Grep Sweep
+## Reviewer Prompts — Mechanical Sweeps
 
-**Rule:** `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep".
+**Rule:** `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical Sweeps".
 
 ### Failure mode evidence
 

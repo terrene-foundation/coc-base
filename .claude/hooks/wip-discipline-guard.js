@@ -129,10 +129,15 @@
  *   library existed; converged 2026-08-23 so the four audited-override properties
  *   have ONE implementation. Local here is CONFIG only — which receipt path,
  *   which env var, which roots to search, and what this guard's advisory says:
- *     1. RECEIPT (agent-reachable, ONE-SHOT). A non-empty reason written to
- *        `.claude/wip-authz/wip-limit-allow`, then re-issue the call. The hook
- *        CONSUMES (deletes) it as it honours it, so an override cannot silently
- *        disarm the gate for later calls, and the reason is echoed back.
+ *     1. RECEIPT (agent-reachable, ONE-SHOT, CALL-BOUND). The one-line JSON
+ *        receipt the block prints, written to `.claude/wip-authz/wip-limit-allow`,
+ *        then re-issue the call. Its digest binds it to THIS command (see
+ *        `WIP_GATE_FINDING_IDS` for why the finding-id half is the gate's whole
+ *        door set), it expires fifteen minutes after its `written_at`, and the
+ *        hook CONSUMES (deletes) it as it honours it and appends one row to the
+ *        shared use ledger in the main checkout, so an override cannot silently
+ *        disarm the gate for later calls, and the reason is echoed back. A
+ *        receipt for another command is refused by name and left in place.
  *     2. ENV `COC_ALLOW_WIP_OVERRUN=1` (operator / CI). NOT settable mid-session
  *        — a hook inherits the CLI parent's environment and a Bash `export` dies
  *        with the child shell — so it is for harnesses and whole-run operator
@@ -161,10 +166,42 @@
 
 "use strict";
 
-const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/wip-authz/override-ledger.jsonl",
+ *       ".claude/wip-authz/wip-limit-allow",
+ *       ".claude/wip-authz/.override-claim-<mkdtemp>/receipt",
+ *       "<main-checkout>/.claude/learning/override-receipt-uses.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "On a block-class call with a matching, unexpired receipt, consumption renames the public receipt into a private same-parent 0700 `.override-claim-<mkdtemp>/receipt`, validates the claimed bytes, records the use under the main checkout, then cleans up the private claim. Validation or recording failure restores the original inode bytes without overwriting a newer public receipt; a collision retains private custody and reports refusal. Recorded cleanup failure never rearms the public receipt. Source: .claude/hooks/lib/override-receipt.js:656-685,896-1005. The consumed receipt cannot authorize a repeat payload, so idempotent is false. spawns: lane surveys / landing-provenance / age reads via lib/wip-lanes.js and one `git rev-parse --show-toplevel --git-common-dir` through lib/event-git.js (all spawnSync, gitEnv-pinned). An honoured override (either channel) also appends one row to `.claude/wip-authz/override-ledger.jsonl` under the main checkout via lib/append-sink.js; the read-only paths (no override) change nothing."
+ * }
+ */
 
-/** The wait-for-stdin bound. Fixed: no payload has arrived, so nothing is tunable yet. */
+const path = require("node:path");
+const { runGuard } = require("./lib/guard-runner.js");
+const { spawnSync } = require("node:child_process");
+// Defines functions only — a require() of THIS file still has no side effects.
+const { askOnce, eventGitKey } = require(path.join(__dirname, "lib", "event-git.js"));
+
+// Canonical common-dir argv; sharing requires the complete question key:
+// binary, cwd, argv and envelope (.claude/hooks/lib/event-git.js:53-56).
+// Matching argv alone does not share answers across environment profiles.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
+
+/**
+ * The DEFAULT accumulation bound for the SessionStart depth report (`DEPTH_BUDGET_MS`
+ * below). It used to be the wait-for-stdin bound of a fail-OPEN timer as well; that
+ * timer is gone — the payload is read by `lib/guard-runner.js::runGuard`, which refuses
+ * a stalled, empty or unparseable stdin instead of passing the call through.
+ */
 const TIMEOUT_MS = 8000;
 
 /**
@@ -223,7 +260,31 @@ function _forceDepthTimeout() {
 const FORCE_DEPTH_TIMEOUT = _forceDepthTimeout();
 
 /**
- * THE STDIN-STALL FALLBACK. It is ONLY that, and the bound is enforced a second
+ * THE OUT-OF-ENGINE RUN BUDGET handed to runGuard. Inside the dispatcher the row's own
+ * registered timeout is the bound and this value is unused. It must cover the depth
+ * accumulation bound PLUS the report that follows it, or the runner would cut a
+ * SessionStart run at the very moment its deadline check delivers the contract; and a
+ * run past it is REFUSED, so no value of the test seam that widens it unblocks a call.
+ * At the default it is 9500 ms, below the 10 s PreToolUse registration.
+ */
+const RUN_BUDGET_MS = DEPTH_BUDGET_MS + 1500;
+
+/**
+ * THE PER-CALL GIT BOUND ON THE REFUSAL'S DELTA READ (correctness R2 LOW, 2026-10-20).
+ * `L.trunkDelta` made up to six git reads with the library default (5 s each) —
+ * 30 s of worst case inside a 9.5 s run budget, so a hung git would push the run
+ * over its own bound instead of answering. 1200 ms per call keeps the whole
+ * measurement (resolve, rev-parse, rev-list, age log, trailer log, ledger) inside
+ * the budget, and every unreadable step is reported as UNMEASURED rather than
+ * guessed.
+ */
+const GUARD_TRUNK_GIT_MS = 1200;
+
+/**
+ * HISTORICAL — THE STDIN-STALL FALLBACK (removed: the run is now owned by
+ * `lib/guard-runner.js::runGuard`, which arms no timer inside the engine and refuses
+ * on its budget outside it). The measurement below is kept because it is why the
+ * contract is delivered from the deadline check in `runSessionStart`. It is ONLY that, and the bound is enforced a second
  * time INSIDE the decision (`runSessionStart`) because — MEASURED on this tree,
  * not assumed — this timer CANNOT fire once `run()` has started.
  *
@@ -240,57 +301,43 @@ const FORCE_DEPTH_TIMEOUT = _forceDepthTimeout();
  * produces no output whatsoever. That is why the contract is delivered from the
  * DEADLINE CHECK in `runSessionStart` and not from here.
  */
-let _timeout = null;
-
 function passthrough() {
-  clearTimeout(_timeout);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
 
-let _libLoadFailed = false;
-let emit,
-  L,
-  resolveGitBinary,
-  gitEnv,
-  safeField,
-  createOverrideGate,
-  readReceiptText;
-try {
-  ({ emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js")));
-  L = require(path.join(__dirname, "lib", "wip-lanes.js"));
-  ({ resolveGitBinary, gitEnv } = require(
-    path.join(__dirname, "lib", "git-subprocess-env.js"),
-  ));
-  // The two-channel audited override is SHARED, not local. This guard shipped its own
-  // hand-written copy of the mechanism — candidate resolution, the literal-"1" env read,
-  // the read/trim/unlink consumption, the reason sanitizer — because the lane that built
-  // it ran BEFORE `lib/override-receipt.js` existed to consume. Two copies of a gate's
-  // ESCAPE HATCH is worse than two copies of a parser: when they drift, one gate's
-  // override behaves differently from the other's and the divergence is invisible until
-  // someone relies on the wrong one. What stays local below is CONFIG (which receipt path,
-  // which env var, which roots to search, what the advisory says) — never mechanism.
-  // `readReceiptText` comes from the SAME module for the same reason: the non-destructive
-  // PEEK and the destructive CONSUME must read a receipt identically, or the hardening
-  // holds at one end only.
-  ({ safeField, createOverrideGate, readReceiptText } = require(
-    path.join(__dirname, "lib", "override-receipt.js"),
-  ));
-} catch {
-  // Deferred to hookMain(): a require() of this file must have no side effects,
-  // so the load failure is recorded here and the passthrough() it used to run at
-  // load time runs as hookMain()'s first act after the fallback timer is armed —
-  // the same position it held in the old top-to-bottom load order.
-  _libLoadFailed = true;
-}
+// The decision's libraries. NOT wrapped: a library that will not load used to set a
+// flag that hookMain read as "pass the call through", so a missing lib disabled the WIP
+// ceiling for every lane opening. A throw out of this require is now a load failure
+// the dispatcher refuses (hook-engine.js::runDetector → loadFailed, on_incomplete:"deny").
+const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+const L = require(path.join(__dirname, "lib", "wip-lanes.js"));
+const { resolveGitBinary, gitEnv } = require(
+  path.join(__dirname, "lib", "git-subprocess-env.js"),
+);
+// The two-channel audited override is SHARED, not local. This guard shipped its own
+// hand-written copy of the mechanism — candidate resolution, the literal-"1" env read,
+// the read/trim/unlink consumption, the reason sanitizer — because the lane that built
+// it ran BEFORE `lib/override-receipt.js` existed to consume. Two copies of a gate's
+// ESCAPE HATCH is worse than two copies of a parser: when they drift, one gate's
+// override behaves differently from the other's and the divergence is invisible until
+// someone relies on the wrong one. What stays local below is CONFIG (which receipt path,
+// which env var, which roots to search, what the advisory says) — never mechanism. The
+// non-destructive PEEK goes through the SAME gate as the destructive CONSUME
+// (`gate.peekReceipt`), so the two hold a receipt to one validity test — hardened read,
+// call digest, TTL — or a peek could report a receipt this call may not spend.
+const { safeField, createOverrideGate, callDigestOf, consumerOf } = require(
+  path.join(__dirname, "lib", "override-receipt.js"),
+);
 
 // ── THE HARDENED APPEND PRIMITIVE ───────────────────────────────────────────
 //
 // REQUIRED SEPARATELY from the block above, and the separation is load-bearing in
 // BOTH directions.
 //
-// Not in that block, because it ends in `passthrough()`: a bookkeeping dependency
-// failing to load would then disable the WIP ceiling entirely for every dispatch.
+// Not in that block, because a failure there REFUSES the call (and, before the
+// fail-closed runner, ended in `passthrough()`): a bookkeeping dependency failing to
+// load would then wedge — or once disabled — the WIP ceiling for every dispatch.
 // The override LEDGER is audit-only; the GATE is not. A missing sink writer must
 // never be a wider gate than a present one — the same asymmetry the capability
 // predicate below is separated for.
@@ -330,6 +377,27 @@ const RECEIPT_REL = path.join(".claude", "wip-authz", "wip-limit-allow");
 const REASON_MAX = 200;
 
 /**
+ * The FINDING-ID half of this gate's call digest: EVERY door a lane-opening command can
+ * meet — MUST-2 count, MUST-3 age, MUST-4 landed remote refs — never the subset that fired.
+ *
+ * WHY THE WHOLE SET, NOT THE FIRING SUBSET (the other consumers bind the subset). The doors
+ * are evaluated IN SEQUENCE, and the remote door's block RETURNS before the count and age
+ * doors run, so the message a caller writes a receipt from cannot know which later door
+ * will also fire. A subset digest would deadlock exactly the call that most needs an
+ * override: the remote door's receipt names {MUST-4}, the retry passes it and then meets the
+ * count door, whose digest names {MUST-2, MUST-4} and refuses the receipt; rewritten for
+ * that, the retry is refused again at the remote door. And "ONE RECEIPT COVERS WHICHEVER
+ * DOORS ARE OPEN ON THIS CALL" (below) is this guard's settled semantics, so the receipt's
+ * scope IS the door set. The CALL half — tool and the exact command — stays exact, which is
+ * what stops a receipt written for one `git worktree add` lifting another.
+ */
+const WIP_GATE_FINDING_IDS = Object.freeze([
+  "wip-discipline/MUST-2",
+  "wip-discipline/MUST-3",
+  "wip-discipline/MUST-4",
+]);
+
+/**
  * The MAIN checkout top, from the SHARED `.git` (`--git-common-dir`), never
  * `--show-toplevel` — a call issued from inside a linked worktree must still
  * find an operator's receipt written in the main checkout.
@@ -347,22 +415,36 @@ function mainCheckoutTop(repoDir) {
   try {
     const gitBin = resolveGitBinary();
     if (!gitBin) return null;
-    const r = spawnSync(
-      gitBin,
-      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      {
-        cwd: repoDir,
-        encoding: "utf8",
-        timeout: 1500,
-        killSignal: "SIGKILL",
-        stdio: ["ignore", "pipe", "ignore"],
-        env: gitEnv(),
+    // ONE answer per distinct question per hook event (lib/event-git.js). Outside
+    // an event scope `askOnce` runs the probe directly — unchanged behaviour.
+    const probe = askOnce(
+      eventGitKey({ gitBin, cwd: repoDir, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+      () => {
+        let r;
+        try {
+          r = spawnSync(gitBin, CANONICAL_COMMON_DIR_ARGS, {
+            cwd: repoDir,
+            encoding: "utf8",
+            timeout: 1500,
+            killSignal: "SIGKILL",
+            stdio: ["ignore", "pipe", "ignore"],
+            env: gitEnv(),
+          });
+        } catch (e) {
+          return { ok: false, reason: String((e && e.message) || e) };
+        }
+        if (!r || r.error || r.status !== 0) return { ok: false, reason: "git rev-parse failed" };
+        return { ok: true, value: String(r.stdout || "").trim() };
       },
     );
-    if (r.error || r.status !== 0) return null;
-    const line = String(r.stdout || "")
-      .trim()
-      .split("\n")[0];
+    if (!probe.ok) return null;
+    const lines = String(probe.value || "")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // The common dir is the LAST line — the toplevel is printed first under the
+    // canonical argv, and `path.dirname(toplevel)` would name the repo's PARENT.
+    const line = lines.length ? lines[lines.length - 1] : "";
     return line ? path.dirname(line) : null;
   } catch {
     return null;
@@ -373,8 +455,8 @@ function mainCheckoutTop(repoDir) {
  * The gate — the SHARED two-channel audited override, configured for this guard.
  *
  * Everything the four audited-override properties depend on (agent-reachable
- * candidate resolution, the non-empty REASON price, one-shot consumption by
- * delete, and echoing the reason back) is `lib/override-receipt.js`'s, so this
+ * candidate resolution, the non-empty REASON price, claim/record/cleanup consumption,
+ * and echoing the reason back) is shared (.claude/hooks/lib/override-receipt.js:896-1005), so this
  * guard cannot drift from `nested-worktree-guard.js` or `dispatch-contract-guard.js`
  * on any of them. Only the three CONFIG values are local.
  *
@@ -609,8 +691,8 @@ function cheaperCloseAvailable(repoDir) {
  * The debt gate must know whether the caller is attempting an override before it
  * decides to refuse, but it must NOT spend the one shot on a call it then
  * refuses — a refusal that destroys the receipt it tells you is still available
- * is worse than no refusal. `consumeReceipt()` reads-and-unlinks, so this is a
- * separate non-destructive existence check over the same candidate roots.
+ * is worse than no refusal. Consumption claims and records; peek is non-destructive
+ * (.claude/hooks/lib/override-receipt.js:867-880,896-1005), so this check preserves the receipt.
  */
 /**
  * The ONE definition of what naming a lane looks like.
@@ -623,29 +705,23 @@ function cheaperCloseAvailable(repoDir) {
 const LAND_FIRST_RE = /land-first:\s*([^\s,;]+)/i;
 
 /**
- * The receipt's TEXT, or null. `peekReceipt` answers only "is one present" and is
- * deliberately left alone — several call sites want the boolean — so this is the
- * non-destructive READ the land-first validation needs.
+ * The REASON of the receipt that would lift THIS call, or null. `peekReceipt` answers only
+ * "is one present" and is deliberately left alone — several call sites want the boolean —
+ * so this is the non-destructive READ the land-first validation needs.
+ *
+ * `call` is `{gate, digest}` for the one call being decided: the SAME gate that will
+ * consume, asked through `gate.peekReceipt(digest)`, which holds every candidate to the
+ * consume path's own test — the hardened read (symlink, FIFO, hard link, oversize: the
+ * `ln -s ~/.aws/credentials` read primitive two earlier copies of this peek had), the call
+ * digest, and the TTL. A receipt written for ANOTHER command is therefore NOT present here:
+ * it is refused by name and left in place, and it cannot be priced, debited or held against
+ * this call. A peek that read raw text instead would price a receipt this call may not spend.
  */
-function peekReceiptText(repoDir) {
+function peekReceiptText(call) {
   try {
-    // The HARDENED read, shared with `consumeReceipt` rather than re-derived. Both peeks
-    // previously did `readFileSync` by path, which follows symlinks — the same read
-    // primitive the consume path had, in a second copy: `ln -s ~/.aws/credentials
-    // .claude/wip-authz/wip-limit-allow` made that file's first bytes the receipt "reason",
-    // echoed into the agent-visible advisory and the user-visible line. Hardening one call
-    // site and leaving its sibling naive is no defense at all, because the attacker picks
-    // the weaker end (`security.md` § Enforcement-Surface Parity), so all three readers now
-    // route through `readReceiptText`.
-    const roots = [
-      { root: repoDir, label: "invoking tree" },
-      { root: mainCheckoutTop(repoDir), label: "main checkout" },
-    ].filter((r) => Boolean(r.root));
-    for (const r of roots) {
-      const t = readReceiptText(r.root, RECEIPT_REL, r.label);
-      if (t) return t;
-    }
-    return null;
+    if (!call || !call.gate) return null;
+    const p = call.gate.peekReceipt(call.digest);
+    return p ? p.reason : null;
   } catch {
     return null;
   }
@@ -701,8 +777,8 @@ function hasAnyOpenLane(repoDir) {
   }
 }
 
-function receiptPriceViolation(repoDir) {
-  const text = peekReceiptText(repoDir);
+function receiptPriceViolation(repoDir, call) {
+  const text = peekReceiptText(call);
   if (!text) return "absent";
   // THE PRICE IS WAIVED WHEN IT CANNOT BE PAID, and this is not a softening — it is
   // what keeps the gate from being the dead end `hook-output-discipline.md` MUST NOT
@@ -722,19 +798,19 @@ function receiptPriceViolation(repoDir) {
 }
 
 /** The named lane, or null. Only meaningful when `receiptPriceViolation` returns null. */
-function receiptNamedLane(repoDir) {
-  const text = peekReceiptText(repoDir);
+function receiptNamedLane(call) {
+  const text = peekReceiptText(call);
   const m = text ? LAND_FIRST_RE.exec(text) : null;
   return m ? m[1] : null;
 }
 
-function peekReceipt(repoDir) {
+function peekReceipt(call) {
   // Deliberately expressed in terms of `peekReceiptText` rather than repeating the loop:
-  // "is one present" is exactly "does the hardened read yield a non-empty reason", and two
-  // copies of that predicate could disagree about a refused candidate — one reporting a
-  // receipt present that the other would never honour.
+  // "is one present" is exactly "is there a receipt valid for THIS call", and two copies of
+  // that predicate could disagree about a refused candidate — one reporting a receipt
+  // present that the other would never honour.
   try {
-    return peekReceiptText(repoDir) !== null;
+    return peekReceiptText(call) !== null;
   } catch {
     return false;
   }
@@ -803,9 +879,9 @@ const DISPOSITION =
  *  an agent learns a wrong override procedure. The second sentence is this
  *  guard's own: it names the WIP-specific rationalization (file an issue instead
  *  of dispositioning the lane) that no other gate has. */
-function overrideInstruction(gate) {
+function overrideInstruction(gate, digest) {
   return (
-    gate.formatOverrideInstruction() +
+    gate.formatOverrideInstruction(digest) +
     ` Do NOT file a follow-up issue instead of dispositioning a lane ` +
     `(autonomous-execution.md § Per-Session Capacity Budget Rule 4).`
   );
@@ -825,8 +901,12 @@ function oldestLines(repoDir) {
 
 /**
  * @param {string} repoDir
- * @param {{noun: string, how: string|null, remoteDoor: boolean}} [origin] what is
- *   about to open the lane.
+ * @param {{noun: string, how: string|null, remoteDoor: boolean,
+ *          digest: string|null, consumer: object}} [origin] what is about to open the
+ *   lane. `digest` is the call digest a receipt must name to lift THIS command
+ *   (`lib/override-receipt.js` § THE CALL DIGEST, finding ids `WIP_GATE_FINDING_IDS`);
+ *   `consumer` is the payload identity the use ledger records. A null digest honours
+ *   no receipt — the block stands, and the env channel is unaffected.
  *
  *   THE "dispatch" WORDING IS GONE WITH THE ARM THAT NEEDED IT. This parameter
  *   used to default to an agent-spawn noun because the `PreToolUse:Task|Agent`
@@ -843,6 +923,13 @@ function runSpawnGuard(repoDir, origin) {
   const NOUN = (origin && origin.noun) || "command";
   const HOW = (origin && origin.how) || null;
   const ACTOR = HOW ? `This command (\`${HOW}\`)` : "This command";
+  // ONE gate for the whole call. Every peek, price check and consume below goes through it,
+  // so a receipt is held to one validity test throughout, and a receipt refused once (for
+  // another command, stale, malformed) is reported once, however many doors look at it.
+  const gate = overrideGate(repoDir);
+  const DIGEST = (origin && origin.digest) || null;
+  const CONSUMER = origin && origin.consumer;
+  const call = { gate, digest: DIGEST };
   // ── THE THIRD DOOR: LANDED REMOTE REFS (loom s91) ───────────────────────────
   //
   // Local drainage was real and measured (branches 10 → 3, worktrees 8 → 2) and
@@ -900,21 +987,15 @@ function runSpawnGuard(repoDir, origin) {
   // on this call — the local ceiling when it fires, `settleRemote()` below when
   // nothing else does — and always exactly once.
   let remoteHeld = null;
+  // The door's refusal, as a function: emitted at once when no override stands, and ALSO
+  // later if a hold taken on a receipt cannot be honoured when it is spent
+  // (§ `spendRemoteHold` — a hold is a PROMISE to spend, and an unkept promise is a refusal).
+  let blockRemoteDoor = null;
   if (landed && landed.ok && landed.count > L.REMOTE_LANDED_FLOOR) {
     const shown =
       landed.names.slice(0, 5).join(", ") +
       (landed.count > 5 ? `, … (+${landed.count - 5} more)` : "");
-    const gateR = overrideGate(repoDir);
-    if (gateR.envOverride())
-      remoteHeld = { via: "env", count: landed.count, shown };
-    // PRICED, not merely PRESENT. Holding this door on an unpriced receipt is how a
-    // tokenless receipt reached `spendRemoteHold()` and erased an armed debt: the door
-    // consulted presence, the consume path asked no question, and the price gate sat at
-    // a different door entirely.
-    else if (receiptPriceViolation(repoDir) === null)
-      remoteHeld = { via: "receipt", count: landed.count, shown };
-    else {
-      clearTimeout(_timeout);
+    blockRemoteDoor = () => {
       return emit({
         hookEvent: "PreToolUse",
         severity: "block",
@@ -926,12 +1007,21 @@ function runSpawnGuard(repoDir, origin) {
           `State the count: ${landed.truncated ? "AT LEAST " : ""}${landed.count} remote ref(s) on origin already LANDED on ${BASE_NAME}, un-reaped. Instruments that decided the landed set: ${instrumentPhrase(landed.landedBy)}${landed.truncated ? ` — the scan examined ${landed.examined} of ${landed.candidates} refs within its time budget, so this is a LOWER bound, never the total` : ` (all ${landed.candidates} refs examined)`}.`,
           `REMEDIATION — run \`${REAP}\` and READ the report (a verdict per ref; open-PR heads marked; UNKNOWN and CONTENT-UNMEASURED are never reaped), THEN \`${REAP} --include-content-landed --apply\` (the bare \`--apply\` reaps only LANDED-ANCESTOR refs, and a squash merge re-authors every commit so a landed ref is NOT an ancestor — without this flag the command cannot clear this door) (writes a LOCAL recovery ref refs/archive/remote/<stamp>/<branch> in THIS clone only — never pushed, no reflog on the remote — then deletes on the remote; never an open PR's head, never the remote's default branch; refuses when the PR list cannot be read). Then re-issue this ${NOUN}.`,
           `If the report shows every landed ref as an open-PR head, close or update those PRs; if a ref was already deleted on the remote, the reaper's fetch --prune clears it; if you cannot delete on this remote, that is the case for the override below — say so in the receipt.`,
-          overrideInstruction(gateR),
+          overrideInstruction(gate, DIGEST),
         ],
-        agent_must_wait: `Do not retry this ${NOUN} unmodified. Reap the landed remote refs (preferred) or write the one-shot receipt and retry.`,
+        agent_must_wait: `Do not retry this ${NOUN} unmodified. Reap the landed remote refs (preferred) or write the one-shot receipt (bound to this ${NOUN}) and retry.`,
         user_summary: `Landed remote refs UN-REAPED: ${landed.truncated ? "at least " : ""}${landed.count} branch(es) already on ${BASE_NAME} — creation blocked; run ${REAP}, read it, then --apply`,
       });
-    }
+    };
+    if (gate.envOverride())
+      remoteHeld = { via: "env", count: landed.count, shown };
+    // PRICED, not merely PRESENT. Holding this door on an unpriced receipt is how a
+    // tokenless receipt reached `spendRemoteHold()` and erased an armed debt: the door
+    // consulted presence, the consume path asked no question, and the price gate sat at
+    // a different door entirely. And BOUND: only a receipt naming THIS command holds it.
+    else if (receiptPriceViolation(repoDir, call) === null)
+      remoteHeld = { via: "receipt", count: landed.count, shown };
+    else return blockRemoteDoor();
   }
   // Appended to whatever the LOCAL ceiling says on this call, so the operator
   // learns both gates were held open by the one receipt / env run.
@@ -960,9 +1050,18 @@ function runSpawnGuard(repoDir, origin) {
   // It is NOT called on a path that REFUSES: the debt refusal below says in its
   // own report that the receipt was not consumed, and spending it there would
   // destroy the very receipt the refusal tells the operator is still available.
+  //
+  // A HOLD THAT CANNOT BE SPENT IS NOT A HOLD. The door was held on a PEEK; the
+  // spend is the consume. If the consume honours nothing — the receipt aged past
+  // its TTL between the two, could not be deleted, or its use could not be
+  // recorded in the use ledger — the door's refusal stands, and `{ok:false}` tells
+  // the caller to emit it. Before this the call proceeded on the peek alone, under
+  // an advisory claiming the receipt was "consumed, deleted", and wrote a
+  // `land_first: null` row that erases an armed MUST-7 debt (the PAIR 25 shape) —
+  // an override honoured with nothing spent and nothing recorded.
   let _remoteHoldSpent = false;
   const spendRemoteHold = () => {
-    if (_remoteHoldSpent || !remoteHeld) return null;
+    if (_remoteHoldSpent || !remoteHeld) return { ok: true, reason: null };
     _remoteHoldSpent = true;
     if (remoteHeld.via !== "receipt") {
       // The env channel spends no RECEIPT, but it is still an honoured override
@@ -973,12 +1072,12 @@ function runSpawnGuard(repoDir, origin) {
         `${ESCAPE_ENV}=1 (landed-remote-ref door)`,
         "env",
       );
-      return null;
+      return { ok: true, reason: null };
     }
-    const c = overrideGate(repoDir).consumeReceipt();
-    const r = c ? c.reason : null;
-    recordOverride(repoDir, r);
-    return r;
+    const c = gate.consumeReceipt(DIGEST, { consumer: CONSUMER });
+    if (!c) return { ok: false, reason: null };
+    recordOverride(repoDir, c.reason);
+    return { ok: true, reason: c.reason };
   };
   // The local ceiling consumes the SAME one receipt when it fires (one receipt
   // covers whichever doors are open on this call), so that path marks the hold
@@ -989,8 +1088,9 @@ function runSpawnGuard(repoDir, origin) {
 
   const settleRemote = () => {
     if (!remoteHeld) return passthrough();
-    const reason = spendRemoteHold();
-    clearTimeout(_timeout);
+    const spent = spendRemoteHold();
+    if (!spent.ok && blockRemoteDoor) return blockRemoteDoor();
+    const reason = spent.reason;
     const via =
       remoteHeld.via === "env"
         ? `${ESCAPE_ENV}=1`
@@ -1032,9 +1132,11 @@ function runSpawnGuard(repoDir, origin) {
   // `fast.count >= LIMIT` — an undecided refinement HONOURS a priced receipt
   // (the report exit below). Where it has none — an unreadable count, an age scan
   // that did not finish under the limit — a present receipt is NAMED LIVE.
+  // LIVE means valid for THIS call: a receipt bound to another command is neither live here
+  // nor spendable here (it is refused by name and left in place), so it is not named live.
   const liveReceiptLine = (why) =>
-    peekReceipt(repoDir)
-      ? `Your one-shot receipt ${RECEIPT_REL} was NOT consumed and is still LIVE on disk (${why}). The next ${NOUN} a door refuses will spend it — delete it now if this ${NOUN} is the one you wrote it for.`
+    peekReceipt(call)
+      ? `Your one-shot receipt ${RECEIPT_REL} was NOT consumed and is still LIVE on disk (${why}). It is bound to this ${NOUN}, so a retry of this same ${NOUN} within its TTL will spend it if a door refuses — delete it now if you do not mean to re-issue it.`
       : null;
   const settleUndecided = (whatRaw) => {
     const what = safeField(String(whatRaw), "?", 300);
@@ -1048,7 +1150,6 @@ function runSpawnGuard(repoDir, origin) {
         : liveReceiptLine(`${what}, so no door decided this ${NOUN}`);
     if (!live) return settleRemote();
     spendRemoteHold(); // env channel: records its audit row; spends no receipt
-    clearTimeout(_timeout);
     return emit({
       hookEvent: "PreToolUse",
       severity: "advisory",
@@ -1133,8 +1234,6 @@ function runSpawnGuard(repoDir, origin) {
     );
   }
 
-  const gate = overrideGate(repoDir);
-
   /** The confirmed-count sentence, or the honest absence of one. `confirm` is
    *  null when the AGE door alone brought us here (count under the limit), and a
    *  message that asserted a confirmed count in that state would be reporting a
@@ -1159,7 +1258,6 @@ function runSpawnGuard(repoDir, origin) {
     // same call by the same channel, so it is marked rather than double-recorded.
     recordOverride(repoDir, `${ESCAPE_ENV}=1`, "env");
     markRemoteHoldSpent();
-    clearTimeout(_timeout);
     return emit({
       hookEvent: "PreToolUse",
       severity: "advisory",
@@ -1241,13 +1339,16 @@ function runSpawnGuard(repoDir, origin) {
         confirm.confirmed + confirm.unanswerable >= L.WIP_LIMIT),
     );
     const debtNow = countUndecided ? unpaidOverrideDebt(repoDir) : null;
-    const priceNow = countUndecided ? receiptPriceViolation(repoDir) : null;
+    const priceNow = countUndecided ? receiptPriceViolation(repoDir, call) : null;
+    let consumeRefused = false;
     if (countUndecided && !debtNow && priceNow === null) {
-      const spent = gate.consumeReceipt();
+      const spent = gate.consumeReceipt(DIGEST, { consumer: CONSUMER });
+      // Not honoured although it priced — stale between peek and spend, undeletable, or
+      // its use unrecordable; the gate has already refused it by name.
+      consumeRefused = !spent;
       if (spent) {
         markRemoteHoldSpent();
         recordOverride(repoDir, spent.reason);
-        clearTimeout(_timeout);
         return emit({
           hookEvent: "PreToolUse",
           severity: "advisory",
@@ -1271,16 +1372,20 @@ function runSpawnGuard(repoDir, origin) {
     // THIS CALL PROCEEDS, so the hold must be spent here — see § SPENDING THE
     // HOLD IS IDEMPOTENT. Before loom s96 this exit returned past `settleRemote()`
     // and the receipt survived to hold the remote door open on every later call.
-    const heldReason = spendRemoteHold();
+    // A hold that cannot be spent is not a hold: the remote door's refusal stands.
+    const held = spendRemoteHold();
+    if (!held.ok && blockRemoteDoor) return blockRemoteDoor();
+    const heldReason = held.reason;
     // Read AFTER the hold is spent: a receipt the remote door just consumed is not live.
     const liveLine = liveReceiptLine(
       !countUndecided
         ? `the ceiling MEASURED only ${confirm ? confirm.confirmed : 0} of ${confirm ? confirm.candidates : 0} lane(s) with unlanded content, so no door refused this ${NOUN}`
         : debtNow
           ? `the confirmation was undecided and an unpaid override debt on '${safeField(debtNow.landFirst, "(none)", 60)}' withholds the spend`
-          : `the confirmation was undecided and the receipt does not pay the price (${priceNow})`,
+          : consumeRefused
+            ? `the confirmation was undecided and the receipt could not be honoured — ${gate.refusalLines().join(" | ") || "see the receipt refusal above"}`
+            : `the confirmation was undecided and the receipt does not pay the price (${priceNow})`,
     );
-    clearTimeout(_timeout);
     return emit({
       hookEvent: "PreToolUse",
       // `pre-action`, NOT `halt-and-report`. The dispatch has NOT run yet, and
@@ -1346,8 +1451,7 @@ function runSpawnGuard(repoDir, origin) {
   // on a call that would otherwise be refused — applied to this gate's own
   // refusal.
   const debt = unpaidOverrideDebt(repoDir);
-  if (debt && peekReceipt(repoDir)) {
-    clearTimeout(_timeout);
+  if (debt && peekReceipt(call)) {
     return emit({
       hookEvent: "PreToolUse",
       severity: "block",
@@ -1362,7 +1466,7 @@ function runSpawnGuard(repoDir, origin) {
         `Land or kill '${debt.landFirst}' — the lane your previous override named. Then re-issue.`,
         confirmedLine(confirm),
         ...(agedLine() ? [agedLine()] : []),
-        `Your receipt was NOT consumed — it is still on disk and will be honoured once the debt is paid.`,
+        `Your receipt was NOT consumed — it is still on disk and will be honoured once the debt is paid, while it is within its TTL (refresh its written_at if it has aged out).`,
         DISPOSITION,
       ],
       agent_must_wait:
@@ -1386,10 +1490,9 @@ function runSpawnGuard(repoDir, origin) {
   // call this branch then refuses, destroying the receipt the message tells them
   // is still there. The escape is ONE LINE and the refusal names it, so this is
   // not the dead end `hook-output-discipline.md` MUST NOT forbids.
-  const priceViolation = receiptPriceViolation(repoDir);
+  const priceViolation = receiptPriceViolation(repoDir, call);
   if (priceViolation === "no-token" || priceViolation === "not-a-lane") {
-    const namedLane = receiptNamedLane(repoDir);
-    clearTimeout(_timeout);
+    const namedLane = receiptNamedLane(call);
     return emit({
       hookEvent: "PreToolUse",
       severity: "block",
@@ -1410,11 +1513,11 @@ function runSpawnGuard(repoDir, origin) {
         // first cut printed a literal `<ref>`, which matches `[^\s,;]+` and names no
         // open lane — so an agent pasting the message verbatim satisfied the FORM check
         // and armed ZERO debt. The refusal was teaching the bypass.
-        `Add a \`land-first:\` line to ${RECEIPT_REL} naming an OPEN lane you will land FIRST — one of: ${openLaneExamples(repoDir)}. Then re-issue.`,
+        `INSIDE the reason of the receipt at ${RECEIPT_REL}, add the token \`land-first:\` followed by an OPEN lane you will land FIRST — one of: ${openLaneExamples(repoDir)}. Keep its digest; refresh its written_at if it is near its TTL. Then re-issue.`,
         `The lane must be one that is actually open: a name matching no open lane is REFUSED, because it would arm no debt at all. Naming a real lane you then do not land does not escape the price either — the NEXT override stays refused while it is still open.`,
         confirmedLine(confirm),
         ...(agedLine() ? [agedLine()] : []),
-        `Your receipt was NOT consumed — it is still on disk and will be honoured as soon as it names a lane.`,
+        `Your receipt was NOT consumed — it is still on disk and will be honoured as soon as it names a lane, while it is within its TTL.`,
         DISPOSITION,
       ],
       agent_must_wait:
@@ -1426,7 +1529,7 @@ function runSpawnGuard(repoDir, origin) {
     });
   }
 
-  const consumed = gate.consumeReceipt();
+  const consumed = gate.consumeReceipt(DIGEST, { consumer: CONSUMER });
   const reason = consumed ? consumed.reason : null;
   // ONE receipt covers whichever doors are open on this call. The local ceiling
   // has just spent it, so the remote hold is settled too — mark it rather than
@@ -1455,7 +1558,6 @@ function runSpawnGuard(repoDir, origin) {
   // forbids, and the WIP limit itself already fails OPEN on an underivable count.
   if (reason) {
     recordOverride(repoDir, reason);
-    clearTimeout(_timeout);
     return emit({
       hookEvent: "PreToolUse",
       severity: "advisory",
@@ -1481,7 +1583,6 @@ function runSpawnGuard(repoDir, origin) {
   // not reached. When BOTH fire the COUNT block below carries the age line too,
   // because the count is the coarser and more familiar figure to lead with.
   if (!countBlocks) {
-    clearTimeout(_timeout);
     return emit({
       hookEvent: "PreToolUse",
       severity: "block",
@@ -1504,16 +1605,39 @@ function runSpawnGuard(repoDir, origin) {
           oldestLines(repoDir).join("\n"),
         DISPOSITION,
         `REMEDIATION (preferred) — LAND or KILL '${aged.name}', then re-issue this ${NOUN}. Landing means merge, then delete the branch AND remove its worktree; killing means record why, then delete both.`,
-        overrideInstruction(gate),
+        overrideInstruction(gate, DIGEST),
       ],
       agent_must_wait: `Do not retry this ${NOUN} unmodified. Either disposition the past-bound lane (preferred) or write the one-shot receipt and retry.`,
       user_summary: `WIP AGE bound BREACHED: '${aged.name}' at ${fmtAge(aged.ageHours)} (bound ${L.AGE_BOUND_HOURS}h) — lane creation blocked; land or kill it, or write ${RECEIPT_REL}`,
     });
   }
 
+  // THE DELTA, NAMED — AND THE CURE ONLY WHEN IT IS SOUND (R1 correctness; R2
+  // security + correctness LOWs, 2026-10-20). Landedness is measured against the
+  // remote-TRACKING ref — itself a local ref, rewritable without a push (the
+  // ledgered HIGH; network verification is loom#1480 option A) — so a lane landed
+  // locally and not yet pushed still reads open and counts here. The delta that
+  // explains it is ADVISORY and adds nothing to the count. The CURE ("push, then
+  // retire") is offered ONLY when every unpushed commit is ledger-backed: a
+  // `Landed-From:` trailer is text anyone can type, and a refusal that told the
+  // agent to push an unrecorded landing would launder a forged record. Unbacked
+  // commits get the delta named with NO push advice. Nothing in the verdict
+  // above reads any of this.
+  const delta = L.trunkDelta(repoDir, { perCallTimeoutMs: GUARD_TRUNK_GIT_MS, verifyLandings: true });
+  const deltaLine =
+    delta && delta.ahead > 0
+      ? `An UNPUSHED TRUNK DELTA is also present: ${delta.ahead} commit(s) on local '${delta.localName}' are not on the remote-TRACKING trunk, so lanes that landed there read OPEN. It is ADVISORY — it adds nothing to the count above.`
+      : null;
+  const cureLine =
+    deltaLine && delta.landedRecorded
+      ? `CURE (no override needed): push ${delta.localName}, then retire the landed lanes.`
+      : null;
+  const unverifiedLine =
+    deltaLine && !delta.landedRecorded
+      ? `NO CURE IS OFFERED: these commits do not all carry a ledger-recorded landing (${delta.landedRecordedReason}), so pushing them would publish records this checkout cannot vouch for.`
+      : null;
   // TEETH — COUNT (wip-discipline MUST-2). The count is MEASURED, no override
   // was presented, and the dispatch has not run.
-  clearTimeout(_timeout);
   return emit({
     hookEvent: "PreToolUse",
     severity: "block",
@@ -1527,9 +1651,12 @@ function runSpawnGuard(repoDir, origin) {
       `State the confirmed count: ${confirm.confirmed} open lanes against a limit of ${L.WIP_LIMIT}, each with MEASURED unlanded content. Instruments that decided the scanned lanes: ${instrumentPhrase(confirm.decidedBy)}. This is a LOWER BOUND — the ancestry-unmerged UPPER BOUND is ${fast.count} — so the limit is genuinely reached, not an artefact of a rebased branch reading open.`,
       "Name the oldest open lanes:\n" + oldestLines(repoDir).join("\n"),
       ...(agedLine() ? [agedLine()] : []),
+      ...(deltaLine ? [deltaLine] : []),
+      ...(cureLine ? [cureLine] : []),
+      ...(unverifiedLine ? [unverifiedLine] : []),
       DISPOSITION,
       `REMEDIATION (preferred) — LAND or KILL one existing lane, then re-issue this ${NOUN}. Landing means merge, then delete the branch AND remove its worktree; killing means record why, then delete both.`,
-      overrideInstruction(gate),
+      overrideInstruction(gate, DIGEST),
     ],
     agent_must_wait: `Do not retry this ${NOUN} unmodified. Either disposition an existing lane (preferred) or write the one-shot receipt and retry.`,
     user_summary: `WIP limit REACHED: ${confirm.confirmed}/${L.WIP_LIMIT} confirmed lanes — dispatch blocked; land or kill one, or write ${RECEIPT_REL}`,
@@ -1714,7 +1841,6 @@ function runSessionStart(repoDir, sessionId) {
   const aged = surveyed ? L.agedLanes(survey.lanes, L.AGE_BOUND_HOURS) : [];
   if (aged.length === 0) {
     const under = depth.ok ? depth.underPacked : [];
-    clearTimeout(_timeout);
     return emit({
       hookEvent: "SessionStart",
       severity: "advisory",
@@ -1745,7 +1871,6 @@ function runSessionStart(repoDir, sessionId) {
         }${l.localOnly ? ", LOCAL-ONLY (exists in this clone only)" : ""}`,
     );
 
-  clearTimeout(_timeout);
   return emit({
     hookEvent: "SessionStart",
     severity: "halt-and-report",
@@ -1838,10 +1963,16 @@ function run(payload) {
       );
       if (resolved) return passthrough();
     }
+    // THE CALL DIGEST a receipt must name to lift THIS command — the tool, the exact command
+    // string, and the gate's whole door set (`WIP_GATE_FINDING_IDS` says why the whole set).
+    // Computed from the RAW payload, never from the parsed intent: two commands that open the
+    // same lane by different spellings are two calls.
     return runSpawnGuard(repoDir, {
       noun: "command",
       how: intent.how,
       remoteDoor: true,
+      digest: callDigestOf(tool, payload.tool_input, WIP_GATE_FINDING_IDS),
+      consumer: consumerOf(payload),
     });
   }
 
@@ -1849,54 +1980,24 @@ function run(payload) {
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
-// did at load time happens here instead, so a require() has no side effects.
-function hookMain() {
-  _timeout = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  if (_libLoadFailed) return Promise.resolve(passthrough());
-  return new Promise((resolve, reject) => {
-    let input = "";
-    process.stdin.on("error", passthrough);
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (d) => (input += d));
-    process.stdin.on("end", () => {
-      try {
-        onStdinEnd(input);
-      } catch (e) {
-        return reject(e);
-      }
-      resolve();
-    });
-  });
-}
+// in-process by lib/hook-engine.js (dispatch.js). A require() has no side effects.
+// guard-runner.js reads and parses the payload (an empty, unparseable or non-object
+// payload REFUSES there, never reaches `run`) and owns the budget. A throw out of
+// `run` is refused, never passed through: the old catch printed `{continue:true}` and
+// exited 1, which the dispatcher read as a completed pass. The per-call `timeout:`
+// values in `wip-lanes.js` still bound each git call, and the deadline check in
+// `runSessionStart` still bounds their accumulation.
+const hookMain = runGuard("wip-discipline-guard", run, { budgetMs: RUN_BUDGET_MS });
 
-function onStdinEnd(input) {
-  // THE FALLBACK TIMER STAYS LIVE THROUGH THE DECISION. It used to be cleared
-  // HERE, before `run()` — so every git spawn below ran with no internal
-  // fail-open at all, and an overrun was left to the host's own kill, which
-  // produces NO output rather than `{continue:true}`. Now each terminal path
-  // clears it immediately before emitting. THE HONEST BOUND, CORRECTED: this
-  // note used to say the timer "fires in the gaps between" git calls. It does
-  // not. `spawnSync` blocks the event loop AND `run()` is synchronous end to
-  // end, so the stack never unwinds between calls and no timer callback is ever
-  // scheduled once `run()` starts — measured, three invocations at 300/900/1500
-  // ms bounds each ran 4–5 s to a full report. This timer bounds the wait for
-  // STDIN. The per-call `timeout:` values in `wip-lanes.js` bound each git call,
-  // and the deadline check in `runSessionStart` bounds their accumulation.
-  try {
-    run(JSON.parse(input || "{}"));
-  } catch (e) {
-    clearTimeout(_timeout);
-    process.stderr.write(`[wip-discipline-guard] HOOK ERROR: ${e.message}\n`);
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }
-}
-
-module.exports = { hookMain };
+module.exports = {
+  hookMain,
+  // Test-only — NOT part of the supported API. `mainCheckoutTop` is otherwise
+  // reachable only through `hookMain`'s block path (which needs a measured
+  // WIP overrun). This seam exposes the common-dir call for in-process measurement;
+  // question identity includes the environment profile
+  // (.claude/hooks/lib/event-git.js:53-56).
+  _test_mainCheckoutTop: mainCheckoutTop,
+};
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The

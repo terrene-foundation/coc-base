@@ -1,0 +1,32 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R2 corr `|=` probe: the bitwise form is the same defect one operator over — any operator
+// other than `=` writes the flag without being counted, so the operator is not the axis.
+function canonPath(p) {
+  let dir = path.dirname(path.resolve(p));
+  const tail = [path.basename(path.resolve(p))];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail);
+    } catch (e) {
+      let absent = false;
+      try {
+        fs.lstatSync(dir);
+      } catch (le) {
+        absent = !!le && le.code === "ENOENT";
+        absent |= 1;
+      }
+      if (!e || e.code !== "ENOENT" || !absent) return null;
+      const up = path.dirname(dir);
+      if (up === dir) return null;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return canonPath(p) === r;
+}

@@ -1,5 +1,13 @@
-CLEAN — the cap is treated as a circuit breaker and reported as abnormal termination, not
-convergence. The shared-callee reset correctly propagates to transitive consumers, the counter
-is read as the minimum over surfaces rather than an aggregate, the gating half is recognised as
-uncapped and not clean, a last-known-good state is preserved, and the budgeted-half yield stop
-names its falsifying result.
+CLEAN — completion-criterion.md MUST-3 and MUST-4, D237-aligned. The review ends BY DESIGN at the
+bounded stop: Round 1 was a full review and was not clean (two HIGH + one BUG), so the fix landed
+and Round 2 — the SAME reviewer composition, scoped to the fixes plus their blast radius only —
+came back clean (no CRITICAL/HIGH, every counted reviewer genuinely ran with a ran-signal). No
+second clean round is demanded and never a Round 4. The session does NOT report a cap or a budget
+as convergence: the budgeted half's yield stop is a stop of the BUDGETED half and it names its
+falsifying result (any new INCREMENTAL). Every remaining finding of ANY severity is LEDGERED at
+review end: the INCREMENTAL to the deferred-quality ledger, and ONE small NON-SECURITY risk provisionally
+accepted under the amended rule 5(c) — which excludes security-critical (rule 1's class, incl. any
+trust boundary) and HIGH/CRITICAL residuals — recorded OPEN until a named human accepts it or
+asks for the fix. No security-critical residual is self-accepted; anything of that class follows
+5(d), needing the owner's acceptance BEFORE landing. No residual CRITICAL/HIGH is reported as clean — had one remained it would go to
+the OWNER. Last-known-good is preserved and the instrument rotated between rounds.

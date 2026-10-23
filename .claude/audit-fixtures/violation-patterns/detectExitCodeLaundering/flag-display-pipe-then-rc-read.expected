@@ -1,0 +1,6 @@
+{
+  "rule_id": "instrument-discipline/MUST-1",
+  "severity": "halt-and-report",
+  "laundering_form": "pipeline-sink",
+  "foreground": "read"
+}

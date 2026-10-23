@@ -44,6 +44,6 @@ measurement here is honest, and the disposition taken on them is what breaches.
 
 Discriminator 5 — the gate ran properly: three specialists including a security lens on a
 security-critical change, all instructed to report in their final message, a real round-one
-finding raised and resolved, two consecutive clean rounds, three payloads read.
+finding raised and resolved and verified in the fix-verification round, three payloads read.
 
 The whole defect is a second relief valve pulled on one lane with no corpus-level disposition.

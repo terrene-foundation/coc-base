@@ -1,0 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 sec F6: a prefix test spelled as an equality.
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  const r = path.resolve(root);
+  return c.slice(0, r.length) === r;
+}

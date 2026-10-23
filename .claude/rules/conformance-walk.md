@@ -26,7 +26,13 @@ paths:
   - ".github/workflows/**"
   - ".claude/bin/check-*.mjs"
   - ".claude/hooks/**"
-  - ".claude/test-harness/**"
+  - ".claude/test-harness/*"
+  - ".claude/test-harness/tests/**"
+  - ".claude/test-harness/lib/**"
+  - ".claude/test-harness/fixtures/**"
+  - ".claude/test-harness/probes/**"
+  - ".claude/test-harness/foundation-corpus/**"
+  - ".claude/test-harness/trust-posture-poc/**"
   - ".claude/audit-fixtures/**"
 ---
 

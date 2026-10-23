@@ -45,11 +45,7 @@
  *     `git worktree remove --force <path>` destroys `<path>`; the session cwd
  *     and any `-C <dir>` name a DIFFERENT tree. The prior instance of getting
  *     this wrong swept `HEAD` while the command named another ref and returned
- *     18 bytes of silence while 11 unlanded artifacts were destroyed. The
- *     hook's existing `gitWorkingTreeStatus(g.dir, cwd)` is correct for
- *     `reset --hard`/`clean -f` — those DO act on `g.dir` — and would be
- *     exactly that defect if reused here, which is why this function takes the
- *     resolved OPERAND and nothing else.
+ *     18 bytes of silence while 11 unlanded artifacts were destroyed.
  *
  * (2) IT SEPARATES EMPTY FROM DIRTY.
  *     A `--no-checkout` worktree has NO index, so `git status --porcelain`
@@ -86,7 +82,11 @@
 
 const fs = require("fs");
 const path = require("path");
-const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
+const {
+  resolveTargetRepo,
+  targetGit,
+  targetGitAt,
+} = require("./target-repo-git.js");
 const {
   tokenize,
   stripRedirectionTokens,
@@ -319,33 +319,38 @@ function selectRmForce(segment) {
 function resolveTargetPath(token, cwd) {
   if (!isResolvableLiteral(token)) return null;
   const t = dequote(String(token));
-  if (t === "" || t.startsWith("~")) return null; // `~` needs shell expansion
+  if (t === "" || t.startsWith("~")) return null;
+  let abs;
   try {
-    const abs = path.isAbsolute(t) ? t : path.resolve(cwd || ".", t);
-    // realpath so a symlinked operand is assessed as the tree it ACTUALLY
-    // names, not as the link (security.md § Path Containment). Falls back to
-    // the lexical absolute form when the path does not exist — a non-existent
-    // target destroys nothing and is reported as such.
-    try {
-      return fs.realpathSync(abs);
-    } catch {
-      return abs;
+    if (path.isAbsolute(t)) abs = t;
+    else {
+      const base = fs.realpathSync.native(cwd || ".");
+      abs = base.endsWith(path.sep) ? base + t : base + path.sep + t;
     }
-  } catch {
-    return null;
+    return fs.realpathSync.native(abs);
+  } catch (err) {
+    if (!abs || !err || err.code !== "ENOENT") return null;
+    try {
+      fs.lstatSync(abs);
+      return null;
+    } catch (missing) {
+      return missing && missing.code === "ENOENT" ? abs : null;
+    }
   }
 }
 
 /**
- * Run git and DISTINGUISH the two ways it can fail to answer, because they have
- * OPPOSITE meanings for this fence:
+ * Every git call here DISTINGUISHES the two ways it can fail to answer, because
+ * they have OPPOSITE meanings for this fence:
  *
- *   ran:true,  ok:false  — git executed and said NO (exit non-zero). For
- *                          `rev-parse --show-toplevel` that is a definite
- *                          answer: the path is NOT a git working tree.
+ *   ran:true,  ok:false  — git executed and said NO (exit non-zero). For repository
+ *                          discovery that is a definite answer — NOT a git working
+ *                          tree — only when no repository is on disk there; a
+ *                          repository git refuses to read is UNKNOWN (see
+ *                          `repositoryOnDiskAt`).
  *   ran:false, ok:false  — git never produced a verdict (binary unresolvable,
- *                          spawn error, timeout, non-string stdout). NOTHING is
- *                          known.
+ *                          spawn error, timeout, non-string stdout, or a call the
+ *                          envelope refused). NOTHING is known.
  *
  * Collapsing these is the `evidence-first-claims.md` MUST-3 failure: "I could
  * not look" and "I looked and the answer was no" are indistinguishable in the
@@ -354,28 +359,110 @@ function resolveTargetPath(token, cwd) {
  * ordinary non-repo directory with nothing git-tracked at stake — reported
  * INDETERMINATE and halted. A fence that halts on every build-directory
  * cleanup is noise, and noise is how a guard gets switched off.
+ *
+ * EVERY CALL HERE RUNS AGAINST A TARGET THE JUDGED COMMAND NAMED, so every one
+ * goes through the shared target-repo envelope (lib/target-repo-git.js) and none
+ * builds a git argv by hand. The agent writes the target's `.git/config`, and a
+ * planted `core.fsmonitor` once ran inside this hook when it merely ASSESSED
+ * `rm -rf <repo>`; that module's header lists every config key that can run a
+ * program and the mechanism that closes each.
+ *
+ * THE REPOSITORY IS RESOLVED ONCE (`resolveTargetRepo`: canonical git dir AND work
+ * tree) and every later read passes that same pair explicitly. The filter-driver
+ * read and the status therefore cannot answer about two different repositories —
+ * they did, through `core.worktree` behind a gitfile and through an explicit
+ * `--git-dir` with a submodule, and the status ran a filter the read never saw
+ * (RUN 8 HIGH-B). An argv the envelope refuses is `ran:false`: nothing was asked,
+ * so nothing is known, and the callers rank that INDETERMINATE.
  */
-function runGit(args, timeout = 2500) {
-  const gitBin = resolveGitBinary();
-  if (!gitBin) return { ok: false, ran: false, stdout: "" };
-  try {
-    const { spawnSync } = require("child_process");
-    const r = spawnSync(gitBin, args, {
-      encoding: "utf8",
-      timeout,
-      stdio: ["ignore", "pipe", "ignore"],
-      env: gitEnv(),
-    });
-    // `error` is set for spawn failure AND for a timeout kill; `status` is null
-    // when the child was signalled rather than exiting.
-    if (r.error || r.status === null || typeof r.stdout !== "string") {
-      return { ok: false, ran: false, stdout: "" };
+function revParseAt(dir, args) {
+  return targetGitAt(dir, ["rev-parse", ...args]);
+}
+
+/**
+ * Is there a repository on disk at `dir` or above it — a `.git` entry, or `dir`
+ * itself shaped like a git directory? Asked ONLY after git answered discovery with
+ * an error, to tell "no repository here" (CLEAN) from "a repository git refuses to
+ * read" (an unknown extension, a format it does not know, an ownership refusal),
+ * which holds work nothing measured: UNKNOWN, never CLEAN (RUN 8 DATA-LOSS b).
+ * Any stat error other than "absent" counts as present — the walk fails closed.
+ */
+function repositoryOnDiskAt(dir) {
+  const present = (p) => {
+    try {
+      fs.lstatSync(p);
+      return true;
+    } catch (e) {
+      return !(e && (e.code === "ENOENT" || e.code === "ENOTDIR"));
     }
-    if (r.status !== 0) return { ok: false, ran: true, stdout: "" };
-    return { ok: true, ran: true, stdout: r.stdout };
-  } catch {
-    return { ok: false, ran: false, stdout: "" };
+  };
+  let cur = dir;
+  if (present(path.join(cur, "HEAD")) && present(path.join(cur, "objects")) && present(path.join(cur, "refs"))) {
+    return cur;
   }
+  for (;;) {
+    if (present(path.join(cur, ".git"))) return cur;
+    const up = path.dirname(cur);
+    if (up === cur) return null;
+    cur = up;
+  }
+}
+
+/**
+ * Resolve the repository owning `dir` for an assessment, or the verdict that ends it.
+ * `anchor` is `dir` canonicalized: the cwd for cwd-scoped reads, and the point the
+ * resolved work tree MUST contain — a work tree elsewhere (`core.worktree` behind a
+ * gitfile) answers about other files than the ones this command would destroy.
+ */
+function resolveForAssessment(dir, none, words) {
+  const res = resolveTargetRepo({ dir });
+  if (!res.ok) {
+    if (res.kind === "unanswered") return { verdict: none(STATE.INDETERMINATE, words.unqueried) };
+    if (res.kind === "git-answered") {
+      const at = repositoryOnDiskAt(dir);
+      if (at === null) return { verdict: none(STATE.CLEAN, words.clean) };
+      return {
+        verdict: none(
+          STATE.INDETERMINATE,
+          `git answered with an error for ${words.subject}, but a repository is on disk at ${at} — one git will not read holds work nothing here could measure`,
+        ),
+      };
+    }
+    return {
+      verdict: none(
+        STATE.INDETERMINATE,
+        `${words.subject} was not assessed: ${res.reason} — a status there could run a program its config names`,
+      ),
+    };
+  }
+  // No work tree: a bare repository, or a path inside a git directory. Nothing
+  // checked out is at stake here; classifyPathDanger ranks git directories.
+  if (!res.repo.workTree) return { verdict: none(STATE.CLEAN, words.clean) };
+  const anchor = canon(dir);
+  if (!anchor) {
+    return { verdict: none(STATE.INDETERMINATE, `${words.subject} could not be canonicalized`) };
+  }
+  if (!isAncestorOrSame(res.repo.workTree, anchor)) {
+    return {
+      verdict: none(
+        STATE.INDETERMINATE,
+        `the repository git finds for ${words.subject} has its work tree at another path (${res.repo.workTree}) — its status does not describe what this would destroy`,
+      ),
+    };
+  }
+  return { repo: res.repo, anchor };
+}
+
+/**
+ * Is the HEAD of `repo` unborn (a fresh `git init`, nothing committed)? true / false,
+ * or null when git did not answer that question. A probe that FAILED is read as
+ * "nothing committed" only when this says so — any other failure is UNKNOWN.
+ */
+function headUnborn(repo, anchor) {
+  const r = targetGit(repo, ["rev-parse", "--verify", "-q", "HEAD"], { cwd: anchor });
+  if (r.ok) return false;
+  if (r.ran && r.status === 1) return true;
+  return null;
 }
 
 /**
@@ -399,30 +486,47 @@ function assessTarget(absPath) {
   let st;
   try {
     st = fs.statSync(absPath);
-  } catch {
-    return none(
-      STATE.EMPTY,
-      "the target path does not exist on disk — nothing would be destroyed",
-    );
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      try {
+        fs.lstatSync(absPath);
+      } catch (missing) {
+        if (missing && missing.code === "ENOENT") {
+          return none(STATE.EMPTY, "the target path does not exist on disk — nothing would be destroyed");
+        }
+        return none(STATE.INDETERMINATE, "the target path's existence could not be checked (" + String(missing && missing.code || "UNKNOWN") + ")");
+      }
+    }
+    return none(STATE.INDETERMINATE, "the target path could not be inspected (" + String(err && err.code || "UNKNOWN") + ")");
   }
   if (!st.isDirectory()) {
     // A single FILE target. Tracked-vs-untracked still matters, but there is no
     // tree to enumerate; assess it via its containing directory below.
     const parent = path.dirname(absPath);
-    const inside = runGit(["-C", parent, "status", "--porcelain", "--", absPath]);
+    // Same ran-vs-answered split as the directory branch below: no repository
+    // there is a verdict (nothing git-tracked at stake → CLEAN); git never
+    // answering, or a repository git refuses to read, is INDETERMINATE.
+    const fileRepo = resolveForAssessment(parent, none, {
+      subject: "the file's repository",
+      clean: "the file is not inside a git working tree — no unlanded work is at stake",
+      unqueried: "git could not be queried for the file's repository (binary unresolvable, spawn failure, or timeout)",
+    });
+    if (fileRepo.verdict) return fileRepo.verdict;
+    // `--untracked-files=all` EXPLICITLY: the target's `status.showUntrackedFiles=no`
+    // otherwise hid an untracked file, read CLEAN, and `rm -rf <it>` was allowed
+    // (RUN 8 DATA-LOSS a). The pathspec is the file's own name in its canonical
+    // directory, literal, so no glob character in the name widens it.
+    const inside = targetGit(
+      fileRepo.repo,
+      ["status", "--porcelain", "--untracked-files=all", "--", ":(literal)" + path.basename(absPath)],
+      { cwd: fileRepo.anchor },
+    );
     if (!inside.ok) {
-      // Same ran-vs-answered split as the directory branch below: git saying
-      // "not a repo" is a verdict (nothing git-tracked at stake → CLEAN); git
-      // never answering is INDETERMINATE.
-      if (inside.ran) {
-        return none(
-          STATE.CLEAN,
-          "the file is not inside a git working tree — no unlanded work is at stake",
-        );
-      }
       return none(
         STATE.INDETERMINATE,
-        "git could not be queried for the file's repository (binary unresolvable, spawn failure, or timeout)",
+        inside.refused
+          ? `the file's repository was not assessed: ${inside.refused} — a status there could run a program its config names`
+          : "`git status --porcelain` did not answer for the file's repository (timeout, or unreadable)",
       );
     }
     const rows = inside.stdout.split("\n").filter(Boolean);
@@ -435,36 +539,32 @@ function assessTarget(absPath) {
     };
   }
 
-  // Is it inside a git working tree at all? The two failure modes are split
-  // deliberately (see runGit): git ANSWERING "not a repo" is a definite verdict
-  // and ranks CLEAN — a `rm -rf /tmp/scratch` outside any repo destroys no
+  // Is it inside a git working tree at all? The failure modes are split
+  // deliberately (see resolveForAssessment): no repository there is a definite
+  // verdict and ranks CLEAN — a `rm -rf /tmp/scratch` outside any repo destroys no
   // git-tracked work, and silence there is correct, not a gap. git never
-  // answering is INDETERMINATE, because nothing was learned.
-  const top = runGit(["-C", absPath, "rev-parse", "--show-toplevel"]);
-  if (!top.ok) {
-    if (top.ran) {
-      return none(
-        STATE.CLEAN,
-        "the target is not inside a git working tree — no git-tracked or untracked-but-unlanded work is at stake",
-      );
-    }
-    return none(
-      STATE.INDETERMINATE,
-      "git could not be queried for the target (binary unresolvable, spawn failure, or timeout)",
-    );
-  }
+  // answering, or git refusing a repository that IS on disk, is INDETERMINATE,
+  // because nothing was learned.
+  const resolved = resolveForAssessment(absPath, none, {
+    subject: "the target tree",
+    clean: "the target is not inside a git working tree — no git-tracked or untracked-but-unlanded work is at stake",
+    unqueried: "git could not be queried for the target (binary unresolvable, spawn failure, or timeout)",
+  });
+  if (resolved.verdict) return resolved.verdict;
+  const { repo, anchor } = resolved;
+  const inRepo = (args) => targetGit(repo, args, { cwd: anchor });
 
-  const porcelain = runGit([
-    "-C",
-    absPath,
-    "status",
-    "--porcelain",
-    "--untracked-files=all",
-  ]);
+  // `status` is the one assess subcommand that runs filter drivers; the envelope
+  // empties every driver it could reach, read from THIS resolved repository and its
+  // populated submodules. A driver set it could not read REFUSES the status
+  // (`refused`): running it anyway is the config-executed-program defect.
+  const porcelain = inRepo(["status", "--porcelain", "--untracked-files=all"]);
   if (!porcelain.ok) {
     return none(
       STATE.INDETERMINATE,
-      "`git status --porcelain` did not answer for the target tree (timeout, or unreadable)",
+      porcelain.refused
+        ? `the target tree was not assessed: ${porcelain.refused} — a status there could run a program its config names`
+        : "`git status --porcelain` did not answer for the target tree (timeout, or unreadable)",
     );
   }
   let rows = porcelain.stdout.split("\n").filter(Boolean);
@@ -474,9 +574,9 @@ function assessTarget(absPath) {
   // under it the staged-deletion rows are phantoms of the missing index and are
   // NOT work. Both probes must SUCCEED to apply the correction — if either is
   // unreadable the tree's state is unknown and INDETERMINATE is the honest
-  // verdict, not a silently-uncorrected DIRTY.
-  const idx = runGit(["-C", absPath, "ls-files"]);
-  const head = runGit(["-C", absPath, "ls-tree", "-r", "--name-only", "HEAD"]);
+  // verdict, not a silently-uncorrected DIRTY. Both are cwd-scoped to the target.
+  const idx = inRepo(["ls-files"]);
+  const head = inRepo(["ls-tree", "-r", "--name-only", "HEAD"]);
   if (idx.ok && head.ok) {
     const idxN = idx.stdout.split("\n").filter(Boolean).length;
     const headN = head.stdout.split("\n").filter(Boolean).length;
@@ -521,34 +621,34 @@ function assessTarget(absPath) {
     // false-positive engine — measured: it fired on this suite's own clean
     // fixture worktree the first time it was written. Where there is no remote
     // there is no "unpushed" to speak of, so the question does not arise.
-    const remotes = runGit(["-C", absPath, "remote"]);
-    const hasRemote =
-      remotes.ok && String(remotes.stdout).split("\n").filter(Boolean).length > 0;
-    const unpushed = hasRemote
-      ? runGit(["-C", absPath, "rev-list", "--count", "HEAD", "--not", "--remotes"])
-      : { ok: false, ran: true, stdout: "", stderr: "" };
-    if (!unpushed.ok && !unpushed.ran) {
+    //
+    // A git ERROR on any leg is UNKNOWN, never a clean answer (RUN 8): the one
+    // failure that IS a verdict — an unborn HEAD, nothing committed to lose — is
+    // confirmed by its own probe (`headUnborn`), never inferred from the failure.
+    const remotes = inRepo(["remote"]);
+    if (!remotes.ok) {
       return none(
         STATE.INDETERMINATE,
-        "the target tree is clean, but the unpushed-commit probe did not answer (spawn failure or timeout) — whether it holds work that exists nowhere else is UNKNOWN",
+        "the target tree is clean, but its remotes could not be listed — whether it holds work that exists nowhere else is UNKNOWN",
       );
     }
-    // `!ok && ran` is git ANSWERING no — an unborn HEAD (fresh `git init`, no
-    // commit yet). Nothing committed means nothing committed to lose, so that
-    // falls through to CLEAN, the same ran-vs-answered split `runGit` documents.
-    if (unpushed.ok) {
+    const hasRemote = String(remotes.stdout).split("\n").filter(Boolean).length > 0;
+    let unborn;
+    const unbornOrUnknown = () => {
+      if (unborn === undefined) unborn = headUnborn(repo, anchor);
+      return unborn === true;
+    };
+    const unpushed = hasRemote ? inRepo(["rev-list", "--count", "HEAD", "--not", "--remotes"]) : null;
+    if (unpushed && !unpushed.ok && !(unpushed.ran && unbornOrUnknown())) {
+      return none(
+        STATE.INDETERMINATE,
+        "the target tree is clean, but the unpushed-commit probe did not answer — whether it holds work that exists nowhere else is UNKNOWN",
+      );
+    }
+    if (unpushed && unpushed.ok) {
       const n = Number(String(unpushed.stdout).trim());
       if (Number.isFinite(n) && n > 0) {
-        const listed = runGit([
-          "-C",
-          absPath,
-          "log",
-          "--oneline",
-          "--max-count=12",
-          "HEAD",
-          "--not",
-          "--remotes",
-        ]);
+        const listed = inRepo(["log", "--oneline", "--max-count=12", "HEAD", "--not", "--remotes"]);
         const items = listed.ok
           ? listed.stdout.split("\n").filter(Boolean)
           : [`${n} commit(s) — could not be listed`];
@@ -560,9 +660,50 @@ function assessTarget(absPath) {
         };
       }
     }
+    // STASH — the THIRD leg of the zero-loss proof (B8 ruling (1), 2026-10-08).
+    // Parked work is unlanded work: the stash lives in THIS tree's `.git`, so
+    // destroying the tree destroys it, reachable from no other checkout. The
+    // first two legs (uncommitted content via porcelain; unpushed commits via
+    // `--not --remotes`) already return DIRTY; without this leg a clean,
+    // fully-pushed tree WITH a stash read CLEAN — whose detail below would
+    // have claimed "nothing unlanded is at stake", a false claim on a tree
+    // holding parked work. With all three legs here, a CLEAN verdict IS the
+    // zero-loss proof, which is what the ELEVATED arm's halt-and-report
+    // requires before it may stay advisory.
+    const stashList = inRepo(["stash", "list"]);
+    // A stash probe that FAILED is "nothing parked" only on an unborn HEAD (an
+    // old git cannot answer `stash list` there); any other failure proves
+    // NOTHING, and "cannot prove zero loss" ranks with unverifiable here.
+    if (!stashList.ok && !(stashList.ran && unbornOrUnknown())) {
+      return none(
+        STATE.INDETERMINATE,
+        "the target tree is clean, but the stash probe did not answer — whether parked work exists in this tree is UNKNOWN",
+      );
+    }
+    if (stashList.ok) {
+      const stored = String(stashList.stdout).split("\n").filter(Boolean);
+      if (stored.length > 0) {
+        return {
+          state: STATE.DIRTY,
+          path: absPath,
+          items: stored,
+          detail: `has a CLEAN working tree but carries ${stored.length} stash entr${
+            stored.length === 1 ? "y" : "ies"
+          } — destroying this tree destroys parked work that exists nowhere else`,
+        };
+      }
+    }
+    // delta-(2) text fix (2026-10-08, security seat): the CLEAN detail must
+    // name the legs it PROVED and the leg it did NOT assess. The first form
+    // said "every commit it carries is on a remote" — FALSE by construction
+    // on a repo with NO remote, where the unpushed question never arose
+    // (measured). A verdict whose stated reason is false in a reachable case
+    // is the claim-accuracy class this ledger exists to remove.
     return none(
       STATE.CLEAN,
-      "the target tree has no uncommitted or untracked content, and every commit it carries is on a remote",
+      hasRemote
+        ? "the target tree has no uncommitted or untracked content, no stash entries, and every commit it carries is on a remote"
+        : "the target tree has no uncommitted or untracked content and no stash entries; NO REMOTE is configured — the unpushed leg was NOT assessed",
     );
   }
   return {
@@ -655,16 +796,29 @@ const SYSTEM_DIRS = new Set([
   "/Library", "/System", "/Users", "/Volumes", "/private", "/net", "/cores",
 ]);
 
-/** realpath if possible, else the lexical absolute form. Never throws. */
+/**
+ * The git directory an EXISTING canonical path is, or lies inside; null when it is not
+ * inside one; undefined when git could not be asked. A file is asked about through its
+ * directory.
+ */
+function gitAdminDirOf(abs) {
+  let dir = abs;
+  try {
+    if (!fs.statSync(abs).isDirectory()) dir = path.dirname(abs);
+  } catch {
+    return null; // nothing there: nothing to lose
+  }
+  const inside = revParseAt(dir, ["--is-inside-git-dir"]);
+  if (!inside.ran) return undefined;
+  if (!inside.ok || String(inside.stdout).trim() !== "true") return null;
+  const gd = revParseAt(dir, ["--absolute-git-dir"]);
+  return gd.ok && String(gd.stdout).trim() ? String(gd.stdout).trim() : dir;
+}
+
 function canon(p) {
   if (typeof p !== "string" || p === "") return null;
   try {
-    const abs = path.isAbsolute(p) ? p : path.resolve(p);
-    try {
-      return fs.realpathSync(abs);
-    } catch {
-      return abs;
-    }
+    return fs.realpathSync.native(p);
   } catch {
     return null;
   }
@@ -683,7 +837,7 @@ function isAncestorOrSame(ancestor, descendant) {
   if (ancestor === descendant) return true;
   const rel = path.relative(ancestor, descendant);
   if (rel === "") return true;
-  if (rel.startsWith("..")) return false;
+  if (rel === ".." || rel.startsWith(".." + path.sep)) return false;
   return !path.isAbsolute(rel);
 }
 
@@ -701,15 +855,17 @@ function rootDepth(abs) {
  * `/private/var/folders` it actually typed.
  */
 function scratchRoots() {
-  const out = [];
-  for (const c of [
-    (() => { try { return os.tmpdir(); } catch { return null; } })(),
-    "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp",
-  ]) {
-    const r = canon(c);
-    if (r) out.push(r);
+  const roots = [];
+  let primary;
+  try { primary = os.tmpdir(); } catch { return { roots, unknown: true }; }
+  for (const [candidate, required] of [[primary, true], ["/tmp", false], ["/private/tmp", false], ["/var/tmp", false], ["/private/var/tmp", false]]) {
+    try {
+      roots.push(fs.realpathSync.native(candidate));
+    } catch (err) {
+      if (required || !err || err.code !== "ENOENT") return { roots, unknown: true };
+    }
   }
-  return out;
+  return { roots, unknown: false };
 }
 
 /**
@@ -735,7 +891,11 @@ function classifyPathDanger(absPath, opts) {
 
   const home = canon((() => { try { return os.homedir(); } catch { return null; } })());
   const cwd = canon((opts && opts.cwd) || null);
-  const scratch = scratchRoots();
+  const scratchState = scratchRoots();
+  const scratch = scratchState.roots;
+  if (!home || (opts && Object.prototype.hasOwnProperty.call(opts, "cwd") && !cwd) || scratchState.unknown) {
+    return { tier: DANGER.INDETERMINATE, reason: "a required path-danger boundary could not be resolved" };
+  }
 
   // ---- CRITICAL ---------------------------------------------------------
   if (abs === path.parse(abs).root) {
@@ -764,6 +924,22 @@ function classifyPathDanger(absPath, opts) {
   if (SYSTEM_DIRS.has(abs)) {
     return { tier: DANGER.CRITICAL, reason: "it is a system directory" };
   }
+  // A git ADMINISTRATIVE directory — a checkout's `.git`, anything inside one (objects,
+  // refs, logs, a linked checkout's gitdir under worktrees/), a bare repository — holds
+  // the history itself: every unpushed commit, stash, local-only branch and the reflog.
+  // assessTarget's content probe answers CLEAN for it, because it is not a WORK tree;
+  // that is a true answer to a different question (instrument-discipline MUST-4), so the
+  // path is decided here, by asking git whether it lies inside a git dir (R2b HIGH-A).
+  const gitAdmin = gitAdminDirOf(abs);
+  if (gitAdmin === undefined) {
+    return { tier: DANGER.INDETERMINATE, reason: "git could not be asked whether the target is inside a git directory" };
+  }
+  if (gitAdmin) {
+    return {
+      tier: DANGER.CRITICAL,
+      reason: `it is, or is inside, the git directory ${gitAdmin} — the repository's history (unpushed commits, stashes, local-only branches, the reflog) goes with it`,
+    };
+  }
   // The shallow-path rule, with ONE exemption. A target 1-2 levels below `/`
   // is normally catastrophic, but a machine whose repos live at `/work/repo`
   // (or any shallow mount) would have a legitimate whole-repo delete BLOCKED
@@ -779,7 +955,7 @@ function classifyPathDanger(absPath, opts) {
   // system directory stay CRITICAL at ANY depth, repo or not.
   const shallow = rootDepth(abs) <= 2 && !scratch.some((s) => isAncestorOrSame(s, abs));
   const inRepo = (() => {
-    const top = runGit(["-C", abs, "rev-parse", "--show-toplevel"]);
+    const top = revParseAt(abs, ["--show-toplevel"]);
     return top.ok && String(top.stdout).trim() !== "";
   })();
 

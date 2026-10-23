@@ -18,7 +18,10 @@ volume is exact.
 **Accuracy.** Correct per-model rates (Opus 4.8 = $5/$25, deprecated 4.1/4 = $15/$75,
 Sonnet 5, Haiku 4.5, Fable 5, fast mode), the 1h/5m cache-write tiers, subagent
 transcripts, dedup of resumed/forked sessions, and `iterations[]` de-duplication are
-all handled. Worktrees and subdirectories fold into their git repo root by default.
+all handled. A message streamed as several transcript lines is counted ONCE at its
+final usage; reports from before 2026-10-12 counted its first, partial line, so totals
+now read higher (output was under-counted by roughly a quarter). Worktrees and
+subdirectories fold into their git repo root by default.
 
 ## Steps
 
@@ -28,8 +31,13 @@ all handled. Worktrees and subdirectories fold into their git repo root by defau
    node .claude/bin/cc-cost.mjs $ARGUMENTS
    ```
 
-   Flags: `--since YYYY-MM-DD` · `--sessions` · `--by-model` · `--no-fold`
+   Flags: `--since WHEN` · `--sessions` · `--by-model` · `--no-fold`
    (keep worktrees separate) · `--top N` · `--json` · `--rates FILE` · `--help`.
+
+   `--since` keeps messages that STARTED at or after WHEN: `YYYY`, `YYYY-MM` or
+   `YYYY-MM-DD` (00:00 UTC), or an ISO-8601 instant with a zone —
+   `2026-10-11T14:00Z` or `2026-10-11T22:00+08:00` (the same instant). A datetime
+   without `Z` or an offset is rejected as ambiguous.
 
 2. Present the table (or the requested cut) to the user in plain language. If they
    named a repo, a date range, or asked for JSON, pass the matching flags. If the

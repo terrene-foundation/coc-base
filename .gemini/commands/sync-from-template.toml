@@ -52,7 +52,7 @@ A **category-based REPLACE, not a per-file merge.** "Merge" names the repo-level
    **6b. Consumer-owned survival gate (MUST — after the merge, BEFORE reporting success).** Run `node .claude/bin/sync-preflight-local-mods.mjs --verify .coc-preserve.json`. Exit **0** = every pre-sync consumer-owned file survived byte-identical; exit **2** = the sync DESTROYED or OVERWROTE consumer-owned state — **HALT**, restore from git, and do NOT report success; exit **1** = DID NOT RUN (a missing receipt means step 0b was skipped) and MUST NEVER be read as clean. A file that was ABSENT before is unconstrained — receiving the scaffold for the first time is the supported create-if-absent case, not a violation. Delete `.coc-preserve.json` once the gate passes.
 7. Update `.claude/VERSION` upstream block (template version + `synced_at`).
 
-To offer a COC-artifact improvement back UP to the template, use `/codify` Step-7c (a human-gated PR to the template's `.claude/.proposals/inbox/`) per `artifact-flow.md` § Downstream-Consumer Routing — NOT this command.
+To offer a COC-artifact improvement back UP to the template, use `/codify` Step-7c (a human-gated PR to the template's `.claude/.proposals/inbox/`) per `artifact-flow-routing.md` § Downstream-Consumer Routing — NOT this command.
 
 ## Delegate
 

@@ -46,4 +46,4 @@ Handing the identity to the downstream domain-spec owner:
     yours to write in your own repo — I am not editing your specs from here.
 
 Gates: the registry file validates against its schema, the disclosure scan over the diff is
-clean, two consecutive clean adversarial rounds with both payloads read.
+clean, one clean adversarial round with both payloads read and a stop (D237).

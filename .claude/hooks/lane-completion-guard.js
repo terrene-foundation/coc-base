@@ -61,11 +61,16 @@
  * plus `COC_STOP_REFUSAL`. Every failure path degrades to today's advisory
  * hand-back, never to a wedge.
  *
- * FAIL-OPEN on every unresolved condition (`cc-artifacts.md` Rule 7): `gh`
- * missing, unauthenticated, non-zero exit, timeout, unparseable JSON, no repo.
- * Each emits `{continue:true}` and says nothing — an unanswerable question is
- * reported as silence here, never as "no landable lanes", because those are
- * opposite meanings (`instrument-discipline.md` MUST-1).
+ * SILENT on every FORGE question it cannot answer: `gh` missing,
+ * unauthenticated, non-zero exit, timeout, unparseable JSON, no repo. Each is a
+ * NOT-MEASURED forge read, which the run answers with `{continue:true}` and says
+ * nothing — an unanswerable question is reported as silence here, never as "no
+ * landable lanes", because those are opposite meanings
+ * (`instrument-discipline.md` MUST-1). A run that does not answer at all — an
+ * unreadable payload, a throw, a run past its budget — is no verdict: this row
+ * is `on_incomplete: "deny"`, so it FAILS CLOSED through
+ * `lib/guard-runner.js::runGuard` (`cc-artifacts.md` Rule 7), and the guard
+ * carries no timer and no catch-passthrough of its own.
  *
  * KILL SWITCH: `COC_LANE_COMPLETION=0` (also off/false/no/disabled). DEFAULT ON;
  * an unrecognised value stays ON rather than shipping the gate inert
@@ -75,9 +80,24 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/stop-refusal/<session-id>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["gh","git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `gh pr list` / `gh api user` via execFile plus local git probes via lib/trunk-ref.js::resolveTrunk (execFileSync). The hook MEANS to reach the network through the `gh` child — the forge read IS its instrument — so that is declared here via spawns, not via the network flag, which covers only this process's own sockets. The one write is the per-session refusal-budget row appended by lib/stop-refusal.js (BOUND 4, write-before-refuse) through lib/append-sink.js; each refusal consumes a slot, so a repeat appends another row rather than being a no-op."
+ * }
+ */
+
 const path = require("path");
 const { execFile } = require("child_process");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+const { runGuard } = require(path.join(__dirname, "lib", "guard-runner.js"));
 const {
   resolveEnabled,
   evaluateLaneCompletion,
@@ -99,22 +119,16 @@ const { resolveTrunk, nonLaneBranches } = require(
 // rather than fabricating a trunk.
 const TRUNK_BUDGET_MS = 1200;
 
-// cc-artifacts.md Rule 7. Exit 1 (not 0) so a fired timeout is distinguishable
-// from a normal passthrough in exit-code logs. Set above the forge budget below
-// so that budget cuts first under normal operation.
-const TIMEOUT_MS = 9000;
+// The standalone run budget guard-runner.js::runGuard enforces (in the engine the
+// registry row's own timeout bounds the run). Set above the forge budget below so
+// that the forge budget cuts first under normal operation and the run still
+// answers (silently); past it the run is a budget REFUSAL.
+const BUDGET_MS = 9000;
 const GH_BUDGET_MS = 6000;
 
-// Per-run state — (re)initialised by hookMain(), because the engine requires this
-// module once per worker and a stale `_emitted = true` would silence the next run.
-let _emitted = false;
-let _timeout = null;
-
-function passthrough(code) {
-  if (_emitted) return;
-  _emitted = true;
+function passthrough() {
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  process.exit(code === undefined ? 0 : code);
+  process.exit(0);
 }
 
 /** One bounded forge read. Resolves to null on ANY unresolved condition. */
@@ -245,10 +259,6 @@ async function run(payload) {
   });
   if (!finding) return passthrough();
 
-  if (_emitted) return;
-  _emitted = true;
-  clearTimeout(_timeout);
-
   const n = finding.landable.length;
   const k = (finding.conflicting || []).length;
   const clauses = [];
@@ -303,62 +313,11 @@ async function run(payload) {
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). Everything here used to run at
-// load time, in this order: arm the fallback timer, then attach the stdin reader.
-//
-// It RETURNS A PROMISE that settles only when the run has finished, because the
-// engine reads a settled hookMain as "the detector is done": returning while the
-// stdin listeners are still pending would end the run with no output. Standalone
-// the promise is inert — every path leaves through process.exit first. In-engine
-// process.exit throws a sentinel; the try/catch blocks below only hand it to
-// `reject` (no other statement runs after an exit), which the engine reads as the
-// exit it already recorded.
-function hookMain() {
-  _emitted = false;
-  _timeout = setTimeout(() => {
-    if (_emitted) return;
-    _emitted = true;
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  _timeout.unref?.();
-
-  return new Promise((resolve, reject) => {
-    let input = "";
-    process.stdin.on("error", () => {
-      try {
-        passthrough();
-      } catch (e) {
-        return reject(e);
-      }
-      resolve();
-    });
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (d) => (input += d));
-    process.stdin.on("end", () => {
-      let payload;
-      try {
-        payload = JSON.parse(input || "{}");
-      } catch (e) {
-        process.stderr.write(`[lane-completion-guard] HOOK ERROR: ${e.message}\n`);
-        try {
-          passthrough();
-        } catch (e2) {
-          return reject(e2);
-        }
-        return resolve();
-      }
-      run(payload)
-        .catch((e) => {
-          process.stderr.write(
-            `[lane-completion-guard] HOOK ERROR: ${e && e.message}\n`,
-          );
-          passthrough();
-        })
-        .then(resolve, reject);
-    });
-  });
-}
+// in-process by lib/hook-engine.js (dispatch.js). guard-runner.js::runGuard reads
+// the payload (refusing an empty, stalled, unparseable or oversized stdin), runs
+// `run`, and refuses a throw, a rejection, or a standalone run past BUDGET_MS —
+// the endings this row used to pass through as `{continue:true}`.
+const hookMain = runGuard("lane-completion-guard", run, { budgetMs: BUDGET_MS });
 
 module.exports = { hookMain };
 

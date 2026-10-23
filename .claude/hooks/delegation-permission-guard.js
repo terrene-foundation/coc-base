@@ -15,9 +15,8 @@
  *   HUMAN's text, not the agent's. The request lives in the agent's own assistant message, which
  *   exists only once the turn has produced it, and `Stop` is the event that fires then.
  *
- *   The SIGNAL is reachable there: a `Stop` payload carries `transcript_path` (and sometimes an
- *   inline `last_assistant_text`), and `lib/transcript-read.js::readFinalAssistantText` recovers
- *   the newest text-bearing assistant message from a bounded tail read.
+ *   The SIGNAL comes from the shared payload reader, including validated native inline text
+ *   and the bounded Claude transcript fallback (`lib/transcript-read.js:289-322`).
  *
  *   THE MEASUREMENT THAT AUTHORIZED THIS HOOK, recorded because an earlier reading said the class
  *   was undetectable. That reading measured that the harness constraint producing the ask ("do not
@@ -87,6 +86,20 @@
  *   idleness (that is the sibling's arm).
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/delegation-permission/<session-id>-<sha8>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns are git probes from lib/state-resolver.js::requireMainCheckout, run only once an advisory exists. The one write is the per-(session, signature) dedupe marker from lib/delegation-permission.js::markSurfaced, so a repeated ask surfaces once per distinct sentence; a repeat with the same payload writes and emits nothing."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7, under the registered 5s timeout so this hook's own
@@ -136,30 +149,16 @@ async function main() {
     // cannot regress here unobserved.
     const payload = await readStdinBounded();
     const lib = require(path.join(__dirname, "lib", "delegation-permission.js"));
-    const { readFinalAssistantText, warnTranscriptRecovery } = require(
+    const { readAssistantTextFromPayload, warnTranscriptRecovery } = require(
       path.join(__dirname, "lib", "transcript-read.js"),
     );
 
     const sessionId = (payload && payload.session_id) || "unknown-session";
 
-    // Prefer the payload's inline text when present, else recover from the transcript. This
-    // ordering is correct under BOTH payload shapes, so it needs no knowledge of which one the
-    // host actually emits — the same reasoning `detect-violations.js` records.
-    let text =
-      (payload && typeof payload.last_assistant_text === "string" && payload.last_assistant_text) || "";
-    let failure = null;
-    if (!text) {
-      const recovered = readFinalAssistantText(payload && payload.transcript_path);
-      text = recovered.text;
-      if (!recovered.text && recovered.reason) {
-        // Offered but unusable — a detector blind spot, and it is LOUD. A payload carrying no
-        // transcript at all is the ordinary no-op and is deliberately NOT warned about: warning
-        // there would train readers to ignore the channel (the fixture-15 argument in
-        // `transcript-read.js`). Both remain UNKNOWN in the data.
-        warnTranscriptRecovery(recovered.reason);
-        failure = { reason: recovered.reason };
-      }
-    }
+    const recovered = readAssistantTextFromPayload(payload);
+    const text = recovered.text;
+    const failure = recovered.reason ? { reason: recovered.reason } : null;
+    if (recovered.reason) warnTranscriptRecovery(recovered.reason);
 
     const verdict = lib.assessLiftRequest(text, failure);
     const advisory = lib.formatLiftAdvisory(verdict);

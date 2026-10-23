@@ -8,7 +8,7 @@ phantom deletion targets — `selectRmForce` called the shared `tokenize` but no
 its redirection filter, so `rm -rf <path> >/dev/null 2>&1` reported THREE targets,
 two of them plumbing that resolves to nothing.
 
-Runner: `run.mjs` (67 cases). Registered `mode: run`, `min_cases: 67` in
+Runner: `run.mjs` (150 cases). Registered `mode: run`, `min_cases: 150` in
 `.claude/test-harness/ci-audit-fixtures.json`. The floor rises WITH the suite —
 `run-audit-fixtures.mjs:221` warns the anti-vacuity check goes INERT when a floor
 drops, so a stale-low floor silently stops covering the cases it names.

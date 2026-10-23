@@ -4,7 +4,7 @@
 // disclosure-isolation pre-write guard (issue #584 AC-1).
 //
 // THE GAP IT CLOSES (grounded in source):
-//   rules/artifact-flow.md:52 states the bidirectional-isolation invariant
+//   rules/artifact-flow.md § "Ecosystem Forks vs Downstream Consumers" states the bidirectional-isolation invariant
 //   ("no ceremony, sync, deploy, or publish may carry one ecosystem's
 //   identity into another's committed/shared/public surface") rests on TWO
 //   PRESENT, GENERAL-PURPOSE fences — NEITHER canon<->fork-AWARE:
@@ -31,7 +31,7 @@
 //     fork tenant-token surface (org slug, customer name, internal paths) the
 //     intake/publish fences already scrub; injectable for tests so a
 //     deterministic finding-set can be supplied.
-//   - O1 carve-out: a PUBLIC-authority O1 artifact (artifact-flow.md:200 —
+//   - O1 carve-out: a PUBLIC-authority O1 artifact (artifact-flow.md § "The Origination Taxonomy" O1 ecosystem scope —
 //     public ISO / SOC 2 / GDPR / etc. authorities are ecosystem-neutral) is
 //     PERMITTED to cross even fork->canon, because it carries NO fork identity.
 //
@@ -195,7 +195,7 @@ function _namesCanon(target, upstreamCanon) {
   return false;
 }
 
-// ── public-authority O1 carve-out (artifact-flow.md:200) ───────────────────
+// ── public-authority O1 carve-out (artifact-flow.md § "The Origination Taxonomy") ───────────────────
 // A PUBLIC external-authority O1 artifact (ISO / SOC 2 / GDPR / NIST / PCI-DSS
 // / etc.) is ecosystem-NEUTRAL: it carries no fork tenant identity, so it MAY
 // cross the boundary. A TENANT-SPECIFIC (non-public) authority O1 artifact is
@@ -491,7 +491,7 @@ function checkForkIdentifyingContent(opts = {}) {
 //      ONE boundary it exists for; intra-ecosystem + canon-side writes are
 //      governed by the existing fences, untouched).
 //   2. fork->canon: public-authority O1 carve-out → ALLOW (ecosystem-neutral,
-//      artifact-flow.md:200). This is checked BEFORE the disclosure scan
+//      artifact-flow.md § "The Origination Taxonomy"). This is checked BEFORE the disclosure scan
 //      because a public ISO/SOC2/GDPR artifact is neutral BY AUTHORITY and need
 //      not be scrubbed.
 //   3. fork->canon, NOT public-O1: run the fork-identifying-content check.
@@ -581,7 +581,7 @@ async function guardForkToCanonWrite(opts = {}) {
       // cross-repo fence.
       grant_present_but_not_honored: opts.repoScopeGrant === true,
       error:
-        "BLOCKED: canon<->fork disclosure isolation (artifact-flow.md:52 bidirectional-isolation invariant). " +
+        "BLOCKED: canon<->fork disclosure isolation (artifact-flow.md § Ecosystem Forks vs Downstream Consumers, bidirectional-isolation invariant). " +
         why +
         " A client ecosystem fork MUST NOT push its tenant identity or work back to canon (artifact-flow.md fork->canon MUST NOT). " +
         (opts.repoScopeGrant === true

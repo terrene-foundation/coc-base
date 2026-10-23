@@ -1,0 +1,8 @@
+import path from "node:path";
+import { realpathForContainment as rfc } from "./lib/path-containment.mjs";
+
+// R1 sec F6: an import alias of a declared resolver is still that resolver.
+export function inside(p, root) {
+  const c = rfc(p);
+  return c.startsWith(path.resolve(root) + path.sep);
+}

@@ -5,8 +5,8 @@
  * Hook: auto-format
  * Event: PostToolUse
  * Matcher: Edit|Write|NotebookEdit (registered as a detector in its own trailing
- *   PostToolUse group at `.claude/hooks/dispatch-registry.json:414-423` — the
- *   matcher is :415, this hook's command entry is :419 — so it runs AFTER every
+ *   PostToolUse group at `.claude/hooks/dispatch-registry.json:502-512` — the
+ *   matcher is :503, this hook's command entry is :507 — so it runs AFTER every
  *   reader of the edited file; dispatched by `dispatch.js PostToolUse`)
  * Purpose: Auto-format Python (black, else ruff), JavaScript/TypeScript/JSON
  *   (prettier), and YAML (prettier). Markdown is DELIBERATELY EXCLUDED — see
@@ -16,6 +16,23 @@
  *   0 = success (continue)
  *   2 = blocking error (stop tool execution)
  *   other = non-blocking error (warn and continue)
+ */
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<edited-file>",
+ *       "<npm-cache>/_npx/<hash>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["black","node","npx","ruff"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "`<edited-file>` is the EDITED file itself, rewritten in place (.py via black/ruff; .js/.jsx/.ts/.tsx/.json/.yaml/.yml via prettier). `<npm-cache>/_npx/<hash>/` is the prettier install the spawned npx performs on a cache miss, outside the repo root. The hook's own process opens no socket, but the spawned `npx --yes prettier@<pin>` MAY fetch from the npm registry on a cache miss and install into the npm cache. Formatters rewrite only the edited file, already contained under the resolved cwd; re-running on an already-formatted file is a no-op."
+ * }
  */
 
 const crypto = require("crypto");
@@ -488,8 +505,9 @@ function autoFormat(data) {
     // `<rule>.md#<clause>` and this residual lives in `hooks/` — so the in-place
     // acceptance is the correct binding of the three, not a fallback.
     //
-    // ACCEPTED BY the co-owner, jack@terrene.foundation — a named human in a
-    // standing role, as `completion-criterion.md` MUST-6 requires. The agent that
+    // ACCEPTED BY the co-owner — a named human in a standing role (the operator
+    // roster names the person; this shipped file names only the role), as
+    // `completion-criterion.md` MUST-6 requires. The agent that
     // proposed this residual did NOT accept it: MUST-6 forbids that, and an agent
     // relaying its own acceptance one hop out would be the same defect.
     //

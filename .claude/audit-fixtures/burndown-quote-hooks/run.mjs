@@ -12,7 +12,9 @@
  *   arm (2) untokened count → fires `halt-and-report`       | tokened count → silent
  *   scoping: no manifest    → silent on BOTH arms (this is what stops arm (2)
  *                             crying wolf in every repo that has no burndown)
- *   fail-open: unreadable / unparseable / absent generator → silent, never a guess
+ *   unknown: absent generator / unreadable transcript → advisory or silent, exit 0
+ *   no verdict: unreadable payload / unreadable written file → REFUSED, exit 2
+ *              (`lib/guard-runner.js::runGuard`; both rows are `on_incomplete: "deny"`)
  *
  * A guard shown only to FIRE proves it can say "no". The silent poles are what
  * prove it can say anything else — and for arm (2), whose detection is lexical,
@@ -483,14 +485,19 @@ check("scope/write-guard is SILENT on a TEST-CORPUS path (a fixture carries a sy
   return true;
 });
 
-// ── fail-open: every unknown is silent, and exit 0 ─────────────────────────
+// ── no verdict: an unreadable payload is REFUSED by the run boundary ───────
+// Both rows are `on_incomplete: "deny"`. A payload the guard cannot read is not an
+// UNKNOWN the guard answered (those stay exit 0, below) — it is no run at all, and
+// `lib/guard-runner.js::readPayload` refuses it with exit 2, naming the guard. Until
+// the fail-closed migration these PASSED (the `{}`-default bypass).
 
 for (const [label, script, payload] of [
   ["malformed payload", STOP_GUARD, "{not json"],
   ["empty payload", STOP_GUARD, ""],
   ["malformed payload", WRITE_GUARD, "{not json"],
+  ["empty payload", WRITE_GUARD, ""],
 ]) {
-  check(`fail-open/${path.basename(script)} passes through on a ${label}`, () => {
+  check(`fail-closed/${path.basename(script)} REFUSES a ${label}`, () => {
     const d = mkRepo();
     const r = spawnSync("node", [script], {
       cwd: d,
@@ -499,8 +506,11 @@ for (const [label, script, payload] of [
       env: { ...process.env, CLAUDE_PROJECT_DIR: d },
       timeout: 15000,
     });
-    if (r.status !== 0) return `exit ${r.status}, expected 0 (fail-open)`;
-    return !fired({ out: r.stdout || "", err: r.stderr || "" }) ? true : "fired on an unknown";
+    const name = path.basename(script, ".js");
+    if (r.status !== 2) return `exit ${r.status}, expected 2 (the run boundary refuses an unreadable payload)`;
+    if (!(r.stderr || "").includes(`[guard-runner] DENY ${name}: ${name} could not read its hook payload`))
+      return `stderr does not name the guard's unreadable-payload refusal: ${(r.stderr || "").slice(0, 200)}`;
+    return /"continue"\s*:\s*true/.test(r.stdout || "") ? "a continue:true rode out with the refusal" : true;
   });
 }
 
@@ -562,14 +572,30 @@ check("FINDING-E/compliant — an assistant turn with NO text block stays SILENT
     : `fired on a genuinely text-free reply: ${blob.slice(0, 200)}`;
 });
 
-check("fail-open/write-guard is silent when the written file cannot be read", () => {
+check("fail-closed/write-guard REPORTS to the model a durable write whose file it cannot read", () => {
+  // INVERTED by the fail-closed migration. A durable surface in a burndown repo
+  // whose written bytes cannot be read was passed through as if clean; the read
+  // now throws to the run boundary — a write this guard could not check is not a
+  // write it cleared. At PostToolUse the write already RAN, so the ONE per-event
+  // table (lib/dispatch-main.js::incompleteDenyDisposition, ROOT ruling) REPORTS it
+  // to the model (additionalContext, exit 0, naming the guard) — never a silent pass.
   const d = mkRepo();
   const res = runHook(WRITE_GUARD, d, {
     hook_event_name: "PostToolUse",
     tool_name: "Write",
     tool_input: { file_path: path.join(d, "journal", "missing.md") },
   });
-  return res.code === 0 && !fired(res) ? true : `exit ${res.code}`;
+  if (res.code !== 0) return `exit ${res.code}, expected 0 (reported, not blocked)`;
+  let ctx = "";
+  try {
+    ctx = res.out.split("\n").filter(Boolean).map((l) => (JSON.parse(l).hookSpecificOutput || {}).additionalContext || "").join("\n");
+  } catch (e) {
+    return `stdout is not the report reply: ${res.out.slice(0, 200)}`;
+  }
+  return ctx.includes("NOTICE burndown-quote-write-guard at PostToolUse — the call already ran UNVETTED: burndown-quote-write-guard crashed before reaching a verdict") &&
+    ctx.includes("ENOENT")
+    ? true
+    : `the model is not told of the crash: ${(ctx || res.err).slice(0, 200)}`;
 });
 
 check("fail-open/hooks exit 0 on UNKNOWNS — fail-open governs errors, not findings", () => {

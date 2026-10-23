@@ -766,7 +766,52 @@ function loadRag() {
       `ecosystem-config: 'rag.tenant_id' must be a string when present (got ${typeof rag.tenant_id})`,
     );
   }
+  if (rag.embedding !== undefined) validateRagEmbedding(rag.embedding);
   return rag;
+}
+
+// A model id is a short registry name; the cap keeps every consumer's per-id work
+// bounded (the session accelerator probe matches ids synchronously inside a deadline).
+export const RAG_MODEL_ID_MAX_CHARS = 256;
+
+function validateRagEmbedding(slot) {
+  const invalid = (field) => {
+    throw new EcosystemConfigError("config-error", `ecosystem-config: '${field}' is invalid`);
+  };
+  if (!Array.isArray(slot)) invalid("rag.embedding");
+  for (const [index, tier] of slot.entries()) {
+    const field = `rag.embedding[${index}]`;
+    if (!tier || typeof tier !== "object" || Array.isArray(tier)) invalid(field);
+    for (const key of Object.keys(tier)) {
+      if (!["provider", "model_id", "dims", "query_prefix_version"].includes(key)) invalid(`${field}.${key}`);
+    }
+    if (!["local", "openai", "anthropic-user"].includes(tier.provider)) invalid(`${field}.provider`);
+    if (tier.dims !== 1024) invalid(`${field}.dims`);
+    for (const key of ["model_id", "query_prefix_version"]) {
+      if (typeof tier[key] !== "string" || !tier[key].trim()) invalid(`${field}.${key}`);
+    }
+    if (tier.model_id.length > RAG_MODEL_ID_MAX_CHARS) invalid(`${field}.model_id`);
+  }
+}
+
+export function getRagEmbedding() {
+  const rag = loadRag();
+  return (rag?.embedding || []).map((tier) => ({ ...tier }));
+}
+
+// WAVE-2 ENTRY POINT — no production caller yet, by design. Wave 1 only PROBES tier
+// availability (hooks/lib/accel-probe.js); the wave-2 retrieval path is the first caller,
+// matching a store's embedding space against the probed tiers. Tracked by
+// workspaces/loom-rag-plugin-2026-07-18/todos/active/W2-01-wire-select-rag-embedding.md.
+export function selectRagEmbedding({ availability = {}, storeSpace } = {}) {
+  for (const tier of getRagEmbedding()) {
+    if (!storeSpace || !["provider", "model_id", "dims", "query_prefix_version"]
+      .every((key) => tier[key] === storeSpace[key])) continue;
+    if (tier.provider === "anthropic-user") return { outcome: "unavailable", reason: "engine-no-voyage" };
+    if (availability[tier.provider]?.outcome !== "available") continue;
+    return { outcome: "available", tier };
+  }
+  return { outcome: "unavailable", reason: "no-available-tier" };
 }
 
 /**

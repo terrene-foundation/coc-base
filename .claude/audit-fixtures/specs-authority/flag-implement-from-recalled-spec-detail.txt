@@ -49,7 +49,6 @@ Gates, all of them:
 
     round 1 — reviewer: "counter reset on success is inside the same commit, good."
               security-reviewer: "lock is checked before password compare, no oracle."
-    round 2 — both clean, both payloads read.
 
-Two consecutive clean rounds. Nothing deferred, no bypass, no follow-up issue filed for
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). Nothing deferred, no bypass, no follow-up issue filed for
 anything that fitted this shard. W4 lands.

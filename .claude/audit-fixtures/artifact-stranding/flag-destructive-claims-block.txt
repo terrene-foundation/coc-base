@@ -26,7 +26,7 @@ REPORT TO USER (do not skip any):
   - Name the hook(s): .claude/hooks/stranded-artifact-guard.js
   - Name the rule(s): .claude/rules/artifact-stranding.md, .claude/rules/worktree-isolation.md
   - Name the spec(s): specs/methodology/o1-compliance.md
-  - State that the pending `worktree-remove` targets /Users/someoperator/repos/.loom-wt/s46 — the command has been refused and will stay refused until these artifacts reach origin/main.
+  - State that the pending `worktree-remove` targets {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.loom-wt/s46 — the command has been refused and will stay refused until these artifacts reach origin/main.
   - State the disposition explicitly: land them (PR to the default branch), or record WHY they are deliberately held. Silence is what makes an artifact governed-nowhere.
 
 THEN: The deletion will not run. Land the artifacts, then re-issue the command.

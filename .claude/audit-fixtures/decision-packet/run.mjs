@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * run.mjs — audit-fixture runner for `.claude/hooks/lib/decision-packet.js`, the
- * detector for `recommendation-quality.md` MUST-6 § "'The Human Decides' Means
+ * detector for `recommendation-quality-packets.md` MUST-6 § "'The Human Decides' Means
  * Ratify A Recommendation — Not Fill A Blank". Ships WITH the detector per
  * `cc-artifacts.md` Rule 9.
  *

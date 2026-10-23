@@ -3,13 +3,14 @@ priority: 10
 scope: path-scoped
 cli_delivery: skill-channel
 paths:
-  - "**/workspaces/**"
+  - "journal/**"
+  # MUST-3 forbids writing a counted burn-down INTO session notes, so it must load there.
   - "**/.session-notes*"
   - "**/.session-notes.d/**"
   - "**/.wave-tracker*"
   - "**/.wave-tracker.d/**"
-  - "**/todos/**"
-  - "journal/**"
+  - "**/04-validate/**"
+  - "**/*BURNDOWN*"
 ---
 
 # Burn-Down Reporting — A Number Against A Number, Every Session And Every Wave

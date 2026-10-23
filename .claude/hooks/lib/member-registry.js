@@ -36,10 +36,11 @@
 const fs = require("fs");
 const path = require("path");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 const {
   emitSignedRecord,
+  snapshotPlainOpts,
   MAX_LINE_BYTES,
   makeValidateFold,
 } = require("./coc-emit.js");
@@ -146,7 +147,12 @@ function _appendToRegistry(repoDir, record) {
   // sink escaping the gitignore fence leaks operator-correlatable identity. The cap check
   // above stays HERE, before signing (refuse rather than truncate-after-sign).
   const p = resolveMemberRegistryPath(repoDir);
-  const w = appendSinkLine({ repoDir, sinkPath: p, line });
+  const w = appendSinkLine({
+    repoDir,
+    additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+    sinkPath: p,
+    line,
+  });
   if (!w.ok)
     return { ok: false, error: `member-registry append refused: ${w.error} — ${w.reason}` };
   return { ok: true };
@@ -167,7 +173,12 @@ function _appendToRegistry(repoDir, record) {
  *   are injected here (a caller MAY override for tests).
  */
 function emitMemberRecord(opts) {
-  const o = opts || {};
+  // Read opts only through the emitter's own snapshot: a seam the caller left
+  // out must read `undefined` (so the `||` below picks THIS log's default),
+  // never a value planted on a polluted Object.prototype (sigcov R2-C1).
+  const snapshot = snapshotPlainOpts(opts);
+  if (snapshot.refusal) return snapshot.refusal;
+  const o = snapshot.o;
   if (!o.repoDir || typeof o.repoDir !== "string") {
     return {
       ok: false,
@@ -184,18 +195,19 @@ function emitMemberRecord(opts) {
       step: "type-check",
     };
   }
-  return emitSignedRecord(
-    Object.assign({}, o, {
-      readChainHead:
-        o.readChainHead || ((args) => _readRegistryChainHead(o.repoDir, args)),
-      append:
-        o.append || ((_rd, record) => _appendToRegistry(o.repoDir, record)),
-      // COC-CHAIN guard, member-registry chain: validate against THIS log
-      // (not the main coordination-log) so a malformed-but-typed record
-      // cannot poison the registry chain the cascade head folds.
-      validateFold: o.validateFold || makeValidateFold(readMemberRegistry),
-    }),
-  );
+  // Spread defines own properties; a [[Set]] copy would run a setter planted
+  // on Object.prototype (the sigcov R2-3 class).
+  return emitSignedRecord({
+    ...o,
+    readChainHead:
+      o.readChainHead || ((args) => _readRegistryChainHead(o.repoDir, args)),
+    append:
+      o.append || ((_rd, record) => _appendToRegistry(o.repoDir, record)),
+    // COC-CHAIN guard, member-registry chain: validate against THIS log
+    // (not the main coordination-log) so a malformed-but-typed record
+    // cannot poison the registry chain the cascade head folds.
+    validateFold: o.validateFold || makeValidateFold(readMemberRegistry),
+  });
 }
 
 /**

@@ -84,7 +84,7 @@ lands, its body is not edited in place. To amend a fact:
    readers consult the latest non-superseded file in the chain.
 
 This is identical in shape to the
-`rules/artifact-flow.md` § "Append, Never Overwrite Unprocessed
+`rules/artifact-flow-gates.md` § "Append, Never Overwrite Unprocessed
 Proposals" discipline — both surfaces serve the same audit-trail need.
 
 ## Coexistence with /onboard

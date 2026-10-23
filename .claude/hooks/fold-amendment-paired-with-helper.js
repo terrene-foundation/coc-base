@@ -71,10 +71,27 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git rev-parse` and `git diff` via execFileSync, aimed at the parsed `-C <dir>` target or the session cwd (lib/git-subprocess-env.js, lib/git-command-parse.js). Every read is repo-local and the halt renders to stdout only — no durable write."
+ * }
+ */
+
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { resolveGitBinary, gitEnv } = require(
+const { resolveGitBinary } = require(
   path.join(__dirname, "lib", "git-subprocess-env.js"),
+);
+const { resolveTargetRepo, targetGitInvocation } = require(
+  path.join(__dirname, "lib", "target-repo-git.js"),
 );
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 const { readStdinBounded } = require(
@@ -147,28 +164,54 @@ const FOLD_F86_SYMBOLS = [
 // made, which `git -C <dir> commit` puts in ANOTHER repository. This helper
 // used to spawn with neither `-C` nor `cwd`, so it always diffed the SESSION
 // repo: a pairing violation committed into a `-C` target went unseen, and the
-// session repo's own unrelated HEAD~1 was inspected in its place. `repoDir` is
-// the parsed invocation's effective work tree (null = session cwd).
-let repoDir = null;
+// session repo's own unrelated HEAD~1 was inspected in its place.
+let repoContext = null;
+const { resolveGitTargetContext } = require("./lib/git-target-context.js");
 
 // loom#1471 (s49). LOCAL profile: every subcommand this wrapper serves
 // (`rev-parse`, `diff`, `commit`) reads or writes a repository already on disk,
 // so it inherits nothing — `gitEnv()`, not `gitConfigInvocation()`, which would
-// ADMIT the operator's global config for no need this file has. `-C repoDir`
-// chose a DIRECTORY, never a repository: an ambient `GIT_DIR` outranked it, so
+// ADMIT the operator's global config for no need this file has. An ambient `GIT_DIR`
+// previously outranked the selected directory, so
 // the amendment/helper pairing was decided by whatever repo the environment
 // named. Absolute binary, arg array, env built from constants.
+//
+// TARGET-REPO ENVELOPE (lib/target-repo-git.js). The repository diffed here is the one
+// the judged command committed in (`git -C <dir> commit`), and its `.git/config` and
+// `.git/info/attributes` are the agent's to write. `gitEnv()` closes only global and
+// system config, so every call goes through the shared envelope, which closes every
+// program-executing config key and injects `--no-ext-diff --no-textconv` on `diff`.
+// MEASURED on git 2.54.0 under this profile, each knob planted in the target with a
+// marker-writing program: `diff HEAD~1..HEAD -- <path>` ran `diff.<driver>.command`
+// (and a `filter.<driver>.smudge`, which git runs to materialize the file it hands that
+// command), `diff.<driver>.textconv` and `diff.external`; the same diff through the
+// envelope, and the `--name-only` and `rev-parse` calls, ran none. The repository is
+// resolved ONCE from the judged commit's own selectors and every call runs against that
+// canonical pair, at its work-tree root (so the root-relative paths `--name-only` prints
+// are valid pathspecs for the per-path diff). A repository that will not resolve, or a
+// call the envelope refuses, reads as `null`, this wrapper's existing "could not answer".
+let targetRepo; // undefined = not resolved yet; null = will not resolve
 function git(args) {
-  const gitBin = resolveGitBinary();
   // INDETERMINATE, never a clean negative: `null` is already this wrapper's
   // "could not answer" and every caller treats it that way.
-  if (!gitBin) return null;
+  if (!resolveGitBinary()) return null;
   try {
-    return execFileSync(gitBin, repoDir ? ["-C", repoDir, ...args] : args, {
+    if (!repoContext || !repoContext.known) return null;
+    if (targetRepo === undefined) {
+      const res = resolveTargetRepo(
+        { cwd: repoContext.cwd, gitDir: repoContext.gitDir || undefined, workTree: repoContext.workTree || undefined },
+        { timeout: 2000 },
+      );
+      targetRepo = res.ok ? res.repo : null;
+    }
+    if (!targetRepo) return null;
+    const { file: gitBin, argv, cwd, env } = targetGitInvocation(targetRepo, args);
+    return execFileSync(gitBin, argv, {
+      cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 2000,
-      env: gitEnv(),
+      env,
     });
   } catch (err) {
     return null;
@@ -324,15 +367,12 @@ async function main() {
   // (advisory hooks must never block legitimate workflows on a tooling edge
   // case)". Guessing a repo would be worse: it would diff the WRONG tree and
   // report a pairing verdict about a commit that is not the one that landed.
-  if (invocation.unresolvable) {
+  repoContext = resolveGitTargetContext(invocation, payload.cwd || process.cwd());
+  if (!repoContext.known) {
     process.stdout.write(JSON.stringify({ continue: true }) + "\n");
     clearTimeout(_timeoutHandle);
     process.exit(0);
   }
-  // Point every subsequent git call at the tree the commit was actually made
-  // in. `dir` is null for an ordinary `git commit`, which leaves the spawns on
-  // the session cwd exactly as before.
-  repoDir = invocation.dir || null;
   if (!commitHasParent()) {
     // Root commit — no diff to inspect. Pass.
     process.stdout.write(JSON.stringify({ continue: true }) + "\n");

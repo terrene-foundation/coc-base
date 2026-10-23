@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(pwd)/.claude/hooks/lib/codex-hook-runtime.js\" --native-policy" }] }
+    ]
+  }
+}

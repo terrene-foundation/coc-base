@@ -1,9 +1,9 @@
 ---
 id: "CI-JOB-BUDGET"
-paths: [".github/workflows/**", "scripts/ci/**", ".claude/hooks/ci-job-budget-guard.js"]
+paths: [".github/workflows/**", "scripts/ci/**", ".claude/hooks/ci-job-budget-guard.js", ".claude/bin/ci-job-budget-audit.mjs", ".github/job-budget.json", ".github/scripts/job-budget-audit.py"]
 ---
 
-# CI Job Budget — A Per-PR Job Must Gate Something Or Be Declared
+# CI Job Budget — A Per-PR Job Must Gate Something Or Be Declared, Never Silently Added
 
 A CI job that runs on every pull request and cannot block a merge is the worst of
 both states: it consumes a runner slot at full cost and enforces nothing. One such
@@ -23,6 +23,18 @@ distributes to contend for ONE SHARED runner pool — so a fan-out authored in a
 one of them is charged to every other repo's queue time. The ratchet is worth
 distributing precisely because no single repo can see the contention it creates.
 
+CI jobs also accrete one unremarkable job at a time, and nothing says anything at
+the moment each is added. No single addition is worth arguing about; the sum is, and
+by the time the sum is visible nobody can say which job to remove or why it was
+added. The upstream instance measured one PR fanning out to **33 runner-consuming
+jobs against a pool of 24, of which only 12 gated anything**. Adding a job is
+legitimate; the goal is that it becomes a *declared* act, not that it is refused.
+
+**This file is a UNION (2026-10-06, Gate-1 intake).** It merges this rule with the
+rs USE template's locally-authored copy — both trace to loom#1877 — and NOTHING from
+either side was dropped. `## Union Provenance — Clause Attribution (2026-10-06)`
+maps every clause to its side; the template-side Origin record sits under `## Origin`.
+
 ## MUST Rules
 
 ### 1. Every PR-Reachable Job Is Required, Relevance-Gated, Or Budgeted
@@ -31,8 +43,10 @@ Every job reachable from a `pull_request` trigger MUST be exactly one of:
 **required** (it provides a branch-protection required context — it IS the gate),
 **relevance-gated** (a per-job skip keyed on what the PR actually touches, or a
 `paths:`-filtered workflow that provides no required context), or **budgeted**
-(declared in the repo's job-budget declaration with a dated rationale). A job in
-none of those states is BLOCKED.
+(declared in the repo's job-budget declaration with a dated rationale — the entry
+shape and its revisit-date requirement are MUST-5). A job in none of those states
+is BLOCKED. Such a job is a **freeloader**: it runs on every PR and gates nothing,
+and adding one without declaring it is BLOCKED.
 
 ```yaml
 # DO — required, so it IS the gate
@@ -43,21 +57,37 @@ required-checks:
 structural:
   if: needs.detect.outputs.relevant == 'true'
 
+# DO — or gate the whole workflow on the paths it can act on
+on:
+  pull_request:
+    paths: [".github/workflows/**"]
+
+# DO NOT — runs on every docs PR, every proposal, every session note; gates nothing
+on:
+  pull_request:
+
 # DO NOT — runs on every PR, gates nothing, declared nowhere
 freeloader:
   name: Nice To Have
 ```
 
-**BLOCKED rationalizations:** "it's only one job" / "it's cheap" / "we might need
-the signal one day" / "making it required would block merges" (that is the
-decision, not a reason to skip it) / "it catches real bugs" (then it should be
+**BLOCKED rationalizations:** "it's only one job" / "it's cheap" / "it's fast, it
+costs nothing" / "it's one more job, the matrix is already big" / "we might need
+the signal one day" / "we'll gate it once it's stable" / "it's informational, not a
+gate — that's why it isn't required" / "adding a `paths:` filter risks missing
+something, better to always run" / "making it required would block merges" (that is
+the decision, not a reason to skip it) / "it catches real bugs" (then it should be
 required) / "the pool is usually free" / "it's a different repo's pool" (it is not
-— the pool is shared).
+— the pool is shared) / "the budget file is bureaucracy for a two-minute job" / "CI
+minutes are cheap on hosted runners".
 
 **Why:** A job that gates nothing cannot fail a merge, so its red is advisory and
 gets normalised; meanwhile it is charged to every PR forever. Forcing each one into
 required, gated, or declared makes the cost a decision somebody made rather than a
-default nobody chose.
+default nobody chose. The cost of any single job is genuinely negligible, which is
+exactly why no one objects to it; the mechanism that fails is *review*, not
+arithmetic, and forcing the addition into a declaration converts an invisible
+per-PR cost into a line in a diff a reviewer can see and question.
 
 ### 2. Narrowing A TRIGGER Cannot Make A Required Gate Run Sparingly — Only A Per-JOB Skip Can
 
@@ -190,7 +220,9 @@ gh api "orgs/<org>/actions/runners?per_page=100" --paginate
 in the self-hosted runner API at all, so it MUST instead declare
 `capacity_source: "github-hosted"` and name its authority (the runner-group /
 billing surface). Leaving it silently exempt would make MUST-4 false about the very
-declaration that ships with it.
+declaration that ships with it. And where NO live read is available at all — no
+credential, no API — the capacity MUST NOT be guessed: it is declared `null` /
+`UNVERIFIED` and the audit renders UNKNOWN, never a pass. MUST-6 governs that state.
 
 **BLOCKED rationalizations:** "the spec was verified recently" (in the originating
 measurement the stale line carried a LATER verification date than a correct sibling
@@ -201,6 +233,89 @@ maintained by the people who own the runners".
 **Why:** A budget computed against a stale denominator is wrong in the direction
 that hurts, and `verify-resource-existence.md` MUST-2 already holds that the live
 surface is evidence and the doc is hearsay.
+
+### 5. A Budgeted Exemption Carries A Revisit Date
+
+An entry in the budgeted declaration MUST carry a rationale, an `added` date, and a
+`revisit` date. An exemption with no revisit date is BLOCKED.
+
+```json
+// DO — the allowance has an end
+{ "job": "smoke", "workflow": "x.yml", "rationale": "...", "added": "2026-08-21", "revisit": "2026-11-21" }
+
+// DO NOT — a temporary allowance with no date is a permanent one
+{ "job": "smoke", "workflow": "x.yml", "rationale": "temporarily always-on" }
+```
+
+The loom engine encodes the same requirement inside the budgeted entry's rationale:
+an unexpired `REVIEW BY <YYYY-MM-DD>` is mandatory, and an entry whose rationale is
+shorter than the schema's floor, carries no review date, carries a past date, or
+carries one beyond the review horizon is a finding (schema:
+`.claude/bin/ci-job-budget.local.example.json`, `_budgeted_why`).
+
+**BLOCKED rationalizations:** "it's temporary, we'll remove it soon" / "a date we
+won't honour is worse than none" / "the rationale explains it, the date is
+redundant".
+
+**Why:** Every exemption is added as a temporary allowance and none is revisited
+unless something forces it; the date is what converts "we'll look at this later"
+into a check that fails on a specific day. A stale exemption is separately flagged,
+so a deleted job cannot leave its allowance behind.
+
+### 6. An Unmeasured Capacity Reports UNKNOWN, Never A Pass
+
+A pool's `capacity` MUST be either a positive finite integer with a
+`capacity_source` naming how it was obtained, or `null` with
+`capacity_source: "UNVERIFIED"`. When capacity is `null` the audit MUST report the
+demand and an explicit UNKNOWN — never a pass. A non-finite or non-integer capacity
+MUST fail closed.
+
+```json
+// DO — unmeasured, and says so; the audit renders no ceiling verdict
+{ "capacity": null, "capacity_source": "UNVERIFIED" }
+
+// DO NOT — a plausible number nobody measured; every later green is derived from it
+{ "capacity": 20, "capacity_source": "probably the default plan limit" }
+```
+
+This is MUST-4's failure state made honest: where the live read MUST-4 mandates is
+unavailable, `null` / UNVERIFIED is the only honest declaration, and the audit
+renders UNKNOWN rather than deriving a green from a guess. The loom engine
+implements it as a THIRD verdict — exit 2, "could not run" — and refuses an absent
+declaration rather than rendering it green (`.claude/bin/ci-job-budget-audit.mjs`
+usage: `Exit 0 = VALID, 1 = findings, 2 = the audit could not run`).
+
+**BLOCKED rationalizations:** "20 is the documented default, close enough" / "a
+number is more useful than null" / "we can refine it later, meanwhile it gates
+something" / "Infinity means unlimited, which is true for hosted runners".
+
+**Why:** A ceiling comparison against a guessed number is an instrument that cannot
+discriminate — it renders a green "within capacity" for every input, including the
+ones the check exists to catch. `Infinity` is the same failure wearing a numeric
+type: a loose numeric test admits it and silently deletes the comparison for every
+pool.
+
+### 7. The Audit Is Shown Capable Of Failing Before Its Pass Is Read
+
+`--selftest` MUST run before the audit in any automated invocation, and MUST
+include, for every declared check, an input whose correct verdict is FAIL. A pass
+from a gate never shown capable of failing is not evidence.
+
+```yaml
+# DO — control first, then the measurement
+- run: node .claude/bin/ci-job-budget-audit.mjs --selftest
+- run: node .claude/bin/ci-job-budget-audit.mjs
+# DO NOT — read the green alone
+- run: node .claude/bin/ci-job-budget-audit.mjs
+```
+
+**BLOCKED rationalizations:** "the audit is simple, it obviously works" / "the
+selftest doubles the runtime" / "it passed on a tree we know is dirty once, that's
+enough".
+
+**Why:** An inert gate and a satisfied gate produce identical output; only an input
+that SHOULD fail distinguishes them. This is `instrument-discipline.md` MUST-2
+applied to the audit's own green.
 
 ## MUST NOT
 
@@ -253,6 +368,20 @@ surface is evidence and the doc is hearsay.
 
   **Why:** The audit proves the fan-out is DECLARED, not that it is small. A pinned
   ratchet above 1.0 is a recorded problem, not a solved one.
+
+- Remove a `paths:` filter to "be safe" without declaring the job as required or
+  budgeted.
+
+  **Why:** Removing the filter converts a relevance-gated job into a freeloader; the
+  audit will fail, which is the intended feedback rather than an obstacle to route
+  around.
+
+- Add a `push`-arm filter and assume it covers the `pull_request` arm.
+
+  **Why:** The arms are independent. A `paths:` filter on `push:` alone leaves the
+  PR arm unfiltered, which is the easiest way to reintroduce a freeloader while
+  believing it is gated. (The template-side copy records that its repo already
+  carried exactly this shape elsewhere — see the template-side Origin record.)
 
 ## Trust Posture Wiring
 
@@ -327,12 +456,15 @@ surface is evidence and the doc is hearsay.
   `ALWAYS_INCLUDE` hooks surface — which is exactly why its engine-absent path had
   to speak rather than fall silent. TWO things still do NOT run and are NOT
   registry-backed: (1) the
-  census/audit engine, which a sibling lane is porting into the cascading `bin`
-  surface — its path is deliberately NOT cited here until the file exists, because
-  a Detection field naming a path that does not resolve is the dangling-citation
-  defect this rule's own meta-compliance probe instructs a judge to fail; until it
-  lands, the hook's engine-absent advisory is what fires, which is why that
-  advisory had to be loud rather than silent. And (2) the live-capacity
+  census/audit engine ITSELF — `.claude/bin/ci-job-budget-audit.mjs` has LANDED
+  (commit 70d8b74a7 split it from its deployment declaration; the hook's
+  engine-absent path now fires only on trees that lack it), but MEASURED at loom
+  2026-10-06 NO `.github/` workflow invokes it (a search for the `job-budget`
+  token under `.github/` returns nothing, against a control finding the same
+  token in this rule's registered probe suites), so the engine's exit-code teeth are armed and
+  undispatched here; the hook's engine-absent advisory remains what fires where
+  the engine is genuinely absent, which is why that advisory had to be loud
+  rather than silent. And (2) the live-capacity
   reconciler for MUST-4, which
   has NO scheduled reader in ANY repo because it needs an `admin:org` credential
   no configured secret carries. Both were identified at Gate-1 with a proposed
@@ -354,6 +486,70 @@ surface is evidence and the doc is hearsay.
   set of jobs it was computed over.
 - **Origin:** See § Origin.
 
+## Trust Posture Wiring — Template-Side Clauses (MUST-5..7, unioned 2026-10-06)
+
+Applies to **MUST-5, MUST-6 and MUST-7** ONLY — the clauses unioned in from the rs
+USE template's locally-authored copy at the P17 Gate-1 intake (operator-ratified
+UNION-MERGE, nothing dropped from either side). Their parent artifact set originates
+at loom#1877 and was adapted template-side 2026-08-21. MUST-1..4 stay on the
+rule-wide block above — the clause-scoped precedent `security.md` §
+Enforcement-Surface Parity and `git.md` § CI-check/merge set.
+
+- **Severity:** `block` at the CI layer WHEREVER the census audit is invoked — its
+  exit code is derived from parsed workflow YAML and a parsed declaration, the
+  narrow class `hook-output-discipline.md` MUST-2 reserves `block` for. MEASURED at
+  loom 2026-10-06: no `.github/` workflow invokes it, so the `block` half is armed
+  and UNDISPATCHED here, and the live layers at loom are `halt-and-report` at
+  gate-review (reviewer at `/implement` + cc-architect at `/codify` confirm a new
+  PR-reachable job was declared, and the SUBSTANCE of any exemption's revisit
+  date) and `advisory` at the edit-time hook layer — naming a job ungated at edit
+  time is a LEXICAL read of workflow YAML, and adding a CI job is legitimate work a
+  guard must not wedge.
+- **Grace period:** 7 days from the clauses' original landing on the template-side
+  lane (2026-08-21 → 2026-08-28) — already elapsed. The union re-homes these
+  clauses into this rule; it does not restart their grace, and the same obligation
+  has been in force at loom since this rule's own landing.
+- **Cumulative posture impact:** same-class violations (a budgeted exemption with
+  no revisit date; a guessed capacity presented as measured; a non-finite capacity
+  admitted through a loose numeric test; an audit green read without its
+  `--selftest` control) contribute to `trust-posture.md` MUST-4 cumulative-window
+  math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` emergency trigger
+  per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause
+  key. Named deviation per `trust-posture.md` Rule 8: the CI gate already refuses
+  the violating state structurally wherever it runs, so the residual review-layer
+  judgment does not warrant an instant-drop key — the same disposition
+  `artifact-flow-distribution.md` § Owned-Surface Bound took for the same reason.
+- **Receipt requirement:** SessionStart soft-gate `[ack: ci-job-budget]` IFF
+  `posture.json::pending_verification` includes the `ci-job-budget` rule_id
+  (shared rule_id; one ack covers MUST-1..7).
+- **Detection mechanism:** on the template-side lane these clauses shipped with a
+  CI-run census audit whose `--selftest` negative control runs in the SAME job and
+  BEFORE the audit, with an edit-time hook that is advisory and NO probe suite —
+  that copy declared its semantic tier UNCOVERED and owed at gate-review. At loom
+  the structural authority is the same engine named in the rule-wide block above
+  (`.claude/bin/ci-job-budget-audit.mjs`), whose hook, fixture battery, probe
+  suites and registries are the binding recorded THERE and not duplicated here. The
+  template-side copy's own detection paths are deliberately NOT cited — they do not
+  resolve in this repo, and a Detection field naming a non-resolving path is the
+  dangling-citation defect `detection-binding-check.mjs` reds.
+- **Invoker class:** `runtime` AND `agent-mid-procedure` — `.claude/hooks/ci-job-budget-guard.js`,
+  registered on the `PostToolUse` `Edit|Write|NotebookEdit` matcher, is the `runtime` backer
+  (advisory, no command typed). Gate-review per § Severity is the `agent-mid-procedure` half,
+  so this block does NOT discharge.
+- **Violation scope:** MUST-5 (a budgeted exemption carrying no revisit date) +
+  MUST-6 (an unmeasured or non-finite capacity rendered as a verdict) + MUST-7 (an
+  audit pass read without its `--selftest` control). MUST-1..4 keep their scope
+  under the rule-wide block above.
+- **Origin:** 2026-08-21 — the clauses were applied on the rs USE template from
+  loom#1877 (which proposed the upstream `ci-job-budget`
+  artifact set from the kailash-rs BUILD repo) under a user-authorized cross-repo
+  READ of that issue, directed in-session: _"the intent is to understand the full
+  surface of this problem and its root cause, so that you can address it IN THIS
+  REPO. Get it done now, don't wait for loom to cascade down."_ Unioned into this
+  rule at loom 2026-10-06 (P17 Gate-1 intake); clause attribution in
+  `## Union Provenance`.
+
 ## Distinct From / Cross-References
 
 - **Distinct from** `ci-runners.md` — that governs runner HEALTH and routing (which
@@ -368,6 +564,32 @@ surface is evidence and the doc is hearsay.
   this repo and is named as a concept rather than cited as a file, because no path
   for it resolves here. The two measures multiply: concurrency is the cascade,
   per-PR fan-out is the multiplicand, and a merge queue fixes only the former.
+
+## Union Provenance — Clause Attribution (2026-10-06)
+
+This rule is the UNION of loom's copy and the rs USE template's locally-authored
+copy (both trace to loom#1877), merged at the P17 Gate-1 intake under the operator's
+ratification: **union of both files' content, no side dropped**. This table is the
+traceability record; where a unit is a union, BOTH sides' text survives inside it.
+
+| unit | side | provenance note |
+| ---- | ---- | --------------- |
+| title | union | loom's title, extended with the template copy's "declared act, never a silent one" framing |
+| intro ¶1–3 | loom | unchanged |
+| intro ¶4 (accretion) | template-side | the template copy's opening paragraph; the 33-jobs / pool-24 / 12-required measurement is the shared loom#1877 evidence |
+| intro ¶5 (union pointer) | intake note | the Gate-1 union statement itself, pointing at this table |
+| MUST-1 | union | loom's three-state clause, carrying the template's *freeloader* naming, its declaration-entry sentence, its extra BLOCKED rationalizations and its Why sentence |
+| MUST-2 | loom | unchanged |
+| MUST-3 | loom | unchanged |
+| MUST-4 | loom | + one composition sentence: an unmeasurable pool goes UNVERIFIED, per MUST-6 |
+| MUST-5 | template-side | the template copy's MUST-2 (revisit date); example re-homed to the loom engine's `REVIEW BY` encoding |
+| MUST-6 | template-side | the template copy's MUST-3 (UNKNOWN, never a pass); + the loom engine's exit-2 third verdict |
+| MUST-7 | template-side | the template copy's MUST-4 (`--selftest` before reading a pass); example re-homed to the loom engine's invocation |
+| MUST NOT | union | loom's four bullets + the template's two |
+| Trust Posture Wiring (rule-wide, MUST-1..4) | loom | detection amended: the census engine has LANDED and is now cited by path; its CI-invocation absence is measured |
+| Trust Posture Wiring — MUST-5..7 | template-side | the template copy's wiring, adapted; its non-resolving detection paths deliberately not cited |
+| Origin — loom's narrative | loom | unchanged |
+| Origin — template-side record | template-side | the template copy's origin narrative, adaptation rationale, carried-over design properties and placement/durability reasoning |
 
 ## Origin
 
@@ -438,18 +660,62 @@ deferral-registry paths. The specific provenance stays in the local Gate-1 recei
 not in the artifact that cascades. Pool names in the examples above (`linux`) are
 illustrative placeholders, not a declaration of any real fleet.
 
-**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body is over the 200-line guidance (~300-line band; stated as a band
-rather than an exact count, which drifts on every edit). Named rationale:
-**budget-contract completeness** — the four MUST clauses each name a STRUCTURALLY
-DISTINCT way a per-PR fan-out escapes accounting (an undeclared job, a required
-context hidden behind a `paths:` filter, an unratcheted pool ceiling, a capacity
-copied from a doc), and each carries the DO/DO-NOT + BLOCKED corpus + `**Why:**` the
-meta-rule mandates PLUS the canonical-8-field Trust-Posture Wiring. Collapsing any
-one re-opens the escape it names, and MUST-2 in particular cannot be dropped: it is
-the reduction that looks obviously correct, was shipped in the originating repo
-once, and wedged PRs there. The rule is `priority: 10` + `scope: path-scoped`, so it
-pays NO baseline-emission cost and Rule 10's proximity band does not fire. This copy
-is already ~30% shorter than the source: the originating Detection field enumerated
-per-check enforcement names for an engine that does not exist here, and was replaced
-by an accurate statement of loom's review-layer-only coverage. Sibling precedent:
-the length rationales carried by `security.md` and `verification-gate-integrity.md`.
+### Template-side Origin record (rs copy, unioned 2026-10-06)
+
+Kept because the union drops nothing from either side. Read every "this repo"
+below as the template-side repo, never loom.
+
+The template-side copy recorded its own repo's census at authoring (2026-08-21):
+**7 PR-reachable jobs, 3 required, 6 relevance-gated, 0 freeloaders** — the rule
+exists there so that stays true **by construction rather than by discipline**.
+Adding a job is legitimate; the goal is that it becomes a _declared_ act, not that
+it is refused.
+
+**What the template-side copy adapted rather than copied, and why.** The upstream
+declaration encodes pools and capacities for a self-hosted fleet; every job there is
+`ubuntu-latest`, a single GitHub-hosted pool whose concurrency ceiling is an
+account-plan property no configured secret can read. That is upstream's own
+decision point 3 (_"the capacity number has no scheduled reader"_) arriving as a
+live constraint rather than a deferred one. Rather than inherit a fleet-shaped
+declaration or invent a plausible integer, capacity is declared `null` /
+`UNVERIFIED` and the audit renders UNKNOWN for it — so the gate that actually bites
+there is the freeloader check, which is fully decidable from the workflow files.
+Setting a measured capacity later activates the ceiling arm with no code change.
+
+**Carried over from upstream as design properties, because upstream records each as
+hard-won:** the Detection field does not restate a case count; the anti-vacuity
+floor (`every-check-has-a-negative-control`) fails loudly when a check is added with
+no result; the audit fails closed on a non-finite capacity, which a mutation showed
+a loose numeric test admits; and the edit-time layer is advisory rather than
+blocking.
+
+**Placement is durability-driven (template-side reasoning).** On that lane the
+audit and declaration live under its `.github/`, measured non-synced there — the
+manifest declares exactly one `.github/` surface and scopes it to the `py` lane
+("rs ships none"), and no sync commit has ever written its `.github/workflows/`
+(control: syncs _did_ write `.claude/hooks/`). A `.claude/bin/` placement would have
+been Class-A non-durable and rebuilt away on that lane. That rule file itself is in
+the synced tree and therefore non-durable there; its durable surface is the paired
+proposal entry. At loom the same tension resolves the other way: the engine ships as
+`.claude/bin/ci-job-budget-audit.mjs` with its deployment declaration fenced from
+sync as a `.local.json` under `.claude/bin/`.
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body is over the 200-line guidance (the 2026-10-06 union moved it
+well past the ~300-line band the pre-union copy occupied; stated as a band rather
+than an exact count, which drifts on every edit). Named rationale:
+**budget-contract completeness** — seven MUST clauses now, and each names a
+STRUCTURALLY DISTINCT way a per-PR fan-out escapes accounting: the loom-side four (an
+undeclared job, a required context hidden behind a `paths:` filter, an unratcheted
+pool ceiling, a capacity copied from a doc) plus the template-side three (a budgeted
+exemption with no revisit date, an unmeasured capacity rendered as a pass, an audit
+pass read without its selftest control). Each carries the DO/DO-NOT + BLOCKED corpus
++ `**Why:**` the meta-rule mandates PLUS the canonical-8-field Trust-Posture Wiring.
+Collapsing any one re-opens the escape it names, and MUST-2 in particular cannot be
+dropped: it is the reduction that looks obviously correct, was shipped in the
+originating repo once, and wedged PRs there. The rule is `priority: 10` +
+`scope: path-scoped`, so it pays NO baseline-emission cost and Rule 10's proximity
+band does not fire. The loom copy is shorter than the pre-union source: the
+originating Detection field enumerated per-check enforcement names for an engine
+that had not landed; since the engine landed, that field cites it by path and
+measures its CI-invocation absence instead. Sibling precedent: the length rationales
+carried by `security.md` and `verification-gate-integrity.md`.

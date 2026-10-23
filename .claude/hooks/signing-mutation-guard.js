@@ -12,8 +12,10 @@
  *   config / explicit env (NOT the multi-operator roster), and the
  *   degraded-mode read-only block is the same behavior already shipped on
  *   the Codex shell lane (DF-AC6-2) — extending it to apply_patch makes
- *   the file-edit lane symmetric with the shell lane. The cc-only
- *   coordination guards deliberately omit this marker.
+ *   the file-edit lane symmetric with the shell lane. Since 2026-10-09 the
+ *   coordination guards carry the marker too: the orchestrator ruling makes
+ *   native execution the default, and an exclusion survives only with a
+ *   written reason plus a compensating control.
  *
  * Shard B3a (workspaces/multi-operator-coc/02-plans/01-architecture.md
  * §2.3 + §4.3 hook-table row + R4-S-02 + R5-S-03).
@@ -45,7 +47,10 @@
  *                            comment at that branch before touching it.
  *             silent     otherwise (signing key present + no sibling
  *                        contention + non-mutating tool).
- *   Budget:   ≤5s; setTimeout fallback emits {continue: true} on hang.
+ *   Budget:   the run is owned by lib/guard-runner.js::runGuard — a throw,
+ *             a hang past the budget, or an unreadable payload REFUSES the
+ *             call (it used to emit {continue: true}, a bypass on any input
+ *             that crashed or stalled the guard).
  *
  * Why degraded mode is a working-tree-mutation predicate, NOT an
  * Edit/Write tool-name allowlist (R5-S-03):
@@ -94,13 +99,31 @@
 
 "use strict";
 
-const TIMEOUT_MS = 5000;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git ls-files` / `git check-ignore` (wouldMutateWorkingTree), the sibling-porcelain worktree enumeration, lib/state-resolver.js, and lib/operator-id.js::resolveIdentity's key discovery (git / ssh-keygen / gpg). The hook itself performs no durable write: the operator-id hint cache it used to declare (lib/operator-id.js::_writeCache) was REMOVED 2026-10-09 — its reader had already been deleted and nothing in the repo read the file, so the write was dead. lib/instruct-and-wait.js emits to stdout only."
+ * }
+ */
 
-let fallback = null;
+// The out-of-engine run budget handed to runGuard (inside the dispatcher the row's own
+// registered timeout is the bound and this value is unused). Raised 5000 -> 20000
+// (2026-10-08) TOGETHER with its settings.json registration (5s -> 20s, both rows): the
+// sibling-porcelain-scaling BUDGET fixture asserts these move together, so a load-slowed
+// scan is not cut by the runner while the harness is still willing to wait. A run past
+// it is REFUSED (never passed through). Registered timeouts are [20,20]s.
+const TIMEOUT_MS = 20000;
 
 const fs = require("fs");
 const path = require("path");
-const { spawnSync } = require("child_process");
+const { runGuard } = require("./lib/guard-runner.js");
 
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 const { resolveIdentity } = require(
@@ -111,9 +134,6 @@ const siblingPorcelain = require(
 );
 const { isMutationTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
-);
-const { resolveGitBinary, gitEnv } = require(
-  path.join(__dirname, "lib", "git-subprocess-env.js"),
 );
 // loom#1896 § THE CONFLATION — signing-mutation refusal fences THE AGENT, not a
 // sibling human, so it asks the GOVERNANCE question. See
@@ -129,12 +149,9 @@ const { resolveRepoDirBound } = require(
 );
 
 function passthrough() {
-  clearTimeout(fallback);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
-
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function resolveRepoDir(payload) {
   // loom#1871 HIGH-1 — the override is now bound to the SESSION REPOSITORY.
@@ -143,7 +160,8 @@ function resolveRepoDir(payload) {
   // unrelated repo and it passed everything through. See lib/repo-dir-override.js
   // for the 8-of-8 two-pole measurement, the three arms, and why
   // `provenCheckoutRoot` does not close it.
-  return resolveRepoDirBound(payload, { hookName: "signing-mutation-guard" }).repoDir;
+  return resolveRepoDirBound(payload, { hookName: "signing-mutation-guard" })
+    .repoDir;
 }
 
 /**
@@ -312,17 +330,23 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
     //
     // Unresolvable git ranks TIGHTEST: return true (treat as mutating), which is
     // this function's own documented degraded-mode direction above.
-    const gitBin = resolveGitBinary();
-    if (!gitBin) return true;
+    //
+    // M-W4.3 RUN 8: both reads now run through THE TARGET-REPO ENVELOPE
+    // (lib/target-repo-git.js). They read the INDEX, and an index read refreshes
+    // through the repository's configured `core.fsmonitor` program — and that
+    // repository's config is the agent's to write. The repository is resolved ONCE
+    // from `repoDir`; a repository that does not resolve, a non-absolute repoDir, or
+    // a refused/unanswered read all rank TIGHTEST (return true), as before.
+    if (typeof repoDir !== "string" || !path.isAbsolute(repoDir)) return true;
+    const { resolveTargetRepo, targetGit } = require(path.join(__dirname, "lib", "target-repo-git.js"));
+    const resolved = resolveTargetRepo({ dir: repoDir }, { timeout: 2000 });
+    if (!resolved.ok) return true;
     // Try `git ls-files --error-unmatch`. Tracked → exit 0.
-    const r = spawnSync(gitBin, ["ls-files", "--error-unmatch", candidateRel], {
+    const r = targetGit(resolved.repo, ["ls-files", "--error-unmatch", "--", candidateRel], {
       cwd: repoDir,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
       timeout: 2000,
-      env: gitEnv(),
     });
-    if (r.status === 0) return true;
+    if (r.ok) return true;
     // Untracked. Check if it's gitignored — if so, no mutation
     // signal (untracked + gitignored = silent fail-open).
     //
@@ -330,15 +354,13 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
     // config, so a path ignored only via a global `core.excludesFile` now reads
     // as NOT ignored (exit 1) and falls through to `return true`. That is the
     // fail-CLOSED direction — the guard fires more often, never less.
-    const ig = spawnSync(gitBin, ["check-ignore", "-q", candidateRel], {
+    const ig = targetGit(resolved.repo, ["check-ignore", "-q", "--", candidateRel], {
       cwd: repoDir,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
       timeout: 2000,
-      env: gitEnv(),
     });
-    // exit 0 = ignored; exit 1 = not ignored
-    if (ig.status === 0) return false;
+    // exit 0 = ignored; exit 1 = not ignored; a refused or unanswered read is
+    // neither, and falls through to the fail-CLOSED `return true`.
+    if (ig.ok) return false;
     // Not tracked AND not ignored — would-be new tracked file. That's
     // a mutation by the working-tree predicate.
     return true;
@@ -348,246 +370,232 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
 
 // ---- main -------------------------------------------------------------------
 
-async function main() {
-  try {
-    const payload = await readStdinBounded();
-    const hookEvent = payload.hook_event_name || "PreToolUse";
+// main — the decision over the PARSED payload. guard-runner.js reads and parses stdin
+// (an empty, unparseable or non-object payload REFUSES there and never reaches here)
+// and owns the budget. Nothing below catches a throw: a run that cannot finish is
+// refused by the runner (or, in the engine, by the dispatcher's on_incomplete:"deny").
+async function main(payload) {
+  const hookEvent = payload.hook_event_name || "PreToolUse";
 
-    const op = classifyOperation(payload);
-    if (op.kind === "none") {
-      passthrough();
-    }
+  const op = classifyOperation(payload);
+  if (op.kind === "none") {
+    passthrough();
+  }
 
-    const repoDir = resolveRepoDir(payload);
+  const repoDir = resolveRepoDir(payload);
 
-    // MO-OPT W1-c — opt-in gate (workspaces/multi-operator-optional, journal/0330).
-    // BOTH the §4.2 sibling-worktree porcelain check AND the degraded-mode
-    // (no-signing-key) mutation block are coordination-substrate concerns. On a
-    // solo / fresh repo (coordination OFF) there are no sibling worktrees, and
-    // an absent signing key is "un-enrolled", NOT "degraded" — blocking every
-    // tracked-path Edit/Write/commit because no GPG key is configured is THE
-    // disruption (analysis gate #3). Passthrough. When ENABLED, byte-unchanged.
-    //
-    // MO-OPT holistic post-multi-wave redteam (Cluster A): the predicate's tier-2
-    // local-override (.claude/learning/coordination-mode.json) is GITIGNORED →
-    // ABSENT in a worktree. Reading it against the worktree cwd would split a
-    // tier-2-enrolled repo OFF here while integrity-guard / journal-write-guard
-    // read it ON from main (cross-shard inconsistency + S6 weakening on the
-    // local-override path). Resolve the MAIN checkout for the predicate ONLY (the
-    // same main-checkout discipline as trust-posture.md MUST-1 / integrity-guard
-    // .js:362); repoDir stays the worktree cwd for §4.2 porcelain + repoRelative.
-    // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
-    // Same shape as adjacency-leasecheck: the `|| repoDir` could not fire, so an
-    // unidentifiable root reached the predicate against a directory holding no
-    // coordination state → false → `passthrough()`, disabling the signing-key
-    // mutation fence. `repoDir` deliberately STAYS the worktree cwd below.
-    const mainRes = requireMainCheckout(repoDir);
-    if (!mainRes.ok) {
-      clearTimeout(fallback);
+  // MO-OPT W1-c — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+  // BOTH the §4.2 sibling-worktree porcelain check AND the degraded-mode
+  // (no-signing-key) mutation block are coordination-substrate concerns. On a
+  // solo / fresh repo (coordination OFF) there are no sibling worktrees, and
+  // an absent signing key is "un-enrolled", NOT "degraded" — blocking every
+  // tracked-path Edit/Write/commit because no GPG key is configured is THE
+  // disruption (analysis gate #3). Passthrough. When ENABLED, byte-unchanged.
+  //
+  // MO-OPT holistic post-multi-wave redteam (Cluster A): the predicate's tier-2
+  // local-override (.claude/learning/coordination-mode.json) is GITIGNORED →
+  // ABSENT in a worktree. Reading it against the worktree cwd would split a
+  // tier-2-enrolled repo OFF here while integrity-guard / journal-write-guard
+  // read it ON from main (cross-shard inconsistency + S6 weakening on the
+  // local-override path). Resolve the MAIN checkout for the predicate ONLY (the
+  // same main-checkout discipline as trust-posture.md MUST-1 / integrity-guard
+  // .js:362); repoDir stays the worktree cwd for §4.2 porcelain + repoRelative.
+  // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
+  // Same shape as adjacency-leasecheck: the `|| repoDir` could not fire, so an
+  // unidentifiable root reached the predicate against a directory holding no
+  // coordination state → false → `passthrough()`, disabling the signing-key
+  // mutation fence. `repoDir` deliberately STAYS the worktree cwd below.
+  const mainRes = requireMainCheckout(repoDir);
+  if (!mainRes.ok) {
+    emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: `Signing-mutation check could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
+      why: "multi-operator-coc/signing-mutation-guard — this fence governs mutations to signing-key and trust-root material, and its coordination-enabled predicate reads MAIN-checkout state. Unidentified, that predicate returns false and its branch is `passthrough()`, so a signing mutation would proceed unchecked exactly when the resolver cannot tell which repository it is in. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity). Severity is block — the same disposition, on the same reasoning, as integrity-guard.js on this same predicate: the signal is process-state (git exited non-zero), the structural grounding hook-output-discipline.md MUST-2 requires — a lexical match would not qualify. MUST-2 PERMITS block here; what REQUIRES it is that halt-and-report maps to continue:true and the signing mutation RUNS (lib/instruct-and-wait.js), so on a mutation fence it is not a softer refusal but no refusal at all. The operator's recovery path is CLAUDE_TRUST_STATE_DIR, named in the report below.",
+      agent_must_report: [
+        `Worktree cwd: ${repoDir}`,
+        `Resolver reason: ${mainRes.reason}`,
+        "The signing-mutation fence did NOT run — its result is UNKNOWN, not clean.",
+        "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
+      ],
+      agent_must_wait:
+        "Do not retry the signing mutation until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+      user_summary:
+        "signing-mutation-guard — main checkout unidentifiable; refused rather than passed through",
+    });
+    // emit() exits
+  }
+  if (!isGovernanceEnabled(mainRes.repoDir)) {
+    passthrough();
+  }
+
+  const candidateRel =
+    op.kind === "edit-write" ? repoRelative(op.targetPath, repoDir) : null;
+
+  // (1) Degraded-mode working-tree-mutation predicate.
+  // Discover signing key. If absent → degraded mode. The predicate
+  // then fires when the operation would mutate the working tree on
+  // a tracked path.
+  //
+  // THIS BRANCH STAYS severity: block — do NOT "consistency-fix" it
+  // down to halt-and-report because the §4.2 contention branch below
+  // was downgraded (loom#1323). They are DIFFERENT threat classes:
+  //   (a) cross-worktree contention → a RECOVERABLE 3-way merge
+  //       conflict in a physically separate working tree, which git
+  //       surfaces loudly at merge time → surface-and-adjudicate.
+  //   (b) degraded mode → an UNSIGNED mutation. The operator cannot
+  //       sign coordination records, so the write lands with no
+  //       attributable, chain-verifiable record (architecture v11
+  //       R4-S-02 + R5-S-03: degraded mode is READ-ONLY). Nothing
+  //       downstream recovers the missing signature after the fact —
+  //       that is the IRRECOVERABLE class block is reserved for.
+  //
+  // PRECEDENCE (load-bearing, loom#1323): this IRRECOVERABLE branch is
+  // evaluated BEFORE the recoverable §4.2 contention branch. emit()
+  // calls process.exit(), so whichever branch fires first is the ONLY
+  // one that runs. Pre-#1323 both emitted block, so the order was
+  // immaterial; once §4.2 became halt-and-report, evaluating it first
+  // let a degraded-mode (unsigned) mutation on a CONTENDED path exit 0
+  // — the porcelain halt silently swallowed the degraded-mode block.
+  // Ordering irrecoverable-first restores it. Do NOT reorder these two.
+  const explicitKey = process.env.COC_OPERATOR_KEY_PATH;
+  const forceDegraded =
+    process.env.COC_SIGNING_MUTATION_GUARD_FORCE_DEGRADED === "1";
+  let signingKeyAvailable;
+  if (forceDegraded) {
+    signingKeyAvailable = false;
+  } else if (explicitKey !== undefined) {
+    // Explicit env path. Empty string IS degraded.
+    signingKeyAvailable =
+      typeof explicitKey === "string" &&
+      explicitKey.length > 0 &&
+      fs.existsSync(explicitKey);
+  } else {
+    // Fall back to resolveIdentity — verified_id present = signing
+    // key chain works.
+    const id = resolveIdentity(repoDir, {});
+    signingKeyAvailable = !!(id && id.verified_id);
+  }
+
+  if (!signingKeyAvailable) {
+    const mutates = wouldMutateWorkingTree(op.kind, repoDir, candidateRel);
+    if (mutates) {
+      const opDesc =
+        op.kind === "edit-write"
+          ? `Edit/Write on ${candidateRel || "<unknown>"}`
+          : op.kind === "git-mut"
+            ? `git mutation command: ${op.command.slice(0, 80)}`
+            : `fs mutation command: ${op.command.slice(0, 80)}`;
       emit({
+        escalate: "security",
         hookEvent,
         severity: "block",
-        what_happened: `Signing-mutation check could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
-        why: "multi-operator-coc/signing-mutation-guard — this fence governs mutations to signing-key and trust-root material, and its coordination-enabled predicate reads MAIN-checkout state. Unidentified, that predicate returns false and its branch is `passthrough()`, so a signing mutation would proceed unchecked exactly when the resolver cannot tell which repository it is in. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity). Severity is block — the same disposition, on the same reasoning, as integrity-guard.js on this same predicate: the signal is process-state (git exited non-zero), the structural grounding hook-output-discipline.md MUST-2 requires — a lexical match would not qualify. MUST-2 PERMITS block here; what REQUIRES it is that halt-and-report maps to continue:true and the signing mutation RUNS (lib/instruct-and-wait.js), so on a mutation fence it is not a softer refusal but no refusal at all. The operator's recovery path is CLAUDE_TRUST_STATE_DIR, named in the report below.",
+        what_happened: `Degraded mode (no signing key configured) — would-be working-tree mutation: ${opDesc}.`,
+        why: "multi-operator-coc/signing-mutation-guard — degraded mode is READ-ONLY per architecture v11 R4-S-02 + R5-S-03. The working-tree-mutation predicate (`git status --porcelain` before/after on tracked paths) IS the structural primitive — NOT an Edit/Write tool-name allowlist. Without a signing key, the operator cannot sign coordination records; any mutation that would leave a tracked-path delta is structurally inconsistent with the coordination contract. Block grounded in structural git-tracking signal (hook-output-discipline.md MUST-2).",
         agent_must_report: [
-          `Worktree cwd: ${repoDir}`,
-          `Resolver reason: ${mainRes.reason}`,
-          "The signing-mutation fence did NOT run — its result is UNKNOWN, not clean.",
-          "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
+          `Operation: ${op.kind}`,
+          candidateRel
+            ? `Target: ${candidateRel} (tracked or would-be-tracked)`
+            : "Target: derived from the mutation command above",
+          "Signing key resolution: no key discoverable via operator-id.js (Tier-1 explicit / Tier-2 git config).",
+          "Configure a signing key (run /whoami --register), then retry.",
+          "If this session is genuinely read-only (audit/inspection only), use read tools (Read / Glob / Grep) instead of Edit/Write/git-mut.",
         ],
         agent_must_wait:
-          "Do not retry the signing mutation until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
-        user_summary:
-          "signing-mutation-guard — main checkout unidentifiable; refused rather than passed through",
+          "Do not retry the mutation until a signing key is configured AND /whoami --register has rostered it.",
+        user_summary: `signing-mutation-guard — BLOCK degraded-mode mutation (${op.kind})`,
       });
       // emit() exits
     }
-    if (!isGovernanceEnabled(mainRes.repoDir)) {
-      passthrough();
-    }
-
-    const candidateRel =
-      op.kind === "edit-write" ? repoRelative(op.targetPath, repoDir) : null;
-
-    // (1) Degraded-mode working-tree-mutation predicate.
-    // Discover signing key. If absent → degraded mode. The predicate
-    // then fires when the operation would mutate the working tree on
-    // a tracked path.
-    //
-    // THIS BRANCH STAYS severity: block — do NOT "consistency-fix" it
-    // down to halt-and-report because the §4.2 contention branch below
-    // was downgraded (loom#1323). They are DIFFERENT threat classes:
-    //   (a) cross-worktree contention → a RECOVERABLE 3-way merge
-    //       conflict in a physically separate working tree, which git
-    //       surfaces loudly at merge time → surface-and-adjudicate.
-    //   (b) degraded mode → an UNSIGNED mutation. The operator cannot
-    //       sign coordination records, so the write lands with no
-    //       attributable, chain-verifiable record (architecture v11
-    //       R4-S-02 + R5-S-03: degraded mode is READ-ONLY). Nothing
-    //       downstream recovers the missing signature after the fact —
-    //       that is the IRRECOVERABLE class block is reserved for.
-    //
-    // PRECEDENCE (load-bearing, loom#1323): this IRRECOVERABLE branch is
-    // evaluated BEFORE the recoverable §4.2 contention branch. emit()
-    // calls process.exit(), so whichever branch fires first is the ONLY
-    // one that runs. Pre-#1323 both emitted block, so the order was
-    // immaterial; once §4.2 became halt-and-report, evaluating it first
-    // let a degraded-mode (unsigned) mutation on a CONTENDED path exit 0
-    // — the porcelain halt silently swallowed the degraded-mode block.
-    // Ordering irrecoverable-first restores it. Do NOT reorder these two.
-    const explicitKey = process.env.COC_OPERATOR_KEY_PATH;
-    const forceDegraded =
-      process.env.COC_SIGNING_MUTATION_GUARD_FORCE_DEGRADED === "1";
-    let signingKeyAvailable;
-    if (forceDegraded) {
-      signingKeyAvailable = false;
-    } else if (explicitKey !== undefined) {
-      // Explicit env path. Empty string IS degraded.
-      signingKeyAvailable =
-        typeof explicitKey === "string" &&
-        explicitKey.length > 0 &&
-        fs.existsSync(explicitKey);
-    } else {
-      // Fall back to resolveIdentity — verified_id present = signing
-      // key chain works.
-      const id = resolveIdentity(repoDir, {});
-      signingKeyAvailable = !!(id && id.verified_id);
-    }
-
-    if (!signingKeyAvailable) {
-      const mutates = wouldMutateWorkingTree(op.kind, repoDir, candidateRel);
-      if (mutates) {
-        clearTimeout(fallback);
-        const opDesc =
-          op.kind === "edit-write"
-            ? `Edit/Write on ${candidateRel || "<unknown>"}`
-            : op.kind === "git-mut"
-              ? `git mutation command: ${op.command.slice(0, 80)}`
-              : `fs mutation command: ${op.command.slice(0, 80)}`;
-        emit({
-          hookEvent,
-          severity: "block",
-          what_happened: `Degraded mode (no signing key configured) — would-be working-tree mutation: ${opDesc}.`,
-          why: "multi-operator-coc/signing-mutation-guard — degraded mode is READ-ONLY per architecture v11 R4-S-02 + R5-S-03. The working-tree-mutation predicate (`git status --porcelain` before/after on tracked paths) IS the structural primitive — NOT an Edit/Write tool-name allowlist. Without a signing key, the operator cannot sign coordination records; any mutation that would leave a tracked-path delta is structurally inconsistent with the coordination contract. Block grounded in structural git-tracking signal (hook-output-discipline.md MUST-2).",
-          agent_must_report: [
-            `Operation: ${op.kind}`,
-            candidateRel
-              ? `Target: ${candidateRel} (tracked or would-be-tracked)`
-              : "Target: derived from the mutation command above",
-            "Signing key resolution: no key discoverable via operator-id.js (Tier-1 explicit / Tier-2 git config).",
-            "Configure a signing key (run /whoami --register), then retry.",
-            "If this session is genuinely read-only (audit/inspection only), use read tools (Read / Glob / Grep) instead of Edit/Write/git-mut.",
-          ],
-          agent_must_wait:
-            "Do not retry the mutation until a signing key is configured AND /whoami --register has rostered it.",
-          user_summary: `signing-mutation-guard — BLOCK degraded-mode mutation (${op.kind})`,
-        });
-        // emit() exits
-      }
-    }
-
-    // (2) §4.2 sibling-worktree porcelain check. Fires only when we
-    // have a concrete target path (Edit/Write); git-mut/fs-mut don't
-    // have a single target path to check (the commit/push touches
-    // whatever is staged; the porcelain check IS the signal but
-    // operates on the local working tree, not sibling worktrees, in
-    // that case — out of scope for this branch). Evaluated AFTER the
-    // degraded-mode block per the PRECEDENCE note above: this branch is
-    // the RECOVERABLE class, so it must not pre-empt the irrecoverable one.
-    if (op.kind === "edit-write" && candidateRel) {
-      const contention = detectSiblingContention(repoDir, candidateRel);
-      if (contention.matched) {
-        const sib = contention.siblings[0] || {};
-        clearTimeout(fallback);
-        emit({
-          hookEvent,
-          severity: "halt-and-report",
-          what_happened: `Sibling worktree porcelain shows '${candidateRel}' uncommitted-modified at ${sib.worktree || "<sibling>"}.`,
-          why: `multi-operator-coc/signing-mutation-guard §4.2 filesystem exception — sibling-worktree contention detected via the porcelain primitive (lib/sibling-porcelain.js, evidence=${contention.evidence}). The porcelain primitive is process-local structural (\`git status --porcelain\` against an enumerated sibling worktree), so hook-output-discipline.md MUST-2 PERMITS severity=block — it does not REQUIRE it, and this branch emits halt-and-report on proportionality grounds (loom#1323): sibling worktrees have physically separate working trees, so this write cannot clobber the sibling's bytes on disk, and the only real collision is a 3-way merge conflict at merge time, which git surfaces loudly and non-destructively. block stays reserved for IRRECOVERABLE outcomes (this guard's degraded-mode branch above, which is evaluated first). Surface the contention; the operator adjudicates.`,
-          agent_must_report: [
-            `Target path: ${candidateRel}`,
-            `Conflicting sibling worktree: ${sib.worktree || "<unknown>"}`,
-            `Detection: ${contention.evidence === "override" ? "test-surrogate override (COC_PORCELAIN_OVERRIDE)" : "production primitive (git worktree list + sibling status --porcelain)"}`,
-            "The sibling's on-disk work is NOT at risk (separate working trees); the exposure is a 3-way merge conflict when both branches land.",
-            "Adjudication options: reconcile at merge, coordinate with the sibling operator (they commit/stash/land first), or re-scope this edit.",
-          ],
-          agent_must_wait:
-            "Report the contention and your recommended option, then wait for the operator's direction before further edits to this path.",
-          user_summary: `signing-mutation-guard — cross-worktree contention on ${candidateRel} (sibling worktree ${sib.worktree || "<unknown>"} holds it uncommitted-modified)`,
-        });
-        // emit() exits
-      }
-      // loom#1471 shard 5. INDETERMINATE is not "no contention". The sibling
-      // enumeration goes indeterminate when git is unresolvable, when
-      // `git worktree list` exits non-zero (a `safe.directory` refusal on a
-      // dubious-ownership checkout is the reachable case, made MORE reachable by
-      // gitEnv() neutralising global config), or when an enumerated sibling's
-      // porcelain could not be read. Previously every one of those collapsed
-      // into the same empty list a genuine no-contention answer produces, and
-      // the guard passed through silently — the check never fired at all.
-      //
-      // halt-and-report, not block, on the same proportionality grounds the
-      // positive branch uses (loom#1323): a sibling's on-disk bytes are never at
-      // risk from this write. The operator is told the check could not run.
-      if (contention.indeterminate) {
-        clearTimeout(fallback);
-        emit({
-          hookEvent,
-          severity: "halt-and-report",
-          what_happened: `Sibling-worktree contention check could not run for '${candidateRel}': ${contention.reason}`,
-          why: "multi-operator-coc/signing-mutation-guard §4.2 — the porcelain primitive returned INDETERMINATE, which is NOT evidence of no contention (rules/instrument-discipline.md MUST-1: a result consistent with both branches of the hypothesis carries no information). Passing through here would silently skip the check on exactly the hosts where it fails — an unresolvable git binary, or a `safe.directory` refusal on a dubious-ownership checkout.",
-          agent_must_report: [
-            `Target path: ${candidateRel}`,
-            `Why the check could not answer: ${contention.reason}`,
-            "State explicitly that sibling-worktree contention is UNKNOWN for this path — not absent.",
-            "Remediation: ensure git is resolvable, or add this checkout to safe.directory, then retry.",
-          ],
-          agent_must_wait:
-            "Report that the contention check did not run and wait for the operator's direction before editing this path.",
-          user_summary: `signing-mutation-guard — contention check INDETERMINATE for ${candidateRel} (not a clean result)`,
-        });
-        // emit() exits
-      }
-    }
-
-    // No contention, no degraded-mode mutation → passthrough.
-    passthrough();
-  } catch (err) {
-    try {
-      process.stderr.write(
-        `[ADVISORY] signing-mutation-guard internal error: ${err && err.message ? err.message : String(err)}\n`,
-      );
-    } catch {
-      // best-effort
-    }
-    try {
-      clearTimeout(fallback);
-      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    } catch {
-      // best-effort
-    }
-    process.exit(0);
   }
+
+  // (2) §4.2 sibling-worktree porcelain check. Fires only when we
+  // have a concrete target path (Edit/Write); git-mut/fs-mut don't
+  // have a single target path to check (the commit/push touches
+  // whatever is staged; the porcelain check IS the signal but
+  // operates on the local working tree, not sibling worktrees, in
+  // that case — out of scope for this branch). Evaluated AFTER the
+  // degraded-mode block per the PRECEDENCE note above: this branch is
+  // the RECOVERABLE class, so it must not pre-empt the irrecoverable one.
+  if (op.kind === "edit-write" && candidateRel) {
+    const contention = detectSiblingContention(repoDir, candidateRel);
+    if (contention.matched) {
+      const sib = contention.siblings[0] || {};
+      emit({
+        escalate: "security",
+        hookEvent,
+        severity: "halt-and-report",
+        what_happened: `Sibling worktree porcelain shows '${candidateRel}' uncommitted-modified at ${sib.worktree || "<sibling>"}.`,
+        why: `multi-operator-coc/signing-mutation-guard §4.2 filesystem exception — sibling-worktree contention detected via the porcelain primitive (lib/sibling-porcelain.js, evidence=${contention.evidence}). The porcelain primitive is process-local structural (\`git status --porcelain\` against an enumerated sibling worktree), so hook-output-discipline.md MUST-2 PERMITS severity=block — it does not REQUIRE it, and this branch emits halt-and-report on proportionality grounds (loom#1323): sibling worktrees have physically separate working trees, so this write cannot clobber the sibling's bytes on disk, and the only real collision is a 3-way merge conflict at merge time, which git surfaces loudly and non-destructively. block stays reserved for IRRECOVERABLE outcomes (this guard's degraded-mode branch above, which is evaluated first). Surface the contention; the operator adjudicates.`,
+        agent_must_report: [
+          `Target path: ${candidateRel}`,
+          `Conflicting sibling worktree: ${sib.worktree || "<unknown>"}`,
+          `Detection: ${contention.evidence === "override" ? "test-surrogate override (COC_PORCELAIN_OVERRIDE)" : "production primitive (git worktree list + sibling status --porcelain)"}`,
+          "The sibling's on-disk work is NOT at risk (separate working trees); the exposure is a 3-way merge conflict when both branches land.",
+          "Adjudication options: reconcile at merge, coordinate with the sibling operator (they commit/stash/land first), or re-scope this edit.",
+        ],
+        agent_must_wait:
+          "Report the contention and your recommended option, then wait for the operator's direction before further edits to this path.",
+        user_summary: `signing-mutation-guard — cross-worktree contention on ${candidateRel} (sibling worktree ${sib.worktree || "<unknown>"} holds it uncommitted-modified)`,
+      });
+      // emit() exits
+    }
+    // loom#1471 shard 5. INDETERMINATE is not "no contention". The sibling
+    // enumeration goes indeterminate when git is unresolvable, when
+    // `git worktree list` exits non-zero (a `safe.directory` refusal on a
+    // dubious-ownership checkout is the reachable case, made MORE reachable by
+    // gitEnv() neutralising global config), or when an enumerated sibling's
+    // porcelain could not be read. Previously every one of those collapsed
+    // into the same empty list a genuine no-contention answer produces, and
+    // the guard passed through silently — the check never fired at all.
+    //
+    // halt-and-report, not block, on the same proportionality grounds the
+    // positive branch uses (loom#1323): a sibling's on-disk bytes are never at
+    // risk from this write. The operator is told the check could not run.
+    if (contention.indeterminate) {
+      emit({
+        escalate: "security",
+        hookEvent,
+        severity: "halt-and-report",
+        what_happened: `Sibling-worktree contention check could not run for '${candidateRel}': ${contention.reason}`,
+        why: "multi-operator-coc/signing-mutation-guard §4.2 — the porcelain primitive returned INDETERMINATE, which is NOT evidence of no contention (rules/instrument-discipline.md MUST-1: a result consistent with both branches of the hypothesis carries no information). Passing through here would silently skip the check on exactly the hosts where it fails — an unresolvable git binary, or a `safe.directory` refusal on a dubious-ownership checkout.",
+        agent_must_report: [
+          `Target path: ${candidateRel}`,
+          `Why the check could not answer: ${contention.reason}`,
+          "State explicitly that sibling-worktree contention is UNKNOWN for this path — not absent.",
+          "Remediation: ensure git is resolvable, or add this checkout to safe.directory, then retry.",
+        ],
+        agent_must_wait:
+          "Report that the contention check did not run and wait for the operator's direction before editing this path.",
+        user_summary: `signing-mutation-guard — contention check INDETERMINATE for ${candidateRel} (not a clean result)`,
+      });
+      // emit() exits
+    }
+  }
+
+  // No contention, no degraded-mode mutation → passthrough.
+  passthrough();
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). The fallback timer it arms is
-// the one the file used to arm at load time; main() is the former IIFE.
-function hookMain() {
-  fallback = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  return main();
-}
+// in-process by lib/hook-engine.js (dispatch.js). A require() has no side effects.
+const hookMain = runGuard("signing-mutation-guard", main, { budgetMs: TIMEOUT_MS });
 
-module.exports = { hookMain };
+module.exports = {
+  hookMain,
+  // Exported for the routing closure cases (tests/integration/multi-operator/
+  // target-repo-git-routing.test.js), which plant a program in the repository's
+  // config and assert its index reads never run it.
+  _wouldMutateWorkingTree: wouldMutateWorkingTree,
+};
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The
 // selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
   else {
     // FW-TIER2 — a STANDALONE invocation is one hook event, so it opens the same
     // one-answer-per-question scope the dispatch worker opens. Without it every

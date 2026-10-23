@@ -39,6 +39,8 @@ const { execFileSync } = require("child_process");
 const { instructAndWait } = require("./lib/instruct-and-wait");
 const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 const { resolveGitBinary, gitEnv } = require("./lib/git-subprocess-env.js");
+// The shared non-blocking, fd-checked reader — see the .staging-passed read.
+const { readRegularFileBounded } = require("./lib/landing-window-read.js");
 
 /*
  * loom#1588 round 2 — BUDGET, AND WHY IT GREW FROM 5000.
@@ -2361,6 +2363,7 @@ function emitBlock({
   user_summary,
 }) {
   const out = instructAndWait({
+    escalate: "structural-gate",
     hookEvent: "PreToolUse",
     severity: "block",
     what_happened,
@@ -3417,6 +3420,7 @@ async function main() {
        * proceeds — but the agent MUST surface it.
        */
       const out = instructAndWait({
+        escalate: "structural-gate",
         hookEvent: "PreToolUse",
         severity: "halt-and-report",
         what_happened:
@@ -3504,8 +3508,28 @@ async function main() {
       return;
     }
 
-    // Verify that .staging-passed contains the current commit
-    const marker = fs.readFileSync(markerPath, "utf8").trim();
+    // Verify that .staging-passed contains the current commit. Read non-blocking
+    // and decided on the opened fd: a FIFO at the marker (or swapped in after the
+    // existsSync above) was a blocking readFileSync that parked this PreToolUse
+    // guard until its host killed it. A marker that exists but cannot be read as
+    // a regular file is NOT a passing gate — blocked, the tightest answer.
+    const markerRead = readRegularFileBounded(markerPath);
+    if (!markerRead.ok) {
+      emitBlock({
+        what_happened: `Production deploy attempted with a .staging-passed marker that could not be read as a regular file (${markerRead.reason}) at ${markerPath}`,
+        why: "deploy-hygiene.md — the marker is only evidence when its content can be read and matched against the current commit; an unreadable or non-regular marker verifies nothing",
+        agent_must_report: [
+          "Quote the deploy command",
+          `State that ${markerPath} exists but is not a readable regular file (${markerRead.reason})`,
+          "Re-run `bash deploy/scripts/promote.sh` so staging rewrites the marker, then retry",
+        ],
+        agent_must_wait:
+          "Do not retry until staging has rewritten .staging-passed as a regular file at the current commit, OR --skip-staging is passed with a documented reason.",
+        user_summary: "Production deploy blocked — staging marker unreadable",
+      });
+      return;
+    }
+    const marker = markerRead.text.trim();
     let currentCommit;
     try {
       // loom#1471 shard 3 — the other half of the gate; see the comment above.

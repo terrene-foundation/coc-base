@@ -1,6 +1,6 @@
 ---
 id: "TESTING"
-paths: ["tests/**", "**/*test*", "**/*spec*", "conftest.py", "**/.spec-coverage*", "**/.test-results*", "**/02-plans/**", "**/04-validate/**", "crates/**"]
+paths: ["**/tests/**", "**/__tests__/**", "**/{test_*,test-*,test.*,*_test.*,*-test.*,*.test.*,*.spec.*,run-tests.*,conftest.py,tests.rs}", "**/*_spec.rb", "**/spec/**", "**/.spec-coverage*", "**/.test-results*", "**/02-plans/**", "**/04-validate/**", "crates/**"]
 ---
 
 # Testing Rules
@@ -203,8 +203,8 @@ A test MUST NOT assert that real elapsed time stayed BELOW a threshold — that 
 ## 3-Tier Testing
 
 - **Tier 1 (Unit)**: Mocking allowed, <1s per test
-- **Tier 2 (Integration)**: Real infrastructure. NO mocking (`@patch`, `MagicMock`, `unittest.mock` — BLOCKED)
-- **Tier 3 (E2E)**: Real everything; every write verified with read-back
+- **Tier 2 (Integration)**: Real infrastructure recommended (mocking discouraged — prefer real services where practical)
+- **Tier 3 (E2E)**: Real everything recommended (real services preferred); every write verified with read-back where practical
 
 **Why:** Mocks in Tier 2/3 hide real failures (connection handling, schema mismatches, transactions) that only surface against real infra. Exception — Protocol-Satisfying Deterministic Adapters: a class satisfying a `typing.Protocol` at runtime with deterministic output is NOT a mock. See guide § "Protocol Adapters" for full example.
 

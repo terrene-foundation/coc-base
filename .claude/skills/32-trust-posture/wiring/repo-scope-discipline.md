@@ -16,7 +16,7 @@ Tier-1 gate.
 
 ## Trust Posture Wiring
 
-Applies to the **Affordance + Read/Write Tier (D)** subsection + the condition-4 receipt-location amendment (added 2026-07-14, `journal/0488`). Per `trust-posture.md` MUST-8 grandfather cutoff, these clauses land AT/AFTER the MUST-8 SHA and MUST ship canonical-8-field-compliant; the pre-existing grandfathered sections of this file (the MUST NOT block, the five conditions 1/2/3/5, § Exceptions) remain exempt until each is itself `/codify`-touched (the clause-scoped precedent set by `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge + `artifact-flow.md` § Canon-Neutrality).
+Applies to the **Affordance + Read/Write Tier (D)** subsection + the condition-4 receipt-location amendment (added 2026-07-14, `journal/0488`). Per `trust-posture.md` MUST-8 grandfather cutoff, these clauses land AT/AFTER the MUST-8 SHA and MUST ship canonical-8-field-compliant; the pre-existing grandfathered sections of this file (the MUST NOT block, the five conditions 1/2/3/5, § Exceptions) remain exempt until each is itself `/codify`-touched (the clause-scoped precedent set by `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge + `artifact-flow-routing.md` § Canon-Neutrality).
 
 - **Severity:** `halt-and-report` at the hook layer (the PreToolUse guide-first `detect-violations.js` branch + the PostToolUse `detectRepoScopeDriftBash` advisory both emit `halt-and-report` — lexical `gh --repo` detection MUST NOT carry `block` per `hook-output-discipline.md` MUST-2); `halt-and-report` also at gate-review (reviewer / cc-architect confirm a cross-repo action carried a `/cross-repo-authorize` receipt at the correct tier).
 - **Grace period:** 7 days from clause landing (2026-07-14 → 2026-07-21).

@@ -1,9 +1,10 @@
 # Working with Codex CLI on loom COC
 
-Verified against official OpenAI documentation on 2026-09-28. The local CLI reports
-`0.158.0`; the public changelog inspected during this refresh lists `0.157.1`.
-These are different evidence surfaces: installed capability is not a public release
-claim. Use `codex --version` and the command's `--help` when checking another install.
+The installed version and `exec --help` were rechecked on 2026-10-02:
+`codex-cli 0.159.3`. Native hook contracts were checked against the official
+documentation on the same date. Earlier version-specific runtime probes below
+retain their original scope; an installed version is not a public release claim.
+Use `codex --version` and command-specific `--help` on another installation.
 
 ## Start and inspect a session
 
@@ -42,6 +43,11 @@ role access to its presentation surface. Emission preserves the source exclusion
 and role rules. Personal config, credentials, hook-trust decisions, and installed
 plugins are not copied into consumers.
 
+Loom's explicitly elected local-authoring profile exposes its full authoring
+catalog. Consumer emission retains its own exclusions and role selection; it
+cannot activate this source-only profile
+(`.claude/bin/lib/local-authoring-projection.mjs:7-63`).
+
 ## Invoke a phase or skill
 
 In an interactive prompt, type `$coc-analyze`, `$coc-todos`, or `$coc-implement`, then
@@ -58,9 +64,16 @@ bin/coc implement "Wire the approved auth change."
 bin/coc-analyze "Audit the connection-pool surface."
 ```
 
-The dispatcher supplies the phase procedure and JSON output contract to `codex exec`.
-It requires the CLI on `PATH` and the delivered procedure/schema files. It starts a
-separate run; it does not switch the phase of an already-running interactive session.
+The dispatcher supplies the phase procedure and JSON output contract to `codex exec`
+through `phase_procedure` and its exec call (`.claude/codex-templates/bin/coc:36-41,118-142`). It requires the CLI on `PATH` and delivered procedure/schema files (`.claude/codex-templates/bin/coc:89-96,118-142`).
+That exec call starts a separate run; it does not switch an already-running interactive session's phase.
+Final results are validated separately from the event stream. Completion requires
+observed evidence and phase-consistent results; pending gates and unfinished
+implementation cannot be labeled completed. Human-only certification returns an
+explicit input request instead of invoking the provider
+(`validateResult`, `.claude/bin/lib/codex-command-catalog.mjs:114-150`;
+`humanGate`, `.claude/bin/lib/codex-command-catalog.mjs:152-160`;
+the dispatcher's `MODE` branch, `.claude/codex-templates/bin/coc:125-129`).
 
 `.agents/skills` is the current catalog. Avoid a second copy of the same catalog in
 `.codex/skills`; duplicate names can appear separately. Skill discovery, optional
@@ -81,11 +94,11 @@ The compatibility `.codex/prompts/specialist-<name>.md` files can still be read 
 working with an older delivery. A persona pasted into a parent prompt is not a separate
 agent or a permission boundary.
 
-The emitter sets a read-only default only for positively known read-only source
-tool inventories. Missing, unfamiliar, shell-capable or delegation-capable tool
-metadata emits no sandbox override: the parent's configured restrictions are
-inherited, and no broader permission preset is selected. That fallback is not a
-read-only guarantee. A controlled CLI 0.158.0 execution probe observed an analyst
+Source model/tool/hook declarations are retained in the generated agent contract.
+Tool inventories constrain instructions; they are not a native enforced allowlist.
+Native read-only defaults are requests, and provider model behavior is not assumed
+equivalent (`.claude/bin/lib/codex-agent-contracts.mjs:15-37`).
+A controlled CLI 0.158.0 execution probe observed an analyst
 child with `workspace-write` despite its emitted `read-only` setting; verify actual
 child policy before relying on a role default for isolation.
 
@@ -132,12 +145,22 @@ web tools and specialized opt-outs remain outside that path. `write_stdin` does 
 re-run the original command's pre-tool check. The shipped registration and adapter,
 not mere runtime support, determine which COC checks actually run.
 
-The COC runtime bridge adapts event input/output and selects delivered checks. Patch
-checks receive target paths rather than full edit content; patch rewriting is refused
-when the adapter cannot preserve its semantics. Pre-tool denial uses the event's
-permission decision; unsupported output fields can fail open. Background hooks cannot
-block the triggering action. `Stop` concerns turn completion; `SessionEnd` is separate.
-Compaction and subagent lifecycle events also exist. Consult the event-specific
+The bridge adapts event input/output and selects eligible delivered checks. Patch
+checks receive typed targets. Pre-tool Updates and Deletes use complete original→result
+Edit pairs; Move destinations use complete derived content. Post-tool Updates stay
+Edit with published after-bytes; Post Deletes retain their path-only Edit shape
+because the original has already been removed. Target reads/results are bounded to
+4 MiB, leaf symlinks and escapes refuse, and internal directory aliases within the checkout are admitted; guards receive
+the canonical path used for projection reads. Header dot segments are refused. Unsupported rewrites are refused
+(`.claude/hooks/lib/codex-native-policy.js:178-274`,
+`.claude/hooks/lib/codex-native-policy.js:21-79`). Lifecycle launchers bind their
+event before reading input, preserving the correct failure response even for
+malformed or unfinished input: `main` selects the launcher event and failure
+response, and `dispatch` validates the binding. Shutdown checks report incomplete
+work within their short host budget
+(`.claude/hooks/lib/codex-hook-runtime.js:1062-1105`,
+`.claude/hooks/lib/codex-hook-runtime.js:928-1030`,
+`.claude/hooks/lib/codex-native-events.js:143-188`). Consult the event-specific
 [Hooks reference](https://learn.chatgpt.com/docs/hooks) when authoring a hook.
 
 A CLI 0.158.0 native app-server probe found that a startup delay can exhaust the
@@ -157,9 +180,16 @@ native checks; neither is a complete sandbox or a universal enforcement boundary
 Codex loads `AGENTS.md` through the root-to-working-directory hierarchy, preferring
 `AGENTS.override.md` at a given directory. The combined default limit is 32 KiB;
 Loom's dispatcher raises `project_doc_max_bytes` to 65536. Check the delivered config
-for the interactive setting. Nested files share the combined budget. `paths:` globs
-in COC rules are not a native Codex loader: use the emitted rules-reference skill to
-find those rules. [AGENTS.md reference](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+for the interactive setting. Nested files share the combined budget.
+[AGENTS.md reference](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+
+The project bridge adds path-rule activation for typed file operations and parsed
+patches when its hook is installed and trusted. It verifies catalog membership,
+matching metadata and source hashes before injecting the actual matching text.
+Shell programs with computed targets and hosted retrieval still require manual rule
+discovery; see `collectRuleContext`
+(`.claude/hooks/lib/codex-rule-context.js:100-158`). The generated index
+and rules-reference skill remain available for that purpose.
 
 Profiles are optional operator choices. `--profile` selects configuration while
 `--permission-profile` selects permission policy on commands that expose it; inspect

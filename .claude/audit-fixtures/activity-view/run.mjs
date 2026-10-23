@@ -32,10 +32,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import sandboxModules from "../_lib/sandbox-module-tree.cjs";
+const { copyModuleTree, moduleClosureArgs, moduleClosureResult } = sandboxModules;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
-const GEN = path.join(REPO_ROOT, ".claude", "bin", "activity-build.mjs");
+
 
 let cases = 0;
 const failures = [];
@@ -84,7 +86,8 @@ function mkRepo({ sources = true, extraLines = [] } = {}) {
   g(["config", "user.name", "fixture"]);
   g(["config", "commit.gpgsign", "false"]);
   fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
-  fs.symlinkSync(path.join(REPO_ROOT, ".claude", "hooks"), path.join(dir, ".claude", "hooks"));
+  copyModuleTree(path.join(REPO_ROOT, ".claude", "hooks"), path.join(dir, ".claude", "hooks"));
+  copyModuleTree(path.join(REPO_ROOT, ".claude", "bin"), path.join(dir, ".claude", "bin"));
   fs.mkdirSync(path.join(dir, "burndown"), { recursive: true });
   fs.writeFileSync(
     path.join(dir, "burndown-manifest.json"),
@@ -112,7 +115,7 @@ function mkRepo({ sources = true, extraLines = [] } = {}) {
   return dir;
 }
 
-const run = (dir, a) => spawnSync(process.execPath, [GEN, "--repo", dir, ...a], { cwd: dir, encoding: "utf8", timeout: 60000 });
+const run = (dir, a) => moduleClosureResult(dir, spawnSync(process.execPath, moduleClosureArgs(dir, [path.join(dir, ".claude/bin/activity-build.mjs"), "--repo", dir, ...a]), { cwd: dir, encoding: "utf8", timeout: 60000 }));
 const asJson = (dir) => {
   const r = run(dir, ["--json"]);
   try {
@@ -165,7 +168,7 @@ pair(
     // Close the one open emergent item; nothing unclaimed remains open.
     const p = path.join(dir, "burndown", "events.jsonl");
     fs.appendFileSync(p, `${JSON.stringify({ item_id: "todo-aaaa1111-open", kind: "transition", status: "todo:completed", item: "now done", timestamp: iso(1) })}\n`);
-    const r = spawnSync(process.execPath, [GEN, "--repo", dir, "--json"], { encoding: "utf8", timeout: 60000 });
+    const r = moduleClosureResult(dir, spawnSync(process.execPath, moduleClosureArgs(dir, [path.join(dir, ".claude/bin/activity-build.mjs"), "--repo", dir, "--json"]), { encoding: "utf8", timeout: 60000 }));
     let j = null;
     try {
       j = JSON.parse(r.stdout || "{}");
@@ -197,7 +200,7 @@ pair(
     const dir = mkRepo();
     const p = path.join(dir, "burndown", "events.jsonl");
     fs.appendFileSync(p, `${JSON.stringify({ item_id: "todo-aaaa1111-open", kind: "transition", status: "todo:in_progress", item: "still going", timestamp: iso(1) })}\n`);
-    const r = spawnSync(process.execPath, [GEN, "--repo", dir, "--json"], { encoding: "utf8", timeout: 60000 });
+    const r = moduleClosureResult(dir, spawnSync(process.execPath, moduleClosureArgs(dir, [path.join(dir, ".claude/bin/activity-build.mjs"), "--repo", dir, "--json"]), { encoding: "utf8", timeout: 60000 }));
     let j = null;
     try {
       j = JSON.parse(r.stdout || "{}");
@@ -211,7 +214,7 @@ pair(
     const dir = mkRepo();
     const p = path.join(dir, "burndown", "events.jsonl");
     fs.appendFileSync(p, `${JSON.stringify({ item_id: "todo-aaaa1111-open", kind: "transition", status: "todo:archived", item: "archived, superseded", timestamp: iso(1) })}\n`);
-    const r = spawnSync(process.execPath, [GEN, "--repo", dir, "--json"], { encoding: "utf8", timeout: 60000 });
+    const r = moduleClosureResult(dir, spawnSync(process.execPath, moduleClosureArgs(dir, [path.join(dir, ".claude/bin/activity-build.mjs"), "--repo", dir, "--json"]), { encoding: "utf8", timeout: 60000 }));
     let j = null;
     try {
       j = JSON.parse(r.stdout || "{}");

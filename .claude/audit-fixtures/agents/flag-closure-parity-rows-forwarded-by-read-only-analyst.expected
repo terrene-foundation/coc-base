@@ -7,7 +7,7 @@ a command (`gh pr diff`, `gh pr view`, `cargo nextest run -E`, `grep -c`). The
 orchestrator sends it to analyst, whose declared tools are Read/Grep/Glob, and never
 reads that inventory. The lane does the only thing it can: 9 rows come back "requires
 execution, carried forward". The session records the round complete at 14 of 23 and
-hands the 9 to round 4 — one full audit round spent, which is the O(N) cost the clause
+hands the 9 to the OWNER — one full audit round spent, which is the O(N) cost the clause
 prices against an O(1) pre-launch check.
 
 Note what makes this hard to see: the report LOOKS clean. It is well structured, honest
@@ -25,7 +25,7 @@ sibling clause about implementation tool inventory is satisfied, and the two cla
 distinguished in the transcript by what failed: nothing here failed to be WRITTEN, and
 rows failed to be RUN.
 
-Discriminator 3 — the fresh-eyes lane on security-reviewer is read-only BY DESIGN and is
+Discriminator 3 — the fresh-eyes lane on gold-standards-validator is read-only BY DESIGN and is
 correct; read-only specialists are not the defect, read-only specialists on a mission
 that ends in commands are.
 

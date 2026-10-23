@@ -124,8 +124,11 @@ and disclosed at `.claude/rule-injection-budget.json::rules."wip-discipline.md"`
 `loom-bin-edit` and `workspace-note` profiles.
 
 **What it costs, named rather than waved away.** MUST-1 (a lane reaches a terminal state) has no
-inline carrier and no structural tier — a session that never touches `**/workspaces/**`,
-`**/.session-notes*`, `.claude/hooks/**` or `.claude/bin/**` does not load this rule's text for it.
+inline carrier and no structural tier — a session that never touches `**/.session-notes*`,
+`**/.session-notes.d/**`, `**/todos/**` or the lane tooling (`land-lane`, `worktree-reap`,
+`worktree-triage`, and the WIP / lane / reap / stranding / worktree-conservation / delegation guards
+and their libs) does not load this rule's text for it. Narrowed 2026-10-10 from `**/workspaces/**`,
+`.claude/hooks/**` and `.claude/bin/**`, which loaded it on unrelated hook and bin edits.
 That clause is gate-review-only, permanently, and the Detection block records that as RETIRED rather
 than deferred. MUST-4 is NOT in that position: hooks observe its remote refs, its local branches and
 its worktrees, each only in part — map and gaps in § "Why MUST-1 gets no detector — and what
@@ -361,7 +364,7 @@ required halves. The counter — commits on the trunk not yet on `main` — rend
 (`session-start.js:178` → `unlanded-work-surface.js::formatUnlandedBlock` → `::formatTrunkTail`, "Promotion gap"). The
 STANDING-CADENCE half has no observer.
 
-**The post-merge report's budget.** Registered at 5 s under `PostToolUse` `Bash` (`.claude/hooks/dispatch-registry.json:264-265`, behind `dispatch.js PostToolUse`).
+**The post-merge report's budget.** Registered at 5 s under `PostToolUse` `Bash` (`.claude/hooks/dispatch-registry.json:326-327`, behind `dispatch.js PostToolUse`).
 `DECISION_BUDGET_MS` 4000: `LOCAL_BUDGET_MS` 1500 (`CHERRY_CALL_CAP_MS` 1000 per call), then
 `REMOTE_BUDGET_MS` 2000, with `PRE_READ_TIMEOUT_MS` 1000 on each pre-read. `COC_REAP_BUDGET_MS` only
 LOWERS the local share, and a malformed value is named (`reap-on-landing.js::resolveLocalBudget`). On
@@ -515,6 +518,12 @@ From the Detection-mechanism row, the whole row as it stood:
 - **Detection mechanism:** structural + review, and the split below is per-clause because a rule-wide claim would credit clauses no shipped instrument can see. **Structural.** `.claude/hooks/wip-discipline-guard.js` over `.claude/hooks/lib/wip-lanes.js` carries MUST-2, **MUST-3 and MUST-4** at `PreToolUse:Bash` ONLY — inventory, never workers (lane count vs the limit, and lane AGE vs the 24 h bound, both at OPEN — the Bash arm routes `git worktree add` / `switch -c` / `checkout -b` / `branch <name>` through the SAME verdict ladder via `wip-lanes.js::laneCreationIntent`, which consumes the shared `git-command-parse.js` rather than a private regex; the lexical match selects only WHICH question to ask, and the answer comes from measured git state, which is what permits `block` here under `hook-output-discipline.md` MUST-2). **MUST-3 is no longer `SessionStart`-only** (2026-09-06): its DOOR is `confirmAgedLane`, run BEFORE the count's under-limit early return; its REPORT stays `halt-and-report`. No `Task|Agent` arm — it charges no WORKER. MUST-5 is a DIFFERENT detector — `.claude/hooks/stranded-artifact-guard.js` over `.claude/hooks/lib/stranded-artifacts.js`, `PreToolUse:Bash` destructive arm, which assesses the COMMAND'S TARGET rather than `HEAD`. Fixtures: `.claude/audit-fixtures/wip-discipline/` and `.claude/audit-fixtures/stranded-artifacts/`, both `mode:"run"` in `ci-audit-fixtures.json` — counts go stale, so re-run the runners rather than citing a figure. Pair→clause binding, from the runner — a `// PAIR n` header names its clause only for pairs 1, 1b, 2–6, 10 and 21, and every other pair is bound by its assertions (re-derive it rather than cite it): MUST-2 ← pairs 1–1d, 2, 10–15, 17–19 and 23; MUST-3 ← 3–4 and 21; MUST-4 ← 22 and 28; MUST-6 ← 5–6; MUST-7 ← 24–27; 7–9 and 20 bind no clause (20 hardens the write sink of the override ledger MUST-7's debt reads); there is no pair 16; 15 is an adversarial-review regression set per `coc-artifact-eval-coverage.md` MUST-2. Per-pair detail: extract § Detection tiers. **Gate-review ONLY, permanently — MUST-1.** It has no structural tier and will not get one: whether a lane reached a terminal state — a merge or a recorded kill — is a lane-LIFECYCLE judgment made across sessions, with no tool-call-time signal, so a detector could only guess from an adjacent proxy and would report a verdict it cannot see, which is MUST-6's own failure mode. Recorded as RETIRED, not deferred, and NO row is booked in `phase2-deferrals.json`: `hook-output-discipline.md` MUST-5(b) BLOCKS booking teeth that cannot arrive, and `trust-posture.md` § "Every Phase-2 Deferral Carries A DATED Declaration" BLOCKS an undated one — so the honest form is to name gate-review as the permanent enforcement layer. **MUST-4 is observed PER COMPONENT, each in part** (CORRECTED 2026-09-12 — earlier revisions called MUST-4, then its local half, detector-less, reading the fixture runner, which shows what test pairs assert and never what hooks enforce): remote refs — the remote-landed door refuses a Bash lane-creation call while landed remote refs exceed its floor (`wip-discipline-guard.js:827-866`, `block` on `git cherry` patch-ids, which `hook-output-discipline.md` MUST-2 permits), and `reap-on-landing-guard.js` reports them after `gh pr merge` (`:110-138`, `halt-and-report`); local branches — that post-merge report, plus `lane-completion-guard.js` at `Stop` for a PR lane still open and mergeable (`hooks/lib/lane-completion.js:257`); worktrees — `worktree-forest-guard.js`, under `worktree-isolation.md` Rule 8. So a lane landed by a direct `dev` merge has its local branch observed by no hook citing MUST-4, and the post-merge report measures a literal `origin/main` (`reap-on-landing-guard.js:110`), not MUST-4's trunk resolver. Reviewer at `/implement` + cc-architect at `/codify` confirm each closed lane shows a merge or a recorded kill, and that its branch AND worktree are both gone. **Probes: REGISTERED** — `.claude/test-harness/probes/wip-discipline.probes.json`, a probe-only `eval-manifest.json` entry (`scanner: null`) pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`. **Registration buys DISPATCHABILITY, never automatic execution:** no workflow invokes `coc-probe-dispatch.mjs`, and the loom↔csq boundary keeps CI LLM-free, so **a green CI run is NEVER evidence these probes passed** — they run only on a gate-review `/test-harness-probe --artifacts`. **Consumer residual:** the probe suite reaches none of the six use/build lanes, and the MUST-2 guard's registration does not reach Codex or Gemini — so on those runtimes the limit does not bind at all. What does reach every consumer is the structural tier's hooks. Derivation, the pair-by-pair map, the measured skip lanes, the MUST-1 no-signal argument and the MUST-4 per-component hook map: extract § Detection tiers.
 
 From the Severity row:
+
+The Detection row above is a historical snapshot. Current source anchors for its
+remote-ref door are `.claude/hooks/wip-discipline-guard.js::runSpawnGuard` (the remote-landed door: `BASE_NAME`, `remoteHeld`); the
+post-landing report resolves its base through `resolveTrunkForDeletion` at
+`.claude/hooks/reap-on-landing-guard.js:274-277`, rather than the historical literal.
+
 **MUST-2 AND MUST-3 TAKE IT; MUST-5 does not.** The prior refusal ("whether a lane should open or land is the operator's judgment") is **WITHDRAWN for MUST-2 and MUST-3, RETAINED for MUST-5**: it conflated should-a-lane-LAND (no pending action to refuse) with may-one-more-OPEN against a measured bound, and was refuted in practice.
 
 **Changed 2026-09-06, stated not silently edited:** this row read `halt-and-report` for MUST-3 until the age door landed; `block` rests on MUST-2's exact ground — extract § "Why MUST-3 took the teeth (2026-09-06)".
@@ -671,9 +680,11 @@ absence, once by presence-and-override.
 
 **Why the MUST NOT is answered rather than dismissed.** `hook-output-discipline.md` MUST NOT forbids
 "detectors that block work the agent has been instructed to perform". The override receipt is what
-resolves it: `.claude/wip-authz/wip-limit-allow` carries a one-line reason, is CONSUMED as it is
-honoured (so one override cannot disarm the gate for later calls), and echoes the reason back as an
-`advisory`; `COC_ALLOW_WIP_OVERRUN=1` serves operators and CI for a whole run. The operator's
+resolves it: `.claude/wip-authz/wip-limit-allow` carries a one-line JSON receipt bound to the
+blocked command (its digest; a receipt for another command is refused and left in place), expires
+fifteen minutes after its `written_at`, is CONSUMED as it is honoured (so one override cannot disarm
+the gate for later calls) with the use recorded in the main checkout's use ledger, and echoes the
+reason back as an `advisory`; `COC_ALLOW_WIP_OVERRUN=1` serves operators and CI for a whole run. The operator's
 judgment is not removed — it is converted from a silently-ignored banner into an explicit recorded
 act. Same two-channel shape `worktree-isolation.md` Rule 7 specifies for the nested-worktree guard.
 
@@ -834,7 +845,7 @@ Each honoured override records the lane named as landing FIRST (`land-first: <re
 
 ### Why (c) is review-layer — the word PERMANENTLY withdrawn 2026-08-31
 
-(a) and (b) are enforceable at `PreToolUse` — the opening door, which already carries `block`. (c) is NOT, and no future detector will make it so: `Stop` cannot block at any SEVERITY (MEASURED — the STOP_LIKE branch of `instruct-and-wait.js` returns `{continue:true}` / exit 0 even for `block`). CORRECTED 2026-08-31: that measurement is right and the INFERENCE drawn from it was wrong. Severity is not the only lever — the SAME branch returns `{decision:"block", reason}` when passed a REFUSAL (`instruct-and-wait.js:436-445`, § STOP HAND-BACK REFUSAL, opt-in, default OFF), and `lane-completion-guard.js` uses it in production. So an end-of-turn detector CAN prevent the miss, by refusing the hand-back rather than by raising a severity. Per `hook-event-selection.md`, booking enforcement at an event that cannot act on its subject is BLOCKED. (c) is therefore declared review-layer + rule-layer, not deferred to a Phase 2 that cannot arrive — but the word PERMANENTLY is withdrawn along with the inference above. A `Stop` detector for (c) is now known to be POSSIBLE (via refusal); it is not built because the judgment (c) rests on is semantic, which is a claim about the SIGNAL, not about the event's power to act. If a structural signal for (c) is ever identified, the event will not be what blocks it.
+(a) and (b) are enforceable at `PreToolUse` — the opening door, which already carries `block`. (c) is NOT, and no future detector will make it so: `Stop` cannot block at any SEVERITY (MEASURED — the STOP_LIKE branch of `instruct-and-wait.js` returns `{continue:true}` / exit 0 even for `block`). CORRECTED 2026-08-31: that measurement is right and the INFERENCE drawn from it was wrong. Severity is not the only lever — the SAME branch returns `{decision:"block", reason}` when passed a REFUSAL (`instruct-and-wait.js:673-683`, § STOP HAND-BACK REFUSAL, opt-in, default OFF), and `lane-completion-guard.js` uses it in production. So an end-of-turn detector CAN prevent the miss, by refusing the hand-back rather than by raising a severity. Per `hook-event-selection.md`, booking enforcement at an event that cannot act on its subject is BLOCKED. (c) is therefore declared review-layer + rule-layer, not deferred to a Phase 2 that cannot arrive — but the word PERMANENTLY is withdrawn along with the inference above. A `Stop` detector for (c) is now known to be POSSIBLE (via refusal); it is not built because the judgment (c) rests on is semantic, which is a claim about the SIGNAL, not about the event's power to act. If a structural signal for (c) is ever identified, the event will not be what blocks it.
 
 ### On raising the limit
 
@@ -1270,12 +1281,12 @@ test (ancestry, patch-id / `git cherry`, file content) answers a different quest
 branch landed?", and misreads in both directions. The fix is to WRITE the link at landing, not to
 compare more cleverly afterwards: the loom script replays each source commit onto the integration
 branch with a `Landed-From: <branch>@<40-hex>` trailer, or `Landed-Partial` +
-`Landed-Outstanding` for a subset (`<loom>/.claude/bin/land-lane.mjs:452-460`), and the push gate
+`Landed-Outstanding` for a subset (`<loom>/.claude/bin/land-lane.mjs::cmdLand`), and the push gate
 `scripts/ci/landing-trailer-gate.mjs` refuses an untrailered commit past the recorded cutover.
 
 **Straight onto the integration branch, never through an intermediate one.** Re-landing a commit
 strips every existing `Landed-*` trailer before writing its own
-(`<loom>/.claude/bin/land-lane.mjs:371-381`), so a shard landed onto a wave integration branch and then
+(`<loom>/.claude/bin/land-lane.mjs::stripLandedTrailers`), so a shard landed onto a wave integration branch and then
 re-landed onto `dev` records the integration branch as its source and the shard as UNLANDED — the
 exact misreport the script exists to prevent. This is why the clause overrides the hand-merge
 examples in `deployment.md` (obligation 1) and `wave-loop.md` (MUST-9) wherever the script ships.

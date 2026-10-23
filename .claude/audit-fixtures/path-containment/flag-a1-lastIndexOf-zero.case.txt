@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R2 sec N8: a prefix test spelled as a backwards search anchored at 0.
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  return c.lastIndexOf(path.resolve(root) + path.sep, 0) === 0;
+}

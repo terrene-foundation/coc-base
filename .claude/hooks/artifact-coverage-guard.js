@@ -199,10 +199,24 @@
  * ["coc-artifact-eval-coverage.md#artifact-edit-without-coverage"].
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns read-only git rev-parse calls via lib/git-checkout-proof.js::gitTreeProof (at most two, only for an out-of-project in-.claude/ path). Manifest/deferrals reads are read-only; emits to stdout only."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7, set under the registered 6s
-// timeout (`.claude/hooks/dispatch-registry.json:384-385`). It can fire only
+// timeout (`.claude/hooks/dispatch-registry.json:468-469`). It can fire only
 // BETWEEN synchronous steps: during a blocking call (each `spawnSync` git, each
 // sync fs read) the event loop is stalled and this timer CANNOT run, so on a
 // genuine overrun inside such a call it is the host/engine's kill at 6s that

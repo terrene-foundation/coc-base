@@ -92,6 +92,7 @@
 const { execFileSync } = require("node:child_process");
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
 const { resolveTrunk, probeRef } = require("./trunk-ref.js");
+const targetRepoGit = require("./target-repo-git.js");
 
 /** The delegation tools. The dispatch IS the subject; nothing else is inspected. */
 const DELEGATION_TOOLS = Object.freeze(["Task", "Agent"]);
@@ -156,6 +157,27 @@ function fullRefName(ref) {
 function readTipEpoch(repoDir, ref, timeoutMs, opts = {}) {
   const bounded = Number.isFinite(timeoutMs);
   if (bounded && timeoutMs <= 0) return { ok: false, timedOut: true, noGit: false };
+  if (!opts.gitBin && Number.isFinite(opts.deadline)) {
+    try {
+      const resolved = opts.repo ? { ok: true, repo: opts.repo }
+        : targetRepoGit.resolveTargetRepo({ dir: repoDir }, { deadline: opts.deadline, timeout: timeoutMs });
+      if (!resolved.ok) return { ok: false, timedOut: Boolean(resolved.timedOut),
+        noGit: resolved.spawnErrorCode === "ENOENT", reason: resolved.reason };
+      const inv = targetRepoGit.targetGitInvocation(resolved.repo, ["log", "-1", "--format=%ct", ref],
+        { cwd: repoDir, deadline: opts.deadline, timeout: timeoutMs });
+      const out = execFileSync(inv.file, inv.argv, {
+        cwd: inv.cwd, env: inv.env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+        timeout: inv.timeout, killSignal: inv.killSignal,
+      });
+      const n = Number.parseInt(String(out).trim(), 10);
+      return Number.isFinite(n) ? { ok: true, epoch: n } : { ok: false, timedOut: false, noGit: false };
+    } catch (e) {
+      return { ok: false,
+        timedOut: Boolean(e && (e.timedOut || e.code === "GIT_TARGET_REPO_DEADLINE" ||
+          e.code === "ETIMEDOUT" || (e.signal && e.status === null))),
+        noGit: Boolean(e && (e.code === "ENOENT" || e.spawnErrorCode === "ENOENT")) };
+    }
+  }
   const gitBin = resolveGitBinary(opts.gitBin ? { gitBin: opts.gitBin } : undefined);
   if (!gitBin) return { ok: false, timedOut: false, noGit: true };
   try {
@@ -212,9 +234,22 @@ function measureTrunkFreshness(o = {}) {
   };
 
   // ── 1. WHICH ref is the trunk. The shared resolver, never a second ladder.
+  let inspection = o;
+  if (!o.gitBin) {
+    const deadline = startedAt + budgetMs;
+    let resolved;
+    try {
+      resolved = targetRepoGit.resolveTargetRepo({ dir: repoDir }, { deadline, timeout: left() });
+    } catch (e) {
+      return { ...base, reason: `the target repository resolver threw (${e && e.message})` };
+    }
+    if (!resolved.ok) return { ...base, reason: resolved.reason || "the target repository could not be resolved" };
+    inspection = { ...o, repo: resolved.repo, deadline };
+  }
   let t;
   try {
-    t = resolveTrunk({ repoDir, timeoutMs: left() });
+    t = resolveTrunk({ repoDir, timeoutMs: left(),
+      ...(!o.gitBin ? { repo: inspection.repo, deadline: inspection.deadline } : {}) });
   } catch (e) {
     return { ...base, reason: `the trunk resolver threw (${e && e.message})` };
   }
@@ -227,7 +262,7 @@ function measureTrunkFreshness(o = {}) {
   if (!ref) return { ...base, reason: "the resolved trunk has no usable ref name" };
 
   // ── 2. HOW OLD its tip is.
-  const tip = readTipEpoch(repoDir, ref, left(), o);
+  const tip = readTipEpoch(repoDir, ref, left(), inspection);
   if (tip.ok) {
     const ageSeconds = nowEpoch - tip.epoch;
     const ageDays = Math.round((ageSeconds / SECONDS_PER_DAY) * 10) / 10;
@@ -257,7 +292,8 @@ function measureTrunkFreshness(o = {}) {
   // (a repository with no remote-tracking trunk — silence) or merely unreadable (UNDETERMINED).
   let verdict;
   try {
-    verdict = probeRef(repoDir, ref, { timeoutMs: left() });
+    verdict = probeRef(repoDir, ref, { timeoutMs: left(),
+      ...(!o.gitBin ? { repo: inspection.repo, deadline: inspection.deadline } : {}) });
   } catch {
     verdict = "undetermined";
   }

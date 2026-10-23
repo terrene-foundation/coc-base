@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R2 sec N8: path.relative flowing to a chained includes("..") test.
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  return !path.relative(path.resolve(root), c).includes("..");
+}

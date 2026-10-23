@@ -1,1 +1,1 @@
-EnterWorktree({path: "/Users/me/repos/.loom-wt/parallel-dev"})
+EnterWorktree({path: "{{FIXTURE_HOME_V1:MAC}}me/repos/.loom-wt/parallel-dev"})

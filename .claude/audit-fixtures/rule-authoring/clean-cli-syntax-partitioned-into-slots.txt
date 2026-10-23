@@ -144,6 +144,5 @@ Gate review dispatched: cc-architect and reviewer, both scoped to the new file, 
 to report findings in their final message.
 
     round 1 — cc-architect: clean. reviewer: clean.
-    round 2 — cc-architect: clean. reviewer: clean.
 
-Two consecutive clean rounds, both payloads read. The rule lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). The rule lands.

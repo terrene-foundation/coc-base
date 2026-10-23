@@ -180,6 +180,11 @@ function logRefNameForGen(gen) {
  */
 function resolveLogRefName(opts) {
   const o = opts || {};
+  if (o.boundPeerUrl !== undefined) {
+    return require("./transport-git-ref.js").createGitRefTransport({
+      repoDir: o.repoDir, boundPeerUrl: o.boundPeerUrl,
+    }).resolveBoundLogRefSync();
+  }
   const repoDir = o.repoDir || process.cwd();
   const remote = o.remote || DEFAULT_REMOTE;
   const git = typeof o.git === "function" ? o.git : _defaultGit;

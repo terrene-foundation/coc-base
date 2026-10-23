@@ -33,6 +33,7 @@
  */
 
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -43,30 +44,45 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..");
 const SCANNER = path.join(REPO, ".claude", "bin", "scan-synced-disclosure.mjs");
 
-// An operator-home-path shape built on `jdoe`, a member of
-// `.claude/bin/lib/identity-scrub.mjs::SYNTHETIC_FIXTURE_USERS`.
+// An operator-home-path shape built on `jdoe`, a member of `SYNTHETIC_FIXTURE_USERS`
+// (`.claude/bin/lib/identity-scrub.mjs:1421-1440::SYNTHETIC_FIXTURE_USERS`).
 //
-// Both halves of that choice are load-bearing, and the discrimination is PATH-based,
-// not token-based (scan-synced-disclosure.mjs:2148-2151):
+// THIS FILE never holds the expanded token. Its bytes carry only the `FIXTURE_HOME_V1`
+// placeholder in `TOKEN` below, and `materializeFixtureText` builds the home path at run time
+// (`.claude/hooks/lib/fixture-home.js:34-42::materializeFixtureText`), so the repo's own scan
+// finds no home path here — whatever path this file sits at, whatever name the placeholder carries.
 //
-//   - IN THIS FILE the token is SKIPPED, because `detectorFixtureFile =
-//     isAuditFixtureFile(rel)` is true for anything under `audit-fixtures/<name>/`
-//     and `jdoe` is in the synthetic set. So the repo's own Step-0 scan stays clean.
+// Where the expanded token IS written, the discrimination is PATH-based, not token-based:
+//
+//   - UNDER an `audit-fixtures/` path segment it is SKIPPED. `scanLines` binds
+//     `detectorFixtureFile = isAuditFixtureFile(rel)`
+//     (`.claude/bin/scan-synced-disclosure.mjs::detectorFixtureFile`), with `rel`
+//     relative to the scan root (`.claude/bin/scan-synced-disclosure.mjs::REPO_ROOT_ACTIVE`).
+//     It is true for any path holding an `audit-fixtures/` SEGMENT, at any depth and with no
+//     `<name>/` level required (`.claude/bin/lib/fixture-corpus.mjs:68-68::AUDIT_FIXTURES_SEGMENT`,
+//     `.claude/bin/lib/fixture-corpus.mjs:97-99::isAuditFixtureFile`), and needs no CLI flag.
+//     While it is true, an `operator-home-path` match is skipped ONLY when its whole username
+//     chain, case-folded, is in `SYNTHETIC_FIXTURE_USERS`
+//     (`.claude/bin/lib/identity-scrub.mjs::SYNTHETIC_FIXTURE_USERS`).
 //   - IN THE TEMP TREES this fixture writes, the SAME token FIRES, because those
-//     paths are not under `audit-fixtures/` — so `detectorFixtureFile` is false, the
-//     skip does not apply, and the RED pole keeps its real `[SHAPE:operator-home-path]`
-//     identity rather than going vacuous.
+//     root-relative paths hold no `audit-fixtures/` segment — so `detectorFixtureFile` is
+//     false, the skip does not apply, and the RED pole keeps its real
+//     `[SHAPE:operator-home-path]` identity rather than going vacuous.
 //
-// MEASURED two-pole, not assumed: `/Users/jdoe/repos/kailash-py` at
-// `.claude/rules/plain.md` exits 1 with one `[SHAPE:operator-home-path]` finding;
-// the identical string at `.claude/audit-fixtures/demo/run.mjs` exits 0 with
-// "Scanned: 1 files — 0 findings".
+// MEASURED two-pole, not assumed (re-measured 2026-10-10 against the scanner at 10b2f6f2e):
+// `<fixture-home-prefix>jdoe/repos/kailash-py` at `.claude/rules/plain.md` exits 1 with one
+// `[SHAPE:operator-home-path]` finding; the identical string at
+// `.claude/audit-fixtures/demo/run.mjs` exits 0 with
+// "Scanned: 1 files on the synced surface — 0 findings"; with a non-synthetic name there it
+// exits 1. This file's own bytes give no `operator-home-path` hit, at their own path or
+// under `scripts/`.
 //
 // Do NOT substitute a non-allowlisted username to "make the shape fire" — it fires
-// either way, and a non-allowlisted one makes THIS FILE a disclosure finding. Do NOT
-// add a new name to SYNTHETIC_FIXTURE_USERS to make a scan go green; that is the #264
-// leak the scanner exists to prevent and it is BLOCKED.
-const TOKEN = "/Users/jdoe/repos/kailash-py";
+// either way in the temp trees, and it would make THIS FILE a disclosure finding the moment
+// the placeholder gave way to a literal home path. Do NOT add a new name to
+// SYNTHETIC_FIXTURE_USERS to make a scan go green; that is the #264 leak the scanner
+// exists to prevent and it is BLOCKED.
+const TOKEN = materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}jdoe/repos/kailash-py");
 
 let failures = 0;
 const log = (s) => process.stdout.write(s + "\n");

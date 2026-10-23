@@ -243,7 +243,8 @@ cli_variants:
           # Demoting frees 1,617 B of baseline emission (rs 9.10% → 11.73%,
           # clearing what was THEN the #1355 2026-10-31 expiry without raising
           # the then-current 61,440 B cap; that #1355 grant is SUPERSEDED — the
-          # live rs floor is #2018's 6.2% expiring 2026-11-24 and the cap is now
+          # live rs floor is #2018's 6.2% expiring 2027-02-24 (renewed 2026-10-07,
+          # journal/0627) and the cap is now
           # 65,536 B, so re-measure the payoff before acting on it) — but the
           # rule then joins EVERY path-scoped profile and
           # breaches two: workspace-note 411,021 B vs a 410,135 B ceiling and
@@ -432,14 +433,27 @@ cli_variants:
     # (under cli_emit_exclusions) and scan forward to the first cap lines,
     # which are codex's. Harmless ONLY because the declared values are equal.
     #
-    # Re-tightening is PENDING CO-OWNER RATIFICATION and is not taken here.
+    # ⛔ NOT RATIFIED — decided 2026-09-29 by co-owner directive ("approved, go"),
+    # journal/0627. This is no longer PENDING; it is REFUSED, and the four-part
+    # decision that refused it renewed the #1950 (base) and #2018 (rs) exceptions
+    # to 2027-02-24 instead. The reason is in the arithmetic below: a base 8.8%
+    # ceiling (59,768 B) leaves 107 B on a lane measuring 59,661 B, which is under
+    # the 354 B smallest emitted MUST clause — ratifying it would have bought a
+    # tighter number by spending the headroom the number exists to protect. Do not
+    # re-open this as merely un-owned; re-open it only with a measurement that
+    # moves the margin above that clause.
+    #
+    # ⚠ THE FIGURES BELOW WERE RE-MEASURED 2026-09-29 AFTER THE LANE-AWARE PEEL
+    # (`bd5663f75`) REMOVED 40 B FROM `base`. They said "39 B over --lang base" and
+    # "59,701 B / 719 B" and are now 107 B and "59,661 B / 679 B". A stale figure here
+    # is not cosmetic: this stanza's own arithmetic is what the refusal above rests on.
     # Recommended, re-derived from the table above: base 8.8 (ceiling
-    # 59,768 B, 39 B over --lang base), retire py (declared 10% floor,
+    # 59,768 B, 107 B of margin on --lang base), retire py (declared 10% floor,
     # 58,982 B, 7 B), rs 7.3 (60,751 B, 6 B) — every margin under the 354 B
     # smallest emitted MUST clause. No-lang would keep 793 B under base 8.8,
-    # because `lane: base` covers two compositions. Until ratified the
-    # owner-approved grants (#1950 / #1953 / #2018) stand, and their slack is
-    # still not headroom. Re-measure before citing any figure here.
+    # because `lane: base` covers two compositions. The re-tightening is REFUSED
+    # (journal/0627), so the owner-approved grants (#1950 / #1953 / #2018) stand, and
+    # their slack is still not headroom. Re-measure before citing any figure here.
     headroom_floor_exceptions:
       - lane: base
         clis: [codex, gemini]
@@ -480,9 +494,15 @@ cli_variants:
         # grant older than a cap raise is arithmetically unreadable without it.
         measured_block_cap_bytes: 65536
         granted_on: "2026-08-24"
-        expires: "2026-11-24"
+        # RENEWED 2026-09-29 by co-owner directive ("approved, go") — journal/0627.
+        # RENEWAL IS A CLOCK, NOT A PLAN: this date moving forward does not make the
+        # excess smaller, it moves the day the same decision is owed. The remedy is
+        # the queued CORPUS REVIEW (which baseline rule demotes to path-scoped),
+        # tracked in workspaces/unified-backlog-2026-09-28/todos/active/.
+        # `granted_floor_pct` is UNCHANGED, so no ratchet engages and no ceiling moved.
+        expires: "2027-02-24"
         issue: 1950
-        rationale: "conservation-gate.md is a new priority:0 baseline rule whose DECISION journal ALREADY landed on main, so main asserts a rule that does not exist. Paired extraction CANNOT fund it and this was MEASURED, not assumed: emit.mjs::abridgeV6 strips Wiring, Origin, Distinct-From, BLOCKED corpora and H4+ subsections BEFORE emission, so extracted depth was never emitted. Control run — 7,770 B of raw depth deleted (55% of the file) moved emission by EXACTLY 0 B (60,490 -> 60,490); a real saving would have moved it. The rule's entire emitted footprint is its H1 + framing paragraph, 4 MUST statements with their 4 **Why:** lines, and MUST NOT with 2 bullets and 2 **Why:** lines — extractable non-MUST bytes: ZERO. A lexical tally suggesting free bytes in repo-scope-discipline.md and autonomous-execution.md was OVERTURNED by reading the hits: those are clause statements lacking the literal MUST token on their own line. Every remaining alternative spends real always-on coverage across 6 lanes and every downstream consumer, so the excess is accepted and ENCODED here rather than left as a standing-red gate (zero-tolerance.md Rule 1). Owner-approved at s62; retirement tracked at #1950."
+        rationale: "conservation-gate.md is a new priority:0 baseline rule whose DECISION journal ALREADY landed on main, so main asserts a rule that does not exist. Paired extraction CANNOT fund it and this was MEASURED, not assumed: emit.mjs::abridgeV6 strips Wiring, Origin, Distinct-From, BLOCKED corpora and H4+ subsections BEFORE emission, so extracted depth was never emitted. Control run — 7,770 B of raw depth deleted (55% of the file) moved emission by EXACTLY 0 B (60,490 -> 60,490); a real saving would have moved it. The rule's entire emitted footprint is its H1 + framing paragraph, 4 MUST statements with their 4 **Why:** lines, and MUST NOT with 2 bullets and 2 **Why:** lines — extractable non-MUST bytes: ZERO. A lexical tally suggesting free bytes in repo-scope-discipline.md and autonomous-execution.md was OVERTURNED by reading the hits: those are clause statements lacking the literal MUST token on their own line. Every remaining alternative spends real always-on coverage across 6 lanes and every downstream consumer, so the excess is accepted and ENCODED here rather than left as a standing-red gate (zero-tolerance.md Rule 1). Owner-approved at s62; retirement tracked at #1950. RENEWED to 2027-02-24 on 2026-09-29 (journal/0627): the pending 8.8% re-derivation was NOT ratified, and this lane is 679 B over the 10% reserve floor (59,661 B emitted against a 58,982 B ceiling) — re-measured 2026-09-29 after `bd5663f75`'s lane-aware peel removed 40 B from this lane; the previous figure here was 719 B / 59,701 B."
 
       - lane: py
         clis: [codex, gemini]
@@ -512,9 +532,19 @@ cli_variants:
         measured_shortfall_bytes: 2336
         measured_block_cap_bytes: 65536
         granted_on: "2026-08-29"
-        expires: "2026-11-24"
+        # RENEWED 2026-09-29 by co-owner ruling ("Renew to 2027-02-24") — journal/0628,
+        # the amendment carrying the py ruling; #2149 closed with all three lanes
+        # disposed. This is the entry journal/0627 left open — its table marks py NOT
+        # ADDRESSED and refuses to let a re-derived recommendation stand in for an
+        # authority no human had given; the 2026-09-29 ruling is that authority.
+        # RENEWAL IS A CLOCK, NOT A PLAN: this date moving forward does not make the
+        # excess smaller, it moves the day the same decision is owed. The remedy is
+        # the queued CORPUS REVIEW (which baseline rule demotes to path-scoped),
+        # tracked in workspaces/unified-backlog-2026-09-28/todos/active/.
+        # `granted_floor_pct` is UNCHANGED (6.3), so no ratchet engages.
+        expires: "2027-02-24"
         issue: 1953
-        rationale: "The py lane breached the 10% reserve floor when conservation-gate.md landed as a 12th priority:0 baseline rule. Cause isolated by per-rule byte comparison against origin/main: all 11 pre-existing rules are BYTE-IDENTICAL (delta 0) and conservation-gate.md contributes 3,511 B of the 3,517 B delta — the remainder is the section separator. The breach is therefore branch-caused, not a pre-existing corpus condition: origin/main measured 11.8% py / 9.1% rs and was GREEN on all four lanes. Trim CANNOT fund it and this was MEASURED, not assumed: abridgeV6 strips frontmatter, code fences, DO/DO-NOT blocks, BLOCKED corpora, Cross-References, Wiring and Origin BEFORE emission, so what survives is normative-only (MUST bodies + **Why:** lines, the latter 15,845 B / 25.1% of the corpus). Deleting EVERY depth-pointer cross-reference in the entire baseline corpus — which would itself break progressive disclosure and xref integrity — recovers only 1,401 B, under half the 3,123 B the sibling rs lane needs. Demotion is blocked on merits, not bytes: all 12 baseline rules carry documented baseline rationales and four were DELIBERATELY promoted path-scoped->baseline to close reachability gaps, so demoting any reintroduces the gap it was authored to close. Tightening a per-rule budget moves no emission bytes and reduces to trim. conservation-gate.md itself emits 3,511 B against its declared 3,600 B budget — the per-rule gate PASSES; only the lane-level floor fails. Co-owner approved 2026-08-29 ('Re-grant now + schedule consolidation') against an option set naming the ratchet risk explicitly; the consolidation workstream is the retirement path and is tracked separately. Accepted and ENCODED here rather than left as a standing-red gate (zero-tolerance.md Rule 1)."
+        rationale: "The py lane breached the 10% reserve floor when conservation-gate.md landed as a 12th priority:0 baseline rule. Cause isolated by per-rule byte comparison against origin/main: all 11 pre-existing rules are BYTE-IDENTICAL (delta 0) and conservation-gate.md contributes 3,511 B of the 3,517 B delta — the remainder is the section separator. The breach is therefore branch-caused, not a pre-existing corpus condition: origin/main measured 11.8% py / 9.1% rs and was GREEN on all four lanes. Trim CANNOT fund it and this was MEASURED, not assumed: abridgeV6 strips frontmatter, code fences, DO/DO-NOT blocks, BLOCKED corpora, Cross-References, Wiring and Origin BEFORE emission, so what survives is normative-only (MUST bodies + **Why:** lines, the latter 15,845 B / 25.1% of the corpus). Deleting EVERY depth-pointer cross-reference in the entire baseline corpus — which would itself break progressive disclosure and xref integrity — recovers only 1,401 B, under half the 3,123 B the sibling rs lane needs. Demotion is blocked on merits, not bytes: all 12 baseline rules carry documented baseline rationales and four were DELIBERATELY promoted path-scoped->baseline to close reachability gaps, so demoting any reintroduces the gap it was authored to close. Tightening a per-rule budget moves no emission bytes and reduces to trim. conservation-gate.md itself emits 3,511 B against its declared 3,600 B budget — the per-rule gate PASSES; only the lane-level floor fails. Co-owner approved 2026-08-29 ('Re-grant now + schedule consolidation') against an option set naming the ratchet risk explicitly; the consolidation workstream is the retirement path and is tracked separately. Accepted and ENCODED here rather than left as a standing-red gate (zero-tolerance.md Rule 1). RENEWED to 2027-02-24 on 2026-09-29 by the operator ruling recorded in journal/0628 ('Renew to 2027-02-24') and restated in the #2149 close, which disposed of all three lanes; journal/0627 is the entry that left py open — its table marks py NOT ADDRESSED, and its re-derived recommendation to retire py was expressly NOT adopted as authority. Re-measured 2026-10-07 at dev 797c68f6a966 before landing: `--lang py` emits at 10.16% headroom under the 6.3% grant (emit.mjs --dry-run, rc=0; cap 65,536 B). `granted_floor_pct` is UNCHANGED (6.3), so no ratchet engages."
 
       # ══ RESOLVED (2026-08-30, #2018 AC-1 shard). The note below described rs
       #    as BREACHING with both standard exits closed. That was accurate on
@@ -633,9 +663,15 @@ cli_variants:
         measured_shortfall_bytes: 2430
         measured_block_cap_bytes: 65536
         granted_on: "2026-08-30"
-        expires: "2026-11-24"
+        # RENEWED 2026-09-29 by co-owner directive ("approved, go") — journal/0627.
+        # RENEWAL IS A CLOCK, NOT A PLAN: this date moving forward does not make the
+        # excess smaller, it moves the day the same decision is owed. The remedy is
+        # the queued CORPUS REVIEW (which baseline rule demotes to path-scoped),
+        # tracked in workspaces/unified-backlog-2026-09-28/todos/active/.
+        # `granted_floor_pct` is UNCHANGED (6.2), so no ratchet engages.
+        expires: "2027-02-24"
         issue: 2018
-        rationale: "SUPERSEDES the #1355 8.5% grant (granted 2026-07-26, expiry 2026-10-31), which is retired by this entry — NOT renewed. #1355 was unsatisfiable after conservation-gate.md landed: rs measured 3.74% against an 8.5% ceiling, 3,123 B in breach, with both standard exits closed (no legal lower grant exists below the 5% architectural minimum; block_cap is already AT the Codex override ceiling of 65,536). #2018 AC-1 consolidation recovered 1,676 B of REAL emission on every lane, measured through emit.mjs::emitBaseline in dryRun mode: (a) deleted agents.md's 228 B redundant Zero-Tolerance pointer, whose referents (zero-tolerance.md Rules 1 and 4) are priority:0 and verified present in the SAME emission, so reachability is unchanged; (b) extended abridgeV6's existing whole-line rule-extracts pointer strip to the TRAILING form on kept lines, 1,448 B across 33 fragments in 8 rules. Every fragment was READ, not tallied (instrument-discipline.md MUST-3b): all 33 are prefix-preserving trailing navigation sentences pointing at .claude/guides/rule-extracts/, zero point at skills/ (which SHIP to consumers and are deliberately out of scope), zero contain a MUST body, **Why:** rationale, DO/DO-NOT block or BLOCKED corpus entry, fence-marker balance is unchanged at 6/6, and emitted line count is identical, so no fenced block was truncated. The explicit-path pass is TERMINATION-BOUNDED for a measured reason: an EOL-greedy form swallowed the normative sentence following autonomous-execution.md's 10x pointer ('procedure drops stay BLOCKED even when explicitly authorized'), so the pointer must now END the line and that sentence is preserved by construction. rs remains over the DECLARED 10% floor by 2,430 B, so #2018 AC-3 is NOT met by this shard and the exception mechanism is not yet retired; what IS retired is the #1355 grant, replaced by one 2.3 points tighter. Accepted and ENCODED here rather than left as a standing-red gate (zero-tolerance.md Rule 1)."
+        rationale: "SUPERSEDES the #1355 8.5% grant (granted 2026-07-26, expiry 2026-10-31), which is retired by this entry — NOT renewed. #1355 was unsatisfiable after conservation-gate.md landed: rs measured 3.74% against an 8.5% ceiling, 3,123 B in breach, with both standard exits closed (no legal lower grant exists below the 5% architectural minimum; block_cap is already AT the Codex override ceiling of 65,536). #2018 AC-1 consolidation recovered 1,676 B of REAL emission on every lane, measured through emit.mjs::emitBaseline in dryRun mode: (a) deleted agents.md's 228 B redundant Zero-Tolerance pointer, whose referents (zero-tolerance.md Rules 1 and 4) are priority:0 and verified present in the SAME emission, so reachability is unchanged; (b) extended abridgeV6's existing whole-line rule-extracts pointer strip to the TRAILING form on kept lines, 1,448 B across 33 fragments in 8 rules. Every fragment was READ, not tallied (instrument-discipline.md MUST-3b): all 33 are prefix-preserving trailing navigation sentences pointing at .claude/guides/rule-extracts/, zero point at skills/ (which SHIP to consumers and are deliberately out of scope), zero contain a MUST body, **Why:** rationale, DO/DO-NOT block or BLOCKED corpus entry, fence-marker balance is unchanged at 6/6, and emitted line count is identical, so no fenced block was truncated. The explicit-path pass is TERMINATION-BOUNDED for a measured reason: an EOL-greedy form swallowed the normative sentence following autonomous-execution.md's 10x pointer ('procedure drops stay BLOCKED even when explicitly authorized'), so the pointer must now END the line and that sentence is preserved by construction. rs remains over the DECLARED 10% floor by 2,430 B, so #2018 AC-3 is NOT met by this shard and the exception mechanism is not yet retired; what IS retired is the #1355 grant, replaced by one 2.3 points tighter. Accepted and ENCODED here rather than left as a standing-red gate (zero-tolerance.md Rule 1). RENEWED to 2027-02-24 on 2026-09-29 (journal/0627): the pending 8.8% re-derivation was NOT ratified, and this lane re-measured 60,716 B against the 58,982 B 10% ceiling — 1,734 B over — that session across all six lanes."
 
     # ── Per-lane, per-rule BUDGET exceptions (loom#1355) — RETIRED 2026-09-02
     # The sibling instrument to `headroom_floor_exceptions` above, one

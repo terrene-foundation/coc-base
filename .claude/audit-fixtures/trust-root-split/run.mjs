@@ -34,12 +34,14 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import sandboxModules from "../_lib/sandbox-module-tree.cjs";
+const { copyModuleTree, moduleClosureArgs, moduleClosureResult } = sandboxModules;
 
 const require = createRequire(import.meta.url);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
 const EV = require(path.join(REPO_ROOT, ".claude", "hooks", "lib", "burndown-events.js"));
-const GEN = path.join(REPO_ROOT, ".claude", "bin", "build-trust-root.mjs");
+
 
 let cases = 0;
 const failures = [];
@@ -218,11 +220,9 @@ function mkRepo({ withRoster = true } = {}) {
   g(["config", "user.email", "fixture@example.invalid"]);
   g(["config", "user.name", "fixture"]);
   g(["config", "commit.gpgsign", "false"]);
-  // The generator resolves the library out of the repo it is pointed at, so the repo
-  // needs the real lib tree. Symlinking keeps the fixture honest about WHICH code ran.
   fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
-  fs.symlinkSync(path.join(REPO_ROOT, ".claude", "hooks"), path.join(dir, ".claude", "hooks"));
-  fs.symlinkSync(path.join(REPO_ROOT, ".claude", "bin"), path.join(dir, ".claude", "bin"));
+  copyModuleTree(path.join(REPO_ROOT, ".claude", "hooks"), path.join(dir, ".claude", "hooks"));
+  copyModuleTree(path.join(REPO_ROOT, ".claude", "bin"), path.join(dir, ".claude", "bin"));
   if (withRoster) fs.writeFileSync(path.join(dir, ".claude", "operators.roster.json"), JSON.stringify(ROSTER, null, 2));
   fs.writeFileSync(path.join(dir, "seed.txt"), "seed\n");
   g(["add", "-A"]);
@@ -231,7 +231,7 @@ function mkRepo({ withRoster = true } = {}) {
 }
 
 const runGen = (dir, a) =>
-  spawnSync(process.execPath, [GEN, "--repo", dir, ...a], { cwd: dir, encoding: "utf8", timeout: 60000 });
+  moduleClosureResult(dir, spawnSync(process.execPath, moduleClosureArgs(dir, [path.join(dir, ".claude/bin/build-trust-root.mjs"), "--repo", dir, ...a]), { cwd: dir, encoding: "utf8", timeout: 60000 }));
 
 pair(
   "generator-check-discriminates",

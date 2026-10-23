@@ -514,8 +514,9 @@ export function abridgeV6(raw) {
       if (i < lines.length && /^\s*-\s/.test(lines[i])) {
         // (3a) Bullet enumeration: bullets, interior blanks, AND a bullet's own
         //      INDENTED lazy continuation. The continuation is the same #2141
-        //      orphan one level down — the item at
-        //      `.claude/rules/self-referential-codify.md:72-73` wraps onto an
+        //      orphan one level down — the LAST item of the MUST-1 BLOCKED corpus
+        //      in `.claude/rules/self-referential-codify.md` ("The rule's own
+        //      bootstrap-circularity carve-out lets us skip") wraps onto an
         //      indented "(the carve-out is one-time-per-rule …)" line, which
         //      the pre-2141 loop left in the emission as a parenthetical with
         //      no antecedent. Fenced two ways so it cannot
@@ -827,7 +828,7 @@ export function composeOverlayBody(base, overlay) {
     // Slot-keyed overlay — compose via slot-parser (Phase F2 convention).
     return applyOverlay(base, overlay);
   }
-  // Full-file overlay — variant wins per artifact-flow.md § Variant Overlay
+  // Full-file overlay — variant wins per artifact-flow-distribution.md § Variant Overlay
   // Semantics. Pre-2026-05-12 composeRule had no branch for this and silently
   // no-op'd against legacy full-file overlays. Mirror composeArtifactBody.
   return { composed: overlay, warnings: [] };
@@ -1120,7 +1121,7 @@ export function parseCliCaps(src) {
   return caps;
 }
 
-export function getCritBaseline() {
+export function getCritBaseline(sourceRoot = REPO) {
   // CRIT baseline = CANON rules with priority: 0 in frontmatter.
   // Empirically matches the per_rule_size_budget_bytes keys in the manifest.
   // NON-recursive by design: the `.claude/rules/local/` subtree (F-353 Item 4)
@@ -1128,7 +1129,7 @@ export function getCritBaseline() {
   // deployment-local rule (mechanism #1 — canon stays local-blind). Local
   // baseline rules are composed SEPARATELY (getLocalBaselineRules, below) so the
   // add-only overlay is additive, never a canon-baseline mutation.
-  const rulesDir = path.join(REPO, ".claude", "rules");
+  const rulesDir = path.join(sourceRoot, ".claude", "rules");
   const files = fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md") && !f.endsWith(".example.md"));
   const crit = [];
   for (const f of files) {
@@ -1828,7 +1829,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
   const budgetWarnings = [];
   const budgetBlockViolations = [];
 
-  if (cli === "codex") chunks.push("Read `.codex/rules-index.md` for canonical rule paths and scopes. Before editing or governed operations, load matching path-scoped rules and relevant unscoped rules; Codex does not inject their bodies automatically.");
+  if (cli === "codex") chunks.push("Read `CLAUDE.md` first. Resolve `rules/`, `skills/`, `commands/`, `agents/` under `.claude/`. Before edits or governed work, read `.codex/rules-index.md` and matching/unscoped bodies. Trusted native hooks load bodies for typed targets; otherwise read manually.");
 
   for (const rule of crit) {
     const { composed, warnings } = composeRule(rule, cli, lang);
@@ -2309,7 +2310,7 @@ export function validateRuleFrontmatter() {
     const prioMatch = body.match(/^priority:\s*(\d+)/m);
     const scopeMatch = body.match(/^scope:\s*(\w[\w-]*)/m);
     const hasPaths = /^paths:/m.test(body);
-    const excludeFromMatch = body.match(/^exclude_from:\s*\[([^\]]*)\]/m);
+    const excludeFromMatch = parseExcludeFrom(body).size > 0;
 
     if (!prioMatch) failures.push(`${f}: MISSING priority: field`);
     if (!scopeMatch) failures.push(`${f}: MISSING scope: field`);
@@ -2562,9 +2563,14 @@ export function _artifactIsManaged(rel, patterns) {
 // Consumer-side artifact management runs through `/sync-from-template` merge, not
 // tier subscription. A consumer-local orphan check would be a NEW validator with
 // a consumer-true proposition, not this one.
-export function validateTierCompleteness() {
-  if (!isManifestOwnerClass(REPO)) {
-    const { type } = readRepoClass(REPO);
+//
+// `root` defaults to this checkout, which is what main() asserts. A caller may
+// pass another checkout's root: the negative-path tests plant their unmanaged
+// probe artifact in a scratch copy, so no test run ever writes into the live
+// .claude/ tree that sibling suites read at the same time.
+export function validateTierCompleteness(root = REPO) {
+  if (!isManifestOwnerClass(root)) {
+    const { type } = readRepoClass(root);
     return {
       pass: true,
       skipped: true,
@@ -2578,11 +2584,11 @@ export function validateTierCompleteness() {
       advisories: [],
     };
   }
-  const rulesDir = path.join(REPO, ".claude", "rules");
+  const rulesDir = path.join(root, ".claude", "rules");
   // Owner class: absence here is a DEFECT, and readManifestSource throws LOUD on
   // it — preserving #1383's fail-closed direction at the reader as well as at
   // V16. `text` is non-null precisely because of the class gate above.
-  const text = readManifestSource(REPO);
+  const text = readManifestSource(root);
 
   // Slice a top-level YAML block: from the line AFTER `^<key>:` to the
   // next column-0 key. Slicing must start past the key's own newline —
@@ -2639,8 +2645,8 @@ export function validateTierCompleteness() {
   // that silently falls out of /sync — exactly the rule-orphan failure V15 was
   // built to block, one artifact-type over.
   const declaredPatterns = _collectDeclaredArtifactPatterns(text);
-  const agentsDir = path.join(REPO, ".claude", "agents");
-  const skillsDir = path.join(REPO, ".claude", "skills");
+  const agentsDir = path.join(root, ".claude", "agents");
+  const skillsDir = path.join(root, ".claude", "skills");
   const walkMd = (dir) => {
     let out = [];
     if (!fs.existsSync(dir)) return out;
@@ -2686,7 +2692,7 @@ export function validateTierCompleteness() {
   // was a live instance). surface_roles: de-surfacing does NOT confer
   // managed-ness — a de-surfaced command still ships to build/use, so tier
   // membership remains the fate axis.
-  const commandsDir = path.join(REPO, ".claude", "commands");
+  const commandsDir = path.join(root, ".claude", "commands");
   for (const fp of walkMd(commandsDir)) {
     const rel = "commands/" + path.relative(commandsDir, fp).split(path.sep).join("/");
     if (!_artifactIsManaged(rel, declaredPatterns)) {

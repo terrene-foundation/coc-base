@@ -94,12 +94,12 @@
  *   · anything the generator itself cannot see. This hook adds no verdict of
  *     its own; it relays one.
  *
- * ── FAIL-OPEN LADDER (`cc-artifacts.md` Rule 7) ────────────────────────────
- * Two different unknowns, and they MUST NOT render identically:
+ * ── THE UNKNOWN LADDER, AND WHERE IT ENDS (`cc-artifacts.md` Rule 7) ────────
+ * Two different unknowns the guard ANSWERS, and they MUST NOT render identically:
  *   NOT IN SCOPE / CANNOT ASK  → fully SILENT. No manifest, unparseable
- *     manifest, no generator, non-chain surface, malformed stdin, path outside
- *     the project. Nothing is claimed in either direction and a repo without a
- *     burndown pays nothing.
+ *     manifest, no generator, non-chain surface, path outside the project.
+ *     Nothing is claimed in either direction and a repo without a burndown
+ *     pays nothing.
  *   ASKED AND GOT NO ANSWER    → ADVISORY context saying the link status is
  *     UNKNOWN. An exit 2 carrying NO `LINK-n` lines AND no recognised
  *     integrity kind is a PRE-EXISTING generator refusal (a source mid-edit, a
@@ -109,21 +109,41 @@
  *     whole failure this guard exists to avoid — and so is rendering "checked,
  *     and it is FORGED" as either of them, which is what arm (1) now catches.
  * Every `catch` below is one of these two by design, and each says which.
+ * A run that answers NEITHER — an unreadable payload (malformed, empty, stalled
+ * or oversized stdin), a throw anywhere including the emit path, a run past its
+ * budget — is no verdict at all. This row is `on_incomplete: "deny"`, so that
+ * ending FAILS CLOSED through `lib/guard-runner.js::runGuard`; the guard carries
+ * no fallback timer and no catch that passes such an ending through.
+ */
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git","node"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns `node .claude/bin/burndown-build.mjs --check-links` (read-only mode) and, for the semantic arm, `git show HEAD:<rel>` per lib/git-subprocess-env.js. Both reads; emission goes to stdout and no state is retained."
+ * }
  */
 
 "use strict";
 
-const TIMEOUT_MS = 4000;
-// The child gets strictly less than the outer net, so a hung generator resolves
-// through the ADVISORY-UNKNOWN path rather than through the blind fallback.
+// The standalone run budget guard-runner.js::runGuard enforces (in the engine the
+// registry row's own timeout bounds the run).
+const BUDGET_MS = 4000;
+// The child gets strictly less than the run budget, so a hung generator resolves
+// through the ADVISORY-UNKNOWN path rather than through a budget refusal.
 const CHILD_TIMEOUT_MS = 3000;
-let fallback = null;
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
+const { runGuard } = require("./lib/guard-runner.js");
 // Every git a guard spawns routes through the helper: an ABSOLUTE binary plus an
 // env built from CONSTANTS (`security.md` § Multi-Site Kwarg Plumbing). The env
 // half is load-bearing here and not ceremony — it pins GIT_CONFIG_GLOBAL and
@@ -135,7 +155,6 @@ const { resolveGitBinary, gitEnv } = require(
 );
 
 function passthrough(context) {
-  if (fallback) clearTimeout(fallback);
   try {
     const out = { continue: true };
     if (context) {
@@ -497,14 +516,10 @@ function linkStatusLine(verdict) {
   return `LINK STATUS: UNKNOWN — the chain checker did not reach the legs: ${verdict.why}. This is NOT a clean result.`;
 }
 
-async function main() {
-  let payload;
-  try {
-    payload = await readStdinBounded();
-  } catch {
-    return passthrough(null); // malformed stdin ⇒ CANNOT ASK ⇒ silent
-  }
-  const p = payload && typeof payload === "object" ? payload : {};
+async function main(payload) {
+  // guard-runner.js::runGuard hands over a parsed JSON object; a malformed stdin
+  // never reaches here (the runner refuses it rather than resolving a default).
+  const p = payload;
 
   const filePath = (p.tool_input && (p.tool_input.file_path || p.tool_input.notebook_path)) || "";
   if (!filePath) return passthrough(null);
@@ -595,65 +610,61 @@ async function main() {
             `pass — an unverified signed log is an unsigned log, and the question is who wrote those bytes.` +
             mixedRosterNote;
 
-    if (fallback) clearTimeout(fallback);
-    try {
-      // `instructAndWait` RETURNS `{json, exitCode}` — it does NOT write stdout.
-      // Returning it without emitting is a silent no-op: the finding is computed
-      // in full and then discarded, and every surface reports success. That is
-      // the result-not-delivered failure class, and the sibling guard shipped it
-      // once before its fixtures caught it.
-      //
-      // `rule_id` is NOT a delivery channel. `instructAndWait`'s signature does
-      // not read it, so it never reaches the agent — measured, not assumed. It
-      // is passed for fleet consistency with the sibling guards; the ARM
-      // IDENTITY that actually reaches the reader is the first clause of `why`
-      // below, which is why each arm names itself there in full.
-      const { instructAndWait } = require("./lib/instruct-and-wait.js");
-      const emitted = instructAndWait({
-        hookEvent: "PostToolUse",
-        severity: "block",
-        rule_id: "burndown-traceability/MUST-1",
-        what_happened:
-          verdict.kind === "broken"
-            ? `A write to the chain surface '${rel}' left the traceability chain BROKEN for ` +
-              `${verdict.findings.length} burndown item(s).`
-            : rosterOnly
-              ? `A write to the chain surface '${rel}' was made against an event log ` +
-                `${verdict.findings.length} of whose record(s) could NOT be verified at all — the signer's ` +
-                `roster entry carries no usable fingerprint.`
-              : `A write to the chain surface '${rel}' was made against an event log carrying ` +
-                `${verdict.findings.length} LEDGER-INTEGRITY finding(s).`,
-        why: body,
-        agent_must_report:
-          verdict.kind === "broken"
-            ? [
-                `File written: ${rel}`,
-                ...shown.map((f) => `${f.leg} ${f.id}: ${f.why}`),
-                "Backfill the tracker row / anchor rather than adjusting the status word.",
-              ]
-            : [
-                `File written: ${rel}`,
-                ...shown.map((f) => `[${f.kind}] ${f.why}`),
-                rosterOnly
-                  ? "Verification could not RUN for these records. Fix the ROSTER entry for that signer — " +
-                    "it is missing a fingerprint or carries one too short to bind an identity. The record " +
-                    "is not accused, and re-signing or re-emitting it clears nothing."
-                  : "Report the integrity finding to the operator. Do NOT re-sign or re-emit the record to clear it.",
-                ...(rosterOnly || !rosterFindings.length
-                  ? []
-                  : [
-                      `${rosterFindings.length} of the above are [no-signer-fingerprint] — verification could ` +
-                        `not run for those records; fix the signer's ROSTER entry. Those records are not accused.`,
-                    ]),
-              ],
-      });
-      process.stdout.write(JSON.stringify(emitted.json) + "\n");
-      process.exit(emitted.exitCode);
-    } catch {
-      // Even the emit path fails OPEN — the finding is surfaced as context
-      // rather than lost, and the write is not blocked on an emitter bug.
-      return passthrough(body);
-    }
+    // `instructAndWait` RETURNS `{json, exitCode}` — it does NOT write stdout.
+    // Returning it without emitting is a silent no-op: the finding is computed
+    // in full and then discarded, and every surface reports success. That is
+    // the result-not-delivered failure class, and the sibling guard shipped it
+    // once before its fixtures caught it.
+    //
+    // `rule_id` is NOT a delivery channel. `instructAndWait`'s signature does
+    // not read it, so it never reaches the agent — measured, not assumed. It
+    // is passed for fleet consistency with the sibling guards; the ARM
+    // IDENTITY that actually reaches the reader is the first clause of `why`
+    // below, which is why each arm names itself there in full.
+    const { instructAndWait } = require("./lib/instruct-and-wait.js");
+    const emitted = instructAndWait({
+      hookEvent: "PostToolUse",
+      severity: "block",
+      rule_id: "burndown-traceability/MUST-1",
+      what_happened:
+        verdict.kind === "broken"
+          ? `A write to the chain surface '${rel}' left the traceability chain BROKEN for ` +
+            `${verdict.findings.length} burndown item(s).`
+          : rosterOnly
+            ? `A write to the chain surface '${rel}' was made against an event log ` +
+              `${verdict.findings.length} of whose record(s) could NOT be verified at all — the signer's ` +
+              `roster entry carries no usable fingerprint.`
+            : `A write to the chain surface '${rel}' was made against an event log carrying ` +
+              `${verdict.findings.length} LEDGER-INTEGRITY finding(s).`,
+      why: body,
+      agent_must_report:
+        verdict.kind === "broken"
+          ? [
+              `File written: ${rel}`,
+              ...shown.map((f) => `${f.leg} ${f.id}: ${f.why}`),
+              "Backfill the tracker row / anchor rather than adjusting the status word.",
+            ]
+          : [
+              `File written: ${rel}`,
+              ...shown.map((f) => `[${f.kind}] ${f.why}`),
+              rosterOnly
+                ? "Verification could not RUN for these records. Fix the ROSTER entry for that signer — " +
+                  "it is missing a fingerprint or carries one too short to bind an identity. The record " +
+                  "is not accused, and re-signing or re-emitting it clears nothing."
+                : "Report the integrity finding to the operator. Do NOT re-sign or re-emit the record to clear it.",
+              ...(rosterOnly || !rosterFindings.length
+                ? []
+                : [
+                    `${rosterFindings.length} of the above are [no-signer-fingerprint] — verification could ` +
+                      `not run for those records; fix the signer's ROSTER entry. Those records are not accused.`,
+                  ]),
+            ],
+    });
+    // An emit path that THROWS is no longer softened into context (it used to
+    // pass the body through as continue:true): the throw reaches the runner,
+    // which refuses — a structural finding is never downgraded by an emitter bug.
+    process.stdout.write(JSON.stringify(emitted.json) + "\n");
+    process.exit(emitted.exitCode);
   }
 
   // ── ARM (2) SEMANTIC — advisory only, never a block ──────────────────────
@@ -687,30 +698,25 @@ async function main() {
       `points at the RIGHT ruling is a judgment no check makes, which is why this is advisory: ` +
       `confirm each anchor above names the decision behind that item, and say so.`;
 
-    if (fallback) clearTimeout(fallback);
-    try {
-      const { instructAndWait } = require("./lib/instruct-and-wait.js");
-      const emitted = instructAndWait({
-        hookEvent: "PostToolUse",
-        severity: "advisory",
-        rule_id: "burndown-traceability/MUST-2",
-        what_happened: `A write to the tracker '${rel}' added or changed ${changes.length} value_anchor cell(s).`,
-        why: body,
-        agent_must_report: [
-          `Tracker: ${rel}`,
-          ...shown.map((c) => (c.kind === "added" ? `added ${c.id} → ${c.to}` : `changed ${c.id}: ${c.from} → ${c.to}`)),
-          "Confirm each anchor names the ruling behind that item — the check cannot.",
-        ],
-      });
-      // Advisory at PostToolUse: `{continue:true, additionalContext}`, exit 0.
-      // Asserted, not assumed — an advisory that ever carried exit 2 would be a
-      // semantic judgment wearing structural teeth.
-      if (emitted.exitCode !== 0 || emitted.json.continue !== true) return passthrough(body);
-      process.stdout.write(JSON.stringify(emitted.json) + "\n");
-      process.exit(0);
-    } catch {
-      return passthrough(body); // fail OPEN, finding retained as plain context
-    }
+    const { instructAndWait } = require("./lib/instruct-and-wait.js");
+    const emitted = instructAndWait({
+      hookEvent: "PostToolUse",
+      severity: "advisory",
+      rule_id: "burndown-traceability/MUST-2",
+      what_happened: `A write to the tracker '${rel}' added or changed ${changes.length} value_anchor cell(s).`,
+      why: body,
+      agent_must_report: [
+        `Tracker: ${rel}`,
+        ...shown.map((c) => (c.kind === "added" ? `added ${c.id} → ${c.to}` : `changed ${c.id}: ${c.from} → ${c.to}`)),
+        "Confirm each anchor names the ruling behind that item — the check cannot.",
+      ],
+    });
+    // Advisory at PostToolUse: `{continue:true, additionalContext}`, exit 0.
+    // Asserted, not assumed — an advisory that ever carried exit 2 would be a
+    // semantic judgment wearing structural teeth.
+    if (emitted.exitCode !== 0 || emitted.json.continue !== true) return passthrough(body);
+    process.stdout.write(JSON.stringify(emitted.json) + "\n");
+    process.exit(0);
   }
 
   // Nothing to adjudicate. An UNKNOWN is still surfaced — it is the one result
@@ -738,14 +744,11 @@ function selfInflicted(verdict, rel) {
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). It arms the fallback timer the
-// file used to arm at load time, then runs main() with the SAME catch handler.
-function hookMain() {
-  // Armed BEFORE any work, per `cc-artifacts.md` Rule 7.
-  fallback = setTimeout(() => passthrough(null), TIMEOUT_MS);
-  if (typeof fallback.unref === "function") fallback.unref();
-  return main().catch(() => passthrough(null));
-}
+// in-process by lib/hook-engine.js (dispatch.js). guard-runner.js::runGuard reads
+// the payload (refusing an empty, stalled, unparseable or oversized stdin), runs
+// main, and refuses a throw or a standalone run past BUDGET_MS — the endings the
+// old fallback timer and `.catch` passed through as `{continue:true}`.
+const hookMain = runGuard("burndown-trace-write-guard", main, { budgetMs: BUDGET_MS });
 
 module.exports = { hookMain };
 

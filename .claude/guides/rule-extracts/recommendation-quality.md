@@ -180,7 +180,7 @@ rule, only this cross-reference map moved). The rule body carries a pointer here
 
 Extends:
 
-- `rules/communication.md` § "Explain Choices in Business Terms" — that rule says explain in business terms; this rule says ALSO recommend (don't just explain).
+- `guides/rule-extracts/communication.md` § "Explain Choices in Business Terms" — that rule says explain in business terms; this rule says ALSO recommend (don't just explain).
 - `rules/communication.md` § "Frame Decisions as Impact" — that rule says present impact; this rule says present a recommendation alongside the impact.
 - `feedback_directive_recommendations.md` (user memory) — that note says "Always recommend based on rigor/completeness/accuracy/optimality; never option-menus without a pick. On 'proceed'/'continue', execute" — this rule lifts the user feedback into a structural defense.
 
@@ -487,3 +487,187 @@ gate never fires — which also makes this a NON-input to Rule 11's 30-day recur
 counts Rule-10-MANDATED invocations only). This is a STRUCTURAL-CLEANUP extraction, not a Rule-10
 paired extraction — the same disposition `journal/0148` recorded for `rule-authoring.md`'s own
 path-scoped extraction.
+
+## Full DO/DO-NOT examples moved from the rule bodies (context-budget 2026-10-10)
+
+The full examples of `rules/recommendation-quality.md` (MUST-1..5) and
+`rules/recommendation-quality-escalation.md` (MUST-7, MUST-8) moved here verbatim. Examples only — every obligation, BLOCKED corpus and Why lives in the rules or in
+`.claude/skills/32-trust-posture/wiring/recommendation-quality.md`.
+
+### MUST-1 example
+
+```markdown
+# DO — recommendation with rationale
+
+I recommend Option B (move auth to a service module).
+
+Why: it isolates the failure surface. Option A (add another callsite)
+keeps the bug class alive — same null-bind we just fixed could land in
+the new callsite. Option B closes the class structurally.
+
+Tradeoff: ~150 LOC churn in this PR vs ~30 for Option A. The churn is
+one-time; the bug-class-prevention is ongoing.
+
+# DO NOT — bare option menu, no pick
+
+Two paths:
+
+- Option A: add another callsite (cheap)
+- Option B: move auth to a service module (more refactor)
+  Which would you like?
+```
+
+### MUST-2 example
+
+```markdown
+# DO — implications spelled out
+
+Recommend: revert PR #52 and re-do the migration command from scratch.
+
+Implications:
+
+- One-time cost: ~one session of re-work (Loom-A through Loom-D + harness validation)
+- Recovers: a clean, audit-pristine /migrate that handles the full surface
+- Ongoing: every multi-CLI consumer gets correct cross-CLI parity from
+  the first /migrate, not "first /migrate is shallow + we'll patch later"
+- Reversibility: revert is one git command; the work isn't lost (this
+  audit's findings are the spec for v2)
+
+# DO NOT — recommendation without implications
+
+Recommend: revert PR #52 and re-do.
+```
+
+### MUST-3 example
+
+```markdown
+# DO — symmetric pros and cons
+
+Recommend: keep the codex-mcp-guard fail-closed (POLICIES_POPULATED=false).
+
+Pros:
+
+- Fail-closed is the safe default — Codex/Gemini cannot bypass policy
+  while predicates are unwired
+- Visible failure mode (server refuses to start) — user can't ignore
+- Consistent with zero-tolerance Rule 2 (no fail-open scaffolds)
+
+Cons (real, not glossed):
+
+- Every Codex/Gemini session in a multi-CLI repo hits the startup
+  refusal until predicates are wired
+- Users will ask "why doesn't Codex work?" — answer is "Loom-B not
+  shipped yet" — not great DX
+- Workaround is to disable codex-mcp-guard in .codex/config.toml,
+  which then silently disables policy enforcement entirely
+
+The cons are why Loom-B is on the critical path, not deferred indefinitely.
+
+# DO NOT — pros only, cons elided
+
+Recommend: keep fail-closed. Pros: safe default, visible failure mode,
+follows zero-tolerance Rule 2.
+```
+
+### MUST-3 example — clean gate-stop
+
+```markdown
+# DO — clean gate-stop stated plainly, no fabricated con
+
+Recommend: stop here — the work is converged; wrap up and resume in a fresh
+session. Clean stopping point, nothing is lost by stopping. I can continue
+now if you'd prefer.
+
+# DO NOT — manufactured con dressing the correct gate-stop as a trade-off
+
+Recommend: stop here.
+Cons of stopping here (honest): the write doesn't land until next session;
+if you'd rather I keep going, just say so.
+```
+
+### MUST-4 example
+
+```markdown
+# DO — every term translated as it appears
+
+Recommend: enable variant overlays in the per-CLI emitter.
+
+What that means for you: today, when we publish the Codex and Gemini
+versions of the project rules, they ship the _generic_ version of
+the rules — even when there's a Python-specific or Rust-specific
+override that Claude Code already uses. Those overrides are ignored
+on the way to Codex/Gemini. Result: Claude Code says "use real
+infrastructure for tests" (the strict Python rule); Codex says
+"use mocks where convenient" (the generic rule). Same project,
+two different rules.
+
+Enabling variant overlays makes Codex and Gemini also pick up the
+Python-specific version, so all three CLIs say the same thing.
+
+# DO NOT — jargon-heavy without translation
+
+Recommend: wire variant-axis composition into emit-cli-artifacts.mjs
+via composeArtifactBody(category, relPath, cli, lang) so .codex/prompts/
+and .gemini/commands/ ship variant-overlaid bodies matching CC's
+.claude/commands/ output, closing the cross-CLI parity Rule 1 violation
+in test.md / db.md / ai.md / release.md.
+```
+
+### MUST-5 example
+
+```markdown
+# DO — recommendation, then yes/no confirmation
+
+Recommend: revert PR #52, re-design /migrate using the corrected
+emission pipeline.
+
+Want me to revert PR #52 now? (yes/no)
+
+# DO NOT — recommendation, then re-ask the menu
+
+Recommend: revert PR #52, re-design /migrate.
+
+Or, alternatively, we could (a) leave PR #52 in main and patch
+forward, (b) revert and start clean, (c) some hybrid. Which way?
+```
+
+### MUST-7 example
+
+```markdown
+# DO — low-confidence pick on a low-blast-radius action: recommend AND escalate for ratification
+
+Recommend: name the new flag `--strict-mode` (matches the two sibling flags I found).
+
+Confidence: LOW — I found only two siblings and could not locate the naming-convention
+doc; this is a pattern-match, not a verified convention. Cheap to rename now, expensive
+once consumers depend on it.
+
+What would raise it: the naming-convention doc, or a third sibling confirming the pattern.
+
+Ratify `--strict-mode`, or should I find the convention doc first? (ratify / find-doc)
+
+# DO NOT — auto-execute the low-confidence-but-cheap pick
+
+Going with `--strict-mode` (matches two siblings; cheap to rename). Done.
+
+# (decidable + low blast-radius → both existing gates pass → the guess ships
+
+# silently; the user never learns the "pick" was a pattern-match, not a convention)
+```
+
+### MUST-8 example
+
+```markdown
+# DO — sensitivity-elevating write surfaced for confirmation
+
+Recommend: commit a genericized template (`<operator-home>/repos/...`), not the
+sibling's verbatim `loom-links.local.json`. Pasting the real paths would move
+gitignored-per-operator layout into a committed team-memory file
+(gitignored → committed-all-operators). Commit the genericized form, or do you
+want the verbatim paths in the shared note? (genericize / verbatim)
+
+# DO NOT — auto-persist the escalation because it is cheap + in-scope
+
+Wrote the working example into team-memory (pasted the sibling's real
+loom-links.local.json paths — it is just a local commit, in scope for onboarding). Done.
+```

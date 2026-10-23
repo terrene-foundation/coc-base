@@ -1,0 +1,17 @@
+const fs = require("fs");
+const path = require("path");
+
+function _realpathSafe(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+function isProtected(target, guardRoot) {
+  const real = fs.realpathSync(target);
+  const root = _realpathSafe(guardRoot);
+  return real.startsWith(root + path.sep);
+}
+module.exports = { isProtected };

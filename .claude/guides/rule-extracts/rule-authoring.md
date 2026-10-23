@@ -17,7 +17,7 @@ Moved from the rule's opening `Origin:` line and its `- **Origin:**` Wiring fiel
 
 Moved from the rule's `**Length rationale**` paragraph 2026-09-13. The rule keeps the named rationale itself (which structural elements Rule 10 requires, and why collapsing any of them would weaken the defense).
 
-The rule is self-referential — exempting itself from its own length cap requires the same named-rationale-at-Origin shape every other rule uses. Sibling precedent: `security.md` § Length rationale, `recommendation-quality.md` § Length rationale, `artifact-flow.md` § Length rationale.
+The rule is self-referential — exempting itself from its own length cap requires the same named-rationale-at-Origin shape every other rule uses. Sibling precedent: `security.md` § Length rationale, `recommendation-quality.md` § Length rationale, `skills/32-trust-posture/wiring/artifact-flow.md` § Length rationale.
 
 ## The `cli_delivery:` Lane Field
 

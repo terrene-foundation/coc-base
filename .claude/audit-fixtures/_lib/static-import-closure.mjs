@@ -16,11 +16,20 @@
  * THE TOP-LEVEL-ONLY RULE IS LOAD-BEARING, not tidiness. The burndown generator
  * resolves its CONDITIONAL deps (`burndown-events.js`, `signed-log.js`,
  * `coc-sign.js`) by PATH at runtime, and more than one suite PINS their absence
- * (the zero-relative-imports property `--quote` demonstrates). Only UNINDENTED
- * (column-0) `import`/`require` statements are matched, so:
+ * (the zero-relative-imports property `--quote` demonstrates). Only statements
+ * that START at column 0 are matched, so:
  *   - a top-level static import is ALWAYS copied (its absence is a crash);
  *   - a conditional or indented require is NEVER copied (its absent state is
  *     what the fixtures exercise).
+ * A STATEMENT, not a line, is the unit. A column-0 statement may put its
+ * specifier on a later line, as a multi-name `const { a, b } = require(…)` or
+ * `import { a, b } from …` does when it lists one name per line; most
+ * multi-name imports in this tree are written that way.
+ * A line-at-a-time match never saw those: the closure then silently dropped
+ * `lib/refusal-rule-id-channel.js` from hook-engine.js's closure, and every
+ * fixture built from it died with MODULE_NOT_FOUND. The match below spans
+ * lines inside one statement, and stops at a `;` or a quote, so it never runs
+ * on into the next statement.
  * A future static import cannot silently break these fixtures again; a future
  * PATH-resolved runtime dep still must be copied by hand at the call site,
  * because no import statement names it — that boundary is stated here so it is
@@ -40,12 +49,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// Column-0 `import ... from "…"` / `import "…"` / `export ... from "…"` /
-// `const|let|var x = require("…")`. Relative specifiers only — bare and
+// A statement starting at column 0: `import ... from "…"` / `import "…"` /
+// `export ... from "…"` / `const|let|var x = require("…")`, its binding list
+// free to span lines. Relative specifiers only — bare and
 // node:-prefixed specifiers are builtins/packages, which a fixture repo never
 // carries.
 const TOP_LEVEL_REL_RE =
-  /^(?:import\s[^\n]*?from\s*|import\s*|export\s[^\n]*?from\s*|(?:const|let|var)\s[^=\n]*?=\s*require\()["'](\.[^"']+)["']/;
+  /^(?:import\s[^;"'`]*?\bfrom\s*|import\s*|export\s[^;"'`]*?\bfrom\s*|(?:const|let|var)\s[^=;"'`]*?=\s*require\(\s*)["'](\.[^"']+)["']/gm;
 
 function resolveModule(base) {
   const candidates = [base, `${base}.mjs`, `${base}.js`, `${base}.cjs`, path.join(base, "index.mjs"), path.join(base, "index.js")];
@@ -69,9 +79,7 @@ export function copyStaticImportClosure({ fromRoot, toRoot, entries }) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(source, dest);
     copied.push(rel);
-    for (const line of fs.readFileSync(source, "utf8").split("\n")) {
-      const match = TOP_LEVEL_REL_RE.exec(line);
-      if (!match) continue;
+    for (const match of fs.readFileSync(source, "utf8").matchAll(TOP_LEVEL_REL_RE)) {
       const resolved = resolveModule(path.resolve(path.dirname(source), match[1]));
       if (resolved) queue.push(resolved); // absent ⇒ skipped, surfaced as the module's real error
     }

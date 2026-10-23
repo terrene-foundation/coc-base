@@ -209,7 +209,7 @@ export function registryPullPath(root) {
 
 /**
  * Assert the vault path is NOT under the registry pull path (clause (c) — a
- * vault committed beside the registry is fetched UP into loom-command). Throws.
+ * vault committed beside the registry is fetched UP into the UP-pull aggregator). Throws.
  */
 export function assertVaultOutsidePullPath(vaultPath, root) {
   const pull = registryPullPath(root);
@@ -218,7 +218,7 @@ export function assertVaultOutsidePullPath(vaultPath, root) {
   if (inside) {
     throw new MeshUrnError(
       `vault path ${vaultPath} is UNDER the registry pull path ${pull} — the vault would be ` +
-        `git-fetched UP into loom-command as the deanonymization table (clause (c)). Move it out.`,
+        `git-fetched UP into the UP-pull aggregator as the deanonymization table (clause (c)). Move it out.`,
     );
   }
 }

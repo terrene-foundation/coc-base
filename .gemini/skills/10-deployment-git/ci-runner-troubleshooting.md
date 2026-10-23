@@ -163,9 +163,9 @@ maturin-action or cargo-action cannot find rustc. See Protocol B.
 
 Usually the same as above — the rustup proxy is broken. A job-level `dtolnay/rust-toolchain@stable` step is the permanent fix.
 
-### "mkdir /Users/runner: Permission denied" in setup-python
+### Permission denied creating a home directory in setup-python
 
-`actions/setup-python` hardcodes paths under `/Users/runner/` which do not exist on self-hosted macOS runners. Remove `actions/setup-python` and let `maturin` auto-detect interpreters from `PATH`; for Linux, use a `manylinux` Docker container.
+Check that the configured installation directory is writable on the runner. For a self-hosted macOS runner, use its available interpreters with `maturin`; for Linux, use a `manylinux` Docker container.
 
 ### "Failed to restore: The operation cannot be completed in timeout"
 

@@ -33,9 +33,13 @@
  *   node .claude/audit-fixtures/multi-operator-sessionend/run.mjs
  *   HOOK=/abs/path/to/mutant.js node .../run.mjs     # red it against a mutant
  */
+import "../_lib/no-ambient-git.cjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import os from "node:os";
+import vm from "node:vm";
+import { createRequire } from "node:module";
 import {
   makeReporter,
   mkRepo,
@@ -53,6 +57,326 @@ const REPO = path.resolve(HERE, "..", "..", "..");
 const HOOK = process.env.HOOK || path.join(REPO, ".claude/hooks/multi-operator-sessionend.js");
 
 const { check, finish } = makeReporter();
+
+// Tier 1: controlled providers with canonical stored un-rostered rows. Signing
+// and detached processes are outside this instrument's scope. All assertions
+// are structural: fields, row counts, ordering and error codes.
+const requireHere = createRequire(import.meta.url);
+const EFFECT = "a zero-byte lease in the create/write birth window is undetermined " +
+  "and releases are deferred; only an unchanged lease beyond the birth-window " +
+  "age floor is reap-eligible after the tombstone witness recheck, not proof of PID death";
+
+function callerLayout() {
+  const filename = path.join(REPO, ".claude/hooks/lib/session-notes-layout.js");
+  const layout = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(filename, "utf8"), {
+    module: layout, exports: layout.exports, process: { pid: process.pid },
+    require(specifier) {
+      if (["fs", "path", "crypto"].includes(specifier)) return requireHere(specifier);
+      if (specifier === "child_process") return {
+        execFileSync() { throw new Error("F6_LAYOUT_SUBPROCESS_FORBIDDEN"); },
+        spawnSync() { throw new Error("F6_LAYOUT_SUBPROCESS_FORBIDDEN"); },
+      };
+      if (["./git-subprocess-env.js", "./coc-ledger.js", "./burndown-events.js"]
+        .includes(specifier)) return {};
+      throw new Error(`F6_UNEXPECTED_LAYOUT_DEPENDENCY:${specifier}`);
+    },
+  }, { filename });
+  return layout.exports;
+}
+
+function exerciseCaller(lease, {
+  sinkFailure = false, emitThrows = false, teardown = false,
+  acquireThrows = false, stderrThrows = false,
+} = {}) {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "f6-caller-observation-"));
+  const learningDir = path.join(repoDir, ".claude", "learning");
+  fs.mkdirSync(learningDir, { recursive: true });
+  const events = [];
+  const learningPath = path.join(REPO, ".claude/hooks/lib/learning-utils.js");
+  const learningSource = fs.readFileSync(learningPath, "utf8");
+  const append = requireHere(path.join(REPO, ".claude/hooks/lib/append-sink.js"));
+  const learning = { exports: {} };
+  vm.runInNewContext(learningSource, {
+    module: learning, exports: learning.exports, __dirname: path.dirname(learningPath),
+    process: { env: { KAILASH_LEARNING_DIR: learningDir }, cwd: () => repoDir,
+      stderr: { write() {} } },
+    require(specifier) {
+      if (specifier.endsWith("append-sink.js")) return { ...append, mainCheckoutBoundaryRoots: () => [] };
+      if (specifier.endsWith("operator-id.js")) return { resolveIdentity: () => null };
+      if (specifier.endsWith("coc-append.js")) return { appendStamped() { throw new Error("F6_UNEXPECTED_SIGNING"); } };
+      if (["fs", "path", "crypto", "os"].includes(specifier)) {
+        return requireHere(specifier);
+      }
+      throw new Error(`F6_UNEXPECTED_LEARNING_DEPENDENCY:${specifier}`);
+    },
+  }, { filename: learningPath });
+  const hook = { exports: {} };
+  let source = fs.readFileSync(HOOK, "utf8");
+  const mutants = {
+    // The performTeardown site (6-space indent); recordDegradedLease has its own.
+    continuation: [
+      'if (!err || err.code !== "SESSIONEND_LEASE_OBSERVATION_FAILED") throw err;\n      try {',
+      'console.log("F6_MUTANT_BRANCH_REACHED:continuation"); throw err;\n      try {',
+    ],
+    narrowness: [
+      'if (!err || err.code !== "SESSIONEND_LEASE_OBSERVATION_FAILED") throw err;\n      try {',
+      'console.log("F6_MUTANT_BRANCH_REACHED:narrowness"); if (false) throw err;\n      try {',
+    ],
+    held: [
+      'lease.liveness.state === "undetermined" ||\n        lease.liveness.tombstoneHeld === true',
+      '(console.log("F6_MUTANT_BRANCH_REACHED:held"), lease.liveness.state === "undetermined")',
+    ],
+    duplicate: [
+      "recordReleaseLeaseObservation(repoDir, identity, data);",
+      'console.log("F6_MUTANT_BRANCH_REACHED:duplicate");\n' +
+        "recordReleaseLeaseObservation(repoDir, identity, data);\n" +
+        "recordReleaseLeaseObservation(repoDir, identity, data);",
+    ],
+    observation: [
+      "recordReleaseLeaseObservation(repoDir, identity, data);", "void data;",
+    ],
+    effect: [
+      "a zero-byte lease in the create/write birth window is undetermined ",
+      "corrupt => dead => reap-eligible ",
+    ],
+    failure: ["if (!recorded) {", "if (false) {"],
+    custody: [
+      "data.tombstoneHeld = lease.liveness.tombstoneHeld;",
+      "data.tombstoneHeld = false;",
+    ],
+    release: [
+      "releaseReleaseLease({ verifiedId: identity.verified_id, repoDir });",
+      "void identity;",
+    ],
+    "r2-reasons": [
+      '"unsafe-lease", "unbound-lease", "custody-unobservable",', "",
+    ],
+    "r2-restore": [
+      '"restore-copy-failed", "restore-copy-unavailable", "custody-held",', "",
+    ],
+    "f3-degraded": [
+      'if (!err || err.code !== "SESSIONEND_LEASE_OBSERVATION_FAILED") throw err;\n    try {\n      process.stderr.write(\n        "[sessionend] degraded',
+      'throw err;\n    try {\n      process.stderr.write(\n        "[sessionend] degraded',
+    ],
+    "f5-restored": ['"restored", "newborn-present",', '"newborn-present",'],
+    "f5-restored-by-copy": ['"reap-unlink-failed", "restored-by-copy",', '"reap-unlink-failed",'],
+    "f5-restore-unlink-failed": ['"restore-unlink-failed", "reap-unlink-failed",', '"reap-unlink-failed",'],
+    "f6-tombstone-cleared": ['"custody-held",\n          "tombstone-cleared",', '"custody-held",'],
+  };
+  const mutation = process.env.F6_CALLER_MUTANT;
+  if (mutation) {
+    const pair = mutants[mutation];
+    if (!pair || source.split(pair[0]).length !== 2) {
+      throw new Error("F6_MUTATION_NOT_REACHED");
+    }
+    source = source.replace(pair[0], pair[1]);
+    console.log(`F6_SOURCE_COPY_MUTATION_REACHED:${mutation}`);
+  }
+  const continuation = `
+    const checkpointOriginal = emitCheckpoint;
+    emitCheckpoint = (...args) => {
+      callerEvents.push("checkpoint"); return checkpointOriginal(...args);
+    };
+    const verificationOriginal = emitVerificationCheckpoint;
+    emitVerificationCheckpoint = (...args) => {
+      callerEvents.push("verification"); return verificationOriginal(...args);
+    };
+    const notesOriginal = writeSessionNotesAtomic;
+    writeSessionNotesAtomic = (...args) => {
+      callerEvents.push("notes"); return notesOriginal(...args);
+    };
+    module.exports.performTeardown = performTeardown;
+  `;
+  vm.runInNewContext(source + "\nmodule.exports.releaseOwnClaims = releaseOwnClaims;" +
+    (teardown ? continuation : ""), {
+    module: hook, exports: hook.exports, __dirname: path.dirname(HOOK), __filename: HOOK,
+    callerEvents: events,
+    process: { argv: [], env: {
+      COC_TEST_SKIP_SIGN: "1", COC_TEST_WRITE_SESSION_NOTES: "1",
+    }, stderr: { write() {
+      if (stderrThrows) throw new Error("F6_STDERR_UNAVAILABLE");
+    } } },
+    require(specifier) {
+      if (specifier === "fs") return fs;
+      if (specifier === "path") return path;
+      if (specifier.endsWith("append-sink.js")) return append;
+      if (specifier.endsWith("coc-emit.js")) return { emitSignedRecord() {
+        events.push("emit");
+        if (emitThrows) throw new Error("F6_EMIT_FAILED");
+        return { ok: true };
+      } };
+      if (specifier.endsWith("sessionend-release-lease.js")) return {
+        acquireReleaseLease() {
+          events.push("acquire");
+          if (acquireThrows) throw new Error("F6_ACQUIRE_FAILED");
+          return lease;
+        },
+        releaseReleaseLease() { events.push("release"); return { ok: true }; },
+      };
+      if (specifier.endsWith("learning-utils.js")) return { logObservation(...args) {
+        events.push("observe");
+        if (sinkFailure === "throw") throw new Error("F6_SINK_FAILED");
+        return sinkFailure ? null : learning.exports.logObservation(...args);
+      } };
+      if (specifier.endsWith("coordination-log.js")) return {
+        foldLog(records) { return { accepted: records, rejected: [] }; },
+      };
+      if (specifier.endsWith("fold-record-limits.js")) return requireHere(specifier);
+      if (specifier.endsWith("checkpoint-emitter.js")) return {
+        maybeEmitCheckpoint() { return { emitted: false, reason: "threshold is unmet" }; },
+      };
+      if (specifier.endsWith("coordination-mode.js")) return {
+        isCoordinationEnabled() { return true; },
+      };
+      if (specifier.endsWith("session-notes-layout.js")) return callerLayout();
+      throw new Error(`F6_UNEXPECTED_DEPENDENCY:${specifier}`);
+    },
+  }, { filename: HOOK });
+  let error = null;
+  try {
+    const identity = { verified_id: "SHA256:fixture", person_id: "fixture" };
+    if (teardown) {
+      fs.writeFileSync(path.join(learningDir, "coordination-log.jsonl"),
+        JSON.stringify({ type: "claim", verified_id: identity.verified_id,
+          content: { claim_id: "fixture-claim" } }) + "\n");
+      hook.exports.performTeardown(repoDir, identity);
+    } else {
+      hook.exports.releaseOwnClaims(repoDir, identity, [{ claim_id: "fixture-claim" }]);
+    }
+  } catch (err) { error = err; }
+  const sink = path.join(learningDir, "observations.jsonl");
+  const rows = fs.existsSync(sink) ? fs.readFileSync(sink, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
+  const read = relative => {
+    const file = path.join(repoDir, relative);
+    return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+  };
+  const notes = read(".session-notes.d/fixture.md");
+  const ledger = read(".session-notes.shared.md");
+  fs.rmSync(repoDir, { recursive: true, force: true });
+  return { events, error, rows, notes, ledger };
+}
+
+console.log("\n=== F6: Tier-1 caller observations with canonical stored-row readback ===");
+for (const reason of [
+  "corrupt-lease", "unreadable-lease", "token-format-unverified",
+  "unsafe-lease", "unbound-lease", "custody-unobservable",
+]) {
+  const r = exerciseCaller({ ok: false, reason: "contended", liveness: {
+    state: "undetermined", reason, age_ms: 10, floor_ms: 900000,
+    tombstoneHeld: true, restore_reason: "newborn-present",
+  } });
+  check(`F6_${reason}_DURABLE`, r.rows.length === 1 && r.rows[0].type === "coordination_degradation" &&
+    r.rows[0].data.degradation === "release-lease-undetermined" && r.rows[0].data.reason === reason,
+    `stored rows=${r.rows.length}`, "F6_UNDETERMINED_OBSERVATION_MISSING");
+  check(`F6_${reason}_DEFER`, r.events.join(",") === "acquire,observe" && !r.error,
+    r.events.join(","), "F6_UNDETERMINED_RELEASE_EMITTED");
+  check(`F6_${reason}_AGE`, r.rows[0]?.data.age_ms === 10 && r.rows[0]?.data.floor_ms === 900000,
+    JSON.stringify(r.rows[0]?.data), "F6_FINITE_AGE_METADATA_MISSING");
+  check(`F6_${reason}_CUSTODY`, r.rows[0]?.data.tombstoneHeld === true &&
+    r.rows[0]?.data.restore_reason === "newborn-present",
+    JSON.stringify(r.rows[0]?.data), "F6_HELD_TOMBSTONE_TAGS_MISSING");
+}
+{
+  const r = exerciseCaller({ ok: false, reason: "contended", liveness: { state: "alive", reason: "token-verified" } });
+  check("F6_LIVE_NO_OBSERVATION", r.rows.length === 0 && r.events.join(",") === "acquire" && !r.error,
+    r.events.join(","), "F6_HEALTHY_CONTENTION_FALSE_DEGRADATION");
+}
+{
+  const r = exerciseCaller({ ok: false, reason: "contended", holder: { holder_pid: 123 }, liveness: {
+    state: "undetermined", reason: "private-path", age_ms: Infinity, floor_ms: -1, heldTombstone: "/private/fixture",
+  } });
+  check("F6_BOUNDED_METADATA", r.rows.length === 1 && r.rows[0].data.reason === "unknown" &&
+    !Object.hasOwn(r.rows[0].data, "age_ms") && !Object.hasOwn(r.rows[0].data, "floor_ms") &&
+    !JSON.stringify(r.rows[0].data).includes("private"), JSON.stringify(r.rows[0]?.data), "F6_UNBOUNDED_PAYLOAD");
+}
+for (const sinkFailure of [true, "throw"]) {
+  const r = exerciseCaller({ ok: false, reason: "contended", liveness: {
+    state: "undetermined", reason: "corrupt-lease",
+  } }, { sinkFailure });
+  const label = sinkFailure === "throw" ? "THROW" : "NULL";
+  check(`F6_${label}_SINK_SIGNAL`, r.error?.code === "SESSIONEND_LEASE_OBSERVATION_FAILED" &&
+    r.events.join(",") === "acquire,observe", r.error?.code || "no-error", "F6_OBSERVATION_FAILURE_DISCARDED");
+}
+for (const sinkFailure of [false, true]) {
+  const r = exerciseCaller({ ok: true, degraded: "no-hardlink-support" }, { sinkFailure });
+  // The lease is HELD on a degraded filesystem, so a failed breadcrumb never
+  // costs the releases (base behaviour): they are emitted either way.
+  check(`F6_DEGRADED_${sinkFailure ? "FAILURE" : "EFFECT"}`, sinkFailure
+    ? !r.error && r.rows.length === 0 && r.events.join(",") === "acquire,observe,emit,release"
+    : r.rows.length === 1 && r.rows[0].data.effect === EFFECT && r.events.join(",") === "acquire,observe,emit,release",
+    `events=${r.events.join(",")} effect=${r.rows[0]?.data.effect} error=${r.error?.code}`, "F6_DEGRADED_EFFECT_OR_RELEASE_WRONG");
+}
+{
+  const r = exerciseCaller({ ok: true }, { emitThrows: true });
+  check("F6_RELEASE_ON_EMIT_THROW", r.error?.message === "F6_EMIT_FAILED" && r.events.join(",") === "acquire,emit,release",
+    r.events.join(","), "F6_ACQUIRED_LEASE_NOT_RELEASED");
+}
+for (const [state, restore_reason] of [
+  ["alive", "restore-link-failed"], ["dead", "reap-unlink-failed"],
+  ["alive", "restore-copy-failed"], ["alive", "restore-copy-unavailable"],
+  ["alive", "custody-held"], ["alive", "restore-unlink-failed"],
+]) {
+  const r = exerciseCaller({ ok: false, reason: "contended", liveness: {
+    state, reason: "token-verified", tombstoneHeld: true, restore_reason,
+    heldTombstone: "/private/fixture-held-lease",
+  } });
+  check(`R2_S3_${state}_${restore_reason}_DURABLE`, r.rows.length === 1 &&
+    r.rows[0].data.degradation === "release-lease-held-tombstone",
+    `stored rows=${r.rows.length}`, "R2_HELD_CUSTODY_OBSERVATION_MISSING");
+  check(`R2_S3_${state}_${restore_reason}_BOUNDED`, r.rows[0]?.data.reason === "unknown" &&
+    r.rows[0]?.data.tombstoneHeld === true &&
+    r.rows[0]?.data.restore_reason === restore_reason &&
+    !JSON.stringify(r.rows).includes("fixture-held-lease"),
+    JSON.stringify(r.rows[0]?.data), "R2_HELD_CUSTODY_PAYLOAD_WRONG");
+  check(`R2_S3_${state}_${restore_reason}_DEFER`, !r.error && r.events.join(",") === "acquire,observe",
+    r.events.join(","), "R2_HELD_CUSTODY_RELEASE_NOT_DEFERRED");
+}
+for (const restore_reason of ["restored", "restored-by-copy", "tombstone-cleared"]) {
+  const r = exerciseCaller({ ok: false, reason: "contended", liveness: {
+    state: "undetermined", reason: "unbound-lease", tombstoneHeld: false, restore_reason,
+  } });
+  check(`F5_undetermined_${restore_reason}_TAGGED`, r.rows.length === 1 &&
+    r.rows[0].data.degradation === "release-lease-undetermined" &&
+    r.rows[0].data.restore_reason === restore_reason && r.rows[0].data.tombstoneHeld === false,
+    JSON.stringify(r.rows[0]?.data), "F5_RESTORE_REASON_DROPPED");
+}
+for (const degraded of [false, true]) {
+  for (const sinkFailure of [true, "throw"]) {
+    const label = `${degraded ? "DEGRADED" : "CONTENDED"}_${sinkFailure === true ? "NULL" : "THROW"}`;
+    const lease = degraded ? { ok: true, degraded: "no-hardlink-support" } : {
+      ok: false, reason: "contended", liveness: {
+        state: "undetermined", reason: "corrupt-lease",
+      },
+    };
+    const r = exerciseCaller(lease, { teardown: true, sinkFailure, stderrThrows: true });
+    const expected = "acquire,observe," + (degraded ? "emit,release," : "") +
+      "checkpoint,verification,notes";
+    check(`R2_M2_${label}_CONTINUE`, !r.error && r.events.join(",") === expected,
+      `${r.events.join(",")} error=${r.error?.code}`, "R2_TEARDOWN_CONTINUATION_MISSING");
+    check(`R2_M2_${label}_NOTES`, r.notes?.startsWith("# Session Notes (fixture)") &&
+      r.ledger?.includes("Forest Ledger"),
+      `fragment=${r.notes !== null} ledger=${r.ledger !== null}`, "R2_ATOMIC_NOTES_MISSING");
+    // Contended: releases deferred. Degraded: the lease is held, so they go out.
+    check(`R2_M2_${label}_${degraded ? "EMIT" : "DEFER"}`,
+      r.events.includes("emit") === degraded && r.rows.length === 0,
+      r.events.join(","), "R2_FAILED_RELEASE_REPORTED_SUCCESS");
+  }
+}
+{
+  const r = exerciseCaller({ ok: true }, { teardown: true, acquireThrows: true });
+  check("R2_M2_UNRELATED_ERROR_PROPAGATES", r.error?.message === "F6_ACQUIRE_FAILED" &&
+    r.events.join(",") === "acquire" && r.notes === null && r.ledger === null,
+    `${r.events.join(",")} error=${r.error?.message}`, "R2_BOUNDARY_CATCH_TOO_BROAD");
+}
+{
+  const r = exerciseCaller({ ok: false, reason: "contended", liveness: {
+    state: "dead", reason: "esrch", tombstoneHeld: false,
+  } });
+  check("R2_S3_NO_CUSTODY_QUIET", r.rows.length === 0 && !r.error &&
+    r.events.join(",") === "acquire", r.events.join(","), "R2_FALSE_CUSTODY_OBSERVATION");
+}
+if (process.env.F6_CALLER_OBSERVATIONS_ONLY === "1") finish();
 
 const FIXTURES = [
   "01-release-claims",
@@ -104,6 +428,9 @@ function envFrom(fixtureEnv) {
 
 function stage(label, { roster, seed }) {
   const repoDir = mkRepo(label);
+  requireHere("node:child_process").execFileSync("git", [
+    "-C", repoDir, "config", "--local", "user.signingkey", "",
+  ]);
   if (roster) writeRoster(repoDir, roster);
   writeLog(repoDir, seed || []);
   return repoDir;
@@ -118,6 +445,40 @@ function drive(repoDir, env) {
 }
 
 console.log(`\nhook under test : ${HOOK}`);
+
+{
+  const repoDir = stage("key-config-control", { seed: [] });
+  const childProcess = requireHere("node:child_process");
+  const gitEnv = requireHere(path.join(
+    REPO, ".claude/hooks/lib/git-subprocess-env.js",
+  ));
+  const gitBin = gitEnv.resolveGitBinary();
+  if (!gitBin) throw new Error("F6_CONFIG_GIT_UNAVAILABLE");
+  const readKeyConfig = () => {
+    const inv = gitEnv.gitConfigInvocation([
+      "-C", repoDir, "config", "--get", "user.signingkey",
+    ]);
+    return childProcess.execFileSync(gitBin, inv.args, {
+      env: inv.env, encoding: "utf8",
+    }).trim();
+  };
+  check("F6_CONFIG_PROFILE_EMPTY", readKeyConfig() === "", "local key empty",
+    "F6_AMBIENT_KEY_FALLBACK_REACHED");
+  childProcess.execFileSync(gitBin, [
+    "-C", repoDir, "config", "--local", "user.signingkey", "fixture-selector",
+  ]);
+  check("F6_CONFIG_PROFILE_OPPOSITE", readKeyConfig() === "fixture-selector",
+    "private nonempty control", "F6_CONFIG_CONTROL_DID_NOT_DISCRIMINATE");
+  childProcess.execFileSync(gitBin, [
+    "-C", repoDir, "config", "--local", "user.signingkey", "",
+  ]);
+  check("F6_CONFIG_PROFILE_RESTORED", readKeyConfig() === "", "local key empty",
+    "F6_KEY_NEUTRALIZATION_NOT_RESTORED");
+}
+if (process.env.F6_CALLER_CONFIG_ONLY === "1") {
+  cleanup();
+  finish();
+}
 
 console.log("\n=== T1: every fixture on disk is driven by this runner ===");
 coverageChecks(check, HERE, FIXTURES, SETUPS);

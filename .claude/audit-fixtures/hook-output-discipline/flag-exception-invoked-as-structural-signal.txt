@@ -48,4 +48,4 @@ walks past. No date booked; no structural predicate for that form has been named
 Audit cases under `.claude/audit-fixtures/cross-boundary-write/`:
 `clean-in-ecosystem-write.txt`, `clean-canon-target-no-hits.txt`,
 `flag-canon-target-tenant-token.txt`, `refuse-denylist-unreadable.txt`. Green from
-`/Users/me/repos/loom`.
+`{{FIXTURE_HOME_V1:MAC}}me/repos/loom`.

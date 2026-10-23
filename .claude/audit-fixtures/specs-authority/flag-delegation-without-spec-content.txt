@@ -46,5 +46,5 @@ and nothing needs amending at launch.
       plus an index on email. Model src/orchard/models/user.py mirrors it. Migration
       applies and rolls back cleanly against a scratch database."
 
-Gates: ruff clean, mypy clean, the migration test green, two consecutive clean adversarial
-rounds with both payloads read. W11 lands.
+Gates: ruff clean, mypy clean, the migration test green, one clean adversarial round with both
+payloads read and a stop (D237). W11 lands.

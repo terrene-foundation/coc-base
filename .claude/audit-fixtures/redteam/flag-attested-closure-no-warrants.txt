@@ -1,4 +1,4 @@
-# Round 12 — adversarial validation of the retention-policy change set
+# Round 2 — adversarial validation of the retention-policy change set
 
 Coverage: 42 cells — 20 attacked, 22 n/a (reason given), 0 OPEN
 Convergence: CONVERGED
@@ -23,8 +23,8 @@ R7xP3 n/a   R7xP4 n/a   R7xP5 n/a   R7xP6 n/a (no prior version)
 
 ## Findings
 
-Two findings this round, both MED, both INCREMENTAL. Neither resets the clean-round
-counter. Round 11 was also clean on the gating half.
+Two findings this round, both MED, both INCREMENTAL. Neither is gating, so neither withdraws
+the round's clean status. Round 1's one gating finding was fixed before this round, and nothing gating has been open since.
 
 1. The retention window is stated in days in one place and in months in another.
 2. A deletion receipt is described but its field list is not enumerated.
@@ -33,14 +33,14 @@ counter. Round 11 was also clean on the gating half.
 
 1. 0 CRITICAL in the gating half — PASS
 2. 0 HIGH in the gating half — PASS
-3. Yield falling: rounds 11 and 12 produced no BUG or INVEST-NOW finding — PASS
+3. D237 review discipline — PASS: Round 1's gating finding was fixed and this fix-verification round is clean; the review ends here, never a Round 4
 4. Spec compliance 100% AST/grep verified — PASS
 5. New code has new tests — PASS
 6. Frontend 0 mock data — PASS (no frontend surface)
 7. Eval-harness green and accreted — PASS
 8. Coverage closed: 0 OPEN — PASS
-9. Questions stable: no cell added in rounds 11 or 12 — PASS
+9. Questions stable: no cell added in Rounds 1 or 2 — PASS
 10. Incentive register closed — PASS
 
-CONVERGED. Fourteen attacker dispatches were issued across rounds 11 and 12 and the
+CONVERGED. Fourteen attacker dispatches were issued across Rounds 1 and 2 and the
 table above reflects their aggregate disposition.

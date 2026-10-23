@@ -4,25 +4,12 @@ description: Walk the actual user-facing flow before declaring any deliverable d
 priority: 10
 scope: path-scoped
 paths:
-  # loom#678 Lever B: anchored from the unanchored `**/*` to the surfaces this rule
-  # genuinely governs. MUST-1 walks a DELIVERABLE; MUST-4 names prose deliverables
-  # (rules, commands, skills). In a workspace the deliverable is not the workspace
-  # file but the artifact it plans, so the walk fires when THAT artifact is touched.
-  # Both anchored and nested forms are listed: consumer layouts nest these roots.
-  - ".claude/**"
-  - "**/.claude/**"
-  - "specs/**"
-  - "**/specs/**"
-  - "briefs/**"
-  - "**/briefs/**"
-  - "todos/**"
+  - "**/.claude/{rules,agents,commands,skills,hooks,bin,variants}/**"
   - "**/todos/**"
   - "**/.session-notes*"
-  - "src/**"
   - "**/src/**"
   - "packages/**"
   - "crates/**"
-  - "tests/**"
   - "**/tests/**"
   - "scripts/**"
   - "tools/**"

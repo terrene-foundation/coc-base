@@ -1,6 +1,6 @@
 ---
 id: "BURN-DOWN-REPORTING"
-paths: ["**/workspaces/**", "**/.session-notes*", "**/.session-notes.d/**", "**/.wave-tracker*", "**/.wave-tracker.d/**", "**/todos/**", "journal/**"]
+paths: ["journal/**"]
 ---
 
 # Burn-Down Reporting — A Number Against A Number, Every Session And Every Wave

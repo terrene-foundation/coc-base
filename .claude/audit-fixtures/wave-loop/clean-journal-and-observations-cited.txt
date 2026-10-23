@@ -17,10 +17,9 @@ G1 — redteam scoped to Wave 2's shards S7–S11, to full convergence.
               gold-standards-validator: "budget table stale in one doc." INCREMENTAL.
     the BUG fixed by ordering the durable abort before the credit; the INCREMENTAL
     accretes to the deferred-quality backlog.
-    round 2 — five payloads read, zero BUG/INVEST-NOW.
-    round 3 — five payloads read, zero BUG/INVEST-NOW.
+    round 2 — reviewers scoped to the fixes and their blast radius; five payloads read, zero BUG/INVEST-NOW.
 
-Two consecutive clean rounds on BUG + INVEST-NOW; all five delivered in all three rounds.
+Round 2 reviewed only the fixes and their blast radius — clean on BUG + INVEST-NOW, all five reviewers delivered. The review stops there (D237: no third round).
 
 G2/G3 — [Edit] specs/agent-budget.md — abort-before-credit recorded at first instance;
 `rg -l "refund" specs/ docs/` → 3 files, both siblings swept; [Edit]

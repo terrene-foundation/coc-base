@@ -84,6 +84,5 @@ with the tracker unnamed, the number points at nothing a reader can follow home.
       diff, each brief pinning the absolute lane worktree path and a STEP-0 toplevel assertion.
 
     round 1 — reviewer: clean on the diff. release-specialist: clean.
-    round 2 — both clean, both payloads read.
 
-Two consecutive clean rounds. 2.61.0 is ready to publish.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). 2.61.0 is ready to publish.

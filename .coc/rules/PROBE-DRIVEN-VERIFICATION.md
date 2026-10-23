@@ -1,6 +1,6 @@
 ---
 id: "PROBE-DRIVEN-VERIFICATION"
-paths: ["**/test-harness/**", "**/audit-fixtures/**", ".claude/hooks/**", "tests/**", "**/*test*", "**/*spec*", "**/04-validate/**", "**/suites/**"]
+paths: ["**/test-harness/*", "**/test-harness/{tests,lib,fixtures,probes,suites,foundation-corpus,trust-posture-poc}/**", "**/audit-fixtures/**", ".claude/hooks/**", "**/tests/**", "**/__tests__/**", "**/{test_*,test-*,test.*,*_test.*,*-test.*,*.test.*,*.spec.*,run-tests.*,conftest.py,tests.rs}", "**/*_spec.rb", "**/spec/**", "**/04-validate/**", "**/suites/**"]
 ---
 
 # Probe-Driven Verification — No Regex/Keyword NLP For Semantic Claims

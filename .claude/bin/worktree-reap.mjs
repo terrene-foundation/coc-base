@@ -18,6 +18,12 @@
 //       of `git cherry` patch-ids only for a branch the provenance cannot own
 //       (forked before recording began, or no config): a replayed landing gets new
 //       commit ids and, after a conflict fix, new patch-ids too.
+//       DURABILITY IS NOT ONLY COMMITS. `remove` refuses a tree holding modified or
+//       untracked files, but a GITIGNORED file it deletes without a word — and
+//       `git status` does not list one either, so the dirty signal is blind to it
+//       by construction. The pending burndown-event stream is such a file, and
+//       until a COMMIT carries its records nothing git protects holds them, so its
+//       lines HEAD lacks hold the tree (§ pending burndown events, below).
 //   (2) OCCUPANCY — is someone working in this tree right now?
 //       A tree can be perfectly durable AND still be a live session's floor.
 //       Reaping it loses no commits but yanks the ground out from under it.
@@ -116,7 +122,7 @@
 //             2 = --apply attempted a removal git REFUSED (loud, per above).
 
 import { execFileSync } from "node:child_process";
-import { statSync, existsSync, realpathSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { statSync, lstatSync, existsSync, realpathSync, mkdirSync } from "node:fs";
 // Namespace import ONLY for statfsSync, which landed in node 18.15. A named
 // import of a symbol the runtime lacks is a link-time SyntaxError that takes the
 // whole reaper down — including the classification an old runtime could still
@@ -139,6 +145,12 @@ const { resolveTrunkForDeletion } = createRequire(import.meta.url)(
 const landedMap = createRequire(import.meta.url)(
   join(dirname(fileURLToPath(import.meta.url)), "..", "hooks", "lib", "landed-map.js"),
 );
+// OWNERSHIP — the ONE reader of "which session created this tree", shared with the
+// SessionEnd caller (`hooks/lib/worktree-forest.js`), which counts owned trees with it
+// to size this pass's budget. See § session identity and worktree OWNERSHIP below.
+const ownerLib = createRequire(import.meta.url)(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "hooks", "lib", "worktree-owner.js"),
+);
 // THE ONE FLOOR VALIDATOR, shared with `.claude/bin/orphan-reap.mjs` and the
 // orphan guard. `security.md` § Enforcement-Surface Parity: two restrictiveness
 // predicates in one tree WILL disagree, and the second copy is where the weaker
@@ -147,6 +159,10 @@ const landedMap = createRequire(import.meta.url)(
 // reaper in its BOUND, never in its shape.
 const { validateFloorValue } = createRequire(import.meta.url)(
   join(dirname(fileURLToPath(import.meta.url)), "..", "hooks", "lib", "orphan-forest.js"),
+);
+
+const { resolveGitBinary, gitEnvForArgs } = createRequire(import.meta.url)(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "hooks", "lib", "git-subprocess-env.js"),
 );
 
 const DEFAULT_MIN_AGE_HOURS = 12;
@@ -160,45 +176,46 @@ const T0 = Date.now();
 // ── git plumbing ────────────────────────────────────────────────────────────
 
 function git(args, opts = {}) {
-  return execFileSync("git", args, {
+  const { env: ignoredEnv, ...options } = opts;
+  const binary = resolveGitBinary();
+  if (!binary) throw new Error("worktree-reap: no usable git binary on PATH");
+  return execFileSync(binary, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", opts.quiet ? "ignore" : "pipe"],
-    ...opts,
+    ...options,
+    env: gitEnvForArgs(args),
   }).trim();
 }
 
+// `git status` listings are read by gitOk callers that CAN be legitimately large —
+// `--untracked-files=all` never collapses, and the ignored census is per-file by
+// construction — so node's 1 MiB execFileSync default turned a merely BIG listing
+// into "unreadable — failing closed". Fail-closed stays the behavior on a TRUE read
+// failure; this bound only stops the bound itself from being the failure. An
+// overflow still fails closed, named truthfully (the ENOBUFS arm in the callers).
+const STATUS_MAX_BUFFER = 64 * 1024 * 1024;
+
 function gitOk(args, opts = {}) {
+  // stderr is CAPTURED, not ignored: these reads fail this way precisely when git
+  // has something to say (a broken .git link, an overflowed listing), and with
+  // stderr ignored at the OS level the reason text degraded to "Command failed:
+  // git …" — dropping the words that make the fail-closed report actionable.
+  // `code` rides through for the same reason: ENOBUFS (measured: node sets
+  // code="ENOBUFS" on a maxBuffer overflow) is a different failure from git's own
+  // refusal, and the callers say so instead of impersonating the other.
   try {
-    return { ok: true, out: git(args, { quiet: true, ...opts }) };
+    return { ok: true, out: git(args, { quiet: false, ...opts }) };
   } catch (e) {
-    return { ok: false, out: "", err: (e.stderr || e.message || "").toString().trim() };
+    return { ok: false, out: "", code: e.code ?? null, err: (e.stderr || e.message || "").toString().trim() };
   }
 }
 
 /**
- * Parse `git worktree list --porcelain` into records.
- * Records are separated by blank lines; keys are space-delimited, and the
- * `bare` / `detached` / `locked` / `prunable` keys are VALUELESS flags.
+ * Parse `git worktree list --porcelain` into records — `parseWorktreePorcelain` in
+ * `hooks/lib/worktree-owner.js`, the same parse the SessionEnd caller uses to count
+ * owned trees, so the two never read a different forest from the same listing.
  */
-function parseWorktrees(porcelain) {
-  const out = [];
-  let cur = null;
-  for (const raw of porcelain.split("\n")) {
-    const line = raw.trimEnd();
-    if (line === "") {
-      if (cur) out.push(cur);
-      cur = null;
-      continue;
-    }
-    const sp = line.indexOf(" ");
-    const key = sp === -1 ? line : line.slice(0, sp);
-    const val = sp === -1 ? true : line.slice(sp + 1);
-    if (key === "worktree") cur = { path: val, detached: false, locked: false, prunable: false };
-    else if (cur) cur[key] = val;
-  }
-  if (cur) out.push(cur);
-  return out;
-}
+const parseWorktrees = (porcelain) => ownerLib.parseWorktreePorcelain(porcelain);
 
 // ── session identity and worktree OWNERSHIP ─────────────────────────────────
 //
@@ -218,30 +235,18 @@ function parseWorktrees(porcelain) {
 // the fact: the creating session recorded itself, so "no other session is
 // standing in this tree" is known rather than inferred.
 //
-// WHAT IS READ, EXACTLY — not a guess, and not the environment at reap time:
+// WHAT IS READ, AND THE PREDICATE THAT DECIDES — both live in
+// `hooks/lib/worktree-owner.js` (the owner record `coc-owner.json` in the per-worktree
+// git dir, then the `coc-session=<id>` LOCK REASON as fallback; `isOwnedBy` compares).
+// They moved there 2026-10-11 so the SessionEnd caller can count owned trees with the
+// SAME reader this file filters with — two copies of "is this mine" would drift.
 //
-//   1. THE OWNER RECORD, `<per-worktree git dir>/coc-owner.json`. The per-worktree
-//      git dir is resolved from the `gitdir:` line of `<path>/.git`, which for a
-//      linked worktree is a FILE carrying the absolute admin-dir path — so the
-//      read survives any layout, symlinked prefixes included, and it works from
-//      ANY cwd because it is anchored on the worktree's own path rather than on
-//      the reader's. The file is written at CREATION and is NOT removed by
-//      `git worktree unlock`, which is what makes "spent but still mine"
-//      readable; `git worktree remove` deletes the whole admin dir, so the record
-//      cannot outlive its tree.
-//   2. FALLBACK — the LOCK REASON, `coc-session=<id> …`, which git stores in
-//      `<per-worktree git dir>/locked` and prints as `locked <reason>` in
-//      `git worktree list --porcelain`. Used only when the owner record is
-//      absent, and only to ACCEPT a tree as ours. A tree whose lock names
-//      another session is still refused.
-//
-// ABSENT MEANS NOT OURS. There is no third state: a tree with no owner record
-// and no session-bearing lock is REPORTED and never reaped by the unattended
-// pass. That is the fail-closed direction, and it is deliberate — the trees this
-// protects (another live session's, an operator's hand-made one) carry no record
-// precisely because nothing in this repo ever made one.
-const OWNER_FILE = "coc-owner.json";
-const SESSION_REASON_RE = /(?:^|\s)coc-session=([^\s]+)/;
+// ABSENT MEANS NOT OURS. There is no third state: a tree with no readable owner record
+// and no session-bearing lock is never reaped by the unattended pass — and since
+// 2026-10-11 it is not even CLASSIFIED by it (see the candidate filter in `main`). That
+// is the fail-closed direction, and it is deliberate — the trees this protects (another
+// live session's, an operator's hand-made one) carry no record precisely because
+// nothing in this repo ever made one.
 
 /** The session id this process can honestly claim, or null. Never invented. */
 function resolveSessionId(env = process.env) {
@@ -255,90 +260,7 @@ function resolveOwnerName(env = process.env) {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : "(unrecorded)";
 }
 
-/**
- * The per-worktree git admin dir for `wtPath`, or null when it has none.
- *
- * `<path>/.git` is a FILE for a linked worktree and a DIRECTORY for the main
- * checkout. The file's `gitdir:` line is the resolver's answer, so nothing here
- * reconstructs a path from a basename — the basename form is only the fallback
- * for an unreadable file (a prunable tree whose directory is already gone).
- */
-function adminDirFor(wtPath, gitCommonDir) {
-  let dotGit = join(wtPath, ".git");
-  try {
-    if (!statSync(dotGit).isFile()) return null;
-    const m = readFileSync(dotGit, "utf8").match(/^gitdir:\s*(.+?)\s*$/m);
-    if (m && m[1]) return m[1];
-  } catch {
-    /* unreadable — fall through to the derived path below */
-  }
-  return gitCommonDir ? join(gitCommonDir, "worktrees", basename(wtPath)) : null;
-}
-
-/**
- * The owner record for a tree, or null. NEVER throws: an unreadable or malformed
- * record reads as ABSENT, which is the refusal direction, never as "ours".
- */
-function readOwnerRecord(wtPath, gitCommonDir) {
-  const dir = adminDirFor(wtPath, gitCommonDir);
-  if (!dir) return null;
-  try {
-    const rec = JSON.parse(readFileSync(join(dir, OWNER_FILE), "utf8"));
-    if (!rec || typeof rec !== "object") return null;
-    return {
-      session: typeof rec.session === "string" && rec.session ? rec.session : null,
-      owner: typeof rec.owner === "string" ? rec.owner : null,
-      created: typeof rec.created === "string" ? rec.created : null,
-      branch: typeof rec.branch === "string" ? rec.branch : null,
-      source: OWNER_FILE,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Write the owner record next to git's own per-worktree admin files. */
-function writeOwnerRecord(wtPath, gitCommonDir, rec) {
-  const dir = adminDirFor(wtPath, gitCommonDir);
-  if (!dir || !existsSync(dir)) return { ok: false, err: `no per-worktree git dir for ${wtPath}` };
-  try {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, OWNER_FILE), JSON.stringify(rec, null, 2) + "\n");
-    return { ok: true, path: join(dir, OWNER_FILE) };
-  } catch (e) {
-    return { ok: false, err: e.message };
-  }
-}
-
-/**
- * The session a LOCK names, from the reason string git reports. `locked true`
- * (no reason) yields null — a lock with no session in it names nobody, and
- * reading "unspecified" as "ours" is exactly the inference this gate exists to
- * refuse. Resolved through `decideTreeOwner` so the precedence lives in ONE
- * place rather than being restated at each call site.
- */
-function sessionFromLock(wt) {
-  if (!wt || typeof wt.locked !== "string") return null;
-  const m = wt.locked.match(SESSION_REASON_RE);
-  return m && m[1] ? m[1] : null;
-}
-
-/**
- * Decide who owns a tree. PURE except for the record already read.
- *
- * PRECEDENCE IS RECORD-FIRST, and that ordering is the whole point: the record
- * survives `unlock`, the lock reason does not. A tree that was delivered (and so
- * unlocked) must still read as owned, or the delivery path strands it.
- *
- * Returns { session, owner, created, branch, source } — `session` null means
- * UNOWNED, which every caller MUST read as "not mine".
- */
-function decideTreeOwner(record, wt) {
-  if (record) return record;
-  const s = sessionFromLock(wt);
-  if (s) return { session: s, owner: null, created: null, branch: null, source: "lock-reason" };
-  return { session: null, owner: null, created: null, branch: null, source: null };
-}
+const { readOwnerRecord, writeOwnerRecord, decideTreeOwner, isOwnedBy, partitionByOwner } = ownerLib;
 
 /** One-line description of an owner decision, for a report. Never blank. */
 function describeOwner(owner) {
@@ -423,9 +345,15 @@ function resolveSelectors(selectors, worktrees) {
  * it as "touched now" (age 0), which every floor > 0 still holds, so the
  * fail-safe direction is preserved for every case except the waived floor.
  */
-function hoursSinceActivity(wtPath, gitCommonDir) {
+function hoursSinceActivity(wtPath, adminDir) {
   const stamps = [];
-  for (const p of [wtPath, join(gitCommonDir, "worktrees", basename(wtPath), "index")]) {
+  // `adminDir` is the per-worktree git dir the caller resolved through the SAME
+  // back-link reader ownership uses, never `worktrees/<basename>`: git suffixes
+  // same-basename admin dirs, so the basename form read a DIFFERENT tree's index
+  // whenever two trees shared a name. null only for the main checkout, whose index is
+  // not per-worktree; a LINKED tree with no resolvable admin dir never reaches here
+  // as a measurement — `classify` holds it instead (see the age read there).
+  for (const p of adminDir ? [wtPath, join(adminDir, "index")] : [wtPath]) {
     try {
       stamps.push(statSync(p).mtimeMs);
     } catch {
@@ -548,6 +476,241 @@ function fmtKb(kb) {
   return `${(kb / 1024 / 1024).toFixed(2)} GiB`;
 }
 
+// ── pending burndown events — the durable thing `git status` cannot see ─────
+//
+// WHY THIS IS A KEEP REASON. Hooks append burndown events to a GITIGNORED
+// per-checkout stream, `.claude/learning/burndown-events.pending.jsonl`, and a
+// commit-time flush (`burndown-build.mjs --flush-events`) moves the lines into the
+// TRACKED `burndown/events.jsonl`. Between the append and the flush, the stream is
+// the ONLY copy of those signed records.
+//
+// While events were appended to the tracked file directly, an unflushed record
+// made the tree DIRTY, and two independent nets held it: this classifier's dirty
+// reason, and git's own refusal to `remove` a tree with modified files. Moving the
+// append to an ignored path took BOTH nets away at once. MEASURED on git 2.54.0, in
+// a scratch repo ignoring `.claude/learning/`: a tree holding only the stream
+// reports an EMPTY `status --porcelain=v1 --untracked-files=all`, and a plain
+// `git worktree remove` exits 0 with the stream gone; the same tree holding an
+// untracked file instead is refused ("contains modified or untracked files"). The
+// suite repeats that measurement as a premise, so a git that changed either answer
+// is noticed rather than assumed.
+//
+// WHAT IS COUNTED — AND WHY IT IS NOT "THE FILE EXISTS". `pendingEventsStatus`
+// answers `uncommitted`: the stream lines the tree's `burndown/events.jsonl` AT HEAD
+// does not carry. A flush leaves its moved lines in the stream until HEAD carries
+// them, so a flushed-and-committed tree still HAS a stream, its lines byte-identical
+// to lines HEAD holds. Holding on presence alone would hold every tree that ever
+// recorded an event, forever — the cry-wolf shape that teaches an operator to stop
+// reading the report. Those lines count 0, and the tree is judged on its other
+// signals.
+//
+// HEAD, NOT THE WORKING FILE. A flushed-but-uncommitted tree has its lines in the
+// tracked file's WORKING COPY too, and counting against that copy (the library's
+// `pending`) made it read 0 here and left it to the dirty signal on that one file.
+// That signal has a MEASURED gap: a tracked log flagged `--skip-worktree` or
+// `--assume-unchanged` hides its modification from `status` AND from `git worktree
+// remove` (git 2.54.0, scratch repo — the unflagged control is refused "contains
+// modified or untracked files"; both flagged twins are removed, edit and all). A
+// working copy is no safer than the stream; a commit is. So the count is against
+// HEAD, and a flushed tree is held until the commit lands, whatever its index says.
+//
+// FAIL-CLOSED, in both ways the reader can fail. A stream the reader REFUSES (a
+// symlink, a non-regular file, over its cap) holds the tree: "could not read it" is
+// not "it is empty", and records that cannot be counted cannot be shown safe to
+// delete. A reader that cannot LOAD (the module, or the one export used here, is
+// missing) cannot count at all, so presence decides instead, by `lstat`: a stream
+// that is there and non-empty holds the tree — a non-regular entry counts as there —
+// and an absent or empty one holds nothing, because there is nothing in it to lose.
+//
+// THE READER IS LOADED FROM THIS SCRIPT'S OWN REPO, NEVER FROM THE TREE BEING
+// CLASSIFIED. That tree is the SUBJECT: a tree carrying a modified copy of the
+// library could otherwise answer "0 pending" about itself and be reaped on its own
+// say-so. It resolves relative to this file, as `trunk-ref.js` does above, but
+// LAZILY — the load measured ~28 ms, which `--help` and `--create` should not pay —
+// and memoized, so a forest pays it once.
+//
+// NOT ASKED of a tree whose directory is already gone: there is no stream left to
+// lose, and the record says `pendingEvents: null` (not measured), as `ageHours` does.
+
+/**
+ * The stream's checkout-relative path, RESTATED from
+ * `burndown-events.js::PENDING_REL` for the one case that cannot ask the module:
+ * the presence fallback runs exactly when the module failed to load. A restatement
+ * drifts silently, so the suite pins the two equal — a stream moved in the library
+ * reds a named test, instead of pointing the fallback at a path nothing writes,
+ * where it would answer "absent" about every tree.
+ */
+export const PENDING_STREAM_REL = ".claude/learning/burndown-events.pending.jsonl";
+const BURNDOWN_EVENTS_LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "hooks", "lib", "burndown-events.js");
+
+/** First line of an error or string, trimmed — a reason is one line in the report. */
+function oneLine(v) {
+  return String(v == null ? "" : v).split("\n")[0].trim();
+}
+
+/** Memoized `{ ok: true, status, eventsRel } | { ok: false, error }`; null until first asked. */
+let pendingReader = null;
+
+/** Load the pending-event reader once. NEVER throws: a failure is a VALUE the caller fails closed on. */
+function loadPendingReader() {
+  if (pendingReader) return pendingReader;
+  try {
+    const mod = createRequire(import.meta.url)(BURNDOWN_EVENTS_LIB);
+    pendingReader =
+      mod && typeof mod.pendingEventsStatus === "function"
+        ? { ok: true, status: mod.pendingEventsStatus, eventsRel: typeof mod.EVENTS_REL === "string" && mod.EVENTS_REL ? mod.EVENTS_REL : "the tracked event log" }
+        : { ok: false, error: "burndown-events.js loaded but exports no pendingEventsStatus" };
+  } catch (e) {
+    pendingReader = { ok: false, error: oneLine((e && e.message) || e) || "load failed" };
+  }
+  return pendingReader;
+}
+
+/**
+ * Is the stream PRESENT, judged without the reader? `lstat`, so a symlink at the
+ * stream path is seen as the link it is rather than followed. Only ENOENT and
+ * ENOTDIR (a path component is not a directory, so no stream can be there) read as
+ * absent; any other lstat failure cannot rule a stream OUT, so it reads as present —
+ * the direction `status unreadable — failing closed` takes for the same reason. A
+ * regular file of zero bytes holds no record, so it reads as absent.
+ */
+function pendingStreamPresence(treePath) {
+  let st;
+  try {
+    st = lstatSync(join(treePath, PENDING_STREAM_REL));
+  } catch (e) {
+    if (e && (e.code === "ENOENT" || e.code === "ENOTDIR")) return { present: false };
+    return { present: true, why: `lstat failed: ${(e && e.code) || oneLine(e && e.message) || "unknown error"}` };
+  }
+  if (!st.isFile()) return { present: true, why: "not a regular file" };
+  return st.size > 0 ? { present: true, why: `${st.size} byte${st.size === 1 ? "" : "s"}` } : { present: false };
+}
+
+/**
+ * The pending-event hold for ONE EXISTING tree: `{ pending, reason }`.
+ *
+ * `pending` is the reader's count, or null when the reader produced none — never a
+ * 0 standing in for "not counted", which would read as "verified nothing pending".
+ * `reason` is a KEEP reason, or null when nothing here holds the tree. Never throws:
+ * a reader that throws is a reader that failed, and fails closed like any other.
+ */
+function pendingEventsHold(treePath) {
+  const reader = loadPendingReader();
+  if (!reader.ok) {
+    const p = pendingStreamPresence(treePath);
+    if (!p.present) return { pending: null, reason: null };
+    return {
+      pending: null,
+      reason: `pending burndown-event stream '${PENDING_STREAM_REL}' is present (${p.why}) but its reader could not load — failing closed (${reader.error})`,
+    };
+  }
+  let r;
+  try {
+    r = reader.status(treePath);
+  } catch (e) {
+    r = { ok: false, error: "reader threw", reason: oneLine((e && e.message) || e) };
+  }
+  // `uncommitted`, never `pending` — see § pending burndown events for why the
+  // working copy of the tracked log is not a safe place to count against.
+  if (r && r.ok === true && Number.isInteger(r.uncommitted) && r.uncommitted >= 0) {
+    const n = r.uncommitted;
+    if (n === 0) return { pending: 0, reason: null };
+    const rel = typeof r.path === "string" && r.path ? r.path : PENDING_STREAM_REL;
+    return {
+      pending: n,
+      reason:
+        `${n} pending burndown event${n === 1 ? "" : "s"} in '${rel}' that HEAD's ${reader.eventsRel} does not carry ` +
+        "yet — the stream is gitignored, so `git worktree remove` deletes it WITHOUT refusing, and no commit holds " +
+        `${n === 1 ? "that signed record" : "those signed records"}; flush with ` +
+        `\`node .claude/bin/burndown-build.mjs --flush-events --repo ${treePath}\`, then commit`,
+    };
+  }
+  // ok:false — or an answer with no usable count, which is the same thing: no count.
+  const detail = r && r.ok === false ? [r.error, r.reason].filter(Boolean).join(": ") : "the reader returned no count";
+  return { pending: null, reason: `pending burndown-event stream unreadable — failing closed (${oneLine(detail) || "no detail"})` };
+}
+
+/**
+ * The ignored-payload census for ONE EXISTING tree: `{ count, reason }`.
+ *
+ * `count` is the number of ignored-path rows `git status` reports for the tree,
+ * or null when the census could not be read — never a 0 standing in for "not
+ * counted". `reason` is a KEEP reason, or null when nothing here holds the tree.
+ * Never throws: a census that cannot read is a failure like any other, and fails
+ * closed.
+ *
+ * WHY IT EXISTS — the hole `pendingEventsHold` closes for one stream, held for
+ * every other ignored path. The dirty census above pins `--untracked-files=all`
+ * but never asks git for IGNORED entries, and `git worktree remove` refuses
+ * neither (the pending-stream tests' premises MEASURE both). So a tree whose only
+ * payload is ignored reads `dirty: 0`, no reason fires, and `--apply` deletes
+ * content with no ref, no reflog and no patch holding it. This asks git the
+ * question the other two reads do not.
+ *
+ * THE PENDING STREAM IS EXCLUDED BY PATH, deliberately: it is the one ignored
+ * path with a FINER adjudicator — `pendingEventsHold` counts the lines HEAD does
+ * not carry, so a flushed stream frees its tree and an unflushed one holds it.
+ * Presence alone would hold every tree that ever recorded an event, forever
+ * (pinned by the pending burndown-events tests (c)/(e)). Everything else ignored
+ * has no adjudicator at all — presence IS the signal — and is counted.
+ *
+ * `--ignored=traditional`, MEASURED against `matching` (git 2.54.0, scratch
+ * fixture): `matching` collapses an ignored DIRECTORY to one `!! dir/` row, which
+ * cannot be attributed back to a path — the stream's row would be
+ * unidentifiable inside `.claude/learning/`. `traditional` lists per-file rows,
+ * which can. The two measured divergences: `traditional` does not report an
+ * ignored EMPTY directory (an empty directory holds no bytes), and it reports an
+ * ignored empty FILE (covered by the exclusion above for the stream; held by the
+ * census everywhere else — an empty file is still a file whose silent deletion
+ * nobody adjudicated). Cost is flat on a real carrying tree: 84 ms traditional
+ * vs 82 ms matching.
+ */
+function ignoredCensus(treePath) {
+  // PINNED — `--work-tree` outranks every core.worktree config, including the
+  // worktree-scoped one (extensions.worktreeConfig). MEASURED (git 2.54.0, this
+  // lane): with a worktree-scoped `core.worktree` pointed at a CLEAN sibling tree,
+  // the unpinned read STOPS reporting the tree's own payload at exit 0 — on a bare
+  // scratch fixture it printed "" outright; on a tree whose branch commits files
+  // the redirected tree lacks it prints the skew instead (measured: `D w.txt`).
+  // Either way the census holds nothing while `git worktree remove` still deletes
+  // ignored payload (measured: it proceeds in every form), so a payload-only tree
+  // reads KILL and the payload is a real unrecoverable loss. Probe: case (f) of
+  // worktree-reap.test.mjs asserts the unpinned form IS blinded under the redirect
+  // (the instrument can fail) and the pinned form still sees the payload.
+  const r = gitOk(
+    [
+      "--no-optional-locks",
+      "-C",
+      treePath,
+      `--work-tree=${treePath}`,
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
+      "--ignored=traditional",
+      "--ignore-submodules=none",
+    ],
+    { maxBuffer: STATUS_MAX_BUFFER },
+  );
+  if (!r.ok) {
+    const detail =
+      r.code === "ENOBUFS"
+        ? `the listing exceeded the ${STATUS_MAX_BUFFER / (1024 * 1024)} MiB capture bound`
+        : oneLine(r.err) || "no detail";
+    return { count: null, reason: `ignored-payload census unreadable — failing closed (${detail})` };
+  }
+  const count = (r.out ? r.out.split("\n") : []).filter(
+    (l) => l.startsWith("!! ") && l.slice(3).replace(/\/+$/, "") !== PENDING_STREAM_REL,
+  ).length;
+  if (count === 0) return { count: 0, reason: null };
+  return {
+    count,
+    reason:
+      `${count} ignored path${count === 1 ? "" : "s"} git reports for this tree — ` +
+      "`git worktree remove` deletes ignored files WITHOUT refusing, and no ref, reflog or commit holds them; " +
+      "capture or delete them deliberately before removing the tree",
+  };
+}
+
 // ── classification ──────────────────────────────────────────────────────────
 
 // THE SHARED REMOVAL-SAFETY VOCABULARY. These words are not local to this file:
@@ -585,6 +748,12 @@ function unclassified(wt, ctx, reason) {
     unpushed: null,
     ageHours: null,
     patchesUpstream: null,
+    // null, not 0, for the same reason as `dirty`: a 0 would read as "counted, and
+    // nothing pending" about a tree whose stream nobody looked at.
+    pendingEvents: null,
+    // Same null-not-0 discipline for the ignored-path census: nobody looked, so
+    // the record carries no count rather than a 0 standing in for one.
+    ignoredPayloads: null,
     // `selected` answers "is this tree IN SCOPE", which the selector set already
     // decided before any classification ran — so it is knowable here and is
     // reported. Setting it false would make `counts.selected` shrink as the
@@ -666,8 +835,12 @@ function classify(wt, ctx) {
   // ── ownership, read BEFORE any verdict is formed ──
   // Not a gate on the report — every run reports ownership — but it is read here
   // because it decides the age-floor waiver below as well as the guard under it.
-  const owner = decideTreeOwner(readOwnerRecord(path, ctx.gitCommonDir), wt);
-  const ownedByReaper = ctx.reapOwnedBy !== null && owner.session !== null && owner.session === ctx.reapOwnedBy;
+  // Under `--reap-owned-by` the candidate filter in `main` has ALREADY dropped every
+  // tree this predicate rejects, so here it is the SECOND, independent read of the
+  // same record: the in-classify guard below still holds a tree it rejects, which
+  // keeps "never remove a non-owned tree" true even if the filter were bypassed.
+  const owner = decideTreeOwner(readOwnerRecord(path, ctx.gitCommonDir, ctx.adminIndex), wt);
+  const ownedByReaper = ctx.reapOwnedBy !== null && isOwnedBy(owner, ctx.reapOwnedBy);
   // A tree the unattended pass may NOT touch. Set below, and set NARROWLY — see
   // the note at the point of assignment.
   let heldNotOwned = false;
@@ -725,11 +898,17 @@ function classify(wt, ctx) {
   // through a different door.
   //
   // So the flag is NARROW: set only for a tree nothing else holds, i.e. one this
-  // pass would otherwise have removed. `held_not_owned` therefore means "refused
-  // DESPITE being eligible" — the only version of that claim an operator must act
-  // on, and the only one whose absence would be undetectable
-  // (`conservation-gate.md` MUST-4: an empty outcome in the grammar of a
-  // completed one prints the same as success).
+  // pass would otherwise have removed.
+  //
+  // SINCE 2026-10-11 THIS GUARD IS THE SECOND LINE, NOT THE FIRST. Under
+  // `--reap-owned-by` the candidate filter in `main` keeps every tree this session
+  // did not create out of `classify` altogether — that is what stopped the
+  // SessionEnd pass paying git for ~50 trees it could never touch — and counts them
+  // into `held_not_owned` as a CENSUS instead. So in a correct run this guard never
+  // fires. It stays because it reads the record INDEPENDENTLY of the filter: were
+  // the filter ever bypassed, a non-owned tree would still be held here, by the
+  // same `isOwnedBy` predicate. Without `--reap-owned-by`, `ownershipRefused` is
+  // false and this guard is inert, exactly as before.
   //
   // IT MUST BE CALLED AT EVERY ELIGIBILITY POINT, and the prunable return below
   // is why: a tree whose directory is already gone classifies REAP before any
@@ -747,8 +926,26 @@ function classify(wt, ctx) {
 
   const missing = !existsSync(path);
   if (missing && reasons.length === 0) {
-    // Directory already gone — `git worktree prune` is the correct tool, not remove.
-    return stamp({ path, branch, sha, verdict: REAP, prunable: true, reasons: ["directory absent — prunable"], dirty: 0, unpushed: null, ageHours: null });
+    // Directory already gone, so there is nothing on disk to lose — but the REGISTRATION
+    // is not nothing. A detached tree's HEAD lives in its admin dir, and for a commit no
+    // branch, tag or remote holds, that HEAD is the ONLY thing keeping it reachable:
+    // retiring the record orphans the commit exactly as removing a live detached tree
+    // would. So the reachability question the live path asks below is asked here too,
+    // with the same instrument, BEFORE any verdict: unreachable ⇒ TAG-FIRST (which the
+    // unattended `--zero-loss-only` pass declines), an unreadable answer ⇒ KEEP. A named
+    // branch needs no query — the branch ref outlives the record.
+    let containingRefs = null;
+    if (sha && !branch) {
+      const r = gitOk(["for-each-ref", "--contains", sha, "--format=%(refname)", "--count", "8"]);
+      if (!r.ok) {
+        return stamp({ path, branch, sha, verdict: KEEP, reasons: ["directory absent, and a detached HEAD whose reachability could not be determined — failing closed"], dirty: 0, unpushed: null, ageHours: null, pendingEvents: null, ignoredPayloads: null, containingRefs: null });
+      }
+      containingRefs = r.out ? r.out.split("\n").filter(Boolean) : [];
+      if (containingRefs.length === 0) {
+        return stamp({ path, branch, sha, verdict: TAG_FIRST, prunable: true, reasons: ["directory absent, and DETACHED at a commit `git for-each-ref --contains` finds NO ref holding — tag before retiring the record"], dirty: 0, unpushed: null, ageHours: null, pendingEvents: null, ignoredPayloads: null, containingRefs });
+      }
+    }
+    return stamp({ path, branch, sha, verdict: REAP, prunable: true, reasons: ["directory absent — prunable"], dirty: 0, unpushed: null, ageHours: null, pendingEvents: null, ignoredPayloads: null, containingRefs });
   }
 
   // ── occupancy signals ──
@@ -780,20 +977,73 @@ function classify(wt, ctx) {
   // was the one left on the blindable form.
   const dirtyRes = missing
     ? { ok: true, out: "" }
-    : gitOk([
-        "--no-optional-locks",
-        "-C",
-        path,
-        "status",
-        "--porcelain=v1",
-        "--untracked-files=all",
-        "--ignore-submodules=none",
-      ]);
+    : gitOk(
+        [
+          "--no-optional-locks",
+          "-C",
+          path,
+          // PINNED like the census below — same hazard, same pin. MEASURED (git
+          // 2.54.0, this lane): under a worktree-scoped `core.worktree` redirect
+          // this unpinned read stops reporting the tree's own work at exit 0 (the
+          // string varies — "" on a bare fixture, the index-vs-redirected-tree
+          // skew such as `D w.txt` on a tree with committed files). Probe: case
+          // (f) of worktree-reap.test.mjs.
+          `--work-tree=${path}`,
+          "status",
+          "--porcelain=v1",
+          "--untracked-files=all",
+          "--ignore-submodules=none",
+        ],
+        { maxBuffer: STATUS_MAX_BUFFER },
+      );
   const dirty = dirtyRes.ok && dirtyRes.out ? dirtyRes.out.split("\n").filter(Boolean).length : 0;
-  if (!dirtyRes.ok) reasons.push(`status unreadable — failing closed (${dirtyRes.err.split("\n")[0]})`);
+  if (!dirtyRes.ok) {
+    const detail =
+      dirtyRes.code === "ENOBUFS"
+        ? `the listing exceeded the ${STATUS_MAX_BUFFER / (1024 * 1024)} MiB capture bound`
+        : dirtyRes.err.split("\n")[0];
+    reasons.push(`status unreadable — failing closed (${detail})`);
+  }
   if (dirty > 0) reasons.push(`dirty tree (${dirty} path${dirty === 1 ? "" : "s"}; unstaged + untracked have NO reflog)`);
 
-  const ageHours = missing ? null : hoursSinceActivity(path, ctx.gitCommonDir);
+  // ── unflushed burndown events — what the status read above CANNOT see ──
+  // Asked here, beside `dirty`, because it answers the same question for the one
+  // class `status` is blind to: a GITIGNORED file that `git worktree remove` deletes
+  // without refusing, and that can be the only copy of what it holds. Asked of EVERY
+  // existing tree — the hard guards above do not skip it — so the report lists
+  // everything holding a tree and the JSON carries the count for each. A missing
+  // directory has no stream to lose; null there, not 0, since nothing was counted.
+  // See § pending burndown events for what is counted and both fail-closed arms.
+  const pendingHold = missing ? { pending: null, reason: null } : pendingEventsHold(path);
+  const pendingEvents = pendingHold.pending;
+  if (pendingHold.reason) reasons.push(pendingHold.reason);
+
+  // ── the ignored-payload census — the REST of what the status read above cannot see ──
+  // `pendingEventsHold` adjudicates ONE ignored path (the burndown stream) by
+  // content; every OTHER ignored path has no adjudicator, and before this call
+  // nothing read them at all. Asked of EVERY existing tree, with null — not 0 —
+  // for a missing one, exactly like the stream count above. See `ignoredCensus`
+  // for why the stream path is excluded and why `traditional`, not `matching`.
+  const censusHold = missing ? { count: null, reason: null } : ignoredCensus(path);
+  const ignoredPayloads = censusHold.count;
+  if (censusHold.reason) reasons.push(censusHold.reason);
+
+  // A LINKED tree whose admin dir cannot be resolved has lost the signal that sees git
+  // activity (the root mtime misses any write below the root), so its age is
+  // UNMEASURED — and an unmeasured age is held, not read as "idle". FAIL-CLOSED: the
+  // tree is KEEP whatever the floor, since the floor's waivers (`--only`, ownership)
+  // assert knowledge of WHO is in the tree, not that its activity was measured. The
+  // main checkout has no per-worktree admin dir by construction and keeps the root read.
+  let ageHours = null;
+  if (!missing) {
+    const isMain = path === ctx.mainTop;
+    const admin = isMain ? null : ownerLib.adminDirFor(path, ctx.gitCommonDir, ctx.adminIndex);
+    if (!isMain && !admin) {
+      reasons.push("per-worktree git dir unresolvable (no single contained admin dir whose back-link names this tree) — activity unmeasured, failing closed");
+    } else {
+      ageHours = hoursSinceActivity(path, admin);
+    }
+  }
   if (ageHours !== null && ageHours < effectiveFloor) {
     reasons.push(`active ${ageHours.toFixed(1)}h ago (< --min-age-hours ${effectiveFloor})`);
   }
@@ -895,7 +1145,7 @@ function classify(wt, ctx) {
     // signals have all had their say, so exactly one reason means exactly one
     // thing held the tree, and that thing was ownership.
     heldNotOwned = ownershipRefused && reasons.length === 1;
-    return stamp({ path, branch, sha, verdict: KEEP, reasons, dirty, unpushed, ageHours, patchesUpstream, landedBy, landedProvenance, containingRefs });
+    return stamp({ path, branch, sha, verdict: KEEP, reasons, dirty, pendingEvents, ignoredPayloads, unpushed, ageHours, patchesUpstream, landedBy, landedProvenance, containingRefs });
   }
 
   // Nothing holds it. Does a ref preserve the commits after removal?
@@ -911,7 +1161,7 @@ function classify(wt, ctx) {
       : held
         ? `clean; detached HEAD is reachable from ${containingRefs.length} ref(s) — ${held} — which persist after removal`
         : "clean; HEAD carries no commit absent from every remote";
-    return stamp({ path, branch, sha, verdict: REAP, reasons: [why], dirty, unpushed, ageHours, patchesUpstream, landedBy, landedProvenance, containingRefs });
+    return stamp({ path, branch, sha, verdict: REAP, reasons: [why], dirty, pendingEvents, ignoredPayloads, unpushed, ageHours, patchesUpstream, landedBy, landedProvenance, containingRefs });
   }
 
   // Clean, idle, detached, and MEASURED unreachable — `for-each-ref --contains`
@@ -923,6 +1173,8 @@ function classify(wt, ctx) {
     verdict: TAG_FIRST,
     reasons: ["clean but DETACHED, and `git for-each-ref --contains` finds NO ref holding this commit — tag before removing"],
     dirty,
+    pendingEvents,
+    ignoredPayloads,
     unpushed,
     ageHours,
     patchesUpstream,
@@ -934,8 +1186,85 @@ function classify(wt, ctx) {
 
 // ── reap ────────────────────────────────────────────────────────────────────
 
-function reap(rec, ctx) {
+export function reap(rec, ctx) {
   const actions = [];
+  // LATE OWNERSHIP RE-CHECK — under `--reap-owned-by` the tree was owned when the
+  // candidate filter and `classify` read its record, but the record is a file and can
+  // change before this destructive call. So it is read ONCE MORE, by the same reader and
+  // predicate, immediately before any tag or removal; a tree that no longer reads as
+  // this session's is REFUSED. The lock-reason fallback is not consulted: a locked tree
+  // is KEEP and never reaches here. Apply-only, like the sink re-check below.
+  if (ctx.apply && typeof ctx.reapOwnedBy === "string" && ctx.reapOwnedBy !== "") {
+    // The record FILE is re-read here; only the path→admin-dir map comes from the run's
+    // one index scan (`ctx.adminIndex`), which nothing in this run re-registers.
+    const now = decideTreeOwner(readOwnerRecord(rec.path, ctx.gitCommonDir, ctx.adminIndex), null);
+    if (!isOwnedBy(now, ctx.reapOwnedBy)) {
+      const msg = `REMOVAL REFUSED — ownership re-check: ${describeOwner(now)}, not session ${ctx.reapOwnedBy}`;
+      ctx.refusals.push({ path: rec.path, err: msg });
+      return [msg];
+    }
+  }
+  // LATE SINK RE-CHECK — the verdict in `rec` was MEASURED at classify time, but
+  // payload can APPEAR between then and this destructive call: a hook flushes a
+  // stream, an editor drops a swap file, a build writes results. `git worktree
+  // remove` refuses neither ignored files nor untracked-and-then-ignored ones, so
+  // the last read before the call re-runs BOTH holds that survive here:
+  // `pendingEventsHold` for the burndown stream — which the census EXCLUDES by
+  // path, judged instead by its unflushed content — and `ignoredCensus` for every
+  // other ignored path. A non-null reason from EITHER REFUSES the removal
+  // outright — no force, no bypass, no preservation override. ONE gate covers both
+  // branches below: a prunable record's directory is absent, so `existsSync` is
+  // false, there is nothing on disk to lose and nothing to re-check; a directory
+  // that REAPPEARED since classify is re-checked like any other. Apply-only: a
+  // non-apply pass removes nothing, so it keeps its "would:" lines and the next
+  // pass re-classifies from scratch anyway.
+  if (ctx.apply && existsSync(rec.path)) {
+    // Order: the pending stream FIRST — its hold carries the finer remedy (flush +
+    // commit), and the census's by-path exclusion means these two never
+    // double-count the same record.
+    const latePending = pendingEventsHold(rec.path);
+    if (latePending.reason !== null) {
+      const msg = `REMOVAL REFUSED — pending-stream sink re-check (${latePending.reason})`;
+      actions.push(msg);
+      ctx.refusals.push({ path: rec.path, err: msg });
+      return actions;
+    }
+    const late = ignoredCensus(rec.path);
+    if (late.reason !== null) {
+      const msg = `REMOVAL REFUSED — ignored-payload sink re-check (${late.reason})`;
+      actions.push(msg);
+      ctx.refusals.push({ path: rec.path, err: msg });
+      return actions;
+    }
+  }
+  // TAG FIRST, FOR EITHER SHAPE. A directory-absent tree can be TAG-FIRST too (its
+  // detached HEAD held the only reference), so the tag is minted before the prunable
+  // branch below retires the record — retiring it first would orphan the commit.
+  if (rec.verdict === TAG_FIRST) {
+    const tag = `reaped/${basename(rec.path)}-${(rec.sha || "").slice(0, 8)}`;
+    if (!ctx.apply) {
+      actions.push(`would: git tag ${tag} ${(rec.sha || "").slice(0, 8)}`);
+    } else {
+      const t = gitOk(["tag", tag, rec.sha]);
+      if (!t.ok && !/already exists/i.test(t.err)) {
+        return [`TAG FAILED, NOT REMOVING: ${t.err.split("\n")[0]}`];
+      }
+      // "ALREADY EXISTS" IS ONLY SUCCESS IF THE TAG HOLDS THIS COMMIT. The name is
+      // predictable (`reaped/<basename>-<sha8>`), so a tag pre-planted at another commit
+      // — or a case-insensitive filesystem folding two names into one ref file — would
+      // otherwise read as "tagged" while nothing holds `rec.sha`, and the removal below
+      // would orphan it. The tag is resolved to the commit it names and compared.
+      if (!t.ok) {
+        const held = gitOk(["rev-parse", "--verify", "--quiet", `refs/tags/${tag}^{commit}`]);
+        if (!held.ok || held.out !== rec.sha) {
+          const msg = `TAG FAILED, NOT REMOVING: ${tag} already exists and holds ${held.ok ? held.out.slice(0, 12) : "no commit"}, not ${(rec.sha || "").slice(0, 12)}`;
+          ctx.refusals.push({ path: rec.path, err: msg });
+          return [msg];
+        }
+      }
+      actions.push(`tagged ${tag}`);
+    }
+  }
   if (rec.prunable) {
     // SCOPED, AND IT USED TO NOT BE. This branch ran `git worktree prune`, which
     // takes NO path argument: it clears the admin record of EVERY prunable
@@ -950,21 +1279,13 @@ function reap(rec, ctx) {
     //
     // `git worktree remove <path>` is measured to work on a directory-absent tree
     // and takes the path, so it retires THIS record and nothing else.
-    if (!ctx.apply) return [`would: git worktree remove ${rec.path}`];
-    const r = gitOk(["worktree", "remove", rec.path]);
-    return [r.ok ? "pruned" : `PRUNE REFUSED: ${r.err.split("\n")[0]}`];
-  }
-  if (rec.verdict === TAG_FIRST) {
-    const tag = `reaped/${basename(rec.path)}-${(rec.sha || "").slice(0, 8)}`;
     if (!ctx.apply) {
-      actions.push(`would: git tag ${tag} ${(rec.sha || "").slice(0, 8)}`);
-    } else {
-      const t = gitOk(["tag", tag, rec.sha]);
-      if (!t.ok && !/already exists/i.test(t.err)) {
-        return [`TAG FAILED, NOT REMOVING: ${t.err.split("\n")[0]}`];
-      }
-      actions.push(`tagged ${tag}`);
+      actions.push(`would: git worktree remove ${rec.path}`);
+      return actions;
     }
+    const r = gitOk(["worktree", "remove", rec.path]);
+    actions.push(r.ok ? "pruned" : `PRUNE REFUSED: ${r.err.split("\n")[0]}`);
+    return actions;
   }
   // NOTE: no --force, ever. A refusal here is the safety net working.
   if (!ctx.apply) {
@@ -1157,7 +1478,7 @@ function cmdDeliver(rawPath, opts) {
   if (!owner.session) {
     return fail(`no owner record for ${absPath} and its lock names no session (${describeOwner(owner)}). Ownership cannot be proved, so this never unlocks it; an operator retires it by hand.`);
   }
-  if (owner.session !== session) {
+  if (!isOwnedBy(owner, session)) {
     return fail(`${absPath} was ${describeOwner(owner)}, not this session (${session}). NOT MINE is a refusal.`);
   }
 
@@ -1204,8 +1525,9 @@ function help() {
     "  --no-size             skip the per-tree `du` pass (~2s per 30 trees, measured)",
     "  --deadline-ms <N>     soft budget: past N ms, remaining trees report UNKNOWN",
     "                        and the run finishes normally. Absent = no deadline.",
-    "  --reap-owned-by <id>  remove ONLY trees recorded as created by this session;",
-    "                        every other tree is REPORTED and held. The unattended",
+    "  --reap-owned-by <id>  classify and remove ONLY trees recorded as created by",
+    "                        this session; every other tree is COUNTED (held_not_owned)",
+    "                        and never classified or touched. The unattended",
     "                        SessionEnd pass always passes this; a hand run does not.",
     "  --json                machine-readable output",
     "  --help",
@@ -1227,8 +1549,8 @@ function help() {
     "  is in the tree now. Neither asks whether the tree is YOURS to remove, and a",
     "  pass that answers only the first two removes other sessions' live work",
     "  correctly. So `--create` LOCKS every tree it makes and records the creating",
-    "  session; the unattended pass reaps only what that session created, and",
-    "  REPORTS everything else.",
+    "  session; the unattended pass classifies and reaps only what that session",
+    "  created, and COUNTS everything else without asking git about it.",
     "  OWNERSHIP IS READ, NOT GUESSED: `<path>/.git` names the per-worktree git dir",
     "  and `coc-owner.json` inside it carries the record — anchored on the tree, so",
     "  it survives any layout, and untouched by `unlock`, so a delivered tree still",
@@ -1255,8 +1577,9 @@ function help() {
     "             basename, is an ERROR (exit 1) naming the candidates — nothing",
     "             is inspected or removed. It is never a quiet no-op.",
     "  SELECTS CANDIDATES, NOT OUTCOMES   a named tree still runs the full verdict",
-    "             pipeline; a KEEP verdict (dirty / unpushed / locked / main /",
-    "             this session's own tree) still holds it. There is no --force.",
+    "             pipeline; a KEEP verdict (dirty / ignored payload / unflushed",
+    "             burndown events / unpushed / locked / main / this session's own",
+    "             tree) still holds it. There is no --force.",
     "  AGE FLOOR  --only WAIVES the DEFAULT " + DEFAULT_MIN_AGE_HOURS + "h floor for the selected trees, and",
     "             says so per tree in the report. Naming an exact path IS the",
     "             occupancy assertion the clock was standing in for. An explicitly",
@@ -1271,6 +1594,13 @@ function help() {
     "",
     "Never implements --force: `git worktree remove` already refuses a dirty tree,",
     "and that refusal is the desired behavior. See rules/worktree-isolation.md Rule 8.",
+    "It does NOT refuse ignored files — no ref, reflog or commit holds them — so",
+    "ignored payload holds its tree here instead. TWO reads, BOTH re-run at the sink",
+    "before any removal: the ignored census (every ignored path; presence is the",
+    "signal) and the pending burndown-event stream",
+    "(.claude/learning/burndown-events.pending.jsonl) — excluded from that census,",
+    "held by its own unflushed content, until",
+    "`burndown-build.mjs --flush-events --repo <tree>` + a commit.",
   ].join("\n");
 }
 
@@ -1345,8 +1675,9 @@ function main(argv) {
   // `--reap-owned-by <session>` — THE UNATTENDED PASS'S OWNERSHIP GATE, and the
   // only flag that may open it. Absent, ownership is reported but not enforced,
   // which is the pre-existing hand-run contract (`/sweep` Sweep 6, the operator
-  // affordance). Present, the pass may remove ONLY trees whose recorded creator
-  // is this session; everything else is reported and held.
+  // affordance). Present, the pass CLASSIFIES and may remove ONLY trees whose
+  // recorded creator is this session; every other tree is COUNTED (`held_not_owned`)
+  // and never classified or touched — see the candidate filter below.
   const ownedIdx = argv.indexOf("--reap-owned-by");
   const reapOwnedBy = ownedIdx !== -1 && argv[ownedIdx + 1] != null && !argv[ownedIdx + 1].startsWith("--") ? argv[ownedIdx + 1] : null;
   if (ownedIdx !== -1 && reapOwnedBy === null) {
@@ -1476,6 +1807,38 @@ function main(argv) {
     selected = chosen;
   }
 
+  // ── THE CANDIDATE FILTER — ownership is decided BEFORE any per-tree git call ──
+  //
+  // MEASURED 2026-10-11, 51-tree forest, load ~90: the SessionEnd guard spent 38.2 s of
+  // its 45 s registration here, because ownership used to be read INSIDE `classify` —
+  // after `status`, `rev-list` and `for-each-ref` had run — so ~50 trees were fully
+  // classified only to be held as not-this-session's. Under `--reap-owned-by` the pass
+  // may act on nothing else, so asking git about anything else buys nothing.
+  //
+  // So: partition the forest by the SAME owner reader `classify` uses (file reads, no
+  // git), classify ONLY the owned half, and carry the rest as a CENSUS COUNT. A
+  // non-owned tree is counted, never classified, never touched, and gets no per-tree
+  // record — the full per-tree report is the job of the run WITHOUT this flag (`/sweep`,
+  // the PreToolUse surface), which is unchanged. Selection was resolved above against
+  // the WHOLE forest, so `--only` naming a tree this session did not create is still a
+  // valid selector; that tree is simply in the census, not a candidate.
+  //
+  // FAIL-CLOSED: `isOwnedBy` reads a missing, unreadable or malformed record as NOT
+  // owned, so every such tree lands in the census and never reaches the removal loop.
+  //
+  // THE ADMIN-DIR INDEX IS BUILT ONCE PER RUN. Every ownership read (this filter, the
+  // in-classify guard, the late re-check in `reap`) and every age read resolves a tree's
+  // admin dir through it; scanning `worktrees/*` per lookup was O(trees²) file reads.
+  // It maps paths to admin dirs only — each owner RECORD is still read fresh at its site.
+  const adminIndex = ownerLib.adminIndex(gitCommonDir);
+  let candidates = parsed;
+  let notOwnedCensus = null; // null = the gate is OFF; a number = trees counted, not examined
+  if (reapOwnedBy !== null) {
+    const part = partitionByOwner(parsed, gitCommonDir, reapOwnedBy, adminIndex);
+    candidates = part.owned.map((e) => e.wt);
+    notOwnedCensus = part.notOwned.length;
+  }
+
   // `apply: applyAllowed`, never the raw flag — an unverified base disarms the
   // removal for every tree in the run, and the refusal is seeded so the report
   // SAYS the run was disarmed rather than silently reporting zero removals
@@ -1495,13 +1858,14 @@ function main(argv) {
     const v = landedMap.landedVerdict({ repoDir: selfTop, branchRef: `refs/heads/${branch}`, branchName: branch, tip, map: provenanceMap, ref: defaultRemoteRef });
     return { ...v, mapTip: provenanceMap.ok ? provenanceMap.tip : null };
   };
-  const ctx = { mainTop, selfTop, gitCommonDir, minAgeHours, ageExplicit, apply: applyAllowed, defaultRemoteRef, selected, refusals: [], landedVerdictFor, reapOwnedBy };
+  const ctx = { mainTop, selfTop, gitCommonDir, adminIndex, minAgeHours, ageExplicit, apply: applyAllowed, defaultRemoteRef, selected, refusals: [], landedVerdictFor, reapOwnedBy };
   if (baseRefusal) ctx.refusals.push(baseRefusal);
   // The WHOLE forest is classified even under --only. Two reasons: the size
   // rollup (median over LINKED trees, headroom) is only meaningful over the
   // whole forest, and a scoped run that hid the rest would make the report look
   // like a small forest rather than a partial pass. What --only narrows is what
-  // may be ACTED ON.
+  // may be ACTED ON. (`--reap-owned-by` is the one narrowing of WHAT IS CLASSIFIED,
+  // and it says so: the census above is reported beside the candidate count.)
   //
   // THE DEADLINE CHECKPOINT SITS BETWEEN TREES, NOT INSIDE ONE. Each tree's
   // classification is 2–3 git calls that must all land for the verdict to mean
@@ -1514,7 +1878,7 @@ function main(argv) {
 
   const records = [];
   let stoppedAt = null;
-  for (const wt of parsed) {
+  for (const wt of candidates) {
     const capHit = maxClassify !== null && records.length >= maxClassify;
     if (capHit || expired()) {
       if (stoppedAt === null) stoppedAt = records.length;
@@ -1564,6 +1928,15 @@ function main(argv) {
   if (provenanceMap && !provenanceMap.ok && !provenanceMap.noConfig) {
     process.stderr.write(`worktree-reap: LANDING PROVENANCE UNAVAILABLE — ${provenanceMap.why}. This repository records landings, so landedness below is UNMEASURED for every tree with unpushed commits (never resolved by git cherry patch-ids) and no such tree is reaped as landed.\n`);
   }
+  // THE READER'S ABSENCE IS STATED ONCE, where an operator reads the run. Without it
+  // a forest holding no stream reads identically under a working reader and a broken
+  // one — the empty outcome in the grammar of a completed one (`conservation-gate.md`
+  // MUST-4) — and the per-tree `pendingEvents: null` is visible only in the JSON.
+  // Set only when some tree was actually asked, so a run that classified nothing says
+  // nothing about an instrument it never used.
+  if (pendingReader && !pendingReader.ok) {
+    process.stderr.write(`worktree-reap: PENDING BURNDOWN-EVENT READER UNAVAILABLE — ${pendingReader.error}. No tree's pending events were counted (pendingEvents is null throughout); a tree whose '${PENDING_STREAM_REL}' is present and non-empty is HELD rather than reaped unread.\n`);
+  }
 
   let reapStoppedEarly = false;
   for (const rec of records) {
@@ -1610,27 +1983,45 @@ function main(argv) {
     // the tree — it is refused because this pass may not act on it — and rolling
     // the two together would let a pass that refused the entire forest render as
     // a forest with nothing to give up.
-    held_not_owned: records.filter((r) => r.heldNotOwned).length,
+    //
+    // UNDER --reap-owned-by THIS IS THE CENSUS of trees this session did not create:
+    // every one of them was counted by the candidate filter and NONE was classified,
+    // so the count no longer means "refused despite being eligible" — eligibility was
+    // never asked. The in-classify flag is added on top; in a correct run it is 0
+    // (the filter already removed every tree it would flag). Without the flag the
+    // census is null and this is the in-classify count alone — 0, exactly as before.
+    // `total` stays the CANDIDATE count, so zero_loss + tag_first + keep + unknown ===
+    // total still holds; the forest is `total + held_not_owned` (`forest_total`).
+    held_not_owned: records.filter((r) => r.heldNotOwned).length + (notOwnedCensus === null ? 0 : notOwnedCensus),
   };
+  // Reported ONLY when the ownership gate is on, so a run without --reap-owned-by
+  // emits exactly the envelope it always did (pinned by the I4 golden test).
+  const ownershipCensus = notOwnedCensus === null ? {} : { forest_total: parsed.length };
   const partial = counts.unknown > 0 || reapStoppedEarly;
 
   if (json) {
     process.stdout.write(
       JSON.stringify(
-        { applied: applyAllowed, partial, classified: classifiedCount, provenance: provenanceSummary(), deadline_ms: deadlineMs || null, reap_stopped_early: reapStoppedEarly, scope: scoped ? "selected" : "all", only: onlySelectors, min_age_hours: minAgeHours, min_age_hours_explicit: ageExplicit, reap_owned_by: reapOwnedBy, default_remote_ref: defaultRemoteRef, main_checkout: mainTop, counts, size, refusals: ctx.refusals, worktrees: records },
+        { applied: applyAllowed, partial, classified: classifiedCount, provenance: provenanceSummary(), deadline_ms: deadlineMs || null, reap_stopped_early: reapStoppedEarly, scope: scoped ? "selected" : "all", only: onlySelectors, min_age_hours: minAgeHours, min_age_hours_explicit: ageExplicit, reap_owned_by: reapOwnedBy, ...ownershipCensus, default_remote_ref: defaultRemoteRef, main_checkout: mainTop, counts, size, refusals: ctx.refusals, worktrees: records },
         null,
         2,
       ) + "\n",
     );
   } else {
     const lines = [];
-    lines.push(`Worktree forest — ${counts.total} tree(s); reap floor --min-age-hours ${minAgeHours}` + (applyAllowed ? "  [APPLYING]" : "  [report only]"));
+    lines.push(
+      (notOwnedCensus === null
+        ? `Worktree forest — ${counts.total} tree(s)`
+        : `Worktree forest — ${parsed.length} tree(s), ${counts.total} created by session ${reapOwnedBy}`) +
+        `; reap floor --min-age-hours ${minAgeHours}` +
+        (applyAllowed ? "  [APPLYING]" : "  [report only]"),
+    );
     // The gate is stated where an operator reads the run: a scoped pass and a
     // whole-forest pass differ ONLY by this line, and "it removed nothing" must
     // not read the same for both (`conservation-gate.md` MUST-4).
     lines.push(
       reapOwnedBy !== null
-        ? `  ownership gate: only trees recorded as created by session ${reapOwnedBy} may be removed; every other tree is REPORTED and held.`
+        ? `  ownership gate: only trees recorded as created by session ${reapOwnedBy} are classified or may be removed; the other ${notOwnedCensus} tree(s) are COUNTED, never classified and never touched.`
         : "  ownership gate: OFF (no --reap-owned-by) — ownership is reported per tree but does not hold anything.",
     );
     // The instrument behind every "already landed" below, stated once up front; each
@@ -1693,9 +2084,15 @@ function main(argv) {
         (counts.held_not_owned > 0 ? `   held-not-owned: ${counts.held_not_owned}` : ""),
     );
     if (counts.held_not_owned > 0) {
-      const named = records.filter((r) => r.heldNotOwned).map((r) => basename(r.path)).join(", ");
+      // NAMES only for a tree the in-classify guard flagged (examined, then refused);
+      // the census half was never examined, so it is stated as a COUNT and nothing
+      // about any of those trees is claimed beyond "not this session's".
+      const flagged = records.filter((r) => r.heldNotOwned).map((r) => basename(r.path));
       lines.push(
-        `  REPORTED, NOT REAPED: ${counts.held_not_owned} tree(s) were not created by session ${reapOwnedBy} and this pass may not remove them: ${named}.`,
+        `  REPORTED, NOT REAPED: ${counts.held_not_owned} tree(s) were not created by session ${reapOwnedBy} and this pass may not remove them` +
+          (notOwnedCensus ? `; ${notOwnedCensus} of them NOT EXAMINED (counted only — run without --reap-owned-by for their verdicts)` : "") +
+          (flagged.length > 0 ? `; examined and refused: ${flagged.join(", ")}` : "") +
+          ".",
       );
     }
     lines.push(

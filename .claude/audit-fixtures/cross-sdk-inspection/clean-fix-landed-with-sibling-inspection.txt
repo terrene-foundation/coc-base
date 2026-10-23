@@ -81,6 +81,6 @@ Equivalent feature there? `warn_at`, the py tracker's soft threshold, has no cou
       brief pinning the absolute lane worktree path and a STEP-0 resolved-toplevel assertion.
 
     round 1 — reviewer: "sentinel at the source beats a guard at each call site." security:
-      clean. round 2 — both clean, both payloads read.
+      clean.
 
-Two consecutive clean rounds. W7 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W7 lands.

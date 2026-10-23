@@ -1,0 +1,31 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 security shape B: `!!absent` is a truthiness cast, not the refusal `!absent`. Under the
+// `||` chain the exit still fires when the flag is TRUE, so the climb is not gated by absence.
+function canonPath(p) {
+  let dir = path.dirname(path.resolve(p));
+  const tail = [path.basename(path.resolve(p))];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail);
+    } catch (e) {
+      let absent = false;
+      try {
+        fs.lstatSync(dir);
+      } catch (le) {
+        absent = !!le && le.code === "ENOENT";
+      }
+      if (!!absent || e.code !== "ENOENT") return null;
+      const up = path.dirname(dir);
+      if (up === dir) return null;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return canonPath(p) === r;
+}

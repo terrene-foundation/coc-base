@@ -303,23 +303,27 @@ function hook(cmd, cwd, sessionId) {
       "M-r remove the buildTestScopeAdvisory call site in validate-bash-command.js — every library case above stays green");
     check("52", "END-TO-END: it rides an ALLOW, never a deny", fired.continue === true && !fired.hookSpecificOutput?.permissionDecision,
       `continue=${fired.continue}`, "M-p");
-    check("53", "END-TO-END: `Validated` is preserved, not replaced", ctx.includes("Validated"),
-      "the advisory composes ONTO the clean result", "M-s make withScopeAdvisory overwrite instead of prepend");
+    // journal/0661 (hook output economy): the clean sentinel no longer rides context — it is the
+    // top-level `coc_verdict` ran-signal — so the advisory is the WHOLE context and the clean
+    // exit is proven by the verdict, not by a trailing "Validated" line.
+    check("53", "END-TO-END: the clean exit still ran (coc_verdict) and context is the advisory alone",
+      fired.coc_verdict === "Validated" && !ctx.includes("Validated"),
+      `coc_verdict=${JSON.stringify(fired.coc_verdict)}`, "M-s drop the coc_verdict ran-signal, or re-append \"Validated\" to context");
 
     const again = hook("pytest", repo, "E2E-1");
     check("54", "END-TO-END: SILENT on the second run of the same session",
-      (again?.hookSpecificOutput?.additionalContext || "") === "Validated",
+      (again?.hookSpecificOutput?.additionalContext || "") === "" && again?.coc_verdict === "Validated",
       `-> ${JSON.stringify(again?.hookSpecificOutput?.additionalContext)}`, "M-l");
 
     const scopedRun = hook("pytest -k mod", repo, "E2E-2");
     check("55", "END-TO-END: SILENT on an already-scoped run",
-      (scopedRun?.hookSpecificOutput?.additionalContext || "") === "Validated",
+      (scopedRun?.hookSpecificOutput?.additionalContext || "") === "" && scopedRun?.coc_verdict === "Validated",
       `-> ${JSON.stringify(scopedRun?.hookSpecificOutput?.additionalContext)}`, "M-h");
 
     execFileSync("git", ["-C", repo, "checkout", "--", "mod.py"], { stdio: "ignore" });
     const cleanRun = hook("pytest", repo, "E2E-3");
     check("56", "END-TO-END: SILENT on a clean tree",
-      (cleanRun?.hookSpecificOutput?.additionalContext || "") === "Validated",
+      (cleanRun?.hookSpecificOutput?.additionalContext || "") === "" && cleanRun?.coc_verdict === "Validated",
       `-> ${JSON.stringify(cleanRun?.hookSpecificOutput?.additionalContext)}`, "M-j");
   } catch (e) {
     for (const id of ["51", "52", "53", "54", "55", "56"]) check(id, "END-TO-END", false, `harness error: ${e.message}`, "-");

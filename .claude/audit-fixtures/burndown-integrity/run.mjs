@@ -25,6 +25,7 @@
  * that accepts either cannot tell a refusal from a stale-block report.
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1821,11 +1822,29 @@ function isoDaysAgo(n) {
     .slice(0, 10);
 }
 
-/** A committed node script whose whole job is to print a membership set. */
+// THE INTERPRETER THIS FIXTURE'S QUERY SCRIPTS RUN UNDER — and why it is NOT
+// `process.execPath`.
+//
+// `membership.command` is written into `burndown/live.json`, a DECLARED SOURCE. Its bytes
+// therefore feed `sources_digest`, and `sources_digest` is hashed into EVERY count's token.
+// An absolute interpreter path is host-specific, so the same tree produced DIFFERENT tokens
+// on different hosts, and a 6-hex token space then made one host's corpus collide while the
+// other's did not. MEASURED 2026-10-21 at tree ed5e4c08d8d8: RED on a host running node
+// v25.8.2 (`token collision: 'Beta/adjudicated' and 'Alpha/board' both hash to 'b45820'`)
+// and GREEN four times on a host running v26.11.1 — the only difference between the runs
+// being where node is installed. A gate whose verdict depends on which machine runs it is
+// not a gate (`instrument-discipline.md` MUST-1/MUST-4).
+//
+// `/bin/sh` is byte-identical on every host this suite runs on, so the corpus, the digest
+// and the verdict are the same everywhere.
+const QUERY_SHELL = "/bin/sh";
+
+/** A committed shell script whose whole job is to print a membership set. */
 function queryScript(ids) {
-  return `process.stdout.write(${JSON.stringify(ids.join("\n") + "\n")});\n`;
+  const args = ids.map((id) => `'${String(id).replace(/'/g, "'\\''")}'`).join(" ");
+  return `#!/bin/sh\nprintf '%s\\n' ${args}\n`;
 }
-const FAILING_QUERY = `process.stderr.write("the registry is unreachable\\n");\nprocess.exit(1);\n`;
+const FAILING_QUERY = `#!/bin/sh\necho "the registry is unreachable" >&2\nexit 1\n`;
 
 function liveDoc(over = {}) {
   const doc = {
@@ -1836,7 +1855,7 @@ function liveDoc(over = {}) {
     // source still carrying it now REFUSES — so leaving it here would make every case
     // below refuse for the legacy-key reason rather than the one it was written for.
     membership: {
-      command: [process.execPath, "burndown/query.mjs"],
+      command: [QUERY_SHELL, "burndown/query.mjs"],
       as_of: isoDaysAgo(2),
       max_age_days: 7,
     },
@@ -2272,7 +2291,13 @@ const PROJ_ROWS = [
 ];
 
 function projQuery(rows) {
-  return `process.stdout.write(${JSON.stringify(rows.map((r) => r.join("\t")).join("\n") + "\n")});\n`;
+  // Shell, not node, for the same reason `QUERY_SHELL` states above: this file's bytes are
+  // a DECLARED SOURCE, so an absolute interpreter path here would re-introduce the
+  // host-specific digest the whole fixture was just cleared of.
+  const args = rows
+    .map((r) => `'${r.join("\t").replace(/'/g, "'\\''")}'`)
+    .join(" ");
+  return `#!/bin/sh\nprintf '%s\\n' ${args}\n`;
 }
 
 function projDoc(over = {}) {
@@ -2283,7 +2308,7 @@ function projDoc(over = {}) {
     page: "Beta",
     // NO `min_members` — superseded by the manifest's derived `floors` node, and a
     // source still carrying it REFUSES. See the note above `floorsDoc`.
-    membership: { command: [process.execPath, "burndown/query.mjs"] },
+    membership: { command: [QUERY_SHELL, "burndown/query.mjs"] },
     status_derivation: { map: { open: "Not started", working: "In progress", waiting: "Blocked on you" } },
     record_ref: { kind: "external", pattern: "^rec://[a-z0-9-]+$" },
     items: [],
@@ -2820,7 +2845,7 @@ check("projected/compliant-a-committed-SHEBANG-script-runs-as-command-0", () => 
       // the case vacuous on some host.
       "burndown/q.sh.mjs":
         "#!/usr/bin/env node\n" +
-        'const want = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/home/linuxbrew/.linuxbrew/bin", "/snap/bin"];\n' +
+        materializeFixtureText('const want = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "{{FIXTURE_HOME_V1:LINUX}}linuxbrew/.linuxbrew/bin", "/snap/bin"];\n') +
         'const got = String(process.env.PATH || "").split(":");\n' +
         "if (want.some((w, i) => got[i] !== w)) {\n" +
         '  process.stderr.write("PATH was " + process.env.PATH + ", expected the declared list\\n");\n' +
@@ -3137,7 +3162,7 @@ check("projected/violation-membership.as_of-on-a-projected-source-refuses-rather
   const r = run(
     mkProjRepo({
       doc: projDoc({
-        membership: { command: [process.execPath, "burndown/query.mjs"], as_of: isoDaysAgo(2) },
+        membership: { command: [QUERY_SHELL, "burndown/query.mjs"], as_of: isoDaysAgo(2) },
       }),
     }),
   );
@@ -3410,7 +3435,7 @@ function mkFloorRepo({
     _generated: "2026-08-20",
     _authority: "agent",
     membership: {
-      command: [process.execPath, "burndown/query.mjs"],
+      command: [QUERY_SHELL, "burndown/query.mjs"],
       as_of: isoDaysAgo(2),
       max_age_days: 7,
       ...(minMembers === undefined ? {} : { min_members: minMembers }),
@@ -3433,7 +3458,7 @@ function mkFloorRepo({
   const second2 = second
     ? {
         ...live,
-        membership: { ...live.membership, command: [process.execPath, "burndown/query2.mjs"] },
+        membership: { ...live.membership, command: [QUERY_SHELL, "burndown/query2.mjs"] },
         arrival_defaults: { page: "Alpha", status: "Not started" },
       }
     : null;

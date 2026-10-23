@@ -11,11 +11,11 @@ labels, home paths, or service labels anywhere under this directory —
 the fixtures themselves are committed/synced artifacts and embedding a
 real token here would be the #264 leak the scanner exists to prevent.
 The flagging fixture uses `Fakename-MacStudio`, `Buildbot-Mini`,
-`acme-fixture`, `acme-enterprise`, `acme-linux-arm`, `/Users/fakeuser/`,
+`acme-fixture`, `acme-enterprise`, `acme-linux-arm`, `<operator-home>/`,
 `com.fakeco.runner.alpha` — all invented. The `own-identity-flagged`
 fixture's operator, login and org are invented too, declared in a
 synthetic roster beside it, and the `nonown-still-flagged` fixture's
-`acme-corp` / `/Users/otheroperator/` tokens are invented synthetics.
+`acme-corp` / `<operator-home>/` tokens are invented synthetics.
 
 **No fixture here may carry the REAL canon identity** — not even as a
 "clean" control. Until 2026-09-25 several did, under the co-owner Option-1
@@ -42,7 +42,7 @@ behaviour changes with this note.
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `flag-each-shape/`                       | a synced tree planting all 5 structural shapes                                                    | exit 1              | each of the 5 shapes (hostname, org-slug, runner-label, home-path, service-label) flags ≥1                                                                                  |
 | `clean-foundation-placeholder/`          | Foundation-public + ratified placeholder vocab                                                    | exit 0              | the positive allowlist suppresses every Foundation/placeholder token (zero findings)                                                                                        |
-| `container-internal-home-allowlisted/`   | py `/home/dev/` + rs `/home/vscode/` container-internal mount targets                             | exit 0              | F404 Shard 3 — both fixed-container-user homes are allowlisted (not host operator homes); a real operator home still flags (see `flag-each-shape` / `nonown-still-flagged`) |
+| `container-internal-home-allowlisted/`   | py `<operator-home>/` + rs `<operator-home>/` container-internal mount targets                             | exit 0              | F404 Shard 3 — both fixed-container-user homes are allowlisted (not host operator homes); a real operator home still flags (see `flag-each-shape` / `nonown-still-flagged`) |
 | `excluded-accepted-history/`             | `SWEEP-*.md` + `journal/**` with planted shapes                                                   | exit 0              | accepted-history paths are excluded — a planted real-shape token there MUST NOT flag                                                                                        |
 | `own-identity-flagged/`                  | synthetic roster + its operator in 6 shipped-leak forms + 2 glued forms                           | exit 1 + 10 findings| own identity is a FINDING (roster-derived `operator-identity-token`); replaces the retired Option-1 own-coordinate exemption                                                |
 | `nonown-still-flagged/`                  | non-own `acme-corp/loom` + different-operator home, alongside allowlisted coords                  | exit 1              | allowlist did NOT neuter detection — non-own org slug + foreign home path still flag                                                                                        |
@@ -54,8 +54,8 @@ behaviour changes with this note.
 | `r3-variant-surface/`                    | committed `variants/rs/rules/leakrule.md` + `*.operator.local.md` companion                       | exit 1 + 2 findings | R3 #B — variants/ ARE synced (overlay leak flags); operator.local stays excluded via suffix                                                                                 |
 | `r3-smuggle-closed/`                     | `chore/<org>/loom` + `<scheme>://<org>/loom` smuggle + 9 flood vectors                            | exit 1 + 4 findings | R3 #D — branch/scheme-prefixed org smuggle CLOSED; closed-set anchor does NOT flood prose                                                                                   |
 | `f77-settings-good/`                     | synced `.claude/settings.json` w/ `$CLAUDE_PROJECT_DIR`-rooted matchers only                      | exit 0              | F77 (#386) — clean settings.json passes (settings.json is now in walk surface; relative-path matchers are clean)                                                            |
-| `f77-settings-bad/`                      | synced `.claude/settings.json` w/ `Edit/Write/Read(/Users/fakeuser/...)` + `Bash(/home/...)`      | exit 1              | F77 (#386) — new settings-permission-absolute-path SHAPE fires on every tool-call matcher with an absolute path                                                             |
-| `f77-settings-own-coords-still-flagged/` | synced `.claude/settings.json` w/ `Edit(/Users/me/...)` (allowlisted home)                        | exit 1              | F77 (#386) — new SHAPE skips the allowlist for tool-call matchers                                                                                                           |
+| `f77-settings-bad/`                      | synced `.claude/settings.json` w/ `Edit/Write/Read(<operator-home>/...)` + `Bash(/home/...)`      | exit 1              | F77 (#386) — new settings-permission-absolute-path SHAPE fires on every tool-call matcher with an absolute path                                                             |
+| `f77-settings-own-coords-still-flagged/` | synced `.claude/settings.json` w/ `Edit(<operator-home>/...)` (allowlisted home)                        | exit 1              | F77 (#386) — new SHAPE skips the allowlist for tool-call matchers                                                                                                           |
 
 ## Per-fixture detail
 
@@ -64,7 +64,7 @@ behaviour changes with this note.
   Expected: `--check` exits 1; all 5 `[SHAPE:<id>]` ids appear.
 - **`clean-foundation-placeholder/.claude/rules/clean.md`** — the full
   positive allowlist vocabulary (Foundation slugs, framework names,
-  ratified `<...>` placeholders, public-doc `/Users/runner/` etc.,
+  ratified `<...>` placeholders, public-doc `<operator-home>/` etc.,
   public-SDK enterprise-tier doc compounds). Proves the allowlist does
   not false-positive. Expected: `--check` exits 0; zero findings.
 - **`excluded-accepted-history/.claude/SWEEP-2026-05-17.md`** and
@@ -139,7 +139,7 @@ behaviour changes with this note.
   scanner into a roster-less temp tree: exit 0, plus a loud INERT line on stderr.
 - **`nonown-still-flagged/.claude/rules/nonown.md`** — a non-own /
   3rd-party org slug (`acme-corp/loom`), a synthetic `acme-enterprise`,
-  and a _different_ operator's home path (`/Users/otheroperator/...`),
+  and a _different_ operator's home path (`<operator-home>/...`),
   placed on the SAME surface as allowlisted coordinates. Proves the
   allowlist did NOT neuter genuine detection — the non-own tokens still
   flag while the adjacent Foundation / placeholder coords do not. Expected:

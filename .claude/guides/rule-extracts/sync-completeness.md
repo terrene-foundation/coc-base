@@ -112,7 +112,7 @@ v6.2 extension (2026-05-15) — F5 cc-architect R1 LOW from `journal/0073-DECISI
 
 **Rule 5 (2026-06-27, `journal/0352`)** — co-owner-directed origination. A downstream `/sync-from-template` consumer reported `extract-policies.mjs` was a no-op after a `.claude/`-only sync left the external `../.codex-mcp-guard` target stale.
 
-**Rule 7 (2026-07-03, `journal/0403`, Directive 1)** — co-owner-directed origination. The worktree-from-remote-main Gate-2 model requires capturing the engine's `buildReceipt` per-file manifest per enumerated target — the distribution-completeness companion to `artifact-flow.md` § "Exact Gate-1 / Gate-2 Tracking".
+**Rule 7 (2026-07-03, `journal/0403`, Directive 1)** — co-owner-directed origination. The worktree-from-remote-main Gate-2 model requires capturing the engine's `buildReceipt` per-file manifest per enumerated target — the distribution-completeness companion to `artifact-flow-gates.md` § "Exact Gate-1 / Gate-2 Tracking".
 
 **Rule 8 (2026-07-11, `journal/0465`)** — co-owner-directed `/govern` origination; narrative in § "Rule 8 — derived-tree re-emit (depth)" below.
 

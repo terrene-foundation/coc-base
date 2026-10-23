@@ -3,8 +3,6 @@ priority: 10
 scope: path-scoped
 cli_delivery: skill-channel
 paths:
-  - ".claude/rules/**"
-  - ".claude/commands/**"
   - "**/.session-notes*"
   - "journal/**"
 ---

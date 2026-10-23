@@ -109,7 +109,7 @@ Moved verbatim from the rule's § Origin. The rule keeps a compact Origin plus i
 
 **Amended 2026-07-26 (loom#1368 part 2) — the deferral is now DECLARED, not hidden.** The paragraph above previously recorded a different mechanism: a staged probe file was kept on disk under the `.probes.jsonl` extension specifically because integrity check (e) matched only `*.probes.json`, so the rename made it invisible to the orphan check and the engine self-tests' minimal temp manifests stayed green. That was a coverage claim nobody ran, cleared by a filename. Check (e) now enumerates both extensions and the self-tests inherit the committed `_deferred_probes` declarations, so a staged probe is legal only while explicitly declared with a graduation condition, is printed as a `NOTE:` on every CI run, and reds the gate the moment the declaration is dropped or outlives its file.
 
-**Bootstrap note — the harness ENGINE is `type:tool`, not a per-type probe subject.** The eval-harness's own engine tooling (`.claude/bin/coc-eval-core.mjs`, `.claude/bin/coc-eval-all.mjs`, `.claude/bin/coc-manifest-integrity.mjs`, `.claude/test-harness/lib/probe-schemas.mjs`) is `type:tool` — its correctness is proven by its own committed self-tests (the `manifest-integrity` gate + the scanner-timeout / grade-pin regressions at `.claude/test-harness/tests/coc-eval-core.test.mjs`, `.claude/test-harness/tests/coc-eval-all.test.mjs`, and `.claude/test-harness/tests/coc-manifest-integrity.test.mjs`), NOT by the per-type mandatory-probe table in MUST-1 (which governs the prose/behavioral artifact types: rule / command / skill / agent / hook). A `type:tool` entry carries `probes: null` in the manifest (C3 — a tool has no mandated LLM-judge probe); it is covered by the structural CI tier's fixtures/self-tests. This avoids the bootstrap circularity of demanding an LLM-judge probe of the very engine that dispatches probes. (At loom the engine bins are covered by their committed self-tests directly — loom registers no `type:tool` entry for them per the empty-manifest C2 adaptation; the canon-sync structural fixtures the BUILD-repo bootstrap note also cited are NOT present at loom by the F3-exclusion decision above.)
+**Bootstrap note — the harness ENGINE is `type:tool`, not a per-type probe subject.** The eval-harness's own engine tooling (loom's `coc-eval-core`, `coc-eval-all` and `coc-manifest-integrity` CI tools, plus `.claude/test-harness/lib/probe-schemas.mjs`) is `type:tool` — its correctness is proven by its own committed self-tests (the `manifest-integrity` gate + the scanner-timeout / grade-pin regressions at `.claude/test-harness/tests/coc-eval-core.test.mjs`, `.claude/test-harness/tests/coc-eval-all.test.mjs`, and `.claude/test-harness/tests/coc-manifest-integrity.test.mjs`), NOT by the per-type mandatory-probe table in MUST-1 (which governs the prose/behavioral artifact types: rule / command / skill / agent / hook). A `type:tool` entry carries `probes: null` in the manifest (C3 — a tool has no mandated LLM-judge probe); it is covered by the structural CI tier's fixtures/self-tests. This avoids the bootstrap circularity of demanding an LLM-judge probe of the very engine that dispatches probes. (At loom the engine bins are covered by their committed self-tests directly — loom registers no `type:tool` entry for them per the empty-manifest C2 adaptation; the canon-sync structural fixtures the BUILD-repo bootstrap note also cited are NOT present at loom by the F3-exclusion decision above.)
 
 ## Detection mechanism — the authored-unwired coverage detector
 
@@ -201,3 +201,25 @@ Five mid-sentence depth pointers spelled `.claude/guides/rule-extracts/coc-artif
 **CORRECTED same day by redteam — this pass was NOT zero de-scoping, and the flat census is WHY it went unnoticed.** Three edits removed FORCE while every counted class held flat, because `check-descoping.mjs` declares this exact blindness in its own `coverage_limitations[3]`: "token-counts-are-not-semantics (a MUST whose substance is rewritten but whose word survives is NOT caught)". (1) MUST-3's vacuity predicate was narrowed from `zero-structural-entry` to `zero-entry`, off the disarm lever `coc-eval-all.mjs` names, and its "and is not convergence evidence" clause was LOST rather than moved — both reverted; see § "MUST-3 — the vacuity predicate, NARROWED then RESTORED" above. (2) The `**Violation scope:**` field was hollowed to a clause-id list on a justification FALSE for MUST-3 — reverted, and the class added to `**Cumulative posture impact:**` as well; see the Wiring bullet below. (3) A third stale figure, the `← 12 suites never ran` arrow, survived the pass byte-identical inside a fence the census never reads — retired to a derivation instruction; see § "MUST-6 (b)". The census was a NECESSARY floor and never a sufficient one: it answers "did a counted token leave", not "did an obligation weaken", and on this pass those two questions had opposite answers.
 
 `rule-authoring.md` Rule 10 / Rule 11 do NOT fire on any of the three passes — Rule 10 § "Trigger scope" binds `priority: 0` + `scope: baseline` rules ONLY and this rule is `scope: path-scoped`, so both passes are STRUCTURAL CLEANUP, not a Rule-10 paired extraction and therefore not Rule-11 recurrence input (the disposition `journal/0148` recorded).
+
+## MUST-4 — full DO / DO-NOT example set
+
+Moved verbatim from the rule body on 2026-10-10 (context-budget lane). The rule keeps a compact
+four-line fence; the full set is here.
+
+```text
+# DO — Detection mechanism names the full binding, every path resolving
+- **Detection mechanism:** scanner `.claude/bin/foo-readiness-check.mjs`;
+  fixtures `.claude/audit-fixtures/foo/`; probes `.claude/test-harness/probes/foo.probes.json`.
+
+# DO — the suite is unwritten: NAME it anyway, and declare the absence with a date
+- **Detection mechanism:** scanner `…`; fixtures `…`; probes
+  `.claude/test-harness/probes/foo.probes.json` — NOT YET AUTHORED, declared in
+  phase2-deferrals.json::probe_authorship_deferrals (expires 2026-12-18).
+
+# DO NOT — a Detection block with no harness binding
+- **Detection mechanism:** cc-architect reviews it at /codify.   # no scanner, no fixtures, no probes
+
+# DO NOT — launder an unwritten suite as one that must never exist
+<!-- detection-binding-check: absent-by-design <probes path> — not written yet -->
+```

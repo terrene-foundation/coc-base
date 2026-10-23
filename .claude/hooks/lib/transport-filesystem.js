@@ -43,13 +43,14 @@ const fs = require("fs");
 // `path` is deliberately NOT required. Its only use was `path.dirname(logPath)`
 // for the pre-#1349 unchecked mkdir, which is gone (the primitive owns directory
 // creation, and creating it here would defeat defense 1 — see `appendRecord`).
-// `state-resolver.js` is required LAZILY inside `appendRecord`, not here, so the
-// five read-only hooks that load this module do not pull in its `child_process`
-// dependency on a path that never resolves a containment root — the same shape
-// `coc-emit.js` uses at its own call site on this sink.
+// `state-resolver.js` is reached LAZILY — inside `appendRecord` through
+// `mainCheckoutBoundaryRoots()`, which resolves it on call — not at module
+// load, so the five read-only hooks that load this module do not pull in its
+// `child_process` dependency on a path that never resolves a containment root.
 const crypto = require("crypto");
 const { resolveLogPath } = require("./state-io.js");
-const { appendSinkLine } = require("./append-sink.js");
+const { parseCoordinationLog, assertRecordSize } = require("./fold-record-limits.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 /**
  * The `appendSinkLine` `error` tags that mean THE SUBSTRATE FAILED, as opposed
@@ -71,7 +72,12 @@ const { appendSinkLine } = require("./append-sink.js");
  * rejections on purpose: a new REFUSAL tag added to the primitive then lands in
  * the typed channel by default, which is the safe direction. A new SUBSTRATE
  * tag would be mis-filed as a rejection — so if the primitive grows one, add it
- * here. Pinned by the fixture case that enumerates the primitive's tags.
+ * here. `lstat failed` also carries the primitive's ancestry-walk presence
+ * failures other than ELOOP (EACCES, EIO, ENOTDIR — `append-sink.js::
+ * _presenceFailureTag`); ELOOP stays `containment failed`, a refusal. The
+ * throw is pinned end-to-end by the `transport_append_*_ancestor_throws_ECOCSINK`
+ * cases in `tests/integration/transport-filesystem.test.js`; no case enumerates
+ * the whole tag set.
  */
 const SUBSTRATE_FAILURES = new Set([
   "mkdir failed",
@@ -170,45 +176,17 @@ function createFilesystemTransport(repoDir) {
     if (raw.length === 0) {
       return { records: [], lineIndices: [], parseDropLines: [] };
     }
-    const out = [];
-    const lineIndices = [];
-    const parseDropLines = [];
-    const lines = raw.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.length === 0) continue;
-      let obj;
+    const { records, lineIndices, parseDropLines, malformedLines } = parseCoordinationLog(raw, {
+      malformed: "skip", objectRecordsOnly: true, maxRecords: null,
+    });
+    for (const i of malformedLines) {
       try {
-        obj = JSON.parse(line);
+        process.stderr.write(`transport-filesystem: skipping malformed line ${i} in ${logPath}\n`);
       } catch {
-        // Malformed line: log, RECORD THE POSITION, and continue. The engine's
-        // fold rule 1 catches mal-shaped records that DO parse; this path
-        // covers torn writes that survived a kernel crash or storage hiccup —
-        // single-line skip is still the right disposition since the broken
-        // line cannot be recovered, but the skip is no longer SILENT to a
-        // caller that asks.
-        parseDropLines.push(i);
-        try {
-          process.stderr.write(
-            `transport-filesystem: skipping malformed line ${i} in ${logPath}\n`,
-          );
-        } catch {
-          // best-effort logging
-        }
-        continue;
-      }
-      if (obj && typeof obj === "object") {
-        out.push(obj);
-        lineIndices.push(i);
-      } else {
-        // Parsed, but not a record (a bare `null`, number or string on its own
-        // line). It is not a usable record and it is not a parse failure —
-        // count it with the drops, since from the caller's perspective a line
-        // that yields no record is a line whose content is UNKNOWN.
-        parseDropLines.push(i);
+        // best-effort logging
       }
     }
-    return { records: out, lineIndices, parseDropLines };
+    return { records, lineIndices, parseDropLines };
   }
 
   /**
@@ -257,7 +235,14 @@ function createFilesystemTransport(repoDir) {
     }
     // Trailing newline counts toward the 2KB atomicity budget — kernel
     // sees the bytes including the newline.
-    const totalBytes = Buffer.byteLength(line, "utf8") + 1;
+    const recordBytes = Buffer.byteLength(line, "utf8");
+    try {
+      assertRecordSize(recordBytes);
+    } catch (err) {
+      if (!err || err.code !== "ECOCRECORDSIZE") throw err;
+      return { ok: false, code: err.code, error: err.message };
+    }
+    const totalBytes = recordBytes + 1;
     if (totalBytes > MAX_LINE_BYTES) {
       return {
         ok: false,
@@ -302,14 +287,10 @@ function createFilesystemTransport(repoDir) {
     // Against the main checkout that symlink lands under neither root and is
     // still refused.
     //
-    // Resolved through `requireMainCheckout` — the FAIL-CLOSED accessor — and
-    // not the legacy `resolveMainCheckout`, because what is declared here is a
-    // CONTAINMENT ROOT and the legacy accessor silently returns its own `cwd`
-    // argument when git cannot identify a main checkout. The `!ok` branch
-    // declares NOTHING: a sink outside `repoDir` is then refused rather than
-    // written somewhere unverified, while a sink INSIDE `repoDir` — the
-    // legitimate non-git / unresolvable-git case the tests exercise — still
-    // lands, because `repoDir` is always root[0].
+    // Containment roots for a state-dir sink: derived by the ONE helper in
+    // append-sink.js (see its doc for the fail-closed resolver rationale and
+    // for why an unresolvable git declares NOTHING rather than over-blocking
+    // a sink that is legitimately inside `repoDir`).
     //
     // § SYNC INSIDE AN ASYNC METHOD — deliberate, and cheaper than it looks.
     // `appendSinkLine` is synchronous, so this method's one `await` on the
@@ -337,20 +318,11 @@ function createFilesystemTransport(repoDir) {
     // channel and tell the engine's append-then-fold loop the record was
     // refused when in fact the disk is full. The classes are therefore split
     // back apart on the way out: the SUBSTRATE set is re-raised, everything
-    // else is a rejection. (Traced: the one production caller discards the
-    // result AND catches, so both directions are inert THERE — which is
-    // exactly why the split has to be maintained deliberately here, since no
-    // caller's behaviour would have caught its loss.)
-    const boundaryRoots = [];
-    try {
-      const { requireMainCheckout } = require("./state-resolver.js");
-      const mainCheckout = requireMainCheckout(repoDir);
-      if (mainCheckout.ok) boundaryRoots.push(mainCheckout.repoDir);
-    } catch {
-      // Resolver unavailable — `repoDir` remains the only root and a
-      // main-checkout sink fails CLOSED rather than being written somewhere
-      // unverified.
-    }
+    // else is a rejection. (Traced: the one production caller,
+    // adjacency-leasecheck.js::autoClaim, catches a throw AND reports a
+    // rejection, each as its own [ADVISORY] line naming the error and reason —
+    // the split is what lets it tell a full disk from a refused record.)
+    const boundaryRoots = mainCheckoutBoundaryRoots(repoDir);
     // The line is handed over WITHOUT its terminator; the primitive writes
     // exactly one "\n". O_APPEND atomicity for writes ≤PIPE_BUF is unchanged —
     // the primitive opens with O_WRONLY|O_APPEND and loops until every byte of

@@ -32,6 +32,12 @@ const {
   resolveMainCheckoutDetailed,
 } = require("./state-resolver");
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env");
+const { askOnce, eventGitKey } = require("./event-git.js");
+
+// Canonical common-dir argv; sharing requires the complete question key:
+// binary, cwd, argv and envelope (.claude/hooks/lib/event-git.js:53-56).
+// Matching argv alone does not share answers across environment profiles.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 const {
   validatePostureV2Schema,
   migrateV1ToV2,
@@ -518,16 +524,36 @@ function resolveWitnessPath(repoDir) {
     // Unresolvable git falls through to the literal `<repoDir>/.git/` fallback
     // below — that branch resolves inside repoDir, so it never widens trust.
     if (!gitBin) throw new Error("git binary unresolved");
-    const gitCommonDir = execFileSync(
-      gitBin,
-      ["rev-parse", "--git-common-dir"],
-      {
-        cwd: repoDir,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        env: gitEnv(),
+    // ONE answer per distinct question per hook event (lib/event-git.js): the
+    // canonical argv makes this the SAME question every other common-dir asker
+    // asks, so the event shares one spawn. Outside an event scope `askOnce`
+    // runs the probe directly — unchanged behaviour for standalone callers.
+    const probe = askOnce(
+      eventGitKey({ gitBin, cwd: repoDir, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+      () => {
+        try {
+          const out = execFileSync(gitBin, CANONICAL_COMMON_DIR_ARGS, {
+            cwd: repoDir,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+            env: gitEnv(),
+          });
+          return { ok: true, value: String(out || "").trim() };
+        } catch (e) {
+          // A spawn failure is an ANSWER here (a recorded failure stays a
+          // failure for the event), never a throw into the guard — the outer
+          // catch below keeps the literal `.git/` fallback.
+          return { ok: false, reason: String((e && e.message) || e) };
+        }
       },
-    ).trim();
+    );
+    const probeLines = probe.ok
+      ? String(probe.value || "")
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    const gitCommonDir = probeLines.length > 0 ? probeLines[probeLines.length - 1] : "";
     if (gitCommonDir) {
       // `--git-common-dir` may return a relative path (e.g. `.git`) — resolve
       // against repoDir to get an absolute path.
@@ -842,6 +868,101 @@ function _freshRepoPosture() {
 }
 
 /**
+ * Is this repository ENROLLED? NOT decided here: this delegates to
+ * `coordination-mode.js::enrollmentDecision`, the ONE decision the coordination
+ * substrate also uses (working-tree roster, then the committed-roster attestation
+ * when the working tree is absent or unanchored). `rules/security.md`
+ * § Enforcement-Surface Parity — a second reader here (the first cut read the
+ * working tree alone) let `rm` / `{}` / a placeholder / a hardlink at the roster
+ * turn an enrolled repo's missing trust state into fresh L5, while the substrate
+ * refused the very same tree.
+ *
+ * Tri-state; callers MUST rank "indeterminate" with "enrolled" (unrecognized ranks
+ * TIGHTEST). A decision module that cannot be loaded, or throws, is indeterminate.
+ *
+ * RESIDUAL inherited from that decision (loom#1480): a FORGED remote-tracking ref
+ * can answer the committed question "not-enrolled". The bar is forging a ref, not
+ * deleting a file; it is tracked there, not closed here.
+ *
+ * @param {string} repoRoot - the checkout that OWNS the trust state (the state
+ *   dir's anchor — the main checkout in production).
+ * @returns {{state:"enrolled"|"not-enrolled"|"indeterminate", reason:string, via?:string}}
+ */
+function readRepoEnrollment(repoRoot) {
+  let decide;
+  try {
+    // Lazy: only the no-trust-state path needs it.
+    ({ enrollmentDecision: decide } = require("./coordination-mode.js"));
+  } catch (e) {
+    return { state: "indeterminate", reason: `enrollment decision unavailable: ${e.message}` };
+  }
+  if (typeof decide !== "function") {
+    return {
+      state: "indeterminate",
+      reason: "enrollment decision unavailable: coordination-mode exports no enrollmentDecision",
+    };
+  }
+  let d;
+  try {
+    d = decide(repoRoot);
+  } catch (e) {
+    return { state: "indeterminate", reason: `enrollment decision threw: ${e && e.message}` };
+  }
+  const known = new Set(["enrolled", "not-enrolled", "indeterminate"]);
+  if (!d || !known.has(d.state)) {
+    return { state: "indeterminate", reason: `enrollment decision returned an unrecognized state: ${JSON.stringify(d && d.state)}` };
+  }
+  return { state: d.state, via: d.via, reason: d.reason || `${d.state} via ${d.via}` };
+}
+
+/**
+ * The state dir is ABSENT, but provably where it should be: `lstat` says
+ * ENOENT for the dir itself (a dangling link is an entry, so it is NOT absent),
+ * and its PARENT resolves contained — the same both-sides-resolved comparison
+ * `_assertStateDirContained` makes, one level up. An absent dir under a
+ * resolvable parent is the same trust fact as a present-but-empty one, so it is
+ * routed through the same discrimination; a parent that will not resolve, or
+ * resolves elsewhere, stays fail-closed.
+ *
+ * @param {string} dir
+ * @returns {{ok:true} | {ok:false, reason:string}}
+ */
+function _stateDirAbsentButContained(dir) {
+  try {
+    fs.lstatSync(dir);
+    return { ok: false, reason: `state dir ${dir} exists but did not resolve contained` };
+  } catch (e) {
+    if (!e || e.code !== "ENOENT") {
+      return {
+        ok: false,
+        reason: `state dir ${dir} could not be probed: ${e && e.message}`,
+      };
+    }
+  }
+  const parent = path.dirname(dir);
+  const anchor = path.dirname(parent);
+  let realAnchor;
+  let realParent;
+  try {
+    realAnchor = fs.realpathSync(anchor);
+    realParent = fs.realpathSync(parent);
+  } catch (e) {
+    return {
+      ok: false,
+      reason: `state dir parent containment: cannot resolve ${parent}: ${e.message}`,
+    };
+  }
+  const expected = path.join(realAnchor, path.basename(parent));
+  if (realParent !== expected) {
+    return {
+      ok: false,
+      reason: `state dir parent containment: ${parent} resolves to ${realParent}, expected ${expected} — symlinked ancestor component`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * Read posture.json. On missing / corrupt → fail-closed to L1 (mitigates CRIT-4).
  * Tries main file first, then .bak, then fail-closed.
  *
@@ -853,7 +974,78 @@ function _freshRepoPosture() {
  * canonical writer (`fold-posture-event.js` driving the on-disk state) is
  * responsible for landing v2 on disk through a signed posture-event.
  */
-function readPosture(cwd) {
+// `opts.migrate === false` makes this read READ-ONLY: it skips
+// `migrateWitnessIfPresent`, which WRITES a sentinel into the resolved checkout.
+// The posture-ANCHOR arm of posture-gate.js reads the posture of a repo the
+// session may not own (the target path's containing repo, and the server-stamped
+// CLAUDE_PROJECT_DIR in the Codex lane), so it must not write there. Default is
+// unchanged (`migrate` on) for every existing caller.
+/**
+ * EVERY enclosing checkout of `targetPath`, outermost last: the repo git says contains the path,
+ * then the repo containing THAT repo's toplevel (a submodule, or a checkout nested in another),
+ * repeating to a depth bound. A nested repo can never LOOSEN its parent's floor, so the caller
+ * takes the strictest of the set.
+ *
+ * Built on this module's EXISTING bounded git resolution — one authority, no ad-hoc git spawns —
+ * so --git-dir / --work-tree layouts are answered by git rather than by a .git probe.
+ *
+ * `{ ok: true, roots }` with an EMPTY roots list means the path is inside no checkout at all;
+ * the caller treats that as "contributes nothing", never as L1. `ok: false` is reserved for
+ * "git could not answer": a thrown resolution, or an EXHAUSTED budget (the resolver marks that
+ * distinctly, so "git ran out of time" is never read as "there is no repository here").
+ */
+/** Cheap containment probe: is there a .git entry at or above this directory? */
+function _looksLikeCheckout(dir) {
+  let cur = dir;
+  for (;;) {
+    try {
+      fs.lstatSync(path.join(cur, ".git"));
+      return true;
+    } catch {
+      // keep climbing
+    }
+    const up = path.dirname(cur);
+    if (up === cur) return false;
+    cur = up;
+  }
+}
+
+function enclosingCheckouts(targetPath, opts) {
+  // The CALLER's shared deadline (posture-gate's target arm holds ONE budget across every
+  // read). Forwarded to the resolver so a slow git cannot spend more than the arm has left,
+  // and a resolver that runs out reports its own exhaustion rather than being cut off here.
+  const deadline = opts && opts.deadline;
+  const roots = [];
+  let cur = targetPath;
+  for (let depth = 0; depth < 8; depth++) {
+    let r;
+    try {
+      r = resolveMainCheckoutDetailed(cur, deadline ? { deadline } : undefined);
+    } catch (e) {
+      return { ok: false, reason: (e && e.message) || "resolution threw", roots };
+    }
+    if (r && r.budgetExhausted) return { ok: false, reason: "git budget exhausted", roots };
+    if (!r || r.indeterminate) {
+      // R2 HIGH-2 (regression): this used to `break`, which read a git that COULD NOT ANSWER as
+      // "no enclosing checkout" and silently dropped every outer parent — a nested repo then
+      // loosened its parent exactly as before the shard. Inside a checkout, an indeterminate
+      // answer is fail-closed; outside one it is the ordinary "contributes nothing" case.
+      if (_looksLikeCheckout(cur)) return { ok: false, reason: "indeterminate inside a checkout", roots };
+      break;
+    }
+    if (!roots.includes(r.path)) roots.push(r.path);
+    const parent = path.dirname(r.path);
+    if (parent === r.path) break;
+    cur = parent;
+  }
+  // Item 3: exhausting the bound means we STOPPED ASKING, not that there are no more parents.
+  // A repo nested deeper than the bound would otherwise read as having none above it.
+  if (roots.length >= 8) return { ok: false, reason: "depth bound exhausted", roots };
+  return { ok: true, roots };
+}
+
+function readPosture(cwd, opts) {
+  const readOnly = Boolean(opts && opts.migrate === false);
   const resolution = resolveStateDirDetailed(cwd);
   const dir = resolution.path;
 
@@ -880,10 +1072,32 @@ function readPosture(cwd) {
   // attacker-chosen, so a "valid" posture read out of it is attacker-authored.
   // Fail closed rather than trusting it (the read path returns L1 rather than
   // throwing — its callers expect a posture object, never an exception).
+  //
+  // An ABSENT state dir is NOT that case. Refusing it here made the verdict depend
+  // on whether some unrelated hook had already created `.claude/learning` in the
+  // same dispatch (absent ⇒ L1 here; present-but-empty ⇒ the discrimination
+  // below ⇒ L5), so the floor turned on row ORDER. Absent-under-a-contained-parent
+  // now takes the same path as present-but-empty; the enrollment check before the
+  // fresh-repo return decides between them.
+  //
+  // NOT under the CLAUDE_TRUST_STATE_DIR override. `resolveStateDirDetailed`
+  // honours that value RAW (the sanctioned test seam — see its named residual), so
+  // its anchor can be a bare non-git directory whose enrollment answers
+  // "not-enrolled" by construction; admitting an ABSENT dir there would turn the
+  // override's refusal (L1) into fresh L5 with no file created. Measured before
+  // this guard: bare sandbox + absent learning dir ⇒ L5 (it was L1 at the base).
+  // A PRESENT-empty override dir reaching L5 predates this change and stays that
+  // module's tracked residual — not widened here, not closed here.
   const dirContained = _assertStateDirContained(dir);
   if (!dirContained.ok) {
-    console.error(`[STATE-IO] ${dirContained.reason}`);
-    return failClosedPosture(dirContained.reason);
+    const absent =
+      resolution.source === "env-override"
+        ? { ok: false }
+        : _stateDirAbsentButContained(dir);
+    if (!absent.ok) {
+      console.error(`[STATE-IO] ${dirContained.reason}`);
+      return failClosedPosture(dirContained.reason);
+    }
   }
   const main = path.join(dir, POSTURE_FILE);
   const bak = path.join(dir, POSTURE_BAK);
@@ -900,7 +1114,7 @@ function readPosture(cwd) {
   // module off the legacy accessor that the fail-closed regression test pins.
   const repoRoot = resolveMainCheckoutDetailed(cwd).path;
   try {
-    migrateWitnessIfPresent(repoRoot);
+    if (!readOnly) migrateWitnessIfPresent(repoRoot);
   } catch {
     // Best-effort migration; readPosture continues regardless. The next
     // session-start invocation will retry. A persistent failure surfaces as
@@ -1024,6 +1238,28 @@ function readPosture(cwd) {
   // corrupt-state fail-closed L1. An lstat error (EACCES) is likewise not
   // "absent", so it also falls through to fail-closed.
   if (_classifyPathEntry(initMarkerPath).kind === "absent") {
+    // §6.1's "fresh repo" means a repo that has never been ENROLLED. An enrolled
+    // repo with no trust state is a fresh CLONE (or a wiped one) of a governed
+    // repo, and handing it the MAXIMUM floor is the escalation this function
+    // exists to refuse. Indeterminate enrollment ranks with enrolled. The answer
+    // comes from coordination-mode's enrollment DECISION (working tree, then the
+    // COMMITTED roster), so deleting, emptying, placeholdering or hardlinking the
+    // working-tree roster cannot make an enrolled repo read as fresh — see
+    // `readRepoEnrollment` for the inherited loom#1480 residual.
+    //
+    // Enrollment is decided for the STATE DIR's anchor (`<anchor>/.claude/learning`
+    // ⇒ the checkout at `<anchor>`), not for `cwd`: the roster and the trust state
+    // it governs must belong to the same tree. In production the anchor IS the main
+    // checkout (a linked worktree resolves there). Under CLAUDE_TRUST_STATE_DIR it is
+    // the override's root, which state-resolver admits ONLY as the canonical
+    // `<root>/.claude/learning` of a real checkout of the SAME repository (#1444,
+    // loom#1891), so that root's committed roster answers for this repository too.
+    const enrollment = readRepoEnrollment(path.dirname(path.dirname(dir)));
+    if (enrollment.state !== "not-enrolled") {
+      const reason = `no trust state (posture.json, .bak and .initialized all absent) on a repo whose enrollment is ${enrollment.state.toUpperCase()} — ${enrollment.reason}; an enrolled repo is never a fresh repo, fail-closed to L1`;
+      console.error(`[STATE-IO] ${reason}`);
+      return failClosedPosture(reason);
+    }
     return _freshRepoPosture();
   }
   return failClosedPosture(
@@ -1194,8 +1430,8 @@ function writePosture(cwd, posture) {
  */
 function _stripRepoPath(p) {
   if (typeof p !== "string" || !p) return "unknown";
-  // Trailing-slash basename: works for `/Users/x/repos/loom`,
-  // `/home/x/repos/loom`, `/repos/loom`, `C:\\Users\\x\\repos\\loom`,
+  // Trailing-slash basename: works for `<operator-home>/repos/loom`, (Source: .claude/hooks/lib/state-io.js:1224-1233.)
+  // `<operator-home>/repos/loom`, `/repos/loom`, `C:<operator-home>\\repos\\loom`,
   // and relative paths alike.
   const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
   return idx >= 0 ? p.slice(idx + 1) || "unknown" : p;
@@ -1287,8 +1523,9 @@ function appendViolation(cwd, partial) {
   // It is also the recorded-but-never-applied fix direction from the env-seam redteam
   // (`workspaces/loom-tracks-2026-07-28/03-waves/72-redteam-security-envseam.md` F5:
   // "make id non-overridable (spread partial first, then pin id/timestamp)").
-  // No production caller passes any of these four (swept: the sole caller is
-  // `detect-violations.js::_logViolation`), so pinning changes no live behaviour — it
+  // No production caller passes any of these four (swept: the callers are
+  // `detect-violations.js::_logViolation` and `lib/dispatch-main.js::recordUnrunDenyRows`,
+  // neither of which sets id, timestamp, session_id or repo), so pinning changes no live behaviour — it
   // removes a lever. An audit row's own identity and provenance should not be
   // suppliable by the thing being audited.
   const violation = {
@@ -1410,6 +1647,24 @@ function appendViolation(cwd, partial) {
   // violation detection is a fail-OPEN outcome, strictly worse than losing the
   // audit row. The `lstat` pre-check refuses it outright; `O_NONBLOCK` is the
   // belt-and-braces that also covers a FIFO raced in after the check.
+  //
+  // Guard foundation S4 (R1 H3): under the OS write profile this log is appended by the broker
+  // or not at all — `append-sink.js::brokerLogRoute`. A refused or unreachable broker THROWS,
+  // the same disposition every refusal below has; the direct open is never attempted.
+  const { brokerLogRoute, appendViaBroker } = require("./append-sink.js");
+  const route = brokerLogRoute(file);
+  if (route) {
+    const b = appendViaBroker(route, line);
+    if (!b.ok) {
+      // LOUD, never a silent drop (ROOT, R1 H3 residual (c)): this function writes the UNSIGNED
+      // legacy row, which the broker's signature gate refuses by design — say which row class
+      // was dropped on stderr, and throw so the caller carries it into its verdict.
+      const msg = `appendViolation: DROPPED an UNSIGNED legacy violations row (rule_id ${JSON.stringify(String(violation.rule_id))}, the un-rostered fallback): ${b.reason}`;
+      process.stderr.write(`${msg}\n`);
+      throw Object.assign(new Error(msg), { code: "EBROKER" });
+    }
+    return violation.id;
+  }
   _warnIfNoNofollow();
   const existingLog = _classifyPathEntry(file);
   if (existingLog.kind === "irregular") {
@@ -1552,8 +1807,11 @@ function resolveLogPath(repoDir) {
 }
 
 module.exports = {
+  enclosingCheckouts,
   readPosture,
   writePosture,
+  // The enrollment tri-state readPosture consults before any fresh-repo L5.
+  readRepoEnrollment,
   // loom#875 — shared grace-window predicate; the three pending_verification
   // consumers (session-start banner, detect-violations ack-check, posture-gate
   // diagnostic count) filter through this single source of truth so a

@@ -66,9 +66,25 @@ const {
   destroyVerifyHomedir,
 } = require(path.join(__dirname, "coc-sign.js"));
 const { resolveGitBinary, gitEnvForArgs } = require(path.join(__dirname, "git-subprocess-env.js"));
+// The ONE control-character escaper (C0, DEL, C1, bidi), for record fields quoted into
+// a finding. See `_shown`.
+const { escapeControlChars } = require(path.join(__dirname, "append-sink.js"));
 
 function bad(error, reason, extra) {
   return Object.assign({ ok: false, error, reason }, extra || {});
+}
+
+/**
+ * A record field, made safe to quote into a finding. `verifyChain` runs BEFORE any
+ * signature check on every path that moves an unsigned-until-proven line (the burndown
+ * flush reads a gitignored stream nobody needs a key to write), and its findings are
+ * printed to operator terminals and CI logs — so an emitter id carrying ESC or CSI would
+ * be a control sequence there, not text. Escaped by the shared escaper and bounded,
+ * never interpolated raw. A string is shown as itself; anything else as its JSON.
+ */
+function _shown(v) {
+  const s = escapeControlChars(typeof v === "string" ? v : String(JSON.stringify(v)));
+  return s.length > 128 ? `${s.slice(0, 128)}…(${s.length} chars)` : s;
 }
 
 // ═══ §1  THE SUITE VOCABULARY AND THE DECLARATION POLICY ════════════════════
@@ -980,8 +996,10 @@ function verifyChain(text, generationSchema) {
       findings.push({ line: ordinal, kind: "unattributed", why: "record carries no verified_id" });
       continue;
     }
+    // `who` and every other record field below are quoted through `_shown`, never raw.
+    const shownWho = _shown(who);
     if (!Number.isInteger(e.seq) || e.seq < 1) {
-      findings.push({ line: ordinal, kind: "missing-seq", why: `seq is ${JSON.stringify(e.seq)}; expected an integer ≥ 1` });
+      findings.push({ line: ordinal, kind: "missing-seq", why: `seq is ${_shown(JSON.stringify(e.seq))}; expected an integer ≥ 1` });
       continue;
     }
     const h = canonicalRecordHash(e);
@@ -996,7 +1014,7 @@ function verifyChain(text, generationSchema) {
         line: ordinal,
         kind: "fork",
         why:
-          `FORK: '${who}' has two records at seq ${e.seq} with different content (lines ${prior.line} and ` +
+          `FORK: '${shownWho}' has two records at seq ${e.seq} with different content (lines ${prior.line} and ` +
           `${ordinal}). One position, two histories.`,
       });
     } else if (!prior) {
@@ -1009,7 +1027,7 @@ function verifyChain(text, generationSchema) {
       findings.push({
         line: ordinal,
         kind: "seq-gap",
-        why: `'${who}' jumped to seq ${e.seq}; the previous record for this emitter was seq ${last ? last.seq : 0}. A gap is a REMOVED record.`,
+        why: `'${shownWho}' jumped to seq ${e.seq}; the previous record for this emitter was seq ${last ? last.seq : 0}. A gap is a REMOVED record.`,
       });
     }
     const declaredPrev = e.prev_hash === undefined ? null : e.prev_hash;
@@ -1018,7 +1036,7 @@ function verifyChain(text, generationSchema) {
         line: ordinal,
         kind: "chain-break",
         why:
-          `'${who}' declares prev_hash ${JSON.stringify(declaredPrev)} but this emitter's previous record ` +
+          `'${shownWho}' declares prev_hash ${_shown(JSON.stringify(declaredPrev))} but this emitter's previous record ` +
           `hashes to ${JSON.stringify(expectedPrev)}`,
       });
     }

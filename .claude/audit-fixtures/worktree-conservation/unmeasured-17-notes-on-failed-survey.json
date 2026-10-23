@@ -1,0 +1,10 @@
+{
+  "arm": "evaluateUnmeasured",
+  "note": "the survey finding-14 holds: evaluateConservation stays silent (no evidence of loss), but the blind spot is NOTED — a failed survey is UNKNOWN, not clean",
+  "survey": {
+    "ok": false,
+    "reason": "git worktree list failed",
+    "trees": [],
+    "counts": null
+  }
+}

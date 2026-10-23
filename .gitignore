@@ -10,6 +10,7 @@
 .claude/learning/observations.jsonl
 .claude/learning/violations.jsonl
 .claude/learning/coordination-log.jsonl*
+.claude/learning/burndown-events.pending.jsonl*
 .claude/learning/provenance/
 .claude/learning/posture.json*
 .claude/learning/.initialized
@@ -20,6 +21,7 @@
 .claude/learning/derives-from/
 **/.claude/learning/derives-from/
 .claude/learning/dispatch-reconcile/
+.claude/learning/override-receipt-uses.jsonl
 .claude/learning/ci-cost-reach/
 .claude/learning/sessionend-release-lease-*
 .claude/learning/.tmp-sereleaselease-*
@@ -47,6 +49,7 @@
 .session-notes
 .session-notes.d/
 .session-notes.shared.md
+.session-notes.archive/
 /workspaces/*
 !/workspaces/_template/
 !.claude/bin/lib/

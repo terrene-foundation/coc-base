@@ -754,12 +754,12 @@ function check(name, condition, details) {
   });
   const listedNoDeclaration = isSanctionedDeferredFixture({
     kind: "backtick",
-    token: ".claude/audit-fixtures/path-containment/",
+    token: ".claude/audit-fixtures/approver-identity-server-derived/",
     blockText: "see the fixtures directory for detail",
   });
   const listedWithDeclaration = isSanctionedDeferredFixture({
     kind: "backtick",
-    token: ".claude/audit-fixtures/path-containment/",
+    token: ".claude/audit-fixtures/approver-identity-server-derived/",
     blockText: perfect,
   });
   check(
@@ -780,13 +780,13 @@ function check(name, condition, details) {
 {
   const lines = [
     "- **Detection mechanism:** Phase 2 (deferred per rollout) — audit fixtures land",
-    "  with the detector at `.claude/audit-fixtures/path-containment/`.",
+    "  with the detector at `.claude/audit-fixtures/approver-identity-server-derived/`.",
     "- **Violation scope:** the clause only; see `.claude/audit-fixtures/tenant-upsert-guard/`.",
   ];
   const blockOf = computeBlockTexts(lines);
   const declared = isSanctionedDeferredFixture({
     kind: "backtick",
-    token: ".claude/audit-fixtures/path-containment/",
+    token: ".claude/audit-fixtures/approver-identity-server-derived/",
     blockText: blockOf[1],
   });
   const neighbour = isSanctionedDeferredFixture({
@@ -828,12 +828,12 @@ function check(name, condition, details) {
   // Correct spellings of real, currently-deferred slugs: sanctioned.
   const correct =
     sanctioned(".claude/audit-fixtures/tenant-upsert-guard/") &&
-    sanctioned(".claude/audit-fixtures/path-containment/") &&
+    sanctioned(".claude/audit-fixtures/approver-identity-server-derived/") &&
     sanctioned(".claude/audit-fixtures/handoff-completion/");
   // One-character corruptions of those SAME slugs, in the SAME prose: NOT sanctioned.
   const typosVisible =
     !sanctioned(".claude/audit-fixtures/tenant-upsert-gaurd/") &&
-    !sanctioned(".claude/audit-fixtures/path-contaiment/") &&
+    !sanctioned(".claude/audit-fixtures/approver-identity-server-dervied/") &&
     !sanctioned(".claude/audit-fixtures/handoff-completeion/");
 
   check(

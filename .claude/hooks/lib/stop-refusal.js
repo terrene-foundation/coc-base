@@ -76,6 +76,7 @@
 "use strict";
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 /**
@@ -101,8 +102,10 @@ function _isNonEmptyString(v) {
 
 /**
  * Kill switch, DEFAULT-ON, `COC_FLEET_DRAIN`'s shape. Default-on is safe here precisely because
- * refusal is opt-in at the call site: "on" means "an opted-in caller may refuse", and no shipped
- * hook opts in.
+ * shared-emitter refusal is call-site opt-in — the `refuseHandback` option of `instructAndWait`
+ * (.claude/hooks/lib/instruct-and-wait.js:604-613, § STOP HAND-BACK REFUSAL). The range is held to
+ * its three anchors by citation-anchor-pins.mjs (`shared-refusal-opt-in`), which reds when it rots.
+ * Native lifecycle faults request this budget directly (.claude/hooks/lib/codex-hook-runtime.js:131-156).
  */
 function resolveRefusalEnabled(env) {
   const e = env || process.env;
@@ -125,11 +128,104 @@ function resolveMaxRefusals(requested) {
 // session happened to be running commands there. Walk up to the nearest
 // directory that IS a repo (`.claude/settings.json` or `.git`); fall back to
 // the given dir only when no ancestor qualifies.
+//
+// THE WALK STOPS AT THE USER'S HOME DIRECTORY, EXCLUSIVE — home is never a repo
+// root here, and nothing above it is searched. `~/.claude/settings.json` is
+// Claude Code's USER-scope settings file, present wherever a user keeps
+// user-level settings, so the `.claude/settings.json` marker cannot tell a
+// project from the home directory. Without this bound, every cwd under home
+// that is inside no repo resolved to HOME, and every caller of this function —
+// this ledger, plus `hook-findings.js::_repoRootOf`,
+// `session-once.js::_repoRootOf` and `stop-receipt.js::repoRootOf`, which all
+// delegate here — wrote its
+// per-repo state into the user's own `~/.claude/learning/`, one ledger shared
+// by every such session. MEASURED 2026-10-14 on a host whose `os.tmpdir()`
+// lies under HOME: `stop-refusal-contract.test.mjs` red 10 of 24 and left a
+// `sess-1.jsonl` in that host's real `~/.claude/learning/stop-refusal/`; the
+// same 10 red on a host whose tmpdir is outside HOME once a
+// `.claude/settings.json` was planted at the top of a scratch HOME. A `.git` at
+// HOME (a dotfiles checkout) is bounded too: per-repo hook state for an
+// unrelated directory does not belong in the user's Claude config dir.
+//
+// A CWD THAT IS HOME ITSELF HAS NO ROOT: `_repoRootOf` returns null, the same
+// answer `env-utils.js::_repoRootOf` gives at HOME. The walk is HOME-exclusive,
+// so the only way this function could ANSWER home is a cwd that already is
+// home — through the dir fallback below, re-opening the very write into
+// `~/.claude/learning/` the bound exists to stop. Every writer here and in the
+// three delegates reads null as "write NOTHING" and answers with a typed
+// `no-repo-root` result in its own return shape; nothing joins a path onto a
+// null root. A cwd that is NOT home and has no repo ancestor still falls back
+// to that dir, unchanged.
+// Compared on both the resolved and the realpath form of each side (a symlinked
+// home or tmp root must not slip past), case-folded on win32.
+function _homeKeys() {
+  const keys = new Set();
+  try {
+    const h = os.homedir();
+    if (_isNonEmptyString(h)) {
+      keys.add(_cmpKey(path.resolve(h)));
+      try {
+        keys.add(_cmpKey(fs.realpathSync(h)));
+      } catch {
+        /* unresolvable home: the resolved form still bounds the walk */
+      }
+    }
+  } catch {
+    /* no home directory known: nothing to bound at */
+  }
+  return keys;
+}
+
+function _cmpKey(p) {
+  return process.platform === "win32" ? p.toLowerCase() : p;
+}
+
+function _isHome(cur, homeKeys) {
+  if (homeKeys.size === 0) return false;
+  if (homeKeys.has(_cmpKey(cur))) return true;
+  try {
+    return homeKeys.has(_cmpKey(fs.realpathSync(cur)));
+  } catch {
+    return false; // a not-yet-existing tail is not home
+  }
+}
+
+// The same HOME bound, exported as ONE predicate so a sibling walk that cannot
+// delegate to `_repoRootOf` (because its no-repo answer differs —
+// `env-utils.js::_repoRootOf` returns null instead of falling back to the dir)
+// bounds itself with THIS comparison rather than a second copy of it. True when
+// `dir` is the user's home directory, on the resolved or realpath form of
+// either side.
+function _isHomeDir(dir) {
+  return _isHome(path.resolve(String(dir || process.cwd())), _homeKeys());
+}
+
+/** The typed code every no-root answer carries, here and in the delegates. */
+const NO_REPO_ROOT = "no-repo-root";
+
+/** The typed, loud no-root result in this module's `{ok, reason}` shape. `verb`: read | written. */
+function _noRepoRoot(verb) {
+  return {
+    ok: false,
+    code: NO_REPO_ROOT,
+    reason: `no repo root: the cwd is the home directory, which is never a repo root; nothing was ${verb}`,
+  };
+}
+
+/** The repo root containing `dir`, the dir itself when no ancestor is a repo, or null AT HOME. */
 function _repoRootOf(dir) {
-  let cur = path.resolve(String(dir || process.cwd()));
+  const start = path.resolve(String(dir || process.cwd()));
+  const homeKeys = _homeKeys();
+  if (_isHome(start, homeKeys)) return null;
+  let cur = start;
   for (let i = 0; i < 64; i++) {
+    if (_isHome(cur, homeKeys)) break;
     try {
-      if (fs.existsSync(path.join(cur, ".claude", "settings.json")) || fs.existsSync(path.join(cur, ".git"))) return cur;
+      if (
+        fs.existsSync(path.join(cur, ".claude", "settings.json")) ||
+        fs.existsSync(path.join(cur, ".git"))
+      )
+        return cur;
     } catch {
       /* unreadable ancestor: keep walking */
     }
@@ -137,13 +233,22 @@ function _repoRootOf(dir) {
     if (up === cur) break;
     cur = up;
   }
-  return path.resolve(String(dir || process.cwd()));
+  return start;
 }
 
+/** The ledger path, or null when `repoDir` has no repo root (it IS home) — never a HOME path. */
 function _ledgerPath(repoDir, sessionId) {
+  const root = _repoRootOf(repoDir);
+  if (root === null) return null;
   const raw = _isNonEmptyString(sessionId) ? sessionId : "unknown-session";
   const safe = raw.replace(/[^A-Za-z0-9._-]/g, "_");
-  return path.join(_repoRootOf(repoDir), ".claude", "learning", "stop-refusal", `${safe}.jsonl`);
+  return path.join(
+    root,
+    ".claude",
+    "learning",
+    "stop-refusal",
+    `${safe}.jsonl`,
+  );
 }
 
 /**
@@ -153,20 +258,31 @@ function _ledgerPath(repoDir, sessionId) {
  * failure returns `{ok:false}` and the caller must NOT refuse. An unreadable budget is an
  * UNBOUNDED refusal, which is the wedge itself — so "I could not count" and "the budget is spent"
  * take the same disposition.
+ *
+ * NO REPO ROOT (the cwd IS home) is the same disposition: there is no ledger to read, so the
+ * budget is UNREADABLE — `{ok:false, code:"no-repo-root"}` — and the caller must NOT refuse.
+ * It is never a real zero: reading it as `count: 0` would grant a refusal nothing can bound,
+ * because `recordRefusal` writes nothing there either.
  */
 function countRefusals(repoDir, sessionId, key) {
   try {
     const p = _ledgerPath(repoDir, sessionId);
+    if (p === null) return _noRepoRoot("read");
     let text = "";
     try {
       const st = fs.statSync(p);
-      if (!st.isFile()) return { ok: false, reason: "ledger path is not a file" };
-      if (st.size > MAX_LEDGER_BYTES) return { ok: false, reason: "ledger exceeds read cap" };
+      if (!st.isFile())
+        return { ok: false, reason: "ledger path is not a file" };
+      if (st.size > MAX_LEDGER_BYTES)
+        return { ok: false, reason: "ledger exceeds read cap" };
       text = fs.readFileSync(p, "utf8");
     } catch (e) {
       // A ledger that does not exist yet is a real zero, NOT a read failure. Any other errno is.
       if (!e || e.code !== "ENOENT") {
-        return { ok: false, reason: `ledger unreadable: ${e && e.message ? e.message : String(e)}` };
+        return {
+          ok: false,
+          reason: `ledger unreadable: ${e && e.message ? e.message : String(e)}`,
+        };
       }
       return { ok: true, count: 0 };
     }
@@ -191,17 +307,35 @@ function countRefusals(repoDir, sessionId, key) {
   }
 }
 
+// No repo root ⇒ nothing is written and the typed no-root result is returned, never thrown.
+// The sink is contained under the RESOLVED repo root, the same root the ledger lives
+// under, as hook-findings and session-once already do. Containing it under the
+// caller's RAW cwd refused every write from a directory nested inside the repo (the
+// ledger sits at <root>/.claude/learning, outside <root>/a/b), so a refusal fired
+// there was silently not recorded and the budget never counted it: a guard failing
+// open.
 function _append(repoDir, sessionId, record) {
   try {
-    const { appendSinkLine } = require("./append-sink.js");
+    const root = _repoRootOf(repoDir);
+    if (root === null) return _noRepoRoot("written");
+    const sinkPath = _ledgerPath(root, sessionId);
+    if (sinkPath === null) return _noRepoRoot("written");
+    const {
+      appendSinkLine,
+      mainCheckoutBoundaryRoots,
+    } = require("./append-sink.js");
     const w = appendSinkLine({
-      repoDir,
-      sinkPath: _ledgerPath(repoDir, sessionId),
+      repoDir: root,
+      additionalRoots: mainCheckoutBoundaryRoots(root),
+      sinkPath,
       line: JSON.stringify(record),
     });
     return w && w.ok
       ? { ok: true }
-      : { ok: false, reason: (w && `${w.error} — ${w.reason}`) || "append failed" };
+      : {
+          ok: false,
+          reason: (w && `${w.error} — ${w.reason}`) || "append failed",
+        };
   } catch (e) {
     return { ok: false, reason: e && e.message ? e.message : String(e) };
   }
@@ -237,9 +371,12 @@ function recordHandbackCleared(repoDir, sessionId, key, nowIso) {
  * @param {{payload: object, repoDir: string, budgetKey: string, maxRefusals?: number,
  *          env?: object, now?: string}} req
  */
-function refusalVerdict(hookEvent, req) {
+function refusalVerdict(hookEvent, req, { nativeSubagentStop = false } = {}) {
   try {
-    if (!REFUSAL_EVENTS.has(hookEvent)) {
+    if (
+      !REFUSAL_EVENTS.has(hookEvent) &&
+      !(nativeSubagentStop === true && hookEvent === "SubagentStop")
+    ) {
       return { refuse: false, reason: "event-not-refusable", count: 0, max: 0 };
     }
     if (!resolveRefusalEnabled(req.env)) {
@@ -258,17 +395,32 @@ function refusalVerdict(hookEvent, req) {
     // BOUND 2 — the per-session budget.
     const read = countRefusals(req.repoDir, sessionId, req.budgetKey);
     if (!read.ok) {
-      return { refuse: false, reason: `budget-unreadable: ${read.reason}`, count: 0, max };
+      return {
+        refuse: false,
+        reason: `budget-unreadable: ${read.reason}`,
+        count: 0,
+        max,
+      };
     }
     if (read.count >= max) {
-      return { refuse: false, reason: "budget-exhausted", count: read.count, max };
+      return {
+        refuse: false,
+        reason: "budget-exhausted",
+        count: read.count,
+        max,
+      };
     }
 
     // BOUND 4 — write BEFORE refusing (see the header). A budget we could not increment is a
     // refusal nothing bounds.
     const w = recordRefusal(req.repoDir, sessionId, req.budgetKey, req.now);
     if (!w.ok) {
-      return { refuse: false, reason: `budget-unwritable: ${w.reason}`, count: read.count, max };
+      return {
+        refuse: false,
+        reason: `budget-unwritable: ${w.reason}`,
+        count: read.count,
+        max,
+      };
     }
     return { refuse: true, reason: "refused", count: read.count + 1, max };
   } catch (e) {
@@ -286,6 +438,7 @@ module.exports = {
   HOST_OVERRIDE_AFTER,
   DEFAULT_MAX_REFUSALS,
   REFUSAL_EVENTS,
+  NO_REPO_ROOT,
   resolveRefusalEnabled,
   resolveMaxRefusals,
   countRefusals,
@@ -294,4 +447,5 @@ module.exports = {
   refusalVerdict,
   _ledgerPath,
   _repoRootOf,
+  _isHomeDir,
 };

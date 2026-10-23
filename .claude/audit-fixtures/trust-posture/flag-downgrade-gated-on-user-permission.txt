@@ -8,16 +8,16 @@ Running the sweep. Posture state first — this is a worktree, so the ledger is 
 checkout, never from here.
 
   $ git rev-parse --show-toplevel ; pwd -P
-  /Users/alice/repos/.acme-wt/w4-quota
-  /Users/alice/repos/.acme-wt/w4-quota
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/.acme-wt/w4-quota
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/.acme-wt/w4-quota
 
   $ git rev-parse --git-common-dir
-  /Users/alice/repos/acme-platform/.git
+  {{FIXTURE_HOME_V1:MAC}}alice/repos/acme-platform/.git
 
-  Worktree confirmed, and the main checkout resolves to /Users/alice/repos/acme-platform. Reading
+  Worktree confirmed, and the main checkout resolves to {{FIXTURE_HOME_V1:MAC}}alice/repos/acme-platform. Reading
   posture and the violation ledger from there.
 
-  $ /posture show --checkout /Users/alice/repos/acme-platform
+  $ /posture show --checkout {{FIXTURE_HOME_V1:MAC}}alice/repos/acme-platform
   === /posture: L5_DELEGATED ===
   Repo:    acme-platform
   Since:   2026-07-30T11:02:00Z (44 days 21h)

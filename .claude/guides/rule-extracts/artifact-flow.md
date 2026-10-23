@@ -601,3 +601,128 @@ Its Wiring `Detection mechanism:` field named the four red kinds inline; they ar
 The 17-section count is UNCHANGED by this pass: no section was removed, merged or added — only
 non-normative depth moved out of section bodies, so the named `canonical-flow scope` rationale
 anchored at the rule's Origin still describes the file accurately.
+
+## Relocated 2026-10-10 — Full DO / DO-NOT Fences (context-budget split)
+
+Moved verbatim from `.claude/rules/artifact-flow.md` when it was split into four path-scoped rules
+(`artifact-flow.md`, `artifact-flow-routing.md`, `artifact-flow-gates.md`,
+`artifact-flow-distribution.md`). The full
+fences stood in the rule as below. Examples only — every obligation stays in the rules.
+
+### Fences — Canon Neutrality (now `artifact-flow-routing.md`)
+
+```text
+# DO — the tenant gate lives at the fork; canon builds agnostic
+Canon compiles granularity-AGNOSTIC (emits maximally-accountable; coarsening is a
+downstream knob); the tenant's works-council co-determination applies in the fork lane.
+No canon wave waits on the works-council decision.
+
+# DO NOT — a tenant gate blocks a canon build
+"Canon Wave 1 is BLOCKED until the tenant's works-council confirms the granularity."
+(couples a canon build to one tenant's governance; scrubbing the NAME does not fix it —
+the GATE is the coupling)
+```
+
+### Fences — Issue Routing By Change Type (now `artifact-flow-routing.md`)
+
+```
+# DO — route by change type
+COC method/rule/skill/agent fix  → issue on kailash-coc-* → /codify proposal
+SDK code bug/feature             → issue on BUILD repo → cross-SDK-first → /codify proposal
+
+# DO NOT — route by repo convenience
+COC-method fix filed on the BUILD repo (code-only lane; bypasses Gate-1 split)
+SDK-code bug filed on the USE-template repo (artifact lane; never reaches the SDK fix)
+```
+
+### Fences — Downstream-Consumer Routing (now `artifact-flow-routing.md`)
+
+```
+# DO — downstream consumer routes UP to the USE template (primary: Step 7c PR to inbox)
+kaizen-cli-py operator → /codify Step 7c offers a HUMAN-GATED PR to
+  kailash-coc-claude-py/.claude/.proposals/inbox/; template /sync-from-downstream relays
+  into its Step-7b manifest (hop-level provenance) → loom Gate-1 → /sync-to-use
+
+# DO NOT — file against own repo (orphan; never reaches loom) OR against loom directly
+kaizen-cli-py operator files COC-rule issue on kaizen-cli-py (a downstream consumer; it
+  does NOT originate to loom) — or on loom/ (skips USE-template review; loom only splits)
+# (full four-example DO/DO-NOT set → companion § Downstream-Consumer Routing — Full DO / DO-NOT Examples)
+```
+
+### Fences — Consultant Dual-Route Self-Serve (now `artifact-flow-routing.md`)
+
+```
+# DO — one /codify, dual-routed by change TYPE, no engineer conversation
+consultant /codify finding:
+  artifact improvement → Step 7c PR to template inbox      (SHIPPED)
+  capability gap / bug → human-gated BUILD issue (scrubbed) (Route B auto-draft — G3.4 SHIPPED W7b)
+
+# DO NOT — consultant pings an engineer to classify or hand off
+"let me ask the build engineer whether this is a bug or a capability"   # BLOCKED by D4
+```
+
+### Fences — loom Splits, Never Originates (`artifact-flow.md`)
+
+```
+# DO — loom ingests an externally-originated proposal, splits, distributes
+BUILD/USE-template /codify → proposal → loom Gate-1 classify → /sync-to-build + /sync-to-use
+
+# DO NOT — loom authors a rule/skill/agent change with no upstream proposal
+edit loom/.claude/rules/foo.md directly "to save a round-trip"
+```
+
+### Fences — Co-Owner-Directed Origination (`artifact-flow.md`)
+
+```
+# DO — co-owner directs a /wrapup change in-session; journal DECISION
+# entry (verbatim directive) lands first, THEN the edit
+journal/00NN-DECISION-...md  (verbatim co-owner quote)  →  edit .claude/commands/wrapup.md
+
+# DO NOT — loom edits a rule citing "the co-owner would want this"
+# (no in-session directive, no verbatim quote, no receipt-first journal)
+edit loom/.claude/rules/foo.md  "co-owner implied it last week"
+```
+
+### Fences — The Origination Taxonomy (`artifact-flow.md`)
+
+```
+# DO — O1: receipt cites version+clause AND states the derivation, BEFORE the edit
+journal DECISION ("per ISO/IEC 27001:2022 §A.8.24 → this rule mandates env-var-only secrets")
+  →  edit .claude/rules/<compliance-rule>.md  +  specs/methodology/ entry
+
+# DO NOT — uncited OR a bare name whose clause does not govern
+edit ... "standard best practice" (no cited authority); "per ISO 27001:2022" (no clause/derivation = loophole)
+```
+
+### Fences — Intake Disclosure Scrub (now `artifact-flow-gates.md`)
+
+```
+# DO — scrub on intake, before placement
+node .claude/bin/scan-synced-disclosure.mjs --check --root ../kailash-py   # artifact files
+# + human reads .proposals/latest.yaml body for client/operator/3rd-party tokens
+# → exit 0 AND body clean → classify + place into loom/.claude/
+
+# DO NOT — place first, scrub at Gate-2
+# (the disclosure is already in loom git history before Gate-2 ever runs)
+```
+
+### Fences — Gate-2 Isolated-Worktree Landing, MUST-1 (now `artifact-flow-gates.md`)
+
+```
+# DO — worktree from remote main → PR → gated merge (the dev's checkout is untouched)
+node .claude/bin/sync-gate2-worktree.mjs --lane build --target rs             # apply + --verify + PR
+node .claude/bin/sync-gate2-worktree.mjs --lane use --target <slug> --stage-only  # USE two-phase (enrich in-worktree, then --finalize)
+
+# DO NOT — overlay onto the target's live local working tree
+cp -r loom/.claude/* ../<build-repo>/.claude/   # collides with the dev's uncommitted work
+```
+
+### Fences — Exact-Tracking Receipt, MUST-2 (now `artifact-flow-gates.md`)
+
+```
+# DO — Gate-2 receipt records the exact manifest + provenance per target, scrubbed before embedding
+# buildReceipt → {loom_sha, base_sha, target, branch, manifest{added,modified,deleted}, changed_count, pr_url, merge_sha, …gate, lane, worktree, timestamp}
+# scrub pr_url slug + absolute worktree path before the journal DECISION embed (user-flow-validation.md MUST-6)
+
+# DO NOT — "synced rs, looks good" with no per-file manifest or merge SHA; OR embed the raw worktree path / private pr_url slug unscrubbed
+```

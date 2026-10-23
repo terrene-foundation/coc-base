@@ -8,7 +8,7 @@
  * `workspaces/ecosystem-operating-model/02-plans/04-gc-dual-route-classification.md`
  * §2 (the 3-way classification SIGNAL — Layer 1 mechanical + Layer 2 semantic)
  * + `specs/03 §4` (the D4 cascade/consultant-routing gap G3.4) +
- * `rules/artifact-flow.md` § "Consultant Dual-Route Self-Serve (D4)".
+ * `rules/artifact-flow-routing.md` § "Consultant Dual-Route Self-Serve (D4)".
  *
  * THE LLM-REASONS / DUMB-EMITTER SPLIT (rules/agent-reasoning.md +
  * rules/probe-driven-verification.md MUST-1 — mirrors capability-classifier.js):

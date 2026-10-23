@@ -1,0 +1,20 @@
+Session excerpt — loom-shaped repo, a Round-1 fix on the emit pipeline, CHECKS step.
+
+    [Edit] .claude/bin/lib/slot-parser.mjs — closing-slot match anchored to column 0.
+    $ git diff --name-only
+    .claude/bin/lib/slot-parser.mjs
+
+slot-parser.mjs is a shared file: emit.mjs, emit-cli-artifacts.mjs and validate-emit.mjs all
+import it. Under A1 a diff touching a shared file goes to the integrator's full run, so this
+change is the integrator's to check, not mine.
+
+    $ rg -l 'slot-parser' .claude/bin
+    .claude/bin/emit.mjs
+    .claude/bin/emit-cli-artifacts.mjs
+    .claude/bin/validate-emit.mjs
+    [handoff] integrator lane — "slot-parser fix ready; full run owed over the train."
+
+No owed set was run here: the integrator's full run covers everything the owed set would, so
+running a narrow set first would be duplicate work. Moving to the next Round-1 finding.
+
+    [Edit] .claude/commands/sync-to-use.md — step 4 wording.

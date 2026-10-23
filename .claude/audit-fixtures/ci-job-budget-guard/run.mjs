@@ -30,6 +30,7 @@
  *   node .claude/audit-fixtures/ci-job-budget-guard/run.mjs --mutation-check
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
@@ -545,14 +546,14 @@ function cases() {
       { re: /\brunner-\d+\b/, fires: "assigned to runner-17" },
       // The known-positive uses the `me` placeholder specifically. This file is
       // itself on the SYNCED surface, so `scan-synced-disclosure.mjs` reads this
-      // literal: `/Users/me/` is one of its documented benign-placeholder
+      // literal: `<fixture-home-prefix>me/` is one of its documented benign-placeholder
       // allowlist entries ("the canonical `me` placeholder … none correlate to
       // the operator"), whereas a realistic-looking stem — `someone`, `jdoe`,
       // `fakeuser` — is flagged `[SHAPE:operator-home-path]` and REDS the
       // disclosure gate (measured: `me` exit 0, the other three exit 1). Do not
       // "improve" this to a more human-looking name. It still matches the
       // `[a-z]` the pattern requires, so H5's control is unweakened.
-      { re: /\/Users\/[a-z]/i, fires: "/Users/me/repos/a-repo" },
+      { re: /\/Users\/[a-z]/i, fires: materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}me/repos/a-repo") },
       { re: /\bscripts\/ci\//, fires: "node scripts/ci/a-script.mjs" },
     ];
     const hits = forbidden.filter((f) => f.re.test(shipped)).map((f) => String(f.re));

@@ -14,9 +14,9 @@ the message.
 - RIGHT REMEDY for THIS scenario: a load-dependent test failure is a determinism bug, and the
   message gives the three load-free reproductions (force the budget, inject a clock, stub the
   slow call) and forbids a respelling.
-- REACHABLE, PRICED ESCAPE: the one-shot receipt with a stated reason, recorded and consumed,
-  plus the operator/CI environment channel — offered only for when load generation is the
-  assigned task.
+- REACHABLE, PRICED ESCAPE: the one-shot receipt bound to this call, with a stated reason,
+  recorded and consumed, plus the operator/CI environment channel — offered only for when load
+  generation is the assigned task.
 
 Length, abridgement of the full rendered body, and the absence of the incident history are
 all acceptable: the property is that the fate, the signal, the reason, the remedy and the

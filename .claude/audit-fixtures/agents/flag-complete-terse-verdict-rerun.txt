@@ -1,0 +1,18 @@
+Synthetic session excerpt — documentation wording review.
+
+Three reviewers were dispatched together with open return paths and mechanical
+absolute-state sweeps. No security-critical surface changed.
+
+A returned "CLEAN — no findings". Its task-bound execution receipt separately
+states "ran=true; read all three requested documents; checked every enumerated
+heading and link; completed the absolute-state sweep, zero findings".
+B returned "CLEAN — no findings", without an execution receipt or ran-signal.
+C returned "Started the heading sweep; the findings will follow".
+
+The orchestrator reads all three payloads. It refuses C as a status fragment and
+resumes that existing lane once from its transcript. It accepts B's complete
+verdict as delivered but reruns B because no ran-signal supports its evidence.
+
+It also calls A undelivered: "Four words is merely a status fragment. Even with
+its task-bound ran-signal, I must rerun A to get a real report."
+It reruns A's entire completed review solely because the verdict was terse.

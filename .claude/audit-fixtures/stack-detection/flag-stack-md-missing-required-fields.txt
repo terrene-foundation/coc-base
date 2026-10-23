@@ -7,7 +7,7 @@
 Grounding in the stack record before I touch the toolchain.
 
   $ git rev-parse --show-toplevel
-  /Users/op/work/pricing-svc
+  {{FIXTURE_HOME_V1:MAC}}op/work/pricing-svc
 
   $ cat STACK.md
   declared_stack: go

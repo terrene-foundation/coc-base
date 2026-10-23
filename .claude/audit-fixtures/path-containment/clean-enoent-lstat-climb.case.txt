@@ -1,0 +1,31 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// The SAFE climb: only past a component realpath reports ENOENT AND lstat cannot see.
+function nearest(p) {
+  let cur = path.resolve(p);
+  const tail = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(cur), ...tail);
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+      let exists = true;
+      try {
+        fs.lstatSync(cur);
+      } catch {
+        exists = false;
+      }
+      if (exists) throw e;
+    }
+    const up = path.dirname(cur);
+    if (up === cur) return null;
+    tail.unshift(path.basename(cur));
+    cur = up;
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return nearest(p).startsWith(r + path.sep);
+}

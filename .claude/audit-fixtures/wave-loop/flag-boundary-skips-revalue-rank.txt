@@ -23,10 +23,10 @@ G1 — redteam to convergence, scoped to Wave 2's shards:
               pattern-expert: clean. testing-specialist: "no case for reap-vs-resume." BUG.
               gold-standards-validator: "two doc anchors stale." INCREMENTAL.
     three BUGs fixed; the INCREMENTAL accretes to the deferred-quality backlog.
-    round 2 — five payloads read, zero BUG/INVEST-NOW.
-    round 3 — five payloads read, zero BUG/INVEST-NOW.
+    round 2 — the SAME five reviewers as round 1, scoped to the fixes and their blast radius;
+      five payloads read, zero BUG/INVEST-NOW.
 
-Two consecutive clean rounds on BUG + INVEST-NOW, all five reviewers delivered in every round.
+Round 2 reviewed only the fixes and their blast radius — clean on BUG + INVEST-NOW, all five reviewers delivered. The review stops there (D237: one fix-verification round, never a Round 4).
 
 G2 — lightweight capture, not a full codify:
 

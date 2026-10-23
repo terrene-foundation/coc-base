@@ -19,7 +19,7 @@ Companion to `.claude/rules/adversarial-coverage.md`. Extracted spans retain the
 "Not converged: yield is 2 and falling, but 3 cells are unattacked. Coverage governs."
 
 # DO NOT
-"Two consecutive rounds found nothing. Converged."
+"Round 1 clean. Converged."
 ```
 
 ## Rule 3 — full worked example
@@ -124,6 +124,6 @@ block added.
 
 **Budget: MEASURED, not assumed.** The rule charges ZERO bytes against all eight injection profiles —
 its `paths:` name two exact command files and two workspace subtrees that no profile probe matches.
-Verified with a firing control: widening `paths:` to `**/*.md` moved `loom-command-edit` 492608 →
+Verified with a firing control: widening `paths:` to `**/*.md` moved `codify-edit` 492608 →
 505724 B (over budget) and breached `root-doc`'s +5% ceiling; restoring the real paths returned exactly
 to baseline. So `rule-authoring.md` Rule 10's proximity-band gate does not fire.

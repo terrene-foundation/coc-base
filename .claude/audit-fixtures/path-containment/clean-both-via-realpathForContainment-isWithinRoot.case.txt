@@ -1,0 +1,14 @@
+import fs from "node:fs";
+import path from "node:path";
+import { realpathForContainment, isWithinRoot } from "./lib/path-containment.mjs";
+
+export function allowed(candidate, base) {
+  const canonical = fs.realpathSync.native(candidate);
+  return isWithinRoot(canonical, path.resolve(base));
+}
+
+export function nested(candidate, base) {
+  const root = realpathForContainment(base);
+  const real = realpathForContainment(candidate);
+  return real === root || real.startsWith(root + path.sep);
+}

@@ -1,6 +1,6 @@
 ---
 id: "HANDOFF-COMPLETION"
-paths: [".claude/rules/**", ".claude/commands/**", "**/.session-notes*", "journal/**"]
+paths: ["**/.session-notes*", "journal/**"]
 ---
 
 # Handoff Completion — Delivered Or Surfaced, Never Implied-Done

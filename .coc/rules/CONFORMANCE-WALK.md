@@ -1,6 +1,6 @@
 ---
 id: "CONFORMANCE-WALK"
-paths: ["**/tools/conformance/**", "**/e2e/**", "**/eval-harness/**", "**/04-validate/**", "**/*conformance*", "**/suites/**", "scripts/ci/**", ".github/workflows/**", ".claude/bin/check-*.mjs", ".claude/hooks/**", ".claude/test-harness/**", ".claude/audit-fixtures/**"]
+paths: ["**/tools/conformance/**", "**/e2e/**", "**/eval-harness/**", "**/04-validate/**", "**/*conformance*", "**/suites/**", "scripts/ci/**", ".github/workflows/**", ".claude/bin/check-*.mjs", ".claude/hooks/**", ".claude/test-harness/*", ".claude/test-harness/tests/**", ".claude/test-harness/lib/**", ".claude/test-harness/fixtures/**", ".claude/test-harness/probes/**", ".claude/test-harness/foundation-corpus/**", ".claude/test-harness/trust-posture-poc/**", ".claude/audit-fixtures/**"]
 ---
 
 # Conformance Walk — Freeze The Expectation, Judge Source / Delivered / Live State, Report Coverage Honestly

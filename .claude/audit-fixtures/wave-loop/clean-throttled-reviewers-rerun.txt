@@ -39,16 +39,15 @@ to a clean one, so round 2 is not a round. Backing concurrency off to 3 and re-r
       stdio path only; SSE is uncovered." BUG.
     both BUGs fixed. Round 2 stands as a round with two findings, not a clean round.
 
-    [dispatch x5, concurrency 3] same five, same scope.
+    [dispatch x2, concurrency 2] security-reviewer scoped to the revocation fix only,
+      testing-specialist scoped to the test fix only; neither seat made the fix it checks.
 
-    round 3 — five payloads read, zero BUG/INVEST-NOW.
+    A5 — one targeted security check of the revocation fix (shell-capable security seat)
+      and one delta correctness check of the test fix; both payloads read, zero BUG/INVEST-NOW.
 
-    [dispatch x5, concurrency 3] same five, same scope.
-
-    round 4 — five payloads read, zero BUG/INVEST-NOW.
-
-Rounds 3 and 4 clean back to back, every dispatched reviewer delivering in both. Wave 1
-converged.
+The A5 checks reviewed only the two fixes, each dispatched seat delivering, and both are
+clean. The review stops there (D237 + A5: a Round-2 finding gets its fix plus its A5
+check(s), one per kind, never a Round 3 or 4). Wave 1 converged.
 
 G2 — lightweight capture:
 

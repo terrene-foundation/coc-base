@@ -1,1 +1,1 @@
-We shipped the lossy truncation guard and the redteam round converged in two clean rounds.
+We shipped the lossy truncation guard; the redteam round closed clean — every dispatched reviewer ran — and the review stopped there (D237).

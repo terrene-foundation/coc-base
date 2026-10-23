@@ -4,16 +4,23 @@ Committed fixtures for `.claude/hooks/nested-worktree-guard.js` per
 `cc-artifacts.md` Rule 9 + `hook-output-discipline.md` MUST-4.
 
 ```bash
-node .claude/audit-fixtures/nested-worktree-guard/run.mjs                  # 35 cases
-node .claude/audit-fixtures/nested-worktree-guard/run.mjs --mutation-check # M0 + A0 controls + 13 mutants
+node .claude/audit-fixtures/nested-worktree-guard/run.mjs                  # 40 cases
+node .claude/audit-fixtures/nested-worktree-guard/run.mjs --mutation-check # M0 + A0 controls + 14 mutants
 ```
 
 Both exit 0 on success, **from any working directory**. The harness pins the
-hook's child cwd to the repo root: the hook resolves its receipt and its git
-boundary roots cwd-relatively while the harness writes the receipt at an absolute
-path, so an inherited cwd would fail the receipt rows AND report `FAIL M0-control`
-— which by the design below makes every `KILLED` verdict meaningless. Run it from
-both places if you touch the harness.
+hook's child cwd to the repo root for every row that does not name its own: the
+hook resolves its git boundary roots cwd-relatively, so an inherited cwd would
+fail rows AND report `FAIL M0-control` — which by the design below makes every
+`KILLED` verdict meaningless. Run it from both places if you touch the harness.
+
+**Every receipt row runs in its OWN sandbox repository** (`receiptSandbox`, a
+runner-created `mkdtemp` + `git init`): the hook's cwd, both receipt roots and
+the use ledger an honoured receipt appends to all resolve inside it. Until
+2026-10-10 the receipt rows wrote — and, before EVERY case, deleted — the
+receipt at the checkout the suite ran from, destroying an operator's real pending
+override; with the use ledger, a row run from a linked worktree would also have
+written into the primary checkout.
 
 ## Fixture classes
 
@@ -26,11 +33,14 @@ An unrecognized prefix is a hard error, not a silent `PASSTHROUGH` default: a
 typo'd `flg-` fixture intended to block would otherwise be asserted to pass.
 
 Inline (in `run.mjs`, not files): empty stdin, malformed JSON, JSON `null`, both
-override channels, the one-shot receipt's consumption, the instructAndWait
-block-body shape, and the five **path-target** rows — which must be built at
-setup time because they need the REAL repo layout (a live symlink, this
-machine's repo top, its actual sibling-worktree root, a non-git cwd), none of
-which a static JSON fixture can name.
+override channels, the one-shot receipt's consumption and its CALL BINDING (a
+receipt for another call — Task or EnterWorktree — or a stale one is refused by
+name and left in place; the block prints this call's digest, checked against
+the library's documented serialization computed independently in the harness),
+the instructAndWait block-body shape, and the five **path-target** rows — which
+must be built at setup time because they need the REAL repo layout (a live
+symlink, this machine's repo top, its actual sibling-worktree root, a non-git
+cwd), none of which a static JSON fixture can name.
 
 ## Matcher bound, stated rather than implied
 
@@ -106,25 +116,27 @@ anchor, a one-match anchor) before any of its verdicts are trusted, per
 `instrument-discipline.md` MUST-3(a). Either control failing returns NO
 `MUTATION-BATTERY` line at all rather than a fabricated ratio.
 
-Then thirteen targeted single-line defeats, each of which the fixture set must
+Then fourteen targeted single-line defeats, each of which the fixture set must
 catch. The harness prints each mutant's killer rows, so the single-fixture
-property below is verifiable rather than asserted:
+property below is verifiable rather than asserted. Kill counts MEASURED
+2026-10-10 (14/14 killed, M0 clean, on the 40-case suite):
 
 | Mutant                           | Defect reproduced                                                                 | Kills |
 | -------------------------------- | --------------------------------------------------------------------------------- | ----- |
-| `M1-neutered-predicate`          | detector always returns null — "registered but inert"                             | 21    |
-| `M2-sync-stdin-drain`            | synchronous `process.stdin.read()` drain: 0 bytes, always passes                  | 21    |
+| `M1-neutered-predicate`          | detector always returns null — "registered but inert"                             | 26    |
+| `M2-sync-stdin-drain`            | synchronous `process.stdin.read()` drain: 0 bytes, always passes                  | 26    |
 | `M3-lexical-not-structural`      | substring-greps the payload — false-positives on the negative control             | 1     |
-| `M4-escape-hatch-always-on`      | override treated as always set — block never fires                                | 19    |
+| `M4-escape-hatch-always-on`      | override treated as always set — block never fires                                | 25    |
 | `M5-no-normalization`            | drops `.trim().toLowerCase()` — locks the mixed-case fixture                      | 1     |
-| `M6-enterworktree-blind`         | drops the whole `EnterWorktree` route                                             | 8     |
+| `M6-enterworktree-blind`         | drops the whole `EnterWorktree` route                                             | 10    |
 | `M7-unsanitized-interpolation`   | `safeField` becomes identity — locks the control-byte / forged-marker fixtures    | 2     |
 | `M8-path-key-disarms-name`       | reverts to `hasName && !hasPath` — the evasion above                              | 1     |
-| `M9-path-target-unchecked`       | `path` targets never classified — the "any path is a sibling" assumption          | 4     |
+| `M9-path-target-unchecked`       | `path` targets never classified — the "any path is a sibling" assumption          | 6     |
 | `M10-lexical-not-realpath`       | drops symlink resolution — a symlink into the repo escapes                        | 1     |
 | `M11-segment-edge-blind`         | drops the `.claude/worktrees` edge — misses a nested placement under ANOTHER repo | 1     |
 | `M12-fail-open-undecidable`      | waves through an undecidable containment instead of failing closed                | 1     |
 | `M13-tool-name-fallback-dropped` | drops the `payload.tool` fallback sibling hooks accept                            | 1     |
+| `M14-digest-ignores-the-call`    | the call digest is computed over a constant — receipts stop naming THIS call      | 4     |
 
 A mutant reported `SURVIVED` means the fixture set has a hole, and the harness
 exits non-zero. If a mutant's anchor no longer matches EXACTLY ONE site in the
@@ -133,11 +145,12 @@ silently testing nothing.
 
 ## Environment hygiene
 
-The suite strips `COC_ALLOW_NESTED_WORKTREE` from the base environment and clears
-any stray receipt before every case. The operator running this suite is, by
-construction, the person most likely to have just set the override after hitting
-the block — inheriting it would make every `flag-` fixture pass and the suite
-meaningless.
+The suite strips `COC_ALLOW_NESTED_WORKTREE` from the base environment. The
+operator running this suite is, by construction, the person most likely to have
+just set the override after hitting the block — inheriting it would make every
+`flag-` fixture pass and the suite meaningless. It no longer deletes a stray
+receipt: a receipt an operator left in the checkout is bound to THEIR call, so it
+cannot lift a fixture call, and deleting it destroyed their override.
 
 Origin: 2026-08-19 — Gate-1 ingest of a BUILD-stream structural guard loom lacked
 entirely, genericized. Rule: `worktree-isolation.md` Rules 1 + 7.

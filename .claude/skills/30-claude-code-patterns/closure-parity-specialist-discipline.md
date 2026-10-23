@@ -1,6 +1,6 @@
 # Closure-Parity Specialist Discipline
 
-Procedural depth for the `agents.md` MUST clause "Audit/Closure-Parity Verification Specialist Has Bash + Read". The core MUST requirement lives in `.claude/rules/agents.md`; this sub-file carries the BLOCKED-rationalization corpus, the delegation-time detection signals the orchestrator scans pre-launch, the BLOCKED auto-promotion patterns, and the multi-incident Origin evidence.
+Procedural depth for the `agents.md` MUST clause "Closure-Parity Audit Specialist Has Bash + Read". The core MUST requirement lives in `.claude/rules/agents.md`; this sub-file carries the BLOCKED-rationalization corpus, the delegation-time detection signals the orchestrator scans pre-launch, the BLOCKED auto-promotion patterns, and the multi-incident Origin evidence.
 
 ## Why this lives in a skill (not the rule)
 
@@ -57,7 +57,7 @@ A closure-parity round verifies PRIOR findings are closed; a fresh-eyes round hu
 
 ## Read-Only Reviewers: Materialize The Branches Instead Of Re-Dispatching
 
-When the correct specialist for a REVIEW mission is read-only (security-reviewer: Read/Grep/Glob) but the artifacts live on unfetched PR branches, do NOT hand it `gh pr diff` instructions (it cannot run them and will correctly refuse per evidence-first discipline). Materialize the branches as throwaway worktrees first, then point the read-only agent at on-disk paths:
+When the correct specialist for a REVIEW mission cannot fetch the artifacts itself — a read-only specialist (analyst: Read/Grep/Glob), or security-reviewer, whose `Bash` is for probes only and bars git writes such as `worktree add` — but the artifacts live on unfetched PR branches, do NOT hand it `gh pr diff` / fetch instructions (it cannot or may not run them and will correctly refuse per evidence-first discipline). Materialize the branches as throwaway worktrees first, then point the read-only agent at on-disk paths:
 
 ```bash
 git worktree add /tmp/sec-w31 origin/feat/<branch-a>
@@ -66,15 +66,15 @@ git worktree add /tmp/sec-w32 origin/feat/<branch-b>
 # afterwards: git worktree remove /tmp/sec-w31 --force
 ```
 
-This preserves the read-only specialist's tool-inventory guarantees (it cannot mutate anything) while giving it the bytes. Evidence: 2026-06-11 Wave-3 security review — first dispatch with `gh pr diff` instructions returned BLOCKED (correct); re-dispatch against materialized worktrees returned a full APPROVED report.
+This preserves each reviewer's no-mutation guarantee — analyst cannot mutate anything because its tool list holds no writer, while security-reviewer holds `Bash` and is barred from mutation by its contract, not its tools — while giving it the bytes. Evidence: 2026-06-11 Wave-3 security review — first dispatch with `gh pr diff` instructions returned BLOCKED (correct); re-dispatch against materialized worktrees returned a full APPROVED report.
 
 ## Cross-references
 
-- `.claude/rules/agents.md` § "MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read" — load-bearing MUST clause
-- `.claude/rules/agents.md` § "MUST: Verify Specialist Tool Inventory Before Implementation Delegation" — sibling MUST clause this one extends from IMPLEMENTATION to AUDIT delegation
+- `.claude/rules/agents.md` § "MUST: Closure-Parity Audit Specialist Has Bash + Read" — load-bearing MUST clause
+- `.claude/rules/agents.md` § "MUST: Verify Specialist Tool Inventory Before Delegation" — sibling MUST clause this one extends from IMPLEMENTATION to AUDIT delegation
 - `.claude/skills/30-claude-code-patterns/specialist-delegation-syntax.md` Examples 4 + 5 — CLI-specific dispatch syntax for closure-parity verification + delegation-time scan
 - `.claude/skills/30-claude-code-patterns/worktree-orchestration.md` — parallel-pattern precedent for skill-extension of agents.md MUST clause depth
 
 ## Provenance
 
-Extracted from the `agents.md` MUST clause "Audit/Closure-Parity Verification Specialist Has Bash + Read" during the F20 (M9.3 rs lane completion) cycle on 2026-05-22. See `journal/0143-DECISION-m9-3-closure-partial-py-rb-shipped-rs-deferred-2026-05-22.md` § "Deferred shard: rs lane (value-anchored)" for the originating value-anchor. The extraction closes the rs lane Codex/Gemini emission headroom-floor gap (8.76%/8.80% → ≥10% after extraction); rule MUST clause stays load-bearing in agents.md, procedural depth lives here.
+Extracted from the `agents.md` MUST clause "Closure-Parity Audit Specialist Has Bash + Read" during the F20 (M9.3 rs lane completion) cycle on 2026-05-22. See `journal/0143-DECISION-m9-3-closure-partial-py-rb-shipped-rs-deferred-2026-05-22.md` § "Deferred shard: rs lane (value-anchored)" for the originating value-anchor. The extraction closes the rs lane Codex/Gemini emission headroom-floor gap (8.76%/8.80% → ≥10% after extraction); rule MUST clause stays load-bearing in agents.md, procedural depth lives here.

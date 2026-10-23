@@ -259,7 +259,11 @@ const path = require("node:path");
 // binding in scope is how the naive `statSync`/`readFileSync` read got written next to a hardened
 // write in the first place (loom#1762 CRITICAL 1); leaving it out makes the unhardened path
 // something a future edit has to ADD an import to reach, rather than something already at hand.
-const { appendSinkLine, readSinkFile } = require("./append-sink.js");
+const {
+  appendSinkLine,
+  readSinkFile,
+  mainCheckoutBoundaryRoots,
+} = require("./append-sink.js");
 
 // The orchestrator-generation sentinel, IMPORTED from the producer rather than restated. A local
 // copy would be a second definition of a join key, which is the drift class this module's
@@ -930,6 +934,7 @@ function markSurfaced(repoDir, session, sig, nowIso) {
   try {
     return appendSinkLine({
       repoDir,
+      additionalRoots: mainCheckoutBoundaryRoots(repoDir),
       sinkPath: markerPath(repoDir, session),
       line: JSON.stringify({ sig, ts: nowIso || new Date().toISOString() }),
     });
@@ -1208,7 +1213,17 @@ function formatUnderPackedLaneFinding(verdict, opts) {
       "agents for it was NOT measured (`rules/wip-discipline.md` MUST-9). ADVISORY — surfaced once per " +
       "session per failure class, not once per turn."
     );
-  if (verdict.state !== "REPORT" || !Array.isArray(verdict.lanes) || verdict.lanes.length === 0) return null;
+  if (verdict.state !== "REPORT" || !Array.isArray(verdict.lanes)) return null;
+  // OWNERSHIP SCOPE (journal/0661): lanes not attributed to this session arrive as a COUNT only.
+  const foreign = Number.isInteger(verdict.foreignCount) && verdict.foreignCount > 0 ? verdict.foreignCount : 0;
+  const foreignLine = foreign
+    ? `Plus ${foreign} UNDER-PACKED lane(s) on the ledger NOT attributed to this session — count only; ` +
+      "their own sessions drive them."
+    : null;
+  if (verdict.lanes.length === 0)
+    return foreignLine
+      ? `[delegation-default] UNDER-PACKED LANE(S) — \`rules/wip-discipline.md\` MUST-9. ${foreignLine}`
+      : null;
   const statedBy = opts && _isNonEmptyString(opts.zeroDispatchStatedBy) ? opts.zeroDispatchStatedBy : null;
   const zeroRows = verdict.lanes.filter((l) => l.attribution === "ZERO");
   const referZero = statedBy !== null && zeroRows.length > 0 && zeroRows.every((l) => l.zeroKind === "no-launches");
@@ -1241,6 +1256,7 @@ function formatUnderPackedLaneFinding(verdict, opts) {
       `session has no attributed dispatch for ${verdict.lanes.length === 1 ? "it" : "them"}:`,
     ...lines,
     queuedLine,
+    ...(foreignLine ? [foreignLine] : []),
     "A lane is a MINI-ORCHESTRATOR: dispatch agents INSIDE that lane's one worktree under the partition " +
       "contract (writers on DISJOINT file sets, ONE committer, read-only verifiers unbounded, per-agent " +
       "build/output dirs — never another worktree), or bind queued items to it with a `lane: <branch>` " +
@@ -1265,9 +1281,11 @@ function underPackedSignatureOf(verdict) {
     const cls = String(verdict.reason || "").split(":")[0].replace(/[^A-Za-z0-9-]/g, "").slice(0, 40) || "unclassified";
     return `LANE-DEPTH:UNKNOWN:${verdict.kind || "unknown"}:${cls}`;
   }
-  if (verdict.state !== "REPORT" || !Array.isArray(verdict.lanes) || verdict.lanes.length === 0) return "";
+  const foreign = Number.isInteger(verdict.foreignCount) && verdict.foreignCount > 0 ? verdict.foreignCount : 0;
+  if (verdict.state !== "REPORT" || !Array.isArray(verdict.lanes) || (verdict.lanes.length === 0 && !foreign)) return "";
   const crypto = require("node:crypto");
   const canon = JSON.stringify({
+    ...(foreign ? { foreign } : {}),
     lanes: verdict.lanes
       .map((l) => [l.lane, l.itemCount, l.attribution])
       .sort((x, y) => String(x[0]).localeCompare(String(y[0]))),

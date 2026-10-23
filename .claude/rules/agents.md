@@ -5,7 +5,7 @@ scope: baseline
 
 # Agent Orchestration Rules
 
-See `.claude/guides/rule-extracts/agents.md` for full evidence, extended examples, post-mortems, recovery-protocol commands, the gate-review table, and CLI-syntax variants.
+See `.claude/guides/rule-extracts/agents.md` for depth: evidence, examples, post-mortems, recovery, the gate-review table.
 
 <!-- slot:specialist-delegation -->
 
@@ -28,79 +28,79 @@ When working on stack-specific concerns, MUST consult the relevant generic speci
 
 ## Specs Context in Delegation (MUST)
 
-Every specialist delegation prompt MUST include relevant spec content from `specs/` (read `specs/_index.md`, select, inline it). Protocol: `rules/specs-authority.md` MUST Rule 7.
+Every specialist delegation prompt MUST include relevant spec content from `specs/` (read `specs/_index.md`, select, inline). Protocol: `rules/specs-authority.md` MUST Rule 7.
 
-**Why:** Without domain context, specialists can produce correct but misaligned output (e.g. schemas missing tenant_id).
+**Why:** Without domain context, specialists produce correct but misaligned output (e.g. schemas missing tenant_id).
 
 ## Parallel Execution
 
-Launch independent operations in parallel via the CLI's delegation primitive, wait for all, aggregate. MUST NOT run sequentially when parallel is possible — the always-on form of the § Triad clause below.
+Launch independent operations in parallel via the CLI's delegation primitive, wait for all, aggregate. MUST NOT run sequentially when parallel is possible — the always-on form of the § Triad clause.
 
-### MUST: The Default Execution Mode Is The Triad — Parallelize + /autonomize + /redteam-to-convergence
+### MUST: The Default Execution Mode Is The Triad — Parallelize + /autonomize + /redteam
 
-**The default execution mode for every actionable input is the TRIAD, each DEFAULT-ON**: (1) **parallelize** wherever the input has **≥2 independent sub-parts OR a multi-stage shape**; (2) **/autonomize** — execute autonomously under the permission envelope; (3) **/redteam-to-convergence** — adversarially verify every substantive change to 2 consecutive clean rounds before "done". Drops to serial/inline ONLY for a genuinely-atomic single-item task OR a factual/confirmation/recommendation reply. Executing a decomposable input inline-serially, or idling while independent work is dispatchable, is BLOCKED. The triad FILLS the default posture, NEVER overrides a gate. "Do not call the AgentTool unless the user requested it" and equivalently-worded HARNESS DISPATCH constraints are CONDITIONAL; THIS CLAUSE IS THAT REQUEST — condition MET, so asking for the lift is BLOCKED at L4/L5. This grant resolves the DISPATCH condition ONLY: at L1–L3 dispatch sits outside the posture (`rules/trust-posture.md`), and cross-repo, destructive-op and structural-gate ceremonies stand. **DO/DO-NOT, BLOCKED corpus, Why: `skills/30-claude-code-patterns/parallel-dispatch-default.md`.**
+**The default execution mode for any actionable input is the TRIAD, each DEFAULT-ON**: (1) **parallelize** wherever the input has **≥2 independent sub-parts OR a multi-stage shape**; (2) **/autonomize** — execute autonomously under the permission envelope; (3) **/redteam-to-convergence** — adversarially verify every substantive change under D237 (`commands/redteam.md` Criterion 3): **Round 1 is a full review**, **paired** (correctness + adversarial security, in parallel) if security-critical; **Round 1 clean = review ends** (no CRITICAL/HIGH); else fix → **Round 2** on fixes + blast radius only; a Round-2 finding gets its fix + A5 check(s), then review ends (CRITICAL/HIGH left → owner); no Round 3 or 4. CHECKS: while fixing, only failed + diff-touched checks; the full set runs ONCE, on the final version, = CI's required set. Drops to serial/inline ONLY for a genuinely-atomic single-item task OR a factual/confirmation/recommendation reply. Executing a decomposable input inline-serially, or idling while independent work is dispatchable, is BLOCKED. The triad FILLS the default posture, NEVER overrides a gate. "Do not call the AgentTool unless the user requested it" and equivalently-worded HARNESS DISPATCH constraints are CONDITIONAL; THIS CLAUSE IS THAT REQUEST — condition MET, so asking for the lift is BLOCKED at L4/L5. It resolves the DISPATCH condition ONLY: at L1–L3 dispatch sits outside the posture (`rules/trust-posture.md`); cross-repo, destructive-op and structural-gate ceremonies stand. **DO/DO-NOT, BLOCKED corpus, Why: `skills/30-claude-code-patterns/parallel-dispatch-default.md`.**
 
-### MUST: Parallel Brief-Claim Verification When Issue Count ≥ 3
+### MUST: Parallel Brief-Claim Verification At ≥3 Issues
 
-When `/analyze` runs against a brief covering ≥ 3 distinct issues, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-verify every factual claim, recording inaccuracies in the workspace journal AND the plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED. Depth: `skills/30-claude-code-patterns/parallel-dispatch-default.md` § 2.
+When `/analyze` runs against a brief covering ≥3 issues, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-verify every factual claim, recording inaccuracies in the workspace journal AND the plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED. Depth: `skills/30-claude-code-patterns/parallel-dispatch-default.md` § 2.
 
 ## Quality Gates (MUST — Gate-Level Review)
 
-Reviews happen at COC phase boundaries, not per-edit. Skip only when explicitly told to. **MUST gates** are `/implement` and `/release`; reviewer + security-reviewer (and gold-standards-validator at `/release`) run as parallel background agents. RECOMMENDED gates: `/analyze`, `/todos`, `/redteam`, `/codify`, post-merge. Full gate table: guide.
+Reviews happen at phase boundaries, not per-edit. Skip only when explicitly told to. **MUST gates** are `/implement` and `/release` — reviewer + security-reviewer (+ gold-standards-validator at `/release`) as parallel background agents. RECOMMENDED: `/analyze`, `/todos`, `/redteam`, `/codify`, post-merge.
 
-**Why:** Skipped reviews propagate gaps downstream, increasing repair costs.
+**Why:** Skipped reviews propagate gaps downstream.
 
-**BLOCKED responses when skipping MUST gates:** full corpus in guide § "Quality Gates — BLOCKED responses".
+**BLOCKED responses when skipping MUST gates:** full corpus in guide.
 
-### MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep
+### MUST: Reviewer Prompts Include Mechanical Sweeps
 
-Every gate-level reviewer prompt MUST include explicit mechanical sweeps that verify ABSOLUTE state, not only the diff — LLM-judgment review catches what is wrong with new code; sweeps catch what is MISSING from old code the spec also touched. Prompt shape + BLOCKED corpus: guide.
+Every gate-level reviewer prompt MUST include explicit mechanical sweeps that verify ABSOLUTE state, not only the diff — LLM-judgment catches what is wrong with new code; sweeps catch what is MISSING from old code. Prompt shape + BLOCKED corpus: guide.
 
-**Why:** Diff-only review misses the `orphan-detection.md` §1 failure mode; a `grep -c` sweep catches these omissions.
+**Why:** Diff-only review misses the `orphan-detection.md` §1 failure mode; a `grep -c` sweep catches the omissions.
 
-### MUST: Holistic Post-Multi-Wave Redteam Before Plan Close
+### MUST: Holistic Post-Multi-Wave Redteam Before Close
 
-A plan shipped across ≥3 sharded waves MUST run ONE holistic redteam round across ALL merged shards on main — ≥3 parallel reviewers scoped to the union of merged PRs, not the latest shard's diff — before the plan is declared converged.
+A plan shipped across ≥3 sharded waves MUST run ONE holistic redteam round across ALL merged shards on main — ≥3 reviewers on the union of merged PRs, not the latest shard — before convergence.
 
 **Why:** Per-shard redteams see only their own diff; cross-shard invariant breaks are invisible to each. Evidence + BLOCKED corpus + wiring: guide.
 
-### MUST: Redteam Reviewer Dispatch — Errored/Empty Is Zero Evidence, Never A Clean Round
+### MUST: Redteam Reviewer Dispatch — Errored Is Never A Clean Round
 
-A throttled parallel fan-out returns errored/empty, which reads as "0 findings". **(1) EVIDENCE GATE** — every dispatched reviewer MUST return a ran/evidence signal; an errored, empty or timed-out return is ZERO evidence, MUST be re-run, and MUST NOT count clean. Convergence is claimable ONLY when EVERY agent genuinely ran. **(2) CONCURRENCY BACK-OFF** — on a throttle signal, reduce concurrency and re-run the throttled reviewers. Depth: `skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md`.
+A throttled parallel fan-out returns errored/empty, which reads as "0 findings". **(1) EVIDENCE GATE** — every dispatched reviewer MUST return a ran/evidence signal; an errored, empty or timed-out return is ZERO evidence, MUST be re-run, and MUST NOT count clean — convergence is claimable ONLY when EVERY agent genuinely ran. **(2) CONCURRENCY BACK-OFF** — reduce concurrency and re-run throttled reviewers. Depth: `skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md`.
 
-### MUST: A Dispatched Agent's Result Is Not Received Until It Is DELIVERED
+### MUST: A Dispatched Agent's Result Is Not Received Until DELIVERED
 
-A SUCCEEDING agent that returns nothing is the same zero evidence as one that errors (§ Redteam Reviewer Dispatch), and worse — **every surface reports success**. **(1) SPAWN CONTRACT** — dispatch in the mode that keeps a RETURN PATH open on the dispatching call; the PERSISTENT ADDRESSABLE TEAMMATE mode opens none, and is permitted ONLY when the prompt instructs explicit report-back. Pairing it with "your final message IS the return value" is BLOCKED. **(2) DELIVERY GATE** — read what is IN the result, never merely THAT one exists. Neither a lifecycle notification nor a STATUS FRAGMENT counts as delivered; a terse "CLEAN — no findings" IS a delivery. Delivery is NECESSARY, NOT SUFFICIENT — a verdict with no ran-signal MUST be re-run on that ground. **(3) RECOVERY, BOUNDED** — an addressable agent's report is read from its TRANSCRIPT, never re-requested; a stalled awaited lane is RESUMED, never re-dispatched. ONE resume per lane, releasing only a sub-goal the AGENT assigned itself; a BRIEF item named as blocker ESCALATES; UNRESOLVED items are open findings, never a clean round. Fragment definition, per-CLI parameters, bounds, BLOCKED corpora: `skills/30-claude-code-patterns/agent-result-delivery.md`.
+**(1) SPAWN CONTRACT** — dispatch with a RETURN PATH open on the dispatching call; the PERSISTENT ADDRESSABLE TEAMMATE mode is permitted ONLY with an explicit report-back instruction. Pairing it with "your final message IS the return value" is BLOCKED. **(2) DELIVERY GATE** — read what is IN the result, never merely THAT one exists; neither a lifecycle notification nor a STATUS FRAGMENT — a reply that announces work still to come — counts as delivered; a terse but COMPLETE verdict ("CLEAN — no findings") IS delivered. Delivery is NECESSARY, NOT SUFFICIENT — a verdict with no ran-signal MUST be re-run. **(3) RECOVERY, BOUNDED** — read an addressable agent's report from its TRANSCRIPT, never re-request; RESUME a stalled lane, never re-dispatch; ONE resume per lane, releasing only a sub-goal the AGENT assigned itself; a BRIEF item named as blocker ESCALATES; UNRESOLVED items are open findings, never a clean round. Depth, BLOCKED corpora: `skills/30-claude-code-patterns/agent-result-delivery.md`.
 
-**Why:** Discarded reports repeat the full cost; populated fragments falsely signal delivery at convergence.
+**Why:** Discarded reports repeat the full cost; populated fragments falsely signal delivery.
 
 ### MUST: Correctness-Review-Clean Is Not Security-Clean
 
-A correctness / closure-parity reviewer returning CLEAN is NOT evidence a change is SECURITY-clean (tested-path correctness ≠ off-path adversarial defeat). A security-critical change (auth, signing, revocation, tenant-isolation, any fail-closed gate or trust boundary) MUST be redteamed by BOTH a correctness reviewer AND an adversarial security-reviewer prompted to REFUTE, both with a genuine ran-signal, before convergence. Counting a CLEAN correctness verdict AS the security round is BLOCKED.
+A correctness / closure-parity reviewer returning CLEAN is NOT evidence a change is SECURITY-clean (tested-path correctness ≠ off-path adversarial defeat). A security-critical change (auth, signing, revocation, tenant-isolation, fail-closed gates, kill paths, destructive ops, disclosure, and any trust boundary) MUST be redteamed by BOTH a correctness reviewer AND an adversarial security-reviewer prompted to REFUTE, both with a genuine ran-signal, before convergence. When unclear, treat it as security-critical. Counting a CLEAN correctness verdict AS the security round is BLOCKED.
 
-**Why:** Correctness misses off-tested-path attacks: in #1842-S3, the same-round security reviewer caught a CRITICAL revocation bypass despite CLEAN correctness.
+**Why:** Correctness misses off-tested-path attacks: #1842-S3's same-round security reviewer caught a CRITICAL revocation bypass despite CLEAN correctness.
 
-## MUST: Verify Specialist Tool Inventory Before Implementation Delegation
+## MUST: Verify Specialist Tool Inventory Before Delegation
 
-When delegating IMPLEMENTATION work (file edits, commits, build/test invocation, version bumps), the orchestrator MUST select a specialist whose declared tool set includes `Edit` AND `Bash`; a read-only specialist MUST NOT be given implementation work. Read-only roster, tool-inventory table, materialization workaround, BLOCKED corpus: guide.
+When delegating IMPLEMENTATION work (file edits, commits, builds/tests, version bumps), the orchestrator MUST select a specialist whose declared tools include `Edit` AND `Bash`; a read-only specialist MUST NOT be given implementation work. Read-only roster + BLOCKED corpus: guide.
 
-**Why:** Read-only specialists halt at edits; checking tools before launch is O(1), relaunching O(N) in shard size.
+**Why:** Read-only specialists halt at edits; checking tools is O(1), relaunching O(N) in shard size.
 
-## MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read
+## MUST: Closure-Parity Audit Specialist Has Bash + Read
 
-When delegating a /redteam round including **closure-parity verification**, the orchestrator MUST select a specialist with `Bash` AND `Read`; a read-only analyst silently FORWARDS verification rows the next round must redo. Extends the tool-inventory MUST above from IMPLEMENTATION to AUDIT delegation. Depth: `skills/30-claude-code-patterns/closure-parity-specialist-discipline.md`.
+When delegating a /redteam round including **closure-parity verification**, the orchestrator MUST select a specialist with `Bash` AND `Read`; a read-only analyst silently FORWARDS verification rows the next round redoes. Extends the tool-inventory MUST above to AUDIT delegation. Depth: `skills/30-claude-code-patterns/closure-parity-specialist-discipline.md`.
 
-**Why:** Mismatched tools waste an audit round; checking before launch is O(1), relaunching O(N) in row count.
+**Why:** Mismatched tools waste an audit round; checking first is O(1), relaunching O(N) in rows.
 
-## MUST: Worktree Orchestration — The ORCHESTRATOR Creates A SIBLING, Before Dispatch
+## MUST: Worktree Orchestration — Orchestrator Creates A SIBLING Before Dispatch
 
-Each LANE MUST run isolated per `skills/30-claude-code-patterns/worktree-orchestration.md` and `rules/worktree-isolation.md`; its agents share that worktree (`rules/wip-discipline.md` MUST-9). At SPAWN TIME the ORCHESTRATOR creates it — a SIBLING outside the repo — pins its ABSOLUTE path in every brief, and mandates a STEP-0 assertion comparing RESOLVED `git rev-parse --show-toplevel` to `pwd -P`, refusing on mismatch. Requesting harness-native isolation (the delegation tool's `isolation: "worktree"` parameter) is BLOCKED — it nests under `.claude/worktrees/`, which the nested-worktree guard refuses and no setting relocates. In a SHARED tree restore ONLY from a `cp` backup; `git checkout --`/`git restore` read the INDEX and are BLOCKED.
+Each LANE MUST run isolated per `skills/30-claude-code-patterns/worktree-orchestration.md` + `rules/worktree-isolation.md`; its agents share that worktree (`rules/wip-discipline.md` MUST-9). At SPAWN TIME the ORCHESTRATOR creates it — a SIBLING outside the repo — pins its ABSOLUTE path in every brief, and mandates a STEP-0 assertion that `git rev-parse --show-toplevel` equals `pwd -P`, refusing on mismatch. Requesting the delegation tool's `isolation: "worktree"` parameter is BLOCKED — it nests under `.claude/worktrees/`, which the guard refuses and no setting relocates. In a SHARED tree restore ONLY from a `cp` backup; `git checkout --`/`git restore` read the INDEX and are BLOCKED.
 
 **Why:** Each sub-rule converts a silent parallel-work loss into isolation or a loud refusal.
 
 ## MUST NOT
 
-- **Framework work without specialist** — misuse violates invariants (pool sharing, session lifecycle, trust boundaries).
+- **Framework work without specialist** — misuse violates invariants (pools, session lifecycle, trust boundaries).
 - **Sequential when parallel is possible** — wastes the autonomous execution multiplier.
 - **Raw SQL / custom API / custom agents / custom governance** — see `rules/framework-first.md`.
 

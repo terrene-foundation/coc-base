@@ -13,4 +13,4 @@ predicate is NARROW. The template-carried carrier `.claude/sync-preserve.yaml`
 | `sync-preserve.yaml` (template-carried, no `.local`) is NOT excluded by `isNeverSynced`: a planted `operator-home-path` token flags → exit 1. A 0-finding result = the skip predicate over-broadened to swallow the synced carrier. |
 
 Synthetic content per the dir's README convention: invented home paths only
-(`/Users/fakeuser/fake-repos`) — NO real operator coordinates.
+(`<operator-home>/fake-repos`) — NO real operator coordinates.

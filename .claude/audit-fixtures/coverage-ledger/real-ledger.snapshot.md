@@ -4,7 +4,7 @@
 Consult BEFORE any spawn (MUST-2); match BEFORE reacting to any completion (MUST-3).
 
 Session: 2026-08-22 (s54). Operator: someoperator.
-Worktree for the work: `/Users/someoperator/repos/.loom-wt/s54-ratchet` (sibling, outside the
+Worktree for the work: `{{FIXTURE_HOME_V1:MAC}}someoperator/repos/.loom-wt/s54-ratchet` (sibling, outside the
 repo per `worktree-isolation.md` Rule 7), branch `fix/s54-codify-ratchet`, cut from
 `origin/main` @ `dcad0e2a`.
 

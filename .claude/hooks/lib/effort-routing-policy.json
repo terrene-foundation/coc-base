@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "_doc": [
+    "THE EFFORT ROUTING TABLE: every subagent launch carries the effort its ROLE maps to here.",
+    "",
+    "Owner decision 2026-10-12. The brief's FIRST non-empty line is `ROLE: <role>`; the launch's",
+    "per-dispatch effort parameter (Claude Agent/Task `effort`, Codex spawn_agent `reasoning_effort`,",
+    "normalized to `effort` by lib/codex-hook-runtime.js::normalizeNativeInput) MUST equal the level",
+    "this table assigns to that role. hooks/dispatch-contract-guard.js enforces it at PreToolUse and",
+    "BLOCKS on a missing or malformed role line, an unknown role, a missing effort, a different effort,",
+    "or a `fork` launch (which runs at its parent's effort) that carries no override line; the",
+    "next non-empty line `EFFORT-OVERRIDE: <level> — <reason>` permits a different level and is",
+    "recorded in the override use ledger. Measured basis: the per-dispatch parameter IS honoured on",
+    "both runtimes (Claude low x3 87-88k tokens / 2 tool calls vs high x3 95-208k / 5-8; Codex",
+    "reasoning tokens low 18-42 vs high 326-661).",
+    "",
+    "SCHEMA, checked by lib/effort-routing.js::validateRoutingTable — and FAIL-CLOSED: any violation",
+    "makes the table INVALID, and an invalid (or absent, or unparseable) table blocks EVERY launch",
+    "with a `routing table invalid` reason. There is no built-in default table to fall back to.",
+    "  - top-level keys: exactly `schema_version` (the integer 1), `roles`, and optional `_doc`",
+    "    (an array of strings); any other key is INVALID",
+    "  - `roles`: a non-empty object; each key a lowercase kebab-case role name, each value one of",
+    "    low | medium | high | xhigh | max",
+    "",
+    "Consumers: the dispatch-contract guard now; the Decision engine's dispatch-plan later",
+    "(workspaces/context-budget-2026-10-10/engines/ENGINES.md § 2). Change a level HERE, never in",
+    "either consumer."
+  ],
+  "roles": {
+    "security-review": "high",
+    "correctness-review": "high",
+    "load-bearing-author": "high",
+    "bounded-bugfix": "medium",
+    "routine-implementation": "medium",
+    "explore-search": "medium",
+    "mechanical-receipt": "low",
+    "extraction": "low",
+    "codex-seat": "medium"
+  }
+}

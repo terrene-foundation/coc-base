@@ -17,7 +17,7 @@ true and neither is the file's own posture — the first is a property of a pare
 someone else owns, the second of a host setting I cannot see from here. So I looked
 at what the default actually produces:
 
-    $ ls -l /Users/me/scratch/perm-check/
+    $ ls -l {{FIXTURE_HOME_V1:MAC}}me/scratch/perm-check/
     -rw-r--r--  1 me  staff  0 Sep  6 10:58 default.db
 
     $ ls -l store/

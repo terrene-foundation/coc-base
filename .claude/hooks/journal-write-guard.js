@@ -4,6 +4,14 @@
  *
  * journal-write-guard.js — §4.3 pre-tool-use hook for `Write` on journal/.
  *
+ * @coc-codex-edit-gate — journal append-only + slot-reservation gate. The
+ *   policy extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). The append-only block reads the
+ *   projected target path against `fs.existsSync` and applies in every mode;
+ *   the slot-registry half is gated on governance, and an unenrolled repo
+ *   receives only the advisory (`shapeAdvisoryOrPassthrough`), so the Codex
+ *   posture matches the CC posture exactly.
+ *
  * Shard B3a (workspaces/multi-operator-coc/02-plans/01-architecture.md
  * §2.3 + §4.3 hook-table row).
  *
@@ -18,10 +26,16 @@
  *                               record, not structural)
  *             silent           (slot reserved by self / outside-repo /
  *                               unwatched tool)
- *   Budget:   4000ms from process start (host kills at 5s). A check that
- *             does not finish in budget emits halt-and-report "slot
- *             unverified" — never a bare {continue: true}; see
- *             notCompleted() below (cc-artifacts.md Rule 7).
+ *   Budget:   ONE source — BUDGET_MS, the run budget handed to
+ *             guard-runner.js::runGuard (and back to main as ctx.budgetMs),
+ *             set under the registry row's 20 s timeout. The check deadline
+ *             is DERIVED from it (ctx.budgetMs - CHECK_RESERVE_MS, from
+ *             process start). A check that does not finish in it REFUSES as
+ *             a budget refusal naming the slot as unverified — never a bare
+ *             {continue: true}; see notCompleted() below. The run itself is
+ *             bounded by the runner: a crash, a hang past its budget or an
+ *             unreadable payload REFUSES (cc-artifacts.md Rule 7, deny-
+ *             capable rows).
  *
  * Why immutable journal entries:
  *   Per rules/journal.md (the global journal-entry rule), journal
@@ -51,27 +65,44 @@
  *                             operator-id.js's 3-tier discovery).
  *   COC_JOURNAL_GUARD_BUDGET_MS — TIGHTEN-ONLY check budget (see below).
  *   COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR — throw at the slot-identified point
- *                             so the internal-error disposition is drivable.
+ *                             so the internal-error disposition (a runner
+ *                             crash refusal) is drivable.
  */
 
 "use strict";
 
-// THE HOOK BUDGET, AND WHAT HAPPENS WHEN IT RUNS OUT (2026-09-12).
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<os.tmpdir()>/coc-sign-ssh-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-fold-<rand>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes (lib/state-resolver.js, lib/guard-path-scope.js, lib/operator-id.js) plus ssh-keygen / gpg verification of the reservation fold (lib/coordination-log.js -> lib/coc-sign.js). Writes: the per-call / per-fold verify homedirs lib/coc-sign.js mkdtemps under the OS temp root and rmSyncs before returning. The journal target and the coordination log are READ only — M6 D writes the reservation record; this hook never writes the entry."
+ * }
+ */
+
+// THE HOOK BUDGET, AND WHAT HAPPENS WHEN IT RUNS OUT (2026-09-12; fail-closed 2026-10-19).
 //
-// `.claude/settings.json` registers this hook with `"timeout": 5`; the host kills
-// it 5s after spawn. The fallback that stood here fired 5000ms after MODULE LOAD —
-// later than the host's kill, so it could not win the race it was armed for — and
-// wrote a bare `{continue:true}`, byte-identical to "checked, and the slot is
-// fine". A reservation check that never finished read as a PASS, silently
-// (rules/instrument-discipline.md MUST-1; rules/conservation-gate.md MUST-4).
+// The fallback that once stood here fired 5000ms after MODULE LOAD and wrote a bare
+// `{continue:true}`, byte-identical to "checked, and the slot is fine". A reservation
+// check that never finished read as a PASS, silently (rules/instrument-discipline.md
+// MUST-1; rules/conservation-gate.md MUST-4). Its successor rendered every expiry as
+// HALT-AND-REPORT — still `continue:true`, so the write still landed on an unverified
+// slot of a collision fence.
 //
-// Every expiry now renders `notCompleted()`: HALT-AND-REPORT naming the slot as
-// UNVERIFIED. Not `block`: a timeout is machine load, not evidence the slot is
-// taken or the log unreadable (the readIndeterminate BLOCK below), and a machine
-// too slow for the budget misses it on every retry, so a block would stop the
-// append-only journal outright. Not a bare continue: the verdict is UNKNOWN on a
-// collision fence. Same tier as the UNRESERVED finding (hook-output-discipline.md
-// MUST-2, registry-class).
+// Every expiry now REFUSES, as a BUDGET refusal (`notCompleted()`): "a guard time-out
+// under load is a budget refusal, not a deny" — the refusal names the slot as
+// UNVERIFIED (never as taken), and tells the operator to retry. A crash anywhere in
+// this guard is no longer rendered here at all: it reaches `guard-runner.js::runGuard`,
+// which refuses naming this guard. Neither ending lets an unchecked write through.
 //
 // WHERE THE TIME GOES, measured on a copy of loom's 935-record log, enrolled-solo,
 // load ~356: the fold is 1909ms and 1894ms of it is five subprocesses from ONE
@@ -82,110 +113,98 @@
 // not remove that cost AND would break acceptance (a reservation is accepted only
 // through its emitter's whole chain — pinned by run.mjs C9).
 //
-// THREE ARMS enforce ONE deadline, because a timer cannot preempt synchronous
-// code: the timer covers the awaited phases, an explicit check runs before the log
-// read, and `foldLog`'s own `deadlineAtMs` (the s49 P5 mechanism integrity-guard.js
-// uses) stops the synchronous fold between records. RESIDUAL: one record's work is
-// not preemptible — a single slow GPG verify straddling the host's 5s kill still
-// dies with no output at all.
+// TWO ARMS enforce the check deadline, because nothing can preempt synchronous code:
+// an explicit check runs before the log read, and `foldLog`'s own `deadlineAtMs` (the
+// s49 P5 mechanism integrity-guard.js uses) stops the synchronous fold between
+// records. The awaited phases are bounded by the runner's budget outside the engine
+// and by the registry row's timeout inside it. RESIDUAL: one record's work is not
+// preemptible — a single slow GPG verify straddling the host's kill still dies with
+// no output at all (which the dispatcher reads as an incomplete deny row: refused).
 //
-// The pre-identification timer is FIXED at the default and not env-reachable —
-// integrity-guard.js's loom#1855 lesson: a shortening knob may govern only a timer
-// whose handler refuses to pass. COC_JOURNAL_GUARD_BUDGET_MS is test injection
-// that can only TIGHTEN, and applies only once a journal slot is identified.
+// ONE BUDGET SOURCE. BUDGET_MS is the run budget the runner enforces outside the engine
+// and hands back as ctx.budgetMs; the check deadline is DERIVED from ctx.budgetMs, never
+// from a constant of its own (an earlier 4000 ms check constant sat against a 20 s
+// registry row, so the guard refused a write at 4 s that its row had budgeted 20 s for).
+// 16000 against the row's 20 s is the internal-before-registered shape the other 20 s
+// deny rows use (dispatch-registry.json _timeout_note): the runner's own budget, and
+// inside the engine the row's timeout, both end after the check deadline, so this
+// guard's NAMED budget refusal (notCompleted) is the one that fires.
+const BUDGET_MS = 16000;
+// Held back from the run budget for the fold to stop between records and the refusal to
+// render and leave before the runner's budget would refuse unnamed.
+const CHECK_RESERVE_MS = 1000;
+
+// COC_JOURNAL_GUARD_BUDGET_MS is test injection that can only TIGHTEN, and applies
+// only once a journal slot is identified (integrity-guard.js's loom#1855 lesson: a
+// shortening knob may govern only a deadline whose handler refuses to pass — this
+// one's handler refuses).
 const PROCESS_STARTED_AT = Date.now();
-const DEFAULT_CHECK_BUDGET_MS = 4000;
-const CHECK_BUDGET_MS = (() => {
+/** The check budget for this run: derived from the run budget, tightened (only) by the env. */
+function checkBudgetOf(runBudgetMs) {
+  const derived = Math.max(1, runBudgetMs - CHECK_RESERVE_MS);
   const raw = Number(process.env.COC_JOURNAL_GUARD_BUDGET_MS);
-  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_CHECK_BUDGET_MS;
-  return Math.min(raw, DEFAULT_CHECK_BUDGET_MS);
-})();
+  if (!Number.isFinite(raw) || raw <= 0) return derived;
+  return Math.min(raw, derived);
+}
 
 // What the guard has established about this call so far; read by notCompleted().
 const checkState = {
   hookEvent: "PreToolUse",
   slot: null, // {rel, slot, dir} once the target is identified as a journal entry
   phase: "reading the tool call",
+  budgetMs: null, // the check budget, set once the slot is identified (checkBudgetOf)
 };
-
-/**
- * The ONE renderer for "the check did not complete". Never returns: emit() exits.
- * Before the target is identified the finding cannot name a slot, so it says so;
- * that arm is reachable only if the process is past the fixed default budget
- * before stdin has been read.
- */
-function notCompleted(detail, opts) {
-  try {
-    clearTimeout(fallback);
-  } catch {
-    // not yet armed
-  }
-  const s = checkState;
-  const elapsed = Date.now() - PROCESS_STARTED_AT;
-  // TWO WAYS A CHECK FAILS TO COMPLETE, ONE RENDERER. The budget expiring and an
-  // internal exception are the same verdict — UNKNOWN — and both used to render
-  // as something else (a bare continue). They differ only in the WORD a reader
-  // needs to act: "ran out of time, retry on a quieter machine" vs "the guard
-  // itself errored, this is a defect to report".
-  const errored = !!(opts && opts.errored);
-  const cause = errored
-    ? "reservation check errored — slot unverified"
-    : "reservation check did not complete within the hook budget — slot unverified";
-  const what = s.slot
-    ? `Journal slot ${s.slot.slot} in ${s.slot.dir}: ${cause}. Stopped while ${s.phase} (${detail}; ${elapsed}ms since start, budget ${CHECK_BUDGET_MS}ms).`
-    : errored
-      ? `journal-write-guard errored before identifying this call's target — if it writes a journal entry, that slot is unverified. Stopped while ${s.phase} (${detail}; ${elapsed}ms since start).`
-      : `journal-write-guard did not complete within the hook budget before identifying this call's target — if it writes a journal entry, that slot is unverified. Stopped while ${s.phase} (${detail}; ${elapsed}ms since start).`;
-  const payload = {
-    hookEvent: s.hookEvent,
-    severity: "halt-and-report",
-    what_happened: what,
-    why: "multi-operator-coc/journal-write-guard MUST-NOT-2 — the slot-reservation check did not finish, so neither reserved nor unreserved was established; a sibling lane's reservation may sit in the part of the log that was never folded. halt-and-report, not block: a timeout is machine load, not evidence the slot is taken, and a machine too slow for the budget misses it on every retry, so a block would stop the append-only journal. Not a bare continue: that is byte-identical to a completed clean check (rules/instrument-discipline.md MUST-1).",
-    agent_must_report: [
-      s.slot ? `Target path: ${s.slot.rel}` : "Target path: not yet read",
-      s.slot
-        ? `Slot: ${s.slot.slot} in ${s.slot.dir} — reservation state UNKNOWN (check did not complete)`
-        : "Reservation state: UNKNOWN (check did not start)",
-      "State that the slot was NOT verified — neither that it is free nor that it is reserved.",
-      "If this session reserved the slot via /journal new, say so; otherwise reserve before relying on the entry. Retrying when the machine is less loaded lets the check finish.",
-    ],
-    agent_must_wait:
-      "Do not treat the journal write as verified. Report the unverified slot and wait for the user before writing further entries into it.",
-    user_summary: s.slot
-      ? `journal-write-guard — slot ${s.slot.slot} in ${s.slot.dir} UNVERIFIED (check did not complete: ${detail})`
-      : `journal-write-guard — check did not complete before identifying the target (${detail})`,
-  };
-  try {
-    require(
-      require("path").join(__dirname, "lib", "instruct-and-wait.js"),
-    ).emit(payload);
-  } catch {
-    // The renderer could not load or render. Still NOT a bare continue: carry the
-    // finding in the one channel a PreToolUse non-block reaches the agent through.
-    try {
-      process.stderr.write(`[HALT-AND-REPORT] ${payload.user_summary}\n`);
-      process.stdout.write(
-        JSON.stringify({
-          continue: true,
-          hookSpecificOutput: {
-            hookEventName: s.hookEvent,
-            additionalContext: `NOT BLOCKED — the action ALREADY RAN. Report it and wait.\n\nWHAT HAPPENED: ${what}`,
-          },
-        }) + "\n",
-      );
-    } catch {
-      // stdout unavailable
-    }
-    process.exit(0);
-  }
-}
-
-let fallback = null;
 
 const fs = require("fs");
 const path = require("path");
 
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+// The fail-closed run boundary: it reads the payload, bounds the run, and refuses on a
+// crash, a hang or an unreadable payload. REFUSAL_TEXT is the ONE refusal-text source —
+// the verbatim budget sentence and the retry sentence — reused so this guard's own
+// deadline refusal says the same words as the runner's.
+const { runGuard, REFUSAL_TEXT } = require("./lib/guard-runner.js");
+const { BUDGET_SENTENCE } = REFUSAL_TEXT;
+
+/**
+ * The ONE renderer for "the check did not complete in its deadline": a BUDGET
+ * REFUSAL. Never returns: emit() exits 2. Called only once the target is identified
+ * as a journal entry (every caller sits after `checkState.slot` is set), and only
+ * from the verdict path — never from a catch, a timer or a listener.
+ *
+ * WHY REFUSE, NOT HALT-AND-REPORT. halt-and-report is `continue:true` at PreToolUse
+ * (lib/instruct-and-wait.js), so on this collision fence it let a write land on a
+ * slot whose reservation state was never established. A timeout is machine load,
+ * not evidence the slot is taken — so the refusal says UNVERIFIED (never "taken")
+ * and tells the operator to retry; it is the same budget refusal the runner gives a
+ * guard that overran (guard-runner.js::runGuard). Block-grade on a structural fact:
+ * the deadline passed on this process's own clock (hook-output-discipline.md MUST-2).
+ */
+function notCompleted(detail) {
+  const s = checkState;
+  const elapsed = Date.now() - PROCESS_STARTED_AT;
+  const where = s.slot ? `journal slot ${s.slot.slot} in ${s.slot.dir}` : "this call's journal target";
+  return emit({
+    escalate: "security",
+    hookEvent: s.hookEvent,
+    severity: "block",
+    what_happened: `journal-write-guard did not complete the reservation check for ${where} within its budget — slot unverified. Stopped while ${s.phase} (${detail}; ${elapsed}ms since start, budget ${s.budgetMs}ms): ${BUDGET_SENTENCE}.`,
+    why: "multi-operator-coc/journal-write-guard MUST-NOT-2 — the slot-reservation check did not finish, so neither reserved nor unreserved was established; a sibling lane's reservation may sit in the part of the log that was never folded. A check that did not finish cannot clear the write (cc-artifacts.md Rule 7, deny-capable rows — guard-runner.js::runGuard); a bare continue is byte-identical to a completed clean check (rules/instrument-discipline.md MUST-1).",
+    agent_must_report: [
+      s.slot ? `Target path: ${s.slot.rel}` : "Target path: not yet identified",
+      s.slot
+        ? `Slot: ${s.slot.slot} in ${s.slot.dir} — reservation state UNKNOWN (check did not complete)`
+        : "Reservation state: UNKNOWN (check did not complete)",
+      `${BUDGET_SENTENCE}: the slot is NOT known to be taken — state that it was NOT verified, neither free nor reserved.`,
+      REFUSAL_TEXT.retrySentence("journal-write-guard"),
+    ],
+    agent_must_wait:
+      "Retry the journal write once; if the budget refusal recurs, report it and wait for the user.",
+    user_summary: s.slot
+      ? `journal-write-guard — budget refusal: slot ${s.slot.slot} in ${s.slot.dir} UNVERIFIED (check did not complete: ${detail})`
+      : `journal-write-guard — budget refusal: check did not complete (${detail})`,
+  });
+}
 const { resolveIdentity } = require(
   path.join(__dirname, "lib", "operator-id.js"),
 );
@@ -254,12 +273,9 @@ const { resolveRepoDirBound } = require(
 );
 
 function passthrough() {
-  clearTimeout(fallback);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
-
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function resolveRepoDir(payload) {
   // loom#1871 HIGH-1 — the override is now bound to the SESSION REPOSITORY.
@@ -545,309 +561,287 @@ function resolveAuthorFinding(payload, repoDir) {
 
 // ---- main -------------------------------------------------------------------
 
-// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
-// did at load time happens here instead, so a require() has no side effects.
-function hookMain() {
-  fallback = setTimeout(
-    () => notCompleted(`${DEFAULT_CHECK_BUDGET_MS}ms fallback timer fired`),
-    DEFAULT_CHECK_BUDGET_MS,
-  );
-  return main();
-}
+async function main(payload, ctx) {
+  const hookEvent = payload.hook_event_name || "PreToolUse";
 
-async function main() {
-  try {
-    const payload = await readStdinBounded();
-    const hookEvent = payload.hook_event_name || "PreToolUse";
+  const watch = isWatchedTool(payload);
+  if (!watch.watched) {
+    return passthrough();
+  }
 
-    const watch = isWatchedTool(payload);
-    if (!watch.watched) {
-      passthrough();
-    }
-
-    // F14 MED-4: resolve to main checkout. Inside a worktree, the
-    // session cwd points at the worktree path; the coordination log +
-    // slot-reservation records live at the MAIN checkout's
-    // .claude/learning/. Without resolveMainCheckout, the fold below
-    // reads an empty / stale log and sees no reservations — the guard
-    // either passthroughs or halt-and-reports incorrectly. Mirrors
-    // integrity-guard.js:324-325.
-    const sessionCwd = resolveRepoDir(payload);
-    // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
-    // The former `|| sessionCwd` could not fire; an unidentified root makes the
-    // fold below read an empty log and see no slot reservations, which is
-    // indistinguishable from "no reservations exist" — the guard then
-    // passthroughs on a repo whose reservation state it never actually read.
-    const mainRes = requireMainCheckout(sessionCwd);
-    if (!mainRes.ok) {
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: `Journal-write check could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
-        why: "multi-operator-coc/journal-write-guard — slot reservations live in the MAIN checkout's coordination log. With the root unidentified the fold reads an empty log, which reads as `no reservations` and passes the write through; that is a fail-OPEN on the collision fence. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity).",
-        agent_must_report: [
-          `Session cwd: ${sessionCwd}`,
-          `Resolver reason: ${mainRes.reason}`,
-          "Journal slot-reservation checking did NOT run — its result is UNKNOWN, not clean.",
-          "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
-        ],
-        agent_must_wait:
-          "Do not retry the journal write until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
-        user_summary:
-          "journal-write-guard — main checkout unidentifiable; refused rather than passed through",
-      });
-      // emit() exits
-    }
-    const repoDir = mainRes.repoDir;
-    const wp = isWatchedPath(watch.targetPath, repoDir);
-    if (!wp.watched) {
-      // Outside-repo path OR not a journal entry — silent passthrough.
-      passthrough();
-    }
-
-    // IDENTIFIED: from here the check owes a verdict on THIS slot, so the budget
-    // re-arms on the check deadline and every expiry names the slot. Re-arming
-    // HERE, not at module load, is what keeps COC_JOURNAL_GUARD_BUDGET_MS off
-    // every non-journal Edit (see the header above `PROCESS_STARTED_AT`).
-    checkState.hookEvent = hookEvent;
-    checkState.slot = { rel: wp.rel, slot: wp.slot, dir: wp.dir };
-    checkState.phase = "checking the slot";
-    // DETERMINISTIC TRIGGER FOR THE INTERNAL-ERROR BRANCH. That branch is
-    // otherwise reachable only by a defect, so nothing could drive it and its
-    // disposition went unmeasured — which is how it kept a bare `{continue:true}`
-    // (a check that errored rendering as a check that passed). Placed AFTER slot
-    // identification so the emitted finding names the slot, exactly as a real
-    // exception from the fold below would. Test injection only: it can only make
-    // the guard MORE conservative (halt-and-report), never bypass a fence, and
-    // `hook-fixture-runner.mjs::GUARD_ENV_KEYS` strips it so an ambient value
-    // cannot reach a fixture that did not ask for it.
-    if (process.env.COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR === "1") {
-      throw new Error("COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR injected fault");
-    }
-    const checkDeadlineAt = PROCESS_STARTED_AT + CHECK_BUDGET_MS;
-    clearTimeout(fallback);
-    fallback = setTimeout(
-      () => notCompleted(`${CHECK_BUDGET_MS}ms check budget timer fired`),
-      Math.max(0, checkDeadlineAt - Date.now()),
-    );
-
-    // Resolve absolute target for the fs.existsSync block check.
-    const absTarget = path.isAbsolute(watch.targetPath)
-      ? watch.targetPath
-      : path.join(repoDir, watch.targetPath);
-
-    // (1) BLOCK branch — file ALREADY exists on disk. Structural primitive:
-    // fs.existsSync is process-local deterministic per
-    // hook-output-discipline.md MUST-2.
-    if (fs.existsSync(absTarget)) {
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: `Journal entry already exists on disk: ${wp.rel}`,
-        why: "multi-operator-coc/journal-write-guard MUST-NOT-1 — journal entries are append-only per rules/journal.md; overwriting destroys the audit trail. fs.existsSync IS the structural primitive (hook-output-discipline.md MUST-2): the file presence is process-local deterministic, not lexical match.",
-        agent_must_report: [
-          `Target path: ${wp.rel}`,
-          `Slot: ${wp.slot}`,
-          "Open a NEW journal entry with a fresh slot (run reserveJournalSlot(dir) via /journal new <TYPE> <topic>) rather than overwriting the existing entry.",
-          "If amending the existing entry is genuinely required, open a NEW entry of type AMENDMENT carrying `relates_to: <NNNN-slug>` pointing at the original (rules/journal.md § types). There is no in-place amend: entries are immutable once created, and no /journal flag edits one.",
-        ],
-        agent_must_wait:
-          "Do not retry the Write against this path. Acquire a fresh slot via /journal new <TYPE> <topic> and Write the new entry there.",
-        user_summary: `journal-write-guard — BLOCK on existing journal file ${wp.rel}`,
-      });
-      // emit() exits
-    }
-
-    // FRONTMATTER SHAPE — computed HERE, and the placement is three deliberate
-    // choices rather than convenience.
-    //
-    // BELOW the existsSync BLOCK: an Edit/Write onto an EXISTING entry is
-    // already refused above, so this layer only ever sees a NEW entry. That is
-    // exactly the population `rules/journal.md` § Backfill / Grandfathering
-    // scopes a contract change to ("a contract change applies only to entries
-    // created AFTER it lands"), and it is why shipping this detector does not
-    // oblige — or permit — a backfill sweep of the 274 existing entries that
-    // diverge from the contract. The immutability MUST NOT wins over shape.
-    //
-    // ABOVE the GOVERNANCE gate: shape is a property of the CONTENT alone. It
-    // needs no roster, no coordination log and no reservation record. Below the
-    // gate it would be silently dead on every unenrolled repo — a detector whose
-    // silence there would be the absence of an instrument, not a clean result.
-    //
-    // RESERVATION KEYS ARE GATED ON GOVERNANCE, not on nothing: `verified_id`,
-    // `person_id` and `display_id` come "[from reservation]", and on an
-    // unenrolled repo `reserveJournalSlotSigned` returns `record: null`, so
-    // their absence there is a state the author cannot fix. Requiring them
-    // anyway would emit noise an operator can only learn to ignore.
-    const shapeFindings = inspectFrontmatterShape(
-      (payload.tool_input || {}).content,
-      { reservationKeysRequired: isGovernanceEnabled(repoDir) },
-    );
-    // Self-labelling lines: these ride into emits whose OWN severity is `block`
-    // or `halt-and-report`, and an advisory finding that arrives inside a
-    // refusal, unlabelled, reads as part of the reason the tool was refused.
-    const shapeLines = renderShapeLines(shapeFindings);
-    const shapeTail =
-      shapeFindings.length > 0
-        ? ` | +${shapeFindings.length} advisory frontmatter-shape finding(s)`
-        : "";
-
-    /**
-     * Emit the shape findings as an ADVISORY, or pass through when there are
-     * none. Called at each point the guard would otherwise have passed through
-     * AFTER the target was identified as a journal entry.
-     *
-     * SEVERITY IS `advisory`, NEVER halt-and-report: `rules/journal.md`
-     * § Detection mechanism names this detector in exactly those words, and its
-     * `phase2-deferrals.json` row grades the risk `hygiene` under a repo-owner
-     * acceptance — a malformed entry costs searchability, not correctness. This
-     * is a RAISE from a status quo that enforced nothing, not a downgrade.
-     *
-     * It is also NEVER emitted BEFORE a higher-severity finding. The internal-
-     * error comment at the bottom of this file records the measured reason: a
-     * reader of this hook's stderr takes the FIRST severity tag it sees, so an
-     * `[ADVISORY]` line ahead of a `[HALT-AND-REPORT]` downgrades the whole
-     * verdict. Every call site below is terminal — the higher-severity branches
-     * carry `shapeLines` INSIDE their own finding instead.
-     */
-    function shapeAdvisoryOrPassthrough() {
-      if (shapeFindings.length === 0) passthrough(); // exits
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "advisory",
-        what_happened: `Journal entry ${wp.rel} diverges from the canonical frontmatter contract in ${shapeFindings.length} place(s). The write was NOT blocked.`,
-        why: "journal/frontmatter-shape — `rules/journal.md` § Naming & Format declares the canonical frontmatter block the /journal command emits, and the two MUST agree. Entries that diverge cannot be filtered by type, phase or date, which is what § MUST NOT means by 'unsearchable at scale'. Severity=advisory, not halt-and-report: `rules/journal.md` § Detection mechanism specifies an ADVISORY detector for this obligation and the accepted risk is `hygiene` — a malformed entry costs searchability, not correctness, and the journal is the receipt substrate every other rule writes to, so a gate here would stop the append-only journal over a missing `tags:`. Distinct rule_id from `journal-author-discipline/MUST-1`, which reads the SAME block for a DIFFERENT obligation (`rules/journal.md` § Violation scope draws that line).",
-        agent_must_report: [`Target path: ${wp.rel}`, ...shapeLines],
-        agent_must_wait:
-          "None — this is advisory. Fix the frontmatter in the entry you are about to write; do NOT rewrite existing entries to match (rules/journal.md § Backfill / Grandfathering forbids it).",
-        user_summary: `journal/frontmatter-shape — ${shapeFindings.length} advisory finding(s) on ${wp.rel}`,
-      });
-      // emit() exits
-    }
-
-    // GOVERNANCE gate — re-keyed 2026-09-12 from `isCoordinationEnabled`, in the
-    // same change as `lib/journal-reserve.js::reserveJournalSlotSigned`, whose
-    // record now emits on governance. The append-only BLOCK above stays ABOVE
-    // this gate: rules/journal.md forbids overwriting an entry in every mode.
-    //
-    // WHAT THE REGISTRY BRANCH BELOW PROTECTS: a NEW entry lands in a slot the
-    // reservation primitive allocated AND whose record the fold can see, so no
-    // other reserver is handed the same number. That population is RESERVERS,
-    // not humans — a sibling operator, or the same operator's other worktree or
-    // clone. The MO-OPT W1-c comment that stood here called solo numbering
-    // "race-free via pure reserveJournalSlot (fs high-water)"; the disk scan sees
-    // only the tree it runs in, and on an enrolled single-human repo one slot was
-    // issued to two lanes (W5a). Keyed on coordination, this branch stood down on
-    // exactly that repo shape.
-    //
-    // WHY THIS CANNOT DEADLOCK: the one precondition below — a
-    // `journal-slot-reservation` record for this (dir, slot) — is emitted by
-    // `reserveJournalSlotSigned` under this SAME predicate, so every repo that
-    // reaches the check can satisfy it by reserving first (/journal new). The
-    // two MUST move together; `enforcement-predicate-partition.test.mjs` pins the
-    // pair. An UNENROLLED repo (governance OFF — no roster, no genesis) still
-    // passes through here, as reserve still emits no record there: issue #76's
-    // receipt stays satisfiable.
-    if (!isGovernanceEnabled(repoDir)) {
-      // Not a bare passthrough since 2026-09-15: the SHAPE layer has no
-      // governance precondition, so an unenrolled repo still gets its advisory.
-      shapeAdvisoryOrPassthrough(); // exits
-    }
-
-    // SIGNATURE VERIFICATION follows COORDINATION; the gate above does not.
-    // Verifying every record by subprocess is the fold cost loom#1890 removed from
-    // single-human repos, and it answers whether a SIBLING HUMAN forged a record —
-    // coordination's question (`coordination-mode.js::governanceMode` § WHAT THIS
-    // FUNCTION DELIBERATELY DOES NOT DO). Coordination ON: the fold is
-    // byte-unchanged. Coordination OFF: `skipSignatureVerify`, which keeps the
-    // roster-membership gate and every other rule — the SAME acceptance set
-    // `journal-reserve.js::_foldHighWater` allocates slots from, so the allocator
-    // and this guard cannot disagree about which records count. Read through
-    // `governanceMode(...).coordination`: an input to the instrument, not a gate.
-    const coordinationOn =
-      governanceMode(repoDir).coordination.enabled === true;
-
-    // (2) Registry checks against the folded coordination log.
-    // Identity is required to discriminate self-reserved vs sibling-reserved.
-    const explicitKey = process.env.COC_OPERATOR_KEY_PATH;
-    const identity = resolveIdentity(repoDir, {
-      signingKeyPath: explicitKey || undefined,
-      keyType: explicitKey ? "ssh" : undefined,
+  // F14 MED-4: resolve to main checkout. Inside a worktree, the
+  // session cwd points at the worktree path; the coordination log +
+  // slot-reservation records live at the MAIN checkout's
+  // .claude/learning/. Without resolveMainCheckout, the fold below
+  // reads an empty / stale log and sees no reservations — the guard
+  // either passthroughs or halt-and-reports incorrectly. Mirrors
+  // integrity-guard.js:324-325.
+  const sessionCwd = resolveRepoDir(payload);
+  // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
+  // The former `|| sessionCwd` could not fire; an unidentified root makes the
+  // fold below read an empty log and see no slot reservations, which is
+  // indistinguishable from "no reservations exist" — the guard then
+  // passthroughs on a repo whose reservation state it never actually read.
+  const mainRes = requireMainCheckout(sessionCwd);
+  if (!mainRes.ok) {
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: `Journal-write check could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
+      why: "multi-operator-coc/journal-write-guard — slot reservations live in the MAIN checkout's coordination log. With the root unidentified the fold reads an empty log, which reads as `no reservations` and passes the write through; that is a fail-OPEN on the collision fence. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity).",
+      agent_must_report: [
+        `Session cwd: ${sessionCwd}`,
+        `Resolver reason: ${mainRes.reason}`,
+        "Journal slot-reservation checking did NOT run — its result is UNKNOWN, not clean.",
+        "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
+      ],
+      agent_must_wait:
+        "Do not retry the journal write until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+      user_summary:
+        "journal-write-guard — main checkout unidentifiable; refused rather than passed through",
     });
-    const selfVerifiedId = (identity && identity.verified_id) || null;
+  }
+  const repoDir = mainRes.repoDir;
+  const wp = isWatchedPath(watch.targetPath, repoDir);
+  if (!wp.watched) {
+    // Outside-repo path OR not a journal entry — silent passthrough.
+    return passthrough();
+  }
 
-    const transport = createFilesystemTransport(repoDir);
-    let accepted = [];
-    let rejected = [];
-    let readIndeterminate = null;
-    // SYNCHRONOUS deadline arm. Everything since identification ran without
-    // yielding (git, key resolution), so the timer could not have fired yet; this
-    // is the first point a spent budget can be noticed without racing it.
-    checkState.phase = "reading the coordination log";
-    if (Date.now() >= checkDeadlineAt) {
-      notCompleted("budget spent before the coordination-log read");
+  // IDENTIFIED: from here the check owes a verdict on THIS slot, so the budget
+  // re-arms on the check deadline and every expiry names the slot. Re-arming
+  // HERE, not at module load, is what keeps COC_JOURNAL_GUARD_BUDGET_MS off
+  // every non-journal Edit (see the header above `PROCESS_STARTED_AT`).
+  checkState.hookEvent = hookEvent;
+  checkState.slot = { rel: wp.rel, slot: wp.slot, dir: wp.dir };
+  checkState.phase = "checking the slot";
+  checkState.budgetMs = checkBudgetOf(ctx.budgetMs);
+  // DETERMINISTIC TRIGGER FOR THE INTERNAL-ERROR BRANCH. That branch is
+  // otherwise reachable only by a defect, so nothing could drive it and its
+  // disposition went unmeasured — which is how it kept a bare `{continue:true}`
+  // (a check that errored rendering as a check that passed). Placed AFTER slot
+  // identification so the emitted finding names the slot, exactly as a real
+  // exception from the fold below would. Test injection only: it can only make
+  // the guard MORE conservative (halt-and-report), never bypass a fence, and
+  // `hook-fixture-runner.mjs::GUARD_ENV_KEYS` strips it so an ambient value
+  // cannot reach a fixture that did not ask for it.
+  if (process.env.COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR === "1") {
+    throw new Error("COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR injected fault");
+  }
+  const checkDeadlineAt = PROCESS_STARTED_AT + checkState.budgetMs;
+
+  // Resolve absolute target for the fs.existsSync block check.
+  const absTarget = path.isAbsolute(watch.targetPath)
+    ? watch.targetPath
+    : path.join(repoDir, watch.targetPath);
+
+  // (1) BLOCK branch — file ALREADY exists on disk. Structural primitive:
+  // fs.existsSync is process-local deterministic per
+  // hook-output-discipline.md MUST-2.
+  if (fs.existsSync(absTarget)) {
+    return emit({
+      escalate: "destructive",
+      hookEvent,
+      severity: "block",
+      what_happened: `Journal entry already exists on disk: ${wp.rel}`,
+      why: "multi-operator-coc/journal-write-guard MUST-NOT-1 — journal entries are append-only per rules/journal.md; overwriting destroys the audit trail. fs.existsSync IS the structural primitive (hook-output-discipline.md MUST-2): the file presence is process-local deterministic, not lexical match.",
+      agent_must_report: [
+        `Target path: ${wp.rel}`,
+        `Slot: ${wp.slot}`,
+        "Open a NEW journal entry with a fresh slot (run reserveJournalSlot(dir) via /journal new <TYPE> <topic>) rather than overwriting the existing entry.",
+        "If amending the existing entry is genuinely required, open a NEW entry of type AMENDMENT carrying `relates_to: <NNNN-slug>` pointing at the original (rules/journal.md § types). There is no in-place amend: entries are immutable once created, and no /journal flag edits one.",
+      ],
+      agent_must_wait:
+        "Do not retry the Write against this path. Acquire a fresh slot via /journal new <TYPE> <topic> and Write the new entry there.",
+      user_summary: `journal-write-guard — BLOCK on existing journal file ${wp.rel}`,
+    });
+  }
+
+  // FRONTMATTER SHAPE — computed HERE, and the placement is three deliberate
+  // choices rather than convenience.
+  //
+  // BELOW the existsSync BLOCK: an Edit/Write onto an EXISTING entry is
+  // already refused above, so this layer only ever sees a NEW entry. That is
+  // exactly the population `rules/journal.md` § Backfill / Grandfathering
+  // scopes a contract change to ("a contract change applies only to entries
+  // created AFTER it lands"), and it is why shipping this detector does not
+  // oblige — or permit — a backfill sweep of the 274 existing entries that
+  // diverge from the contract. The immutability MUST NOT wins over shape.
+  //
+  // ABOVE the GOVERNANCE gate: shape is a property of the CONTENT alone. It
+  // needs no roster, no coordination log and no reservation record. Below the
+  // gate it would be silently dead on every unenrolled repo — a detector whose
+  // silence there would be the absence of an instrument, not a clean result.
+  //
+  // RESERVATION KEYS ARE GATED ON GOVERNANCE, not on nothing: `verified_id`,
+  // `person_id` and `display_id` come "[from reservation]", and on an
+  // unenrolled repo `reserveJournalSlotSigned` returns `record: null`, so
+  // their absence there is a state the author cannot fix. Requiring them
+  // anyway would emit noise an operator can only learn to ignore.
+  const shapeFindings = inspectFrontmatterShape(
+    (payload.tool_input || {}).content,
+    { reservationKeysRequired: isGovernanceEnabled(repoDir) },
+  );
+  // Self-labelling lines: these ride into emits whose OWN severity is `block`
+  // or `halt-and-report`, and an advisory finding that arrives inside a
+  // refusal, unlabelled, reads as part of the reason the tool was refused.
+  const shapeLines = renderShapeLines(shapeFindings);
+  const shapeTail =
+    shapeFindings.length > 0
+      ? ` | +${shapeFindings.length} advisory frontmatter-shape finding(s)`
+      : "";
+
+  /**
+   * Emit the shape findings as an ADVISORY, or pass through when there are
+   * none. Called at each point the guard would otherwise have passed through
+   * AFTER the target was identified as a journal entry.
+   *
+   * SEVERITY IS `advisory`, NEVER halt-and-report: `rules/journal.md`
+   * § Detection mechanism names this detector in exactly those words, and its
+   * `phase2-deferrals.json` row grades the risk `hygiene` under a repo-owner
+   * acceptance — a malformed entry costs searchability, not correctness. This
+   * is a RAISE from a status quo that enforced nothing, not a downgrade.
+   *
+   * It is also NEVER emitted BEFORE a higher-severity finding. The internal-
+   * error comment at the bottom of this file records the measured reason: a
+   * reader of this hook's stderr takes the FIRST severity tag it sees, so an
+   * `[ADVISORY]` line ahead of a `[HALT-AND-REPORT]` downgrades the whole
+   * verdict. Every call site below is terminal — the higher-severity branches
+   * carry `shapeLines` INSIDE their own finding instead.
+   */
+  function shapeAdvisoryOrPassthrough() {
+    if (shapeFindings.length === 0) return passthrough();
+    return emit({
+      hookEvent,
+      severity: "advisory",
+      what_happened: `Journal entry ${wp.rel} diverges from the canonical frontmatter contract in ${shapeFindings.length} place(s). The write was NOT blocked.`,
+      why: "journal/frontmatter-shape — `rules/journal.md` § Naming & Format declares the canonical frontmatter block the /journal command emits, and the two MUST agree. Entries that diverge cannot be filtered by type, phase or date, which is what § MUST NOT means by 'unsearchable at scale'. Severity=advisory, not halt-and-report: `rules/journal.md` § Detection mechanism specifies an ADVISORY detector for this obligation and the accepted risk is `hygiene` — a malformed entry costs searchability, not correctness, and the journal is the receipt substrate every other rule writes to, so a gate here would stop the append-only journal over a missing `tags:`. Distinct rule_id from `journal-author-discipline/MUST-1`, which reads the SAME block for a DIFFERENT obligation (`rules/journal.md` § Violation scope draws that line).",
+      agent_must_report: [`Target path: ${wp.rel}`, ...shapeLines],
+      agent_must_wait:
+        "None — this is advisory. Fix the frontmatter in the entry you are about to write; do NOT rewrite existing entries to match (rules/journal.md § Backfill / Grandfathering forbids it).",
+      user_summary: `journal/frontmatter-shape — ${shapeFindings.length} advisory finding(s) on ${wp.rel}`,
+    });
+  }
+
+  // GOVERNANCE gate — re-keyed 2026-09-12 from `isCoordinationEnabled`, in the
+  // same change as `lib/journal-reserve.js::reserveJournalSlotSigned`, whose
+  // record now emits on governance. The append-only BLOCK above stays ABOVE
+  // this gate: rules/journal.md forbids overwriting an entry in every mode.
+  //
+  // WHAT THE REGISTRY BRANCH BELOW PROTECTS: a NEW entry lands in a slot the
+  // reservation primitive allocated AND whose record the fold can see, so no
+  // other reserver is handed the same number. That population is RESERVERS,
+  // not humans — a sibling operator, or the same operator's other worktree or
+  // clone. The MO-OPT W1-c comment that stood here called solo numbering
+  // "race-free via pure reserveJournalSlot (fs high-water)"; the disk scan sees
+  // only the tree it runs in, and on an enrolled single-human repo one slot was
+  // issued to two lanes (W5a). Keyed on coordination, this branch stood down on
+  // exactly that repo shape.
+  //
+  // WHY THIS CANNOT DEADLOCK: the one precondition below — a
+  // `journal-slot-reservation` record for this (dir, slot) — is emitted by
+  // `reserveJournalSlotSigned` under this SAME predicate, so every repo that
+  // reaches the check can satisfy it by reserving first (/journal new). The
+  // two MUST move together; `enforcement-predicate-partition.test.mjs` pins the
+  // pair. An UNENROLLED repo (governance OFF — no roster, no genesis) still
+  // passes through here, as reserve still emits no record there: issue #76's
+  // receipt stays satisfiable.
+  if (!isGovernanceEnabled(repoDir)) {
+    // Not a bare passthrough since 2026-09-15: the SHAPE layer has no
+    // governance precondition, so an unenrolled repo still gets its advisory.
+    return shapeAdvisoryOrPassthrough();
+  }
+
+  // SIGNATURE VERIFICATION follows COORDINATION; the gate above does not.
+  // Verifying every record by subprocess is the fold cost loom#1890 removed from
+  // single-human repos, and it answers whether a SIBLING HUMAN forged a record —
+  // coordination's question (`coordination-mode.js::governanceMode` § WHAT THIS
+  // FUNCTION DELIBERATELY DOES NOT DO). Coordination ON: the fold is
+  // byte-unchanged. Coordination OFF: `skipSignatureVerify`, which keeps the
+  // roster-membership gate and every other rule — the SAME acceptance set
+  // `journal-reserve.js::_foldHighWater` allocates slots from, so the allocator
+  // and this guard cannot disagree about which records count. Read through
+  // `governanceMode(...).coordination`: an input to the instrument, not a gate.
+  const coordinationOn =
+    governanceMode(repoDir).coordination.enabled === true;
+
+  // (2) Registry checks against the folded coordination log.
+  // Identity is required to discriminate self-reserved vs sibling-reserved.
+  const explicitKey = process.env.COC_OPERATOR_KEY_PATH;
+  const identity = resolveIdentity(repoDir, {
+    signingKeyPath: explicitKey || undefined,
+    keyType: explicitKey ? "ssh" : undefined,
+  });
+  const selfVerifiedId = (identity && identity.verified_id) || null;
+
+  const transport = createFilesystemTransport(repoDir);
+  let accepted = [];
+  let rejected = [];
+  let readIndeterminate = null;
+  let foldDeadline = null;
+  // SYNCHRONOUS deadline arm. Everything since identification ran without
+  // yielding (git, key resolution); this is the first point a spent check
+  // deadline can be noticed.
+  checkState.phase = "reading the coordination log";
+  if (Date.now() >= checkDeadlineAt) {
+    return notCompleted("budget spent before the coordination-log read");
+  }
+  let rosterPresent = false;
+  let rosterFailure = null;
+  let foldRoster = null;
+  try {
+    const records = await transport.readAllRecords();
+    // FAIL CLOSED EXACTLY AS THE ALLOCATOR DOES. `loadFoldRoster` returns
+    // ok:false for an unreadable or unparseable roster; that is UNKNOWN, and
+    // the disposition below is the same BLOCK the unreadable-LOG branch takes,
+    // for the same reason (halt-and-report maps to continue:true, so on a
+    // mutation fence it is no refusal at all). ENOENT stays ok:true with
+    // present:false — a solo un-enrolled repo legitimately has no roster and
+    // still folds, which is the issue-#76 receipt this must not break.
+    const rosterLoad = loadFoldRoster(repoDir);
+    if (!rosterLoad.ok) {
+      rosterFailure = rosterLoad;
+      throw new Error(rosterLoad.reason);
     }
-    let rosterPresent = false;
-    let rosterFailure = null;
-    let foldRoster = null;
-    try {
-      const records = await transport.readAllRecords();
-      // FAIL CLOSED EXACTLY AS THE ALLOCATOR DOES. `loadFoldRoster` returns
-      // ok:false for an unreadable or unparseable roster; that is UNKNOWN, and
-      // the disposition below is the same BLOCK the unreadable-LOG branch takes,
-      // for the same reason (halt-and-report maps to continue:true, so on a
-      // mutation fence it is no refusal at all). ENOENT stays ok:true with
-      // present:false — a solo un-enrolled repo legitimately has no roster and
-      // still folds, which is the issue-#76 receipt this must not break.
-      const rosterLoad = loadFoldRoster(repoDir);
-      if (!rosterLoad.ok) {
-        rosterFailure = rosterLoad;
-        throw new Error(rosterLoad.reason);
-      }
-      rosterPresent = rosterLoad.present;
-      foldRoster = rosterLoad.roster;
-      const roster = foldRoster;
-      // Sandboxed engine: register the journal-slot-reservation predicate.
-      // M6 D writes the record; B3a reads it. Sandboxed (createEngine) so
-      // the module-default registry is unmodified for parallel callers.
-      const engine = createEngine();
-      engine.registerFoldPredicate(
-        "journal-slot-reservation",
-        (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
-        {
-          checkpoint_exempt: true,
-          authoritative_for_record: true,
-          authoritative_for_aggregate: false,
-        },
-      );
-      // EVERY record is folded, never a record-type subset: a reservation is
-      // accepted only if its emitter's chain (rule-2) reaches it through records
-      // of every type. `deadlineAtMs` makes the synchronous fold stop between
-      // records and throw FOLD_DEADLINE_EXCEEDED, handled below.
-      checkState.phase = "folding the coordination log";
-      const fold = engine.foldLog(
-        records,
-        roster,
-        coordinationOn
-          ? { deadlineAtMs: checkDeadlineAt }
-          : { skipSignatureVerify: true, deadlineAtMs: checkDeadlineAt },
-      );
-      accepted = fold && Array.isArray(fold.accepted) ? fold.accepted : [];
-      rejected = fold && Array.isArray(fold.rejected) ? fold.rejected : [];
-    } catch (err) {
-      // BUDGET EXPIRY IS NOT AN UNREADABLE LOG. The log read fine; the fold did
-      // not finish in time. Routing it to the BLOCK below would refuse every
-      // journal write on a loaded machine and send the operator to check file
-      // permissions on a healthy file.
-      if (err && err.code === "FOLD_DEADLINE_EXCEEDED") {
-        notCompleted(
-          `fold deadline reached after ${err.recordsFolded} of ${err.recordsTotal} records`,
-        );
-      }
+    rosterPresent = rosterLoad.present;
+    foldRoster = rosterLoad.roster;
+    const roster = foldRoster;
+    // Sandboxed engine: register the journal-slot-reservation predicate.
+    // M6 D writes the record; B3a reads it. Sandboxed (createEngine) so
+    // the module-default registry is unmodified for parallel callers.
+    const engine = createEngine();
+    engine.registerFoldPredicate(
+      "journal-slot-reservation",
+      (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+      {
+        checkpoint_exempt: true,
+        authoritative_for_record: true,
+        authoritative_for_aggregate: false,
+      },
+    );
+    // EVERY record is folded, never a record-type subset: a reservation is
+    // accepted only if its emitter's chain (rule-2) reaches it through records
+    // of every type. `deadlineAtMs` makes the synchronous fold stop between
+    // records and throw FOLD_DEADLINE_EXCEEDED, handled below.
+    checkState.phase = "folding the coordination log";
+    const fold = engine.foldLog(
+      records,
+      roster,
+      coordinationOn
+        ? { deadlineAtMs: checkDeadlineAt }
+        : { skipSignatureVerify: true, deadlineAtMs: checkDeadlineAt },
+    );
+    accepted = fold && Array.isArray(fold.accepted) ? fold.accepted : [];
+    rejected = fold && Array.isArray(fold.rejected) ? fold.rejected : [];
+  } catch (err) {
+    // BUDGET EXPIRY IS NOT AN UNREADABLE LOG. The log read fine; the fold did
+    // not finish in time. Routing it to the unreadable-log BLOCK below would send
+    // the operator to check file permissions on a healthy file, so it is only
+    // RECORDED here and refused, as a budget refusal, below (never from a catch).
+    if (err && err.code === "FOLD_DEADLINE_EXCEEDED") {
+      foldDeadline = err;
+    } else {
       // INDETERMINATE — the log could not be read or folded. The comment that
       // stood here said the honest disposition is "we can't tell", but the code
       // rebuilt `[]` and fell through to the UNRESERVED emit below, which tells
@@ -856,235 +850,207 @@ async function main() {
       // became indistinguishable downstream (rules/instrument-discipline.md
       // MUST-1). Keep the disposition the comment always claimed, in the emit.
       readIndeterminate = err && err.message ? err.message : String(err);
-      accepted = [];
     }
+    accepted = [];
+  }
 
-    if (readIndeterminate) {
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: `Write to journal slot ${wp.slot} in ${wp.dir}, but the coordination log could not be read or folded: ${readIndeterminate}`,
-        why: "multi-operator-coc/journal-write-guard MUST-NOT-2 — the slot-reservation check reads the folded coordination log, and that read FAILED. The slot's reservation state is UNKNOWN, not unreserved: this branch must not reuse the UNRESERVED message below, which asserts the fold was computed and held no reservation. Severity is block, matching this guard's own indeterminate-ROOT branch above and for the same reason: halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal and the Write would land — the precise clobber MUST-NOT-2 exists to prevent, since a sibling's reservation may be sitting in the log we could not read. The signal is distinct from the unreserved case one layer down: that one is registry-level, held BELOW block by hook-output-discipline.md MUST-2; this one is a filesystem/process-state failure (EACCES/EISDIR/EIO), the structural class MUST-2 accepts.",
-        agent_must_report: [
-          `Target path: ${wp.rel}`,
-          `Slot: ${wp.slot} in ${wp.dir} — reservation state UNKNOWN`,
-          `Why the check could not answer: ${readIndeterminate}`,
-          "State explicitly that the slot's reservation is UNKNOWN — NOT that the slot is free. A sibling operator may hold it.",
-          rosterFailure
-            ? `Remediation: the ROSTER is the unreadable fold input (${rosterFailure.code} at ${rosterFailure.path}) — a roster the fold cannot read resolves NO signer, so every record drops out and the log reads empty. Restore it (e.g. \`git show HEAD:.claude/operators.roster.json\`), then retry. This is the same disposition the reservation allocator takes (journal-reserve.js::_foldHighWater refuses on these bytes).`
-            : "Remediation: make .claude/learning/coordination-log.jsonl readable (check permissions, and that it is a regular file), then retry.",
-        ],
-        agent_must_wait:
-          "Do not retry the Write until the coordination log is readable and the reservation can actually be verified.",
-        user_summary: `journal-write-guard — coordination log UNREADABLE; slot ${wp.slot} INDETERMINATE (not a clean result)`,
-      });
-      // emit() exits
-    }
+  if (foldDeadline) {
+    return notCompleted(
+      `fold deadline reached after ${foldDeadline.recordsFolded} of ${foldDeadline.recordsTotal} records`,
+    );
+  }
 
-    // (2c) A ROSTER THAT PARSES BUT RESOLVES NOBODY IS THE SAME COLLAPSE AS AN
-    // UNREADABLE ONE, reached more cheaply. `null`, `{}`, `{"persons":null}` and
-    // `{"persons":{}}` all parse — so `loadFoldRoster` returns ok:true — and each
-    // then resolves NO signer, so every record is rejected at rule-1 and the fold
-    // reads exactly like a repo where nothing was ever reserved. Writing `{}` over
-    // the roster is the cheapest way to defeat the fence the loud corrupt-bytes
-    // refusal above closes, and `multi-operator-coordination.md` puts a
-    // write-capable team member seeking sabotage squarely inside the threat model.
-    //
-    // Asked DIRECTLY, not by proxy: did a `journal-slot-reservation` for THIS dir
-    // drop out of the fold for a ROSTER reason? Same question, same scope and the
-    // same shared classifier `journal-reserve.js::_foldHighWater` uses, so the
-    // allocator and this guard cannot disagree about which losses count.
-    //
-    // GATED ON THE ROSTER BEING PRESENT, which is load-bearing: with NO roster
-    // file, rule-1 rejects every record for want of a roster to check against, and
-    // that is the NORMAL state of a solo un-enrolled repo, not evidence of a loss.
-    // (Unreachable in practice — the governance gate above already passed those
-    // repos through — but stated because the gate's predicate may move again.)
-    //
-    // THE ROSTER IS HANDED TO THE CLASSIFIER, not the fold mode. rule-1
-    // conflates "the roster does not resolve the signer" with "the signature does
-    // not verify" whenever verification runs, and the mode cannot disambiguate
-    // it: an erased roster FLIPS coordination ON (measured — `{"persons":{}}`
-    // moves `coordination-mode.js` to `implicit-roster-genesis`), so keying on
-    // the mode misses exactly the input this branch exists for. Asking the roster
-    // directly is mode-independent: a well-rostered record rejected at rule-1 was
-    // rejected for its SIGNATURE — a forgery the fold correctly refused — and
-    // UNRESERVED stays the right verdict for it (the C8 fixture pins that).
-    if (rosterPresent) {
-      const lost = rejected.filter((entry) => {
-        if (!isRosterCausedRejection(entry, { roster: foldRoster })) {
-          return false;
-        }
-        const rec = entry.record;
-        if (!rec || rec.type !== "journal-slot-reservation") return false;
-        return ((rec.content || {}).dir || null) === wp.dir;
-      });
-      if (lost.length > 0) {
-        clearTimeout(fallback);
-        const first = lost[0];
-        emit({
-          hookEvent,
-          severity: "block",
-          what_happened: `Write to journal slot ${wp.slot} in ${wp.dir}, but ${lost.length} journal-slot reservation record(s) for "${wp.dir}" were dropped by the fold for a ROSTER reason (first: ${first.reason || first.rule || "unknown rule"}).`,
-          why: "multi-operator-coc/journal-write-guard MUST-NOT-2 — a roster that no longer resolves the signers who reserved slots makes their reservations invisible to this fold, so the slot state is UNKNOWN, not unreserved. This branch must not fall through to the UNRESERVED message below: that one asserts the fold was computed and held no reservation, and it is halt-and-report, i.e. continue:true, so the Write would land on top of whatever those lost records reserved. Severity block, matching the unreadable-log branch above and the reservation allocator's own refusal on these inputs (journal-reserve.js::_foldHighWater), which is what stops the allocator and this guard disagreeing about the same bytes.",
-          agent_must_report: [
-            `Target path: ${wp.rel}`,
-            `Slot: ${wp.slot} in ${wp.dir} — reservation state UNKNOWN (records were dropped)`,
-            `First dropped record: rule ${first.rule || "?"} — ${first.reason || "no reason given"}`,
-            "State explicitly that the slot's reservation is UNKNOWN — NOT that the slot is free.",
-            first.rule === "rule-4"
-              ? "Remediation: the roster resolves the signer's key but binds it to a DIFFERENT person_id than the records claim — reconcile the persons-map key with the emitted records (a persons-map key is declared immutable by the roster schema)."
-              : "Remediation: the roster does not resolve the signer(s) that reserved these slots — restore it (e.g. `git show HEAD:.claude/operators.roster.json`) before writing.",
-          ],
-          agent_must_wait:
-            "Do not retry the Write until the roster resolves the reserving signers and the reservation can actually be verified.",
-          user_summary: `journal-write-guard — roster drops ${lost.length} reservation record(s) for ${wp.dir}; slot ${wp.slot} INDETERMINATE (not a clean result)`,
-        });
-        // emit() exits
-      }
-    }
-
-    // AUTHOR BACKING IS COMPUTED HERE, ABOVE THE RESERVATION BRANCHES, AND
-    // CARRIED INTO WHICHEVER ONE FIRES. It used to sit inside the self-reserved
-    // branch, below two emit() calls that never return — so an entry claiming
-    // `author: human` in an unreserved slot, or in a slot a sibling reserved, was
-    // never author-checked at all. Collect the findings, emit ONCE.
-    const authorFinding = resolveAuthorFinding(payload, repoDir);
-    const authorLines = authorFinding
-      ? ["", "ALSO:", ...authorFinding.lines]
-      : [];
-    const authorTail = authorFinding ? ` | ${authorFinding.summary}` : "";
-
-    const reservation = findSlotReservation(accepted, wp.dir, wp.slot);
-
-    if (!reservation) {
-      // (2a) Slot UNRESERVED — halt-and-report. Registry-level signal,
-      // not structural per hook-output-discipline.md MUST-2.
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "halt-and-report",
-        what_happened: `Journal slot ${wp.slot} in ${wp.dir} is not reserved in the coordination log.`,
-        why: "multi-operator-coc/journal-write-guard MUST-NOT-2 — under N concurrent operators, or one operator's concurrent worktrees, a naive slot pick silently clobbers (architecture v11 §5.2): the disk high-water sees only the tree it runs in. Reserve via /journal new <TYPE> <topic> (M6 D writes the signed `journal-slot-reservation` record) before writing. Registry-record signal, not structural: hook-output-discipline.md MUST-2 — severity=halt-and-report, not block.",
-        agent_must_report: [
-          `Target path: ${wp.rel}`,
-          `Slot: ${wp.slot} (UNRESERVED in fold)`,
-          "Run /journal new <TYPE> <topic> (or reserveJournalSlot(dir) directly) to append a signed journal-slot-reservation record BEFORE writing the entry.",
-          "If the slot was JUST reserved by this session and the log is stale, run a log fetch (the heartbeat hook does this on stop) and retry.",
-          ...authorLines,
-          ...shapeLines,
-        ],
-        agent_must_wait:
-          "Do not retry the Write until the reservation lands in the folded coordination log.",
-        user_summary: `journal-write-guard — slot ${wp.slot} unreserved in ${wp.dir}${authorTail}${shapeTail}`,
-      });
-      // emit() exits
-    }
-
-    // (2b) Slot RESERVED. Discriminate self vs sibling.
-    if (reservation.verified_id === selfVerifiedId) {
-      // Self-reserved → the writer IS authorized for the SLOT. The F101-3
-      // author-backing verdict was computed above (so it also reaches the
-      // unreserved and sibling branches); here it is the ONLY remaining finding.
-      if (authorFinding) {
-        // REGISTRY-class (reads ledger + matches frontmatter), NEVER block —
-        // an empty ledger is ambiguous (degraded capture vs false claim) per
-        // hook-output-discipline.md MUST-2. halt-and-report; the user
-        // adjudicates whether the claim stands. An UNPARSEABLE frontmatter is
-        // the same tier: the check did not run, which is a finding, not a pass.
-        clearTimeout(fallback);
-        emit({
-          hookEvent,
-          severity: "halt-and-report",
-          what_happened:
-            authorFinding.status === "unparseable"
-              ? `Journal author claim could NOT be checked: the entry's frontmatter is unparseable (${wp.rel}).`
-              : `Journal author claim '${authorFinding.author}' is ${authorFinding.status.toUpperCase()} against the live session provenance ledger.`,
-          why: "journal-author-discipline/MUST-1 — an author:human|co-authored claim is valid ONLY when backed by ≥1 session HumanInput provenance event (F101-3, #411). Author claims are verifiable, not trusted: the check reads the LIVE per-session ledger, NEVER the frontmatter's own assertion. A frontmatter the parser cannot read is reported rather than skipped: a check that never RAN is not a check that PASSED (rules/instrument-discipline.md MUST-1). Registry-record signal (reads a ledger file + matches frontmatter), not structural: hook-output-discipline.md MUST-2 — severity=halt-and-report, NEVER block (an empty/absent ledger is ambiguous degraded-capture, not an irrefutable false claim).",
-          agent_must_report: [
-            `Target path: ${wp.rel}`,
-            ...authorFinding.lines,
-            ...shapeLines,
-          ],
-          agent_must_wait:
-            "Do not retry the Write until the author classification is reconciled with the user or corrected to author:agent.",
-          user_summary: `journal-author-discipline — ${authorFinding.summary} (${wp.rel})${shapeTail}`,
-        });
-        // emit() exits
-      }
-      // Self-reserved + (backed | n/a-agent | no author frontmatter) → the
-      // SLOT and AUTHOR layers are both satisfied, so the shape layer is the
-      // only one left that can have anything to say.
-      shapeAdvisoryOrPassthrough(); // exits
-    }
-
-    // Sibling-reserved → halt-and-report. Same registry-class signal as
-    // slot-unreserved — judgment-bearing, not structural.
-    clearTimeout(fallback);
-    const siblingDisplay =
-      reservation.display_id || reservation.person_id || "unknown";
-    emit({
+  if (readIndeterminate) {
+    return emit({
+      escalate: "security",
       hookEvent,
-      severity: "halt-and-report",
-      what_happened: `Journal slot ${wp.slot} in ${wp.dir} is reserved by sibling operator ${siblingDisplay}.`,
-      why: "multi-operator-coc/journal-write-guard MUST-NOT-3 — a slot reserved by another operator IS a slot another operator intends to write to. Concurrent writes silently clobber (architecture v11 §5.2). Coordinate handoff before writing. Registry-record signal: hook-output-discipline.md MUST-2 — severity=halt-and-report.",
+      severity: "block",
+      what_happened: `Write to journal slot ${wp.slot} in ${wp.dir}, but the coordination log could not be read or folded: ${readIndeterminate}`,
+      why: "multi-operator-coc/journal-write-guard MUST-NOT-2 — the slot-reservation check reads the folded coordination log, and that read FAILED. The slot's reservation state is UNKNOWN, not unreserved: this branch must not reuse the UNRESERVED message below, which asserts the fold was computed and held no reservation. Severity is block, matching this guard's own indeterminate-ROOT branch above and for the same reason: halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal and the Write would land — the precise clobber MUST-NOT-2 exists to prevent, since a sibling's reservation may be sitting in the log we could not read. The signal is distinct from the unreserved case one layer down: that one is registry-level, held BELOW block by hook-output-discipline.md MUST-2; this one is a filesystem/process-state failure (EACCES/EISDIR/EIO), the structural class MUST-2 accepts.",
       agent_must_report: [
         `Target path: ${wp.rel}`,
-        `Slot: ${wp.slot}`,
-        `Reserved by: sibling operator ${siblingDisplay} (verified_id ${reservation.verified_id.slice(0, 24)}...)`,
-        "Acquire a different slot via /journal new <TYPE> <topic> (the writer will allocate the next available NNNN) and write the entry there.",
-        "If handoff is genuinely required, coordinate with the sibling operator (the slot is theirs by reservation precedence).",
+        `Slot: ${wp.slot} in ${wp.dir} — reservation state UNKNOWN`,
+        `Why the check could not answer: ${readIndeterminate}`,
+        "State explicitly that the slot's reservation is UNKNOWN — NOT that the slot is free. A sibling operator may hold it.",
+        rosterFailure
+          ? `Remediation: the ROSTER is the unreadable fold input (${rosterFailure.code} at ${rosterFailure.path}) — a roster the fold cannot read resolves NO signer, so every record drops out and the log reads empty. Restore it (e.g. \`git show HEAD:.claude/operators.roster.json\`), then retry. This is the same disposition the reservation allocator takes (journal-reserve.js::_foldHighWater refuses on these bytes).`
+          : "Remediation: make .claude/learning/coordination-log.jsonl readable (check permissions, and that it is a regular file), then retry.",
+      ],
+      agent_must_wait:
+        "Do not retry the Write until the coordination log is readable and the reservation can actually be verified.",
+      user_summary: `journal-write-guard — coordination log UNREADABLE; slot ${wp.slot} INDETERMINATE (not a clean result)`,
+    });
+  }
+
+  // (2c) A ROSTER THAT PARSES BUT RESOLVES NOBODY IS THE SAME COLLAPSE AS AN
+  // UNREADABLE ONE, reached more cheaply. `null`, `{}`, `{"persons":null}` and
+  // `{"persons":{}}` all parse — so `loadFoldRoster` returns ok:true — and each
+  // then resolves NO signer, so every record is rejected at rule-1 and the fold
+  // reads exactly like a repo where nothing was ever reserved. Writing `{}` over
+  // the roster is the cheapest way to defeat the fence the loud corrupt-bytes
+  // refusal above closes, and `multi-operator-coordination.md` puts a
+  // write-capable team member seeking sabotage squarely inside the threat model.
+  //
+  // Asked DIRECTLY, not by proxy: did a `journal-slot-reservation` for THIS dir
+  // drop out of the fold for a ROSTER reason? Same question, same scope and the
+  // same shared classifier `journal-reserve.js::_foldHighWater` uses, so the
+  // allocator and this guard cannot disagree about which losses count.
+  //
+  // GATED ON THE ROSTER BEING PRESENT, which is load-bearing: with NO roster
+  // file, rule-1 rejects every record for want of a roster to check against, and
+  // that is the NORMAL state of a solo un-enrolled repo, not evidence of a loss.
+  // (Unreachable in practice — the governance gate above already passed those
+  // repos through — but stated because the gate's predicate may move again.)
+  //
+  // THE ROSTER IS HANDED TO THE CLASSIFIER, not the fold mode. rule-1
+  // conflates "the roster does not resolve the signer" with "the signature does
+  // not verify" whenever verification runs, and the mode cannot disambiguate
+  // it: an erased roster FLIPS coordination ON (measured — `{"persons":{}}`
+  // moves `coordination-mode.js` to `implicit-roster-genesis`), so keying on
+  // the mode misses exactly the input this branch exists for. Asking the roster
+  // directly is mode-independent: a well-rostered record rejected at rule-1 was
+  // rejected for its SIGNATURE — a forgery the fold correctly refused — and
+  // UNRESERVED stays the right verdict for it (the C8 fixture pins that).
+  if (rosterPresent) {
+    const lost = rejected.filter((entry) => {
+      if (!isRosterCausedRejection(entry, { roster: foldRoster })) {
+        return false;
+      }
+      const rec = entry.record;
+      if (!rec || rec.type !== "journal-slot-reservation") return false;
+      return ((rec.content || {}).dir || null) === wp.dir;
+    });
+    if (lost.length > 0) {
+      const first = lost[0];
+      return emit({
+        escalate: "security",
+        hookEvent,
+        severity: "block",
+        what_happened: `Write to journal slot ${wp.slot} in ${wp.dir}, but ${lost.length} journal-slot reservation record(s) for "${wp.dir}" were dropped by the fold for a ROSTER reason (first: ${first.reason || first.rule || "unknown rule"}).`,
+        why: "multi-operator-coc/journal-write-guard MUST-NOT-2 — a roster that no longer resolves the signers who reserved slots makes their reservations invisible to this fold, so the slot state is UNKNOWN, not unreserved. This branch must not fall through to the UNRESERVED message below: that one asserts the fold was computed and held no reservation, and it is halt-and-report, i.e. continue:true, so the Write would land on top of whatever those lost records reserved. Severity block, matching the unreadable-log branch above and the reservation allocator's own refusal on these inputs (journal-reserve.js::_foldHighWater), which is what stops the allocator and this guard disagreeing about the same bytes.",
+        agent_must_report: [
+          `Target path: ${wp.rel}`,
+          `Slot: ${wp.slot} in ${wp.dir} — reservation state UNKNOWN (records were dropped)`,
+          `First dropped record: rule ${first.rule || "?"} — ${first.reason || "no reason given"}`,
+          "State explicitly that the slot's reservation is UNKNOWN — NOT that the slot is free.",
+          first.rule === "rule-4"
+            ? "Remediation: the roster resolves the signer's key but binds it to a DIFFERENT person_id than the records claim — reconcile the persons-map key with the emitted records (a persons-map key is declared immutable by the roster schema)."
+            : "Remediation: the roster does not resolve the signer(s) that reserved these slots — restore it (e.g. `git show HEAD:.claude/operators.roster.json`) before writing.",
+        ],
+        agent_must_wait:
+          "Do not retry the Write until the roster resolves the reserving signers and the reservation can actually be verified.",
+        user_summary: `journal-write-guard — roster drops ${lost.length} reservation record(s) for ${wp.dir}; slot ${wp.slot} INDETERMINATE (not a clean result)`,
+      });
+    }
+  }
+
+  // AUTHOR BACKING IS COMPUTED HERE, ABOVE THE RESERVATION BRANCHES, AND
+  // CARRIED INTO WHICHEVER ONE FIRES. It used to sit inside the self-reserved
+  // branch, below two emit() calls that never return — so an entry claiming
+  // `author: human` in an unreserved slot, or in a slot a sibling reserved, was
+  // never author-checked at all. Collect the findings, emit ONCE.
+  const authorFinding = resolveAuthorFinding(payload, repoDir);
+  const authorLines = authorFinding
+    ? ["", "ALSO:", ...authorFinding.lines]
+    : [];
+  const authorTail = authorFinding ? ` | ${authorFinding.summary}` : "";
+
+  const reservation = findSlotReservation(accepted, wp.dir, wp.slot);
+
+  if (!reservation) {
+    // (2a) Slot UNRESERVED — halt-and-report. Registry-level signal,
+    // not structural per hook-output-discipline.md MUST-2.
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "halt-and-report",
+      what_happened: `Journal slot ${wp.slot} in ${wp.dir} is not reserved in the coordination log.`,
+      why: "multi-operator-coc/journal-write-guard MUST-NOT-2 — under N concurrent operators, or one operator's concurrent worktrees, a naive slot pick silently clobbers (architecture v11 §5.2): the disk high-water sees only the tree it runs in. Reserve via /journal new <TYPE> <topic> (M6 D writes the signed `journal-slot-reservation` record) before writing. Registry-record signal, not structural: hook-output-discipline.md MUST-2 — severity=halt-and-report, not block.",
+      agent_must_report: [
+        `Target path: ${wp.rel}`,
+        `Slot: ${wp.slot} (UNRESERVED in fold)`,
+        "Run /journal new <TYPE> <topic> (or reserveJournalSlot(dir) directly) to append a signed journal-slot-reservation record BEFORE writing the entry.",
+        "If the slot was JUST reserved by this session and the log is stale, run a log fetch (the heartbeat hook does this on stop) and retry.",
         ...authorLines,
         ...shapeLines,
       ],
       agent_must_wait:
-        "Do not retry the Write against this slot. Acquire a different slot or coordinate handoff with the sibling reserver.",
-      user_summary: `journal-write-guard — slot ${wp.slot} reserved by sibling ${siblingDisplay}${authorTail}${shapeTail}`,
+        "Do not retry the Write until the reservation lands in the folded coordination log.",
+      user_summary: `journal-write-guard — slot ${wp.slot} unreserved in ${wp.dir}${authorTail}${shapeTail}`,
     });
-    // emit() exits
-  } catch (err) {
-    // AN ERRORED CHECK IS NOT A CLEAN CHECK (2026-09-12). What stood here was a
-    // bare `{continue:true}` plus an `[ADVISORY]` stderr line — and the JSON is
-    // byte-identical to "I folded the log and your slot is fine", so an internal
-    // exception anywhere in this guard read downstream as a PASS. That is the
-    // same defect the budget fallback had (see notCompleted() at the top of this
-    // file) reached by a second route: a verdict of UNKNOWN rendered in the
-    // grammar of a completed clean one (rules/instrument-discipline.md MUST-1,
-    // rules/conservation-gate.md MUST-4).
-    //
-    // notCompleted() is the ONE renderer for "the check did not complete", and an
-    // internal error IS that. halt-and-report, not block: an exception is a defect
-    // in this guard, not evidence the slot is taken, and blocking on it would stop
-    // the append-only journal outright on every retry. cc-artifacts.md Rule 7 asks
-    // for a structural-NULL fallback that does not hang the agent — halt-and-report
-    // maps to continue:true, so the agent still proceeds; it just proceeds INFORMED.
-    //
-    // The `[ADVISORY] journal-write-guard internal error: …` stderr line that
-    // used to precede this is GONE, and its removal is load-bearing rather than
-    // tidying: a reader of this hook's stderr takes the FIRST severity tag it
-    // sees, so an `[ADVISORY]` line ahead of the emitted `[HALT-AND-REPORT]`
-    // downgrades the whole verdict to advisory at the one moment the guard has
-    // nothing to stand on. Measured — the C14 fixture read exactly that. The
-    // error text is carried inside the emitted finding, so nothing is lost.
-    try {
-      notCompleted(
-        `internal error: ${err && err.message ? err.message : String(err)}`,
-        { errored: true },
-      );
-      // notCompleted() exits. Falling past it means the renderer AND its own
-      // stdout fallback both failed, which the outer try below still handles.
-    } catch {
-      try {
-        clearTimeout(fallback);
-        process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-      } catch {
-        // best-effort
-      }
-    }
-    process.exit(0);
   }
+
+  // (2b) Slot RESERVED. Discriminate self vs sibling.
+  if (reservation.verified_id === selfVerifiedId) {
+    // Self-reserved → the writer IS authorized for the SLOT. The F101-3
+    // author-backing verdict was computed above (so it also reaches the
+    // unreserved and sibling branches); here it is the ONLY remaining finding.
+    if (authorFinding) {
+      // REGISTRY-class (reads ledger + matches frontmatter), NEVER block —
+      // an empty ledger is ambiguous (degraded capture vs false claim) per
+      // hook-output-discipline.md MUST-2. halt-and-report; the user
+      // adjudicates whether the claim stands. An UNPARSEABLE frontmatter is
+      // the same tier: the check did not run, which is a finding, not a pass.
+      return emit({
+        escalate: "security",
+        hookEvent,
+        severity: "halt-and-report",
+        what_happened:
+          authorFinding.status === "unparseable"
+            ? `Journal author claim could NOT be checked: the entry's frontmatter is unparseable (${wp.rel}).`
+            : `Journal author claim '${authorFinding.author}' is ${authorFinding.status.toUpperCase()} against the live session provenance ledger.`,
+        why: "journal-author-discipline/MUST-1 — an author:human|co-authored claim is valid ONLY when backed by ≥1 session HumanInput provenance event (F101-3, #411). Author claims are verifiable, not trusted: the check reads the LIVE per-session ledger, NEVER the frontmatter's own assertion. A frontmatter the parser cannot read is reported rather than skipped: a check that never RAN is not a check that PASSED (rules/instrument-discipline.md MUST-1). Registry-record signal (reads a ledger file + matches frontmatter), not structural: hook-output-discipline.md MUST-2 — severity=halt-and-report, NEVER block (an empty/absent ledger is ambiguous degraded-capture, not an irrefutable false claim).",
+        agent_must_report: [
+          `Target path: ${wp.rel}`,
+          ...authorFinding.lines,
+          ...shapeLines,
+        ],
+        agent_must_wait:
+          "Do not retry the Write until the author classification is reconciled with the user or corrected to author:agent.",
+        user_summary: `journal-author-discipline — ${authorFinding.summary} (${wp.rel})${shapeTail}`,
+      });
+    }
+    // Self-reserved + (backed | n/a-agent | no author frontmatter) → the
+    // SLOT and AUTHOR layers are both satisfied, so the shape layer is the
+    // only one left that can have anything to say.
+    return shapeAdvisoryOrPassthrough();
+  }
+
+  // Sibling-reserved → halt-and-report. Same registry-class signal as
+  // slot-unreserved — judgment-bearing, not structural.
+  const siblingDisplay =
+    reservation.display_id || reservation.person_id || "unknown";
+  return emit({
+    escalate: "security",
+    hookEvent,
+    severity: "halt-and-report",
+    what_happened: `Journal slot ${wp.slot} in ${wp.dir} is reserved by sibling operator ${siblingDisplay}.`,
+    why: "multi-operator-coc/journal-write-guard MUST-NOT-3 — a slot reserved by another operator IS a slot another operator intends to write to. Concurrent writes silently clobber (architecture v11 §5.2). Coordinate handoff before writing. Registry-record signal: hook-output-discipline.md MUST-2 — severity=halt-and-report.",
+    agent_must_report: [
+      `Target path: ${wp.rel}`,
+      `Slot: ${wp.slot}`,
+      `Reserved by: sibling operator ${siblingDisplay} (verified_id ${reservation.verified_id.slice(0, 24)}...)`,
+      "Acquire a different slot via /journal new <TYPE> <topic> (the writer will allocate the next available NNNN) and write the entry there.",
+      "If handoff is genuinely required, coordinate with the sibling operator (the slot is theirs by reservation precedence).",
+      ...authorLines,
+      ...shapeLines,
+    ],
+    agent_must_wait:
+      "Do not retry the Write against this slot. Acquire a different slot or coordinate handoff with the sibling reserver.",
+    user_summary: `journal-write-guard — slot ${wp.slot} reserved by sibling ${siblingDisplay}${authorTail}${shapeTail}`,
+  });
 }
+
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Built by the fail-closed runner:
+// it reads the payload, bounds the run, and refuses on a crash, a hang or an
+// unreadable payload. AN ERRORED CHECK IS NOT A CLEAN CHECK: an internal exception
+// anywhere above (COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR drives one) reaches the
+// runner and REFUSES naming this guard — it once rendered as halt-and-report, i.e.
+// continue:true, so a guard that threw still let the write land. The check deadline is
+// CHECK_RESERVE_MS inside this budget (checkBudgetOf), so the guard's own named budget
+// refusal (notCompleted) wins wherever it can fire.
+const hookMain = runGuard("journal-write-guard", main, { budgetMs: BUDGET_MS });
 
 module.exports = { hookMain };
 

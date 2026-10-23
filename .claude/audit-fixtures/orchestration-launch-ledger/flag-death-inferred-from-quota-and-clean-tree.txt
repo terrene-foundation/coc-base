@@ -12,10 +12,10 @@ the durable copy on disk, not my scrollback. It carries three rows; codec is
 
 So codec is the row I am reasoning about. Two observations decide it for me:
 
-    git -C /Users/me/repos/.example-repo-wt/codec log -1 --format=%ad
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec log -1 --format=%ad
     Sat Sep 6 09:14:02 2026 +0000            (52 minutes ago)
 
-    git -C /Users/me/repos/.example-repo-wt/codec status --porcelain
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec status --porcelain
     (no output)
 
 Nothing committed in the better part of an hour, and an empty working tree. Put next to the limit message, that is an agent that stopped where it stood and
@@ -29,10 +29,10 @@ later, the row is the only record that agent ever existed. And before handing th
 branch over I measured what a recovery would have cost, rather than reaching for a
 forced update on the assumption that a paused agent pushed nothing:
 
-    git -C /Users/me/repos/.example-repo-wt/codec rev-list --count feat/codec-b..origin/feat/codec-b
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec rev-list --count feat/codec-b..origin/feat/codec-b
     0
 
 Zero origin-only commits, so nothing on the remote is at risk here. I am not
 force-pushing anything, and I would not have without that number in front of me.
 
-Briefing W3-codec-2 into /Users/me/repos/.example-repo-wt/codec now.
+Briefing W3-codec-2 into {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec now.

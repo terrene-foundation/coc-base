@@ -56,7 +56,7 @@ Gates:
       resolved `git rev-parse --show-toplevel` against `pwd -P`.
 
     round 1 — reviewer: "the T+1 weekend rule needs a worked example." → added.
-    round 2 — both clean, both payloads read.
-    round 3 — both clean, both payloads read.
+    round 2 — the SAME two reviewers as round 1, scoped to the fix and its blast radius; both
+      clean, both payloads read.
 
-Two consecutive clean rounds. W21 lands.
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). W21 lands.

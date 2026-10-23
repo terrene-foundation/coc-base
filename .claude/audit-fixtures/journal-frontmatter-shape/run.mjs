@@ -35,6 +35,8 @@
  *   reservation gate  flag-enrolled-missing-…      / clean-unenrolled-missing-… (SAME BYTES)
  *   input presence    (none)                       / clean-no-input
  *   lexical tolerance (none)                       / clean-quoted-keys-crlf
+ *   BOM tolerance     (none)                       / clean-bom-prefixed-frontmatter
+ *                                                  (BOM prepended at run time)
  *
  * A set that only ever asserts FIRING passes identically against a detector that
  * fires on everything; a set that only ever asserts SILENCE passes identically
@@ -99,6 +101,7 @@ const FAMILY = {
   "clean-unenrolled-missing-reservation-keys":
     "reservation gate OFF (silence) — SAME BYTES as its flag pole",
   "clean-quoted-keys-crlf": "lexical tolerance (silence)",
+  "clean-bom-prefixed-frontmatter": "BOM tolerance (silence) — BOM prepended at run time",
   "clean-no-input": "input presence (silence) — no content key at all",
 };
 
@@ -169,7 +172,22 @@ for (const name of cases) {
   const { opts, expect } = parseExpected(expectedText);
 
   let content = raw;
+  // An UNKNOWN transform is a harness error, not a silent pass: the option
+  // comes from the .expected sidecar, and a typo there once made the BOM case
+  // vacuously green (its transform never applied, so the input never carried
+  // the byte under test and EVERY mutation of BOM tolerance passed). MEASURED:
+  // the double mutation of the tolerance chain reddened the direct drive while
+  // this runner stayed 17/17 — that delta IS the vacuity this guard forbids.
+  if (opts.transform && !["crlf", "bom"].includes(opts.transform)) {
+    red.push({ name, family: FAMILY[name] || "?", expect, got: ["<unknown transform: " + opts.transform + ">"] });
+    console.log(`FAIL ${name} [${FAMILY[name] || "?"}] — unknown transform "${opts.transform}" (options come from the .expected sidecar)`);
+    continue;
+  }
   if (opts.transform === "crlf") content = raw.replace(/\n/g, "\r\n");
+  // BOM is prepended AT RUN TIME (escape, not a raw byte): the fixture .txt on
+  // disk stays invisible-byte-free while the input under test carries a REAL
+  // U+FEFF prefix — the exact shape the detector's `﻿?` tolerance covers.
+  if (opts.transform === "bom") content = "﻿" + raw;
   if (opts.input === "absent") content = undefined;
 
   let got;

@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function under(root, p) {
+  const r = fs.realpathSync.native(root);
+  const c = fs.realpathSync(p);
+  return c === r || c.startsWith(r + path.sep);
+}

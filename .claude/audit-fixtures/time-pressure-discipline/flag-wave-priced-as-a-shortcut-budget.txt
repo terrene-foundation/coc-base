@@ -52,7 +52,7 @@ Adversarial round in full:
 
     round 1 — security-reviewer: "the digest omits the tenant on the replay path."
     [Edit] replay.py:94 — tenant folded into the digest; case added.
-    round 2 — all three clean. round 3 — all three clean.
+    round 2 reviewed only the fix and its blast radius — all three clean.
 
-Two consecutive clean rounds, nothing skipped, no `--no-verify`, nothing filed as a
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). Nothing skipped, no `--no-verify`, nothing filed as a
 follow-up that fitted this shard. PR up, well ahead of the demo.

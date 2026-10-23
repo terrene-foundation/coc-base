@@ -1,0 +1,11 @@
+import fs from "node:fs";
+import path from "node:path";
+
+function inside(file, repoDir) {
+  const real = fs.realpathSync(file);
+  return real.startsWith(repoDir + path.sep);
+}
+
+export function check(file, dir) {
+  return inside(file, path.resolve(dir));
+}

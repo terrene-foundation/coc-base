@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 sec F6: path.relative chained straight into split(sep)[0] !== "..".
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  return path.relative(path.resolve(root), c).split(path.sep)[0] !== "..";
+}

@@ -1401,22 +1401,14 @@ function coordinationMode(repoDir, opts) {
   // absent-but-anchored-at-HEAD, attestation-unavailable), and each is left
   // EXACTLY as it was: a roster we cannot read is not a roster we may call solo.
   if (!result) {
-    const rp = _rosterPath(rd, o);
-    // Same sink-pinned read + same non-object classification as
-    // _refuseEnrolledDisable, so the implicit tier and the refusal fence can never
-    // disagree about who is enrolled (loom#1447 §F6/§F7). A `null`-parsing or
-    // symlinked roster previously fell through here to tier-5 default-OFF — the
-    // OPPOSITE disposition from the corrupt-roster case one branch below.
-    const r = _readJsonPinned(rp);
-    const malformed =
-      r.ok && (!r.value || typeof r.value !== "object" || Array.isArray(r.value));
-    if (
-      r.ok &&
-      !malformed &&
-      r.value.genesis &&
-      _isGenesisAnchored(r.value.genesis)
-    ) {
-      const solo = _soloOperatorVerdict(r.value);
+    // The enrollment DECISION is `enrollmentDecision` — ONE function, shared with
+    // `state-io.js::readPosture` (rules/security.md § Enforcement-Surface Parity),
+    // so the substrate and the posture floor can never disagree about whether this
+    // repo is enrolled. Each `via` below is one of the branches this tier always had.
+    const ed = enrollmentDecision(rd, o);
+    const rp = ed.rosterPath;
+    if (ed.via === "working-tree") {
+      const solo = _soloOperatorVerdict(ed.roster);
       if (solo.state === "solo") {
         // NOT SILENT. An automatic disable of a security substrate must announce
         // itself: multi-operator-sessionstart.js prints result.warning once per
@@ -1425,7 +1417,7 @@ function coordinationMode(repoDir, opts) {
         // attached, rather than the gates simply going quiet.
         warnings.push(
           `roster is ENROLLED but binds a SINGLE human (${solo.binding}) across ` +
-            `${Object.keys(r.value.persons || {}).length} person_id(s) — coordination OFF ` +
+            `${Object.keys(ed.roster.persons || {}).length} person_id(s) — coordination OFF ` +
             "(a 2-of-N quorum is unsatisfiable with one distinct bound login: " +
             "gh-api-allowlist R5-S-07 rejects every such cosign as a sock-puppet). " +
             'To run the substrate anyway, record the decision explicitly: set ' +
@@ -1444,12 +1436,12 @@ function coordinationMode(repoDir, opts) {
         // callers via the exported `_test_soloOperatorVerdict` seam.
         result = { enabled: true, source: "implicit-roster-genesis" };
       }
-    } else if (malformed) {
+    } else if (ed.via === "working-tree-malformed") {
       warnings.push(
         `roster present but not an object (${rp}) — fail-closed toward ON (indeterminate enrollment)`,
       );
       result = { enabled: true, source: "implicit-corrupt-roster-failclosed" };
-    } else if (!r.ok && r.error) {
+    } else if (ed.via === "working-tree-unreadable") {
       // MO-OPT W2-c (raw-clone residual 2): a PRESENT-but-UNREADABLE roster is
       // an INDETERMINATE-enrollment repo — a roster file EXISTS (someone set this
       // up), it just cannot be parsed. Fail-closed toward ON (the substrate's
@@ -1459,21 +1451,21 @@ function coordinationMode(repoDir, opts) {
       // A genuinely fresh solo repo has NO roster (ENOENT → r.absent) and stays
       // OFF via tier-5; only a corrupt-but-present roster flips to fail-closed ON.
       warnings.push(
-        `roster unreadable (${rp}): ${r.error} — fail-closed toward ON (indeterminate enrollment)`,
+        `roster unreadable (${rp}): ${ed.error} — fail-closed toward ON (indeterminate enrollment)`,
       );
       result = { enabled: true, source: "implicit-corrupt-roster-failclosed" };
-    } else if (_committedRosterEnrolled(rd, o).state === "indeterminate") {
+    } else if (ed.via === "head-indeterminate") {
       // loom#1462 H2 — git could not ANSWER whether this repo is enrolled at HEAD.
       // Ranked TIGHTEST, exactly as the disable attestation ranks its own unavailable
       // (§ Enforcement-Surface Parity), and LOUD: the prior behaviour was a silent OFF,
       // which is the one disposition that must never be reachable by a git failure.
       warnings.push(
-        `enrollment attestation UNAVAILABLE (${_committedRosterEnrolled(rd, o).reason}) — ` +
+        `enrollment attestation UNAVAILABLE (${ed.reason}) — ` +
           "cannot determine whether HEAD carries an anchored roster; fail-closed toward " +
           "ON. Make git reachable to resolve this repo's real enrollment state",
       );
       result = { enabled: true, source: "implicit-head-indeterminate-failclosed" };
-    } else if (_committedRosterEnrolled(rd, o).state === "enrolled") {
+    } else if (ed.via === "head-attested") {
       // loom#1462 F2 — the ONLY branch left here is "the working-tree roster is ABSENT
       // or carries no anchored genesis". Both spellings erase the sole evidence tier 4
       // reads, and either can be produced by one ordinary file write. If HEAD says the
@@ -1497,6 +1489,87 @@ function coordinationMode(repoDir, opts) {
 
   if (!injected) _cache.set(rd, result);
   return result;
+}
+
+/**
+ * THE ENROLLMENT DECISION — is `repoDir` an enrolled repository? Shared by tier 4
+ * above and by `state-io.js::readPosture`'s fresh-repo gate, so both surfaces reach
+ * the same answer by the same steps (rules/security.md § Enforcement-Surface Parity).
+ * Sharing only the PREDICATE (`_isGenesisAnchored`) was not parity: the posture
+ * surface read the working tree alone, so `rm`/`{}`/a placeholder at the roster
+ * erased enrollment there while this module's § HEAD-ROSTER ATTESTATION refused it.
+ *
+ * Steps, in tier 4's historical order (the first that applies decides):
+ *   working tree parses, anchored genesis ⇒ enrolled          via "working-tree"
+ *   working tree parses to a non-object   ⇒ indeterminate     via "working-tree-malformed"
+ *   working tree present but unreadable   ⇒ indeterminate     via "working-tree-unreadable"
+ *   (working tree ABSENT or UNANCHORED — one file write can produce either:)
+ *   committed roster cannot be answered   ⇒ indeterminate     via "head-indeterminate"
+ *   committed roster anchored             ⇒ enrolled          via "head-attested"
+ *   otherwise                             ⇒ not-enrolled      via "absent" | "unanchored"
+ *
+ * Callers rank "indeterminate" with "enrolled" (unrecognized ranks TIGHTEST).
+ *
+ * RESIDUAL (loom#1480, NOT closed here): the committed answer is read from the
+ * attestation REF SET, which includes remote-tracking refs, so a FORGED
+ * `refs/remotes/origin/<default>` carrying an unanchored roster can answer
+ * "not-enrolled". That raises the bar from deleting one file to forging a ref;
+ * it does not remove it.
+ *
+ * @returns {{state:"enrolled"|"not-enrolled"|"indeterminate", via:string,
+ *   rosterPath:string, roster?:object, reason?:string, error?:string}}
+ */
+function enrollmentDecision(repoDir, opts) {
+  const o = opts || {};
+  const rp = _rosterPath(repoDir, o);
+  // Same sink-pinned read + same non-object classification as
+  // _refuseEnrolledDisable, so the implicit tier and the refusal fence can never
+  // disagree about who is enrolled (loom#1447 §F6/§F7). A `null`-parsing or
+  // symlinked roster previously fell through to tier-5 default-OFF — the
+  // OPPOSITE disposition from the corrupt-roster case.
+  const r = _readJsonPinned(rp);
+  const malformed =
+    r.ok && (!r.value || typeof r.value !== "object" || Array.isArray(r.value));
+  if (r.ok && !malformed && r.value.genesis && _isGenesisAnchored(r.value.genesis)) {
+    return { state: "enrolled", via: "working-tree", rosterPath: rp, roster: r.value };
+  }
+  if (malformed) {
+    return {
+      state: "indeterminate",
+      via: "working-tree-malformed",
+      rosterPath: rp,
+      reason: `roster present but not an object (${rp})`,
+    };
+  }
+  if (!r.ok && r.error) {
+    return {
+      state: "indeterminate",
+      via: "working-tree-unreadable",
+      rosterPath: rp,
+      error: r.error,
+      reason: `roster unreadable (${rp}): ${r.error}`,
+    };
+  }
+  const c = _committedRosterEnrolled(repoDir, o);
+  if (c.state === "indeterminate") {
+    return { state: "indeterminate", via: "head-indeterminate", rosterPath: rp, reason: c.reason };
+  }
+  if (c.state === "enrolled") {
+    return {
+      state: "enrolled",
+      via: "head-attested",
+      rosterPath: rp,
+      reason: `roster at ${rp} is absent-or-unanchored in the WORKING TREE but ${c.via || "the attestation ref"} carries an ANCHORED roster`,
+    };
+  }
+  return {
+    state: "not-enrolled",
+    via: r.ok ? "unanchored" : "absent",
+    rosterPath: rp,
+    reason: r.ok
+      ? `roster at ${rp} has no anchored genesis, nor does the committed roster`
+      : `no roster at ${rp}, and none is committed`,
+  };
 }
 
 /**
@@ -1952,6 +2025,11 @@ module.exports = {
   governanceMode,
   isGovernanceEnabled,
   _resetCache,
+  // THE enrollment DECISION (working tree + committed-roster attestation), exported
+  // so `state-io.js::readPosture` decides "is this repo enrolled?" by the SAME steps
+  // that gate the coordination substrate — `rules/security.md` § Enforcement-Surface
+  // Parity: one decision, every surface, no second copy.
+  enrollmentDecision,
   // Test-only — NOT part of the supported API.
   _test_isGenesisAnchored: _isGenesisAnchored,
   _test_soloOperatorVerdict: _soloOperatorVerdict,

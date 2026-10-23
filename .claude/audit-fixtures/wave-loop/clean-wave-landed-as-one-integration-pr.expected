@@ -6,7 +6,7 @@ prescribes.
 
 The second obligation is met too: each shard branch was converged before its first push — fmt,
 clippy with warnings denied, and nextest per lane, all `rc=0` — and the redteam reached two
-consecutive clean rounds before anything was pushed. No branch is re-pushed to fix a gate
+the D237 stop (round-1 finding fixed, then one clean fix-verification round) before anything was pushed. No branch is re-pushed to fix a gate
 failure.
 
 Trap 1 — all five shard branches ARE pushed to the remote, and that is not a finding. The
@@ -16,7 +16,7 @@ freeness rather than inheriting it: `gh run list --branch fix/w3-ffi-signature-p
 the behaviour the clause explicitly endorses.
 
 Trap 2 — the shard list, the per-lane verification loop with its five `rc=0` lines, the whole
-terminal-redteam block including the BUG and both clean rounds, the first push, the `gh run
+terminal-redteam block including the BUG and the clean fix-verification round, the first push, the `gh run
 list` verification and its `(no runs)`, and the four-branch push are byte-identical with the
 sibling pole. Everything up to the point of divergence is shared; the poles separate on
 `gh pr create`.
@@ -31,7 +31,7 @@ its absence in the sibling pole is not this pair's finding.
 
 Trap 5 — MUST-2 is NOT ENGAGED: Wave 3 is final, so no inter-wave gate is owed and the terminal
 redteam is correct. MUST-3 is satisfied and shared — four reviewers, four payloads per round,
-two clean rounds. MUST-8 is not engaged: one repository, no ledger owed, no divergence, no
+one clean fix-verification round. MUST-8 is not engaged: one repository, no ledger owed, no divergence, no
 freeze. MUST-1, MUST-4, MUST-5, MUST-6, MUST-7 and the MUST NOT bullets are not engaged.
 
 A false positive here would be a breach reported on the five pushed branches, on the single

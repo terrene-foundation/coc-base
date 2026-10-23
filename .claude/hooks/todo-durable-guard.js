@@ -2,6 +2,20 @@
 "use strict";
 
 /**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/burndown-events.pending.jsonl", ".claude/learning/burndown-events.pending.jsonl.lock"],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: one `git ls-files` over the tracked workspace todo tree via lib/git-subprocess-env.js (plus git probes reached through lib/burndown-events.js and lib/landing-window-read.js). Appends go to the GITIGNORED pending stream, never the tracked burndown/events.jsonl, under an O_EXCL lock file beside it (lib/burndown-events.js::acquirePendingLock); the append is signed via lib/coc-append.js -> lib/append-sink.js, which mkdirs the parent. Idempotent because the diff is computed against the folded LOGICAL log (tracked file + pending stream): a second run on the same payload finds no transitions and emits the same passthrough."
+ * }
+ */
+
+/**
  * todo-durable-guard.js — bind the Work Ledger's ingest to the DURABLE todo
  * surface, structurally.
  *
@@ -36,10 +50,27 @@
  * never gates. A bug here must never be able to stop an operator working, so every
  * unresolved branch returns a bare `{"continue":true}` and every append failure is
  * surfaced as ADVISORY, never as a refusal.
+ *
+ * IT NEVER WRITES A TRACKED FILE. Transitions land in the gitignored pending stream
+ * (`burndown-events.js::PENDING_REL`) and reach the tracked `burndown/events.jsonl` only
+ * at a commit-time step that flushes it (`burndown-build.mjs --flush-events`, a
+ * forest-ledger regeneration). A hook appending to the tracked log dirtied the checkout
+ * mid-session and left every `dev-preflight` green un-bindable until someone committed
+ * the line. The known state below is folded from the LOGICAL log (tracked + pending), or
+ * every sweep before a flush would re-append the transitions it had already recorded.
+ *
+ * THE PENDING LINES ARE NOT VERIFIED HERE, deliberately, and the bound is stated. A line
+ * written into the stream by hand can make this sweep believe a todo already sits where
+ * it now is, and skip recording that transition. Nothing is lost by it: the flush checks
+ * every line against the committed trust surface and refuses the stream while that line
+ * is in it, and once it is removed the next sweep re-derives the transition from the
+ * tracked todo tree. Verifying here instead would cost one verifier spawn per pending
+ * line on every fire of a hook with a 4 s budget. The readers whose decision is NOT
+ * re-derived later verify: `appendEvent`'s chain predecessor, the flush, and
+ * `burndown-countersign`'s adjudications (`readEventLog(..., { verifyPending: true })`).
  */
 
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const TIMEOUT_MS = 4000;
@@ -66,22 +97,23 @@ let timer = null;
  * repo's ledger as its own. The loom#1471 G1 ratchet exists for exactly this, and
  * it caught this call before it shipped.
  *
- * The binary and env resolve OUTSIDE the try, so an unresolvable envelope THROWS
- * to the caller (which fails open to a bare passthrough) rather than degrading to
- * an ambient git whose answer nobody can attribute.
+ * M-W4.3 RUN 8: the read runs through THE TARGET-REPO ENVELOPE
+ * (lib/target-repo-git.js). `ls-files` reads the index, which refreshes through
+ * the repository's configured `core.fsmonitor` program, and that config is
+ * agent-writable; the envelope closes it. The repository is resolved ONCE from
+ * `repoDir`. Every failure — an unresolvable repository, a refused or unanswered
+ * read, a non-zero exit — THROWS to the caller (which fails open to a bare
+ * passthrough) rather than degrading to an answer nobody can attribute, exactly
+ * as the unresolvable binary did before.
  */
 function trackedTodoFiles(repoDir) {
-  const { resolveGitBinary, gitEnvForArgs } = require("./lib/git-subprocess-env.js");
-  const bin = resolveGitBinary();
-  if (!bin) throw new Error("no git binary on a trusted path");
-  const args = ["ls-files", "workspaces/*/todos/**"];
-  const out = execFileSync(bin, args, {
-    cwd: repoDir,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-    env: gitEnvForArgs(args),
-  });
-  return out.split("\n").filter(Boolean);
+  const { resolveTargetRepo, targetGit } = require("./lib/target-repo-git.js");
+  const at = path.resolve(String(repoDir)); // the spawn cwd the old call used, made absolute
+  const resolved = resolveTargetRepo({ dir: at });
+  if (!resolved.ok) throw new Error(`the repository did not resolve (${resolved.kind})`);
+  const r = targetGit(resolved.repo, ["ls-files", "workspaces/*/todos/**"], { cwd: at });
+  if (!r.ok) throw new Error(r.refused || (r.ran ? `git ls-files exited ${r.status}` : "git ls-files did not answer"));
+  return r.stdout.split("\n").filter(Boolean);
 }
 
 /** Cheap early-exit: does this PostToolUse payload plausibly touch the surface? */
@@ -128,23 +160,50 @@ async function main() {
   // The KNOWN state comes from the SHARED fold, never a second walk of the log.
   // Two folds disagreeing about which event wins is the drift class the whole
   // log/projection split exists to close, so this consumes `foldProjection`
-  // rather than re-deriving last-wins semantics here.
+  // rather than re-deriving last-wins semantics here. It folds the LOGICAL log —
+  // tracked file, then pending stream — because this hook's own appends sit in the
+  // pending stream until the train flushes them.
   let known = new Map();
   // The fold's skips, rendered BY CLASS. A bare `skipped.length` reported a valid
   // proposal awaiting its owner countersignature as an UNREADABLE line; the class is
   // set at the producer (`burndown-events.js::partitionSkips`) and rendered by
   // `todo-durable.js::describeFoldSkips`, so this hook never guesses it from prose.
   let skipLines = [];
+  // A log the reader REFUSES (a symlinked or oversized stream, an unreadable file) is
+  // said, not swallowed: a silent passthrough here switched the producer off with
+  // nothing on any surface.
+  let readRefusal = null;
   try {
-    const fs = require("node:fs");
-    const abs = path.join(repoDir, events.EVENTS_REL);
-    if (fs.existsSync(abs)) {
-      const p = events.foldProjection(fs.readFileSync(abs, "utf8"));
+    const cur = events.readEventLog(repoDir);
+    if (!cur.ok) {
+      readRefusal = `${cur.error}: ${cur.reason}`;
+    } else if (cur.text) {
+      const p = events.foldProjection(cur.text);
       skipLines = lib.describeFoldSkips(events.partitionSkips(p));
       for (const [id, row] of p.rows) known.set(id, row.status);
     }
   } catch {
     return passthrough();
+  }
+  if (readRefusal) {
+    try {
+      const { instructAndWait } = require("./lib/instruct-and-wait.js");
+      const emitted = instructAndWait({
+        severity: "advisory",
+        hookEvent: event || "PostToolUse",
+        rule_id: "knowledge-convergence/MUST-1",
+        what_happened: `The event log could not be read, so this sweep recorded NOTHING: ${readRefusal}`,
+        why:
+          `The known state is the fold of the event log; without it no transition can be told apart from one ` +
+          `already recorded. This hook RECORDS; it never gates.`,
+        agent_must_report: [`Durable todo transitions were NOT recorded this fire: ${readRefusal}`],
+      });
+      process.stdout.write(JSON.stringify(emitted.json) + "\n");
+    } catch {
+      return passthrough();
+    }
+    clearTimeout(timer);
+    return undefined;
   }
 
   const diff = lib.diffTransitions(scan, known);
@@ -226,7 +285,9 @@ async function main() {
             authority: "agent",
             source: "todo-durable-guard",
           }),
-          { identity, signOpts },
+          // The lock wait is bounded by what is LEFT of this fire's append deadline, so a
+          // contended lock cannot carry the hook past its own timeout.
+          { identity, signOpts, lockWaitMs: Math.max(0, deadline - Date.now()) },
         );
       } catch (err) {
         r = { ok: false, reason: (err && err.message) || "append threw" };
@@ -237,7 +298,7 @@ async function main() {
   }
 
   const lines = [];
-  if (appended.length) lines.push(`Recorded ${appended.length} durable todo transition(s).`);
+  if (appended.length) lines.push(recordedLine(appended.length, events));
   if (!canSign && diff.transitions.length > 0) {
         lines.push(
       `${diff.transitions.length} transition(s) went UNRECORDED: ${identityWhy || "identity unavailable"}. ` +
@@ -268,7 +329,11 @@ async function main() {
   // Unreadable and unclassified lines are always among these; a pending proposal is
   // named as awaiting activation, never as an unreadable line.
   lines.push(...skipLines);
-  if (!lines.length) return passthrough();
+  // SILENT ON SUCCESS (journal/0661 hook output economy): "Recorded N durable todo
+  // transition(s)." alone is a receipt of a write that SUCCEEDED, not a finding — the
+  // ledger row IS the record. Any unrecorded / refused / deferred / collision / skip
+  // line still emits, and the success count rides along with it.
+  if (!lines.length || isSuccessOnly(lines, appended.length, events)) return passthrough();
 
   try {
     const { instructAndWait } = require("./lib/instruct-and-wait.js");
@@ -292,6 +357,19 @@ async function main() {
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
 // in-process by lib/hook-engine.js (dispatch.js). It arms the fallback timer the
 // file used to arm at load time, then runs main() with the SAME catch handler.
+/** The success receipt line — one source for the line and the silent-on-success test. */
+function recordedLine(n, events = require("./lib/burndown-events.js")) {
+  return `Recorded ${n} durable todo transition(s) in the PENDING stream ` +
+    `\`${events.PENDING_REL}\` (gitignored). They reach the tracked \`${events.EVENTS_REL}\` only at a ` +
+    `commit-time step — the train's flush or a forest-ledger regeneration. Do NOT flush mid-session: ` +
+    `that writes the tracked file this stream exists to keep clean.`;
+}
+
+/** PURE: the report holds ONLY the success receipt — nothing unrecorded, refused, deferred or skipped. */
+function isSuccessOnly(lines, appendedCount, events) {
+  return Array.isArray(lines) && lines.length === 1 && appendedCount > 0 && lines[0] === recordedLine(appendedCount, events);
+}
+
 function hookMain() {
   timer = setTimeout(() => {
     try {
@@ -305,7 +383,15 @@ function hookMain() {
   return main().catch(() => passthrough());
 }
 
-module.exports = { hookMain };
+module.exports = {
+  hookMain,
+  isSuccessOnly,
+  recordedLine,
+  // Exported for the routing closure cases (tests/integration/multi-operator/
+  // target-repo-git-routing.test.js), which plant a program in the repository's
+  // config and assert this read never runs it.
+  _trackedTodoFiles: trackedTodoFiles,
+};
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The

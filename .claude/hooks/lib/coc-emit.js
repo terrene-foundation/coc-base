@@ -32,6 +32,9 @@
  *   4. Append enforces the 2KB POSIX-atomic-append cap (transport
  *      invariant) with a typed refusal — never truncate-after-sign
  *      (the Sec-LOW-2 class coc-append.js documents).
+ *   5. On the main-log path, steps 1-4 run under ONE exclusive emit lock
+ *      (EMIT_LOCK_FILE beside the log), so two concurrent writers cannot
+ *      both build on the same head and fork the chain.
  *
  * Style: CommonJS, sync (matches genesis-ceremony.js + sibling lib/*),
  * zero-dep. Per zero-tolerance.md Rule 3: every failure path returns a
@@ -46,14 +49,36 @@
 "use strict";
 
 const fs = require("fs");
+const { parseCoordinationLog } = require("./fold-record-limits.js");
 const path = require("path");
+const crypto = require("crypto");
+const { types: utilTypes } = require("util");
+
+// ---- Intrinsics, captured ONCE at load (sigcov R2-1) ------------------------
+// In-process hostile code is inside the gate-approval capability's threat
+// model. Every built-in the opts snapshot's refusals depend on is captured
+// here, so patching `util.types.isProxy`, `Object.getOwnPropertyDescriptors`,
+// `Reflect.ownKeys`, `Function.prototype.call` and the like after load changes
+// nothing this module decides. (Code that controls module LOADING itself, i.e.
+// runs before this file, is out of reach of any in-module defence.)
+const _isProxy = utilTypes.isProxy;
+const _getPrototypeOf = Object.getPrototypeOf;
+const _getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
+const _defineProperty = Object.defineProperty;
+const _objectCreate = Object.create;
+const _freeze = Object.freeze;
+const _ownKeys = Reflect.ownKeys;
+const _apply = Reflect.apply;
+const _hasOwnProperty = Object.prototype.hasOwnProperty;
+const _OBJECT_PROTOTYPE = Object.prototype;
+const _hasOwn = (obj, key) => _apply(_hasOwnProperty, obj, [key]);
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 const cocSign = require(path.join(__dirname, "coc-sign.js"));
 const coordinationLog = require(path.join(__dirname, "coordination-log.js"));
 const { resolveLogPath } = require(path.join(__dirname, "state-io.js"));
-const { resolveIdentity, _discoverSigningKey } = require(
+const { resolveIdentity, _discoverSigningKey, _fingerprintFromKey, _makeRosterGpgResolver, _gpgFingerprint } = require(
   path.join(__dirname, "operator-id.js"),
 );
 const actuationTypes = require(path.join(__dirname, "actuation-types.js"));
@@ -67,6 +92,125 @@ const presenceProofVerify = require(
 // atomicity half-budget (PIPE_BUF is 4KB; 2KB keeps the line atomic
 // under layered fs shims).
 const MAX_LINE_BYTES = 2048;
+
+// ---- Per-log exclusive lock ----------------------------------------------------
+// ONE implementation, used by emitSignedRecord below (the emit lock) and by the guard broker's
+// log writer (`guard-foundation/broker/log-append.js`, its per-log append lock). The lock is an
+// O_CREAT|O_EXCL|O_NOFOLLOW file: the kernel picks exactly one winner. A waiter polls for at most
+// `waitMs`; a lock older than LOCK_STALE_MS (a holder killed mid-run) is broken. An untaken lock
+// is reported as a failure, never ignored.
+const LOCK_WAIT_MS = 10000;
+const LOCK_STALE_MS = 60000;
+const LOCK_POLL_MS = 20;
+
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+const lstatOrNull = (p) => {
+  try {
+    return fs.lstatSync(p);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Break a lock older than LOCK_STALE_MS. It is RENAMED aside first and deleted only if the moved
+ * file is the very inode that was judged stale, so a writer that took a fresh lock between the
+ * judgement and the rename gets its lock put back (linked to the lock name again) instead of
+ * silently losing it.
+ */
+function breakStaleLock(lock, seen, label) {
+  const grave = `${lock}.stale-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+  try {
+    fs.renameSync(lock, grave);
+  } catch {
+    return; // gone or replaced since it was judged: the caller simply retries the create
+  }
+  const moved = lstatOrNull(grave);
+  if (!moved || moved.dev !== seen.dev || moved.ino !== seen.ino) {
+    try {
+      fs.linkSync(grave, lock);
+    } catch (e) {
+      process.stderr.write(`${label}: WARNING: a fresh lock moved while breaking a stale one could not be restored at ${lock}: ${e.code || e.message}\n`);
+    }
+  }
+  try {
+    fs.unlinkSync(grave);
+  } catch (e) {
+    process.stderr.write(`${label}: WARNING: the broken lock ${grave} could not be removed: ${e.code || e.message}\n`);
+  }
+}
+
+/**
+ * Take the lock file `lock`. `o.name` names it in a refusal, `o.label` prefixes a warning,
+ * `o.onWait` is called once, the first time the lock is found held, and `o.waitMs` bounds the
+ * wait (default LOCK_WAIT_MS). Returns { ok:true, lock, dev, ino, label } or { ok:false, reason }.
+ */
+function acquireLogLock(lock, o) {
+  const opts = o || {};
+  const name = opts.name || path.basename(lock);
+  const label = opts.label || "coc-emit";
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW || 0);
+  const waitMs = typeof opts.waitMs === "number" ? opts.waitMs : LOCK_WAIT_MS;
+  const deadline = Date.now() + waitMs;
+  let announced = false;
+  for (;;) {
+    let fd = null;
+    try {
+      fd = fs.openSync(lock, flags, 0o600);
+    } catch (e) {
+      if (!e || e.code !== "EEXIST") return { ok: false, reason: `the ${name} lock ${lock} could not be created: ${(e && (e.code || e.message)) || e}` };
+    }
+    if (fd !== null) {
+      try {
+        fs.writeSync(fd, `${process.pid}\n`);
+        const st = fs.fstatSync(fd);
+        return { ok: true, lock, dev: st.dev, ino: st.ino, label };
+      } catch (e) {
+        try {
+          fs.unlinkSync(lock);
+        } catch {
+          // the lock is stale-broken by the next writer after LOCK_STALE_MS; nothing better here
+        }
+        return { ok: false, reason: `the ${name} lock ${lock} could not be written: ${(e && (e.code || e.message)) || e}` };
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+    if (!announced) {
+      announced = true;
+      if (typeof opts.onWait === "function") opts.onWait();
+    }
+    const held = lstatOrNull(lock);
+    if (held && Date.now() - held.mtimeMs > LOCK_STALE_MS) {
+      breakStaleLock(lock, held, label);
+      continue;
+    }
+    if (Date.now() >= deadline) return { ok: false, reason: `the ${name} lock ${lock} is held and was not released within ${waitMs} ms` };
+    sleepSync(LOCK_POLL_MS);
+  }
+}
+
+/** Release a lock this run holds — only if the lock name still holds OUR inode. */
+function releaseLogLock(h) {
+  const st = lstatOrNull(h.lock);
+  if (!st || st.dev !== h.dev || st.ino !== h.ino) {
+    process.stderr.write(`${h.label}: WARNING: the lock ${h.lock} no longer held this run's file at release (broken as stale, or removed); it was left alone\n`);
+    return;
+  }
+  try {
+    fs.unlinkSync(h.lock);
+  } catch (e) {
+    process.stderr.write(`${h.label}: WARNING: the lock ${h.lock} could not be released: ${e.code || e.message}\n`);
+  }
+}
+
+// The emit lock: a DIFFERENT file from the broker's `.coordination-log.log-append.lock`, because
+// under the guard foundation's OS profile an emit holding this lock hands its line to the broker,
+// which then takes ITS lock — one shared name would make every brokered emit wait on itself. The
+// order is always emit lock, then broker lock, and the broker never takes this one, so the two
+// cannot deadlock.
+const EMIT_LOCK_FILE = ".coordination-log.emit.lock";
 
 function _loadRoster(repoDir) {
   const rosterPath = path.join(repoDir, ".claude", "operators.roster.json");
@@ -95,17 +239,9 @@ function _defaultReadChainHead({ repoDir, roster, verifiedId }) {
     if (err && err.code === "ENOENT") return null;
     throw err;
   }
-  const records = raw
-    .split("\n")
-    .filter((l) => l.length > 0)
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter((r) => r && typeof r === "object");
+  const records = parseCoordinationLog(raw, {
+    malformed: "skip", objectRecordsOnly: true, maxRecords: null,
+  }).records;
   if (records.length === 0) return null;
   // skipSignatureVerify: computing the emitter's chain HEAD needs only the
   // per-emitter chain STRUCTURE (max seq + its prev_hash) — NOT cryptographic
@@ -192,40 +328,9 @@ function _defaultAppend(repoDir, record) {
   //
   // `repoDir` stays the value stamped into the signed record; only the boundary widens.
   //
-  // Resolved through `requireMainCheckout` — the FAIL-CLOSED accessor — not the legacy
-  // `resolveMainCheckout`, because what is being declared here is a CONTAINMENT ROOT. The legacy
-  // accessor silently returns its own `cwd` argument when git cannot identify a main checkout
-  // (`state-resolver.js` § INDETERMINATE), so a caller that widens a trust boundary with it widens
-  // it with an unverified value. State the equivalence honestly rather than over-claiming a fix:
-  // at THIS call site the argument is `repoDir`, which `appendSinkLine` already declares as root[0]
-  // and `_resolveRoots` realpath-dedupes, so the indeterminate branch contributed a NO-OP DUPLICATE
-  // and the boundary never actually widened. Measured on a non-git dir: `indeterminate=true`,
-  // legacy path `=== repoDir` argument, `requireMainCheckout().ok === false`.
-  //
-  // The migration is therefore behaviour-preserving TODAY, and is made anyway for two reasons the
-  // no-op does not cover. (1) That safety holds only by the coincidence that the value passed in
-  // equals the value fallen back to — a two-hop invariant no reader re-derives, which silently
-  // breaks the moment this call is handed a session cwd instead of `repoDir`. (2) The alternative
-  // was a `LEGACY_ALLOWED` entry in
-  // `tests/integration/multi-operator/trust-resolver-fail-closed-1471.test.js`, which would have
-  // recorded the weakness in a ledger meant to SHRINK rather than removing it.
-  //
-  // The `!ok` branch declares NOTHING, which is the same fail-closed shape as the catch below: a
-  // sink outside `repoDir` is refused rather than written somewhere unverified, while a sink INSIDE
-  // `repoDir` — the legitimate non-git / unresolvable-git case — still lands. Refusing the whole
-  // append on `!ok` would over-block that path; both halves are pinned by
-  // `append-sink-worktree-state.test.js` § "git cannot answer".
-  const boundaryRoots = [];
-  try {
-    const { requireMainCheckout } = require(
-      path.join(__dirname, "state-resolver.js"),
-    );
-    const mainCheckout = requireMainCheckout(repoDir);
-    if (mainCheckout.ok) boundaryRoots.push(mainCheckout.repoDir);
-  } catch {
-    // Resolver unavailable — `repoDir` remains the only root and a main-checkout sink fails
-    // CLOSED (loudly, to the caller) rather than being written somewhere unverified.
-  }
+  // Containment roots for a state-dir sink: derived by the ONE helper in
+  // append-sink.js (see its doc for the fail-closed resolver rationale).
+  const boundaryRoots = mainCheckoutBoundaryRoots(repoDir);
   const w = appendSinkLine({
     repoDir,
     additionalRoots: boundaryRoots,
@@ -254,17 +359,9 @@ function _readMainLogRecords(repoDir) {
     if (err && err.code === "ENOENT") return [];
     throw err;
   }
-  return raw
-    .split("\n")
-    .filter((l) => l.length > 0)
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter((r) => r && typeof r === "object");
+  return parseCoordinationLog(raw, {
+    malformed: "skip", objectRecordsOnly: true, maxRecords: null,
+  }).records;
 }
 
 /**
@@ -298,7 +395,16 @@ function _foldDelta(liveRecords, roster, record) {
   // caches+forks it (guard over-refuses), verify rule-1-rejects it (guard
   // admits). Skip can therefore only make the guard OVER-refuse a legitimate
   // emit, NEVER admit a record a read-time fold would reject. Fail-closed.
-  const foldOpts = { skipSignatureVerify: true };
+  // VERIFY the candidate (verified-fold, 2026-10-09): the old skip rested on
+  // the premise "the candidate is freshly self-signed, so rule-1 always
+  // passes" — a premise nothing enforced, and the wBL8jr anomaly class is
+  // exactly its negation (a stamp/sign-divergent candidate folded ACCEPTED
+  // under the skip and was appended). The premise is now ENFORCED here AND
+  // bound at the emission site; the historic per-emit GPG cost this skip
+  // avoided is bounded today by checkpoint coverage + in-process SSH
+  // fingerprints (measured warm full-verify on the 1072-record log: 623-805ms
+  // per fold, median 759 — and this guard runs TWO folds, so ~1.3s per emit).
+  const foldOpts = {};
   const before = coordinationLog.foldLog(liveRecords, roster, foldOpts);
   const after = coordinationLog.foldLog(
     liveRecords.concat([record]),
@@ -384,6 +490,73 @@ function makeValidateFold(readRecords) {
 const _defaultValidateFold = makeValidateFold(_readMainLogRecords);
 
 /**
+ * True only when `capability` is a live capability minted by `gate-approval.js`
+ * (redeeming it consumes it). Any failure to ask is a refusal. The redeemer is
+ * the one bound at load (see the end of this file), never looked up on
+ * gate-approval's exports or the module cache at call time (sigcov R2-1).
+ */
+function _holdsGateApprovalCapability(capability) {
+  try {
+    return typeof _redeemEmitCapability === "function" && _redeemEmitCapability(capability) === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Snapshot `opts` once, into a NULL-PROTOTYPE object holding only the caller's
+ * own enumerable string-keyed DATA properties, or refuse at step "args".
+ * Returns `{ o }` or `{ refusal }`; it never throws.
+ *
+ * Every check, the record and the presence gate read this snapshot, never
+ * `opts` (loom#1442 R2 S1): an accessor or Proxy answering `type` differently
+ * on each read could otherwise pass the capability and presence checks as one
+ * type and be signed as another. What cannot be copied faithfully is REFUSED,
+ * never dropped — a dropped seam (`sign`, `append`, `readChainHead`, …) is
+ * silently replaced by the DEFAULT, i.e. the real signing key and the main log,
+ * for a call meant to be seamed (loom#1442 A5 I2):
+ *   - a Proxy (its traps can lie about keys, values and prototype);
+ *   - a prototype other than `Object.prototype` or `null`;
+ *   - an accessor (it runs caller code, can answer per read, can throw);
+ *   - a non-enumerable or Symbol-keyed own property (a copy keyed on
+ *     enumerable string keys would drop it — sigcov R1 S1).
+ * The target has no prototype, so a field the caller left out reads
+ * `undefined`, never a value planted on a polluted `Object.prototype`, and
+ * filling it runs no inherited setter (sigcov R1 S2, S3). A throw while
+ * snapshotting is a typed refusal too (sigcov R1 S4).
+ */
+function snapshotPlainOpts(opts) {
+  const refuse = (reason) => ({ refusal: { ok: false, error: "invalid argument", reason, step: "args" } });
+  const o = _objectCreate(null);
+  if (opts === undefined || opts === null) return { o };
+  try {
+    // isProxy first: getPrototypeOf on a Proxy runs its trap, which can lie.
+    // Every built-in below is the one captured at load (sigcov R2-1).
+    if (_isProxy(opts)) return refuse("opts must not be a Proxy");
+    const proto = typeof opts === "object" ? _getPrototypeOf(opts) : undefined;
+    if (proto !== _OBJECT_PROTOTYPE && proto !== null) {
+      return refuse("opts must be a plain object (prototype Object.prototype or null)");
+    }
+    const descriptors = _getOwnPropertyDescriptors(opts);
+    // An index loop: `for…of` would consult a patchable Array iterator.
+    const keys = _ownKeys(descriptors);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const d = descriptors[key];
+      if (typeof key === "symbol") return refuse(`opts must not carry a Symbol-keyed property (${String(key)})`);
+      if (!_hasOwn(d, "value")) {
+        return refuse(`opts.${key} must be a data property, not an accessor`);
+      }
+      if (d.enumerable !== true) return refuse(`opts.${key} must be an enumerable property`);
+      _defineProperty(o, key, { value: d.value, writable: true, enumerable: true, configurable: true });
+    }
+  } catch (err) {
+    return refuse(`opts could not be read: ${err && err.message ? err.message : String(err)}`);
+  }
+  return { o };
+}
+
+/**
  * Emit one signed, chained coordination-log record.
  *
  * @param {object} opts
@@ -417,11 +590,19 @@ const _defaultValidateFold = makeValidateFold(_readMainLogRecords);
  *   `sign` on the DEFAULT-append path (no custom append) MUST also set
  *   COC_TEST_SKIP_SIGN=1, else the stub-signed record fails rule-1 at the
  *   validation fold and emit returns a spurious fold-validate refusal.
+ * @param {object} [gateApprovalCapability] - the single-use capability only
+ *   `gate-approval.js::emitGateApproval` mints; required for `type:
+ *   "gate-approval"`, ignored otherwise. It is a separate ARGUMENT, never an
+ *   opts field: caller-visible opts are copied, and a copy can be observed (a
+ *   setter planted on `Object.prototype` received it — sigcov R1 S3).
  * @returns {{ok: true, record: object} |
  *           {ok: false, error: string, reason: string, step: string}}
  */
-function emitSignedRecord(opts) {
-  const o = opts || {};
+function emitSignedRecord(opts, gateApprovalCapability) {
+  // READ ONCE: see snapshotPlainOpts.
+  const snapshot = snapshotPlainOpts(opts);
+  if (snapshot.refusal) return snapshot.refusal;
+  const o = snapshot.o;
   const repoDir = o.repoDir;
   if (!repoDir || typeof repoDir !== "string") {
     return {
@@ -459,6 +640,22 @@ function emitSignedRecord(opts) {
     };
   }
 
+  // `gate-approval` is admitted ONLY through `gate-approval.js::emitGateApproval`,
+  // which passes a single-use capability minted inside that module and never
+  // exported, as this function's SECOND ARGUMENT (never an opts field). A
+  // caller that merely names the type cannot forge one, so the emit-site tripwire (gate-identity-signature-coverage.test.js 1442 B/D)
+  // guards the record TYPE, not just one function name (loom#1442). Checked
+  // before identity, chain head, sign and append, so a refusal touches nothing.
+  if (o.type === "gate-approval" && !_holdsGateApprovalCapability(gateApprovalCapability)) {
+    return {
+      ok: false,
+      error: "gate-approval capability required",
+      reason:
+        "gate-approval records are emitted only through the gate-approval.js emitter, which holds the capability; a direct emitSignedRecord call naming the type is refused (loom#1442)",
+      step: "capability",
+    };
+  }
+
   // NOTE (#583 Shard 3a): the presence-proof gate for actuation-class records
   // runs AFTER recordCore is constructed (it re-derives presenceProofBindingBytes,
   // which needs type + verified_id + person_id + content) and BEFORE sign — see
@@ -478,6 +675,15 @@ function emitSignedRecord(opts) {
       };
     }
   }
+  // Identity is read once, for the same reason as `opts`, and only from its
+  // OWN properties: an omitted `display_id` must stay absent, never be read
+  // off a polluted Object.prototype and signed with the operator's key
+  // (sigcov R2-5).
+  if (identity) {
+    const src = identity;
+    const own = (key) => (_hasOwn(src, key) ? src[key] : undefined);
+    identity = { verified_id: own("verified_id"), person_id: own("person_id"), display_id: own("display_id") };
+  }
   if (
     !identity ||
     typeof identity.verified_id !== "string" ||
@@ -494,6 +700,48 @@ function emitSignedRecord(opts) {
     };
   }
 
+  // ---- Emit lock (read head → sign → fold-validate → append is ONE section) --
+  // Without it, two writers that read the same chain head both sign and append the same seq:
+  // the emitter's chain forks and every fold names it an equivocator (fold rule 3), and the
+  // second record is lost. Holding the lock from the head read to the append makes a concurrent
+  // writer wait and then read a head that includes this record. It is taken on the MAIN-LOG
+  // path only (no injected `append`): a separate-log emitter's chain lives in a log this module
+  // does not know, so it is not serialized here. It serializes every writer that goes through
+  // this function; a writer that appends the main log by another route does not take it.
+  let emitLock = null;
+  if (!o.append) {
+    let lockPath;
+    try {
+      const stateDir = path.dirname(resolveLogPath(repoDir));
+      fs.mkdirSync(stateDir, { recursive: true });
+      lockPath = path.join(stateDir, EMIT_LOCK_FILE);
+    } catch (err) {
+      return {
+        ok: false,
+        error: "emit lock unavailable",
+        reason: `the coordination-log state dir could not be prepared for the emit lock: ${err && err.message ? err.message : String(err)}; nothing was signed or appended`,
+        step: "lock",
+      };
+    }
+    emitLock = acquireLogLock(lockPath, { name: "coordination-log emit", label: "coc-emit" });
+    if (!emitLock.ok) {
+      return {
+        ok: false,
+        error: "emit lock unavailable",
+        reason: `${emitLock.reason}; nothing was signed or appended (a record built on a head read without the lock could fork the chain)`,
+        step: "lock",
+      };
+    }
+  }
+  try {
+    return _emitWithHead(o, repoDir, identity);
+  } finally {
+    if (emitLock) releaseLogLock(emitLock);
+  }
+}
+
+/** emitSignedRecord from the chain-head read to the append; runs under the emit lock. */
+function _emitWithHead(o, repoDir, identity) {
   // ---- Chain head (refuse-don't-fork) -------------------------------------
   const roster = _loadRoster(repoDir);
   const readChainHead = o.readChainHead || _defaultReadChainHead;
@@ -513,7 +761,7 @@ function emitSignedRecord(opts) {
     };
   }
 
-  const recordCore = {
+  const draft = {
     type: o.type,
     verified_id: identity.verified_id,
     person_id: identity.person_id,
@@ -522,7 +770,45 @@ function emitSignedRecord(opts) {
     ts: new Date().toISOString(),
     content: o.content,
   };
-  if (identity.display_id) recordCore.display_id = identity.display_id;
+  if (identity.display_id) draft.display_id = identity.display_id;
+
+  // ---- Serialize ONCE, then work on the bytes' own data -------------------
+  // `content` is the caller's object and may hold accessors or be a Proxy, so
+  // it is read exactly once, here. The bytes are the canonical form of the
+  // draft — the same bytes this function always signed — and `recordCore` is
+  // parsed back FROM them, so the presence gate, the sign/stamp bind and the
+  // appended record all see the data that was signed, not a second read of
+  // the caller's object (loom#1442 R2 S1).
+  let bytes;
+  try {
+    bytes = cocSign.canonicalSerialize(draft);
+  } catch (err) {
+    return {
+      ok: false,
+      error: "canonical-serialize failed",
+      reason: err && err.message ? err.message : String(err),
+      step: "serialize",
+    };
+  }
+  const recordCore = JSON.parse(bytes.toString("utf8"));
+  // The fold re-derives the signed bytes FROM the appended record, so that
+  // record must re-canonicalize to exactly these bytes. A value that does not
+  // survive the round trip is refused here rather than appended unverifiable.
+  let roundTrip;
+  try {
+    roundTrip = cocSign.canonicalSerialize(recordCore);
+  } catch (err) {
+    roundTrip = null;
+  }
+  if (!roundTrip || !roundTrip.equals(bytes)) {
+    return {
+      ok: false,
+      error: "canonical round-trip mismatch",
+      reason:
+        "the record parsed from its canonical bytes does not re-serialize to the same bytes, so the fold could not verify its signature; refusing rather than appending it",
+      step: "serialize",
+    };
+  }
 
   // ---- Presence-proof gate (#583 §C4; Shard-3a requirement-latch) ---------
   // Actuation-class records (gate-approval + future command-center actuation
@@ -545,8 +831,9 @@ function emitSignedRecord(opts) {
   // fold-reject; so a non-PROVEN actuation must be refused here, not advisory-
   // passed. Runs AFTER recordCore (verifyPresenceProof re-derives
   // presenceProofBindingBytes over type+verified_id+person_id+content) and BEFORE
-  // sign, so a non-PROVEN actuation is never signed or appended.
-  if (actuationTypes.requiresPresenceAttestation(o.type)) {
+  // sign, so a non-PROVEN actuation is never signed or appended. It reads the
+  // record parsed from the signed bytes (see "Serialize ONCE" above).
+  if (actuationTypes.requiresPresenceAttestation(recordCore.type)) {
     const verdict = presenceProofVerify.verifyPresenceProof(
       recordCore,
       roster,
@@ -556,24 +843,13 @@ function emitSignedRecord(opts) {
       return {
         ok: false,
         error: "presence proof required",
-        reason: `actuation record type '${o.type}' requires a PROVEN per-record presence proof in content.presence_proof (verifier status: ${verdict.status}${verdict.reason ? ` — ${verdict.reason}` : ""}) — holding the signing key is NOT sufficient (#583 §C4). The proof is produced by the off-loom loom-command hardware-presence broker; an in-process/agent emission without a fresh, broker-signed proof is the identity-≠-intent hole #583 closes.`,
+        reason: `actuation record type '${recordCore.type}' requires a PROVEN per-record presence proof in content.presence_proof (verifier status: ${verdict.status}${verdict.reason ? ` — ${verdict.reason}` : ""}) — holding the signing key is NOT sufficient (#583 §C4). The proof is produced by the off-loom hardware-presence broker; an in-process/agent emission without a fresh, broker-signed proof is the identity-≠-intent hole #583 closes.`,
         step: "presence-gate",
       };
     }
   }
 
   // ---- Sign ---------------------------------------------------------------
-  let bytes;
-  try {
-    bytes = cocSign.canonicalSerialize(recordCore);
-  } catch (err) {
-    return {
-      ok: false,
-      error: "canonical-serialize failed",
-      reason: err && err.message ? err.message : String(err),
-      step: "serialize",
-    };
-  }
 
   let signFn = o.sign;
   let signOpts = {};
@@ -585,7 +861,7 @@ function emitSignedRecord(opts) {
     // Test determinism: explicit null suppresses the ambient git-config
     // tier (a sandboxed repo otherwise inherits the operator's GLOBAL
     // user.signingkey through `git -C <repo> config --get`).
-    if (Object.prototype.hasOwnProperty.call(o, "gitConfigSigningKey")) {
+    if (_hasOwn(o, "gitConfigSigningKey")) {
       discoverOpts.gitConfigSigningKey = o.gitConfigSigningKey;
     }
     const { keyPath, keyType } = _discoverSigningKey(repoDir, discoverOpts);
@@ -613,7 +889,49 @@ function emitSignedRecord(opts) {
       step: "sign",
     };
   }
-  const record = Object.assign({}, recordCore, { sig: signResult.sig });
+  // Spread DEFINES own properties and runs no setter: a [[Set]] copy here
+  // handed `sig` to a setter on Object.prototype and left the record unsigned
+  // (sigcov R2-3).
+  const record = { ...recordCore, sig: signResult.sig };
+
+  // ---- Sign/Stamp BIND (verified-fold, 2026-10-09) --------------------------
+  // The stamp (`identity.verified_id`) and the signing key (opts or
+  // `git config user.signingkey`) are resolved INDEPENDENTLY and nothing bound
+  // them — the MEASURED anomaly class: a record stamped to one persona's ssh
+  // key but SIGNED by another rostered key (the whole 27-record chain then
+  // fails a verifying fold's rule-1). Bind them here: derive the signing key's
+  // fingerprint and REFUSE on a mismatch, naming both in FORM (prefixes only).
+  // Only when WE resolved the key - an injected `o.sign` carries no keyPath.
+  if (!o.sign && signOpts.keyPath) {
+    // Compose the SAME resolver resolveIdentity uses (roster suffix-match
+    // FIRST, ambient gpg fingerprint as FALLBACK): the roster suffix-match
+    // structurally cannot resolve a signing-SUBKEY id or an email/name
+    // user-id, and for those selectors a bare roster resolver returns the
+    // VERBATIM selector — refusing a legitimate emit and mis-labelling a
+    // selector issue as a key mismatch (round-1 security F1).
+    const rosterResolver = roster ? _makeRosterGpgResolver(roster) : null;
+    const bindResolver = rosterResolver
+      ? (keyId) => rosterResolver(keyId) || _gpgFingerprint(keyId)
+      : undefined;
+    const fp = _fingerprintFromKey(signOpts.keyPath, signOpts.keyType, bindResolver);
+    const claimed = String(record.verified_id || "");
+    if (!fp) {
+      return {
+        ok: false,
+        error: "sign/key unbound",
+        reason: `cannot derive the signing key's fingerprint (${signOpts.keyType}) to bind against verified_id ${claimed.slice(0, 16)}…; refusing an unbound emission`,
+        step: "bind",
+      };
+    }
+    if (String(fp) !== claimed) {
+      return {
+        ok: false,
+        error: "sign/key mismatch",
+        reason: `REFUSING a sign/key mismatch: the record is stamped verified_id ${claimed.slice(0, 16)}… but the signing key resolves to ${String(fp).slice(0, 16)}… — sign and stamp must name the same key`,
+        step: "bind",
+      };
+    }
+  }
 
   // ---- Fold-validation (fail-closed recurrence guard, COC-CHAIN) ----------
   // Re-fold [live chain + candidate] and refuse to append unless the
@@ -688,15 +1006,41 @@ function emitSignedRecord(opts) {
   return { ok: true, record };
 }
 
-module.exports = {
+// FROZEN (sigcov R2-1): `gate-approval.js` hands its single-use capability to
+// `emitSignedRecord`, so an assignment to `exports.emitSignedRecord` would
+// otherwise steal a live capability from a sanctioned call. NULL-PROTOTYPE as
+// well: the two modules require each other, and Node re-prototypes a plain
+// `Object.prototype` exports object handed out mid-load (its circular-require
+// warning proxy), which throws on a frozen one.
+module.exports = _freeze(Object.setPrototypeOf({
   emitSignedRecord,
+  // ONE opts snapshot, shared with gate-approval.js::emitGateApproval.
+  snapshotPlainOpts,
   MAX_LINE_BYTES,
   // Separate-log emitters build their own validator over their own log.
   makeValidateFold,
+  // The one per-log lock; the guard broker's log writer takes its append lock with it.
+  acquireLogLock,
+  releaseLogLock,
+  EMIT_LOCK_FILE,
+  LOCK_WAIT_MS,
+  LOCK_STALE_MS,
   // Exposed for tests.
   _defaultReadChainHead,
   _defaultAppend,
   _defaultValidateFold,
   _readMainLogRecords,
   _foldDelta,
-};
+}, null));
+
+// ---- The capability redeemer, bound ONCE at load (sigcov R2-1) --------------
+// Required AFTER module.exports is assigned: gate-approval.js requires this
+// module at its own end in the same way, so whichever loads first, the other
+// finds a COMPLETE frozen exports object in the cache. Bound here, it is never
+// re-resolved from gate-approval's exports or the module cache at call time.
+const _redeemEmitCapability = require(path.join(__dirname, "gate-approval.js")).redeemEmitCapability;
+if (typeof _redeemEmitCapability !== "function") {
+  throw new Error(
+    "coc-emit: gate-approval.js exposed no redeemEmitCapability at load; the gate-approval capability cannot be checked",
+  );
+}

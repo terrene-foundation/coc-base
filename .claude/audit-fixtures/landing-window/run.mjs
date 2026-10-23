@@ -142,6 +142,27 @@ console.log(`primary          : ${PRIMARY}`);
 console.log(`sibling          : ${SIBLING}`);
 console.log(`marker           : ${MARKER}`);
 
+// UNKNOWN core and allowed protocol are paired; source:
+// .claude/hooks/landing-window-guard.js:744-753,1097-1110.
+function driveUnknown(command, detail) {
+  const payload = bashCall(command, OTHER);
+  const finding = require_(GUARD).evaluate(payload);
+  const result = drive(payload, otherEnv());
+  const body = result.json?.hookSpecificOutput?.additionalContext;
+  const matched = finding?.severity === "report" &&
+    finding.reason === "git-target-context-unknown" &&
+    finding.detail === "The write target is UNKNOWN: " + detail &&
+    finding.target === null && Array.isArray(finding.targets) && finding.targets.length === 0 &&
+    finding.jurisdiction === fs.realpathSync(PRIMARY) && finding.classification?.state === "live" &&
+    result.tag === "[HALT-AND-REPORT]" && result.code === 0 && result.refused === false &&
+    result.json?.continue === true &&
+    result.json?.hookSpecificOutput?.permissionDecision !== "deny" &&
+    result.json?.permissionDecision !== "deny" && typeof body === "string" &&
+    body.includes("reason    : git-target-context-unknown") &&
+    body.includes("The write target is UNKNOWN. The call is allowed");
+  return { result, finding, matched };
+}
+
 function drive(payload, env) {
   return driveHook(GUARD, { stdinRaw: JSON.stringify(payload), cwd: PRIMARY, env });
 }
@@ -230,7 +251,7 @@ const POLES = [
   // the spend ledger and the one-shot gate were removed rather than re-graded.
   // Its three poles dissolved with the mechanism (they are not "undriven" — they
   // are gone, and the coverage check below reads this table).
-  { pole: "compound-shell-mutating-git-advised", checks: ["27"] },
+  { pole: "compound-shell-mutating-git-unknown-reported", checks: ["27"] },
   { pole: "compound-shell-without-git-allowed", checks: ["28"] },
   { pole: "cwd-outside-repo-git-C-advised", checks: ["29", "30c"] },
   { pole: "cwd-outside-repo-write-advised", checks: ["30", "30b"] },
@@ -248,7 +269,7 @@ const POLES = [
   // T12 — redesign clause (d): the writer denylist becomes a READ-ONLY allowlist,
   // and an unrecognised command ranks TIGHTEST. Two poles because a hook that
   // advises on everything satisfies neither meaningfully.
-  { pole: "non-git-writer-unrecognised-advised", checks: ["50"] },
+  { pole: "non-git-writer-unrecognised-unknown-reported", checks: ["50"] },
   { pole: "non-git-read-only-command-allowed", checks: ["51"] },
   // T10 — the one-shot override's AVAILABILITY lookup. RED and GREEN are two
   // poles because neither alone can show the answer TRACKS the ledger: the
@@ -259,12 +280,15 @@ const POLES = [
   { pole: "one-shot-availability-ledger-derived", checks: ["42", "44"] },
   { pole: "one-shot-availability-unspent-pole", checks: ["43"] },
   { pole: "one-shot-availability-fail-closed", checks: ["45"] },
+  // T68-E — the engine sandbox's process.exit sentinel is an EXIT, not a crash:
+  // the verdict must survive the production dispatch path byte-for-byte.
+  { pole: "engine-path-verdict-parity", checks: ["52", "53", "54"] },
 ];
 // T1 asserts the TABLE, not the coverage — the two are different claims and only
 // the second was being made. Coverage is asserted at the end of the file.
 check(
   "the declared pole table is cardinality-pinned and its check tokens are unique",
-  POLES.length === 33 &&
+  POLES.length === 34 &&
     POLES.every(
       (p) =>
         typeof p.pole === "string" &&
@@ -632,18 +656,22 @@ check(
   "silence here = the owner test is back on the ENV signal, and every child process the owner spawned inherited that variable",
 );
 
-// --- H2: compound shell forms returned ZERO invocations to the parser -------
+// H2 UNKNOWN reports retain the allowed call without inventing a target.
+// .claude/hooks/landing-window-guard.js:642-670,744-753.
 for (const [label, cmd] of [
   ["if/then/fi", "if true; then git commit -m x; fi"],
   ["for/do/done", "for i in 1; do git commit; done"],
   ["subshell parens", "(git commit -m x)"],
   ["brace group", "{ git commit -m x; }"],
 ]) {
-  const r = drive(bashCall(cmd, OTHER), otherEnv());
+  const detail = label === "if/then/fi" || label === "for/do/done"
+    ? "unaccounted shell git target"
+    : "unrecognised command (ranked tightest: not on the read-only allowlist) (unresolvable operand)";
+  const { result: r, finding, matched } = driveUnknown(cmd, detail);
   check(
-    `27  H2  a mutating git inside ${label} -> ADVISED`,
-    r.tag === "[ADVISORY]" && r.code === 0,
-    `cmd=${cmd} exit=${r.code} tag=${r.tag}`,
+    `27  H2  a mutating git inside ${label} -> UNKNOWN REPORT, allowed`,
+    matched,
+    `cmd=${cmd} exit=${r.code} tag=${r.tag} finding=${JSON.stringify(finding)} refused=${r.refused}`,
     "silence = the parser returns ZERO invocations for this construct, `sawMutatingGit` stays false, and the hook returns BEFORE the marker is read — one shell wrapper is a complete blind spot (MEASURED pre-fix)",
   );
 }
@@ -876,11 +904,12 @@ for (const [label, cmd] of [
   ["patch", "patch -p1 < x.diff"],
   ["python3 -c open(w)", `python3 -c "open('z.txt','w').write('x')"`],
 ]) {
-  const r = drive(bashCall(cmd, OTHER), otherEnv());
+  const { result: r, finding, matched } = driveUnknown(cmd,
+    "unrecognised command (ranked tightest: not on the read-only allowlist) (unresolvable operand)");
   check(
-    `50  T12 a non-git writer (${label}) into the primary -> ADVISED (ranked tightest)`,
-    r.tag === "[ADVISORY]",
-    `cmd=${cmd} exit=${r.code} tag=${r.tag}`,
+    `50  T12 a non-git writer (${label}) -> UNKNOWN REPORT, allowed`,
+    matched,
+    `cmd=${cmd} exit=${r.code} tag=${r.tag} finding=${JSON.stringify(finding)} refused=${r.refused}`,
     "silence = the command is absent from the writer denylist, so it produces no target and the hook reports nothing mutating — the fail-OPEN direction the allowlist replaces",
   );
 }
@@ -1057,6 +1086,168 @@ check(
   oaUnknownVerdict.state === "unknown" && oaUnknownVerdict.state !== "available",
   `state=${oaUnknownVerdict.state} ledger_state=${oaUnknownVerdict.ledger_state}`,
   "`available` = an unreadable ledger is read as an unspent one-shot, so the state a caller most needs to be told is the one it is most confident about",
+);
+
+// ---------------------------------------------------------------------------
+// T68-E — SANDBOXED-EXIT PARITY. Every other arm drives the guard the way a
+// DEVELOPER runs it: `node landing-window-guard.js`, where `process.exit`
+// really exits. PRODUCTION runs it through `hooks/dispatch.js` -> the hook
+// engine, which SANDBOXES `process.exit` for its in-process rows: the call
+// records the run's exit and then THROWS the engine's sentinel
+// (`hook-engine.js::EXIT_SENTINEL` — `Object.freeze({ __hookEngineExit: true })`,
+// :71/:232). `deliver()` ends in `process.exit(out.exitCode)`
+// (landing-window-guard.js:1140), so a COMPLETED run reaches `hookMain`'s
+// `main()` rejection handler (:1251) as a thrown sentinel — and the unfixed guard
+// announces it as `crash: [object Object]`, writing a full
+// "[HALT-AND-REPORT] … did not complete … NOT checked" payload (plus a fallback
+// self-failure line) that stands in the transcript as if the guard had died.
+// MEASURED, LIVE, 2026-10-11: ONE `node .claude/hooks/dispatch.js PreToolUse`
+// run with a Bash payload records THREE such rows in
+// `.claude/learning/hook-findings/<session>.md` (diag-session.md) — the false
+// rows the live hook layer has been writing for sessions.
+//
+// WHY NOT THE ENGINE'S OWN SELFTEST SEAM. `COC_HOOK_ENGINE_SELFTEST=1`
+// (runCli -> runDetector) was tried FIRST and is MEASURED NOT to reproduce
+// this: its engine arm is byte-equal to the direct arm — status "exit", no
+// self-failure row (proof: COC_HOOK_ENGINE_SELFTEST_LOG row
+// `{"hook":"landing-window-guard.js","status":"exit","exit":0}` beside a clean
+// stdout) — so an arm built on that seam passes pre-fix and pins nothing. The
+// oracle here therefore reproduces the sandbox CONTRACT at its exact site: the
+// driver child patches `process.exit` to throw the ENGINE'S OWN frozen sentinel
+// OBJECT — required from `hook-engine.js` so `e === EXIT_SENTINEL` holds exactly
+// as it does under dispatch.js — BEFORE calling `hookMain`. A second driver
+// throws a fresh FROZEN LOOKALIKE with the same shape for the forgery pole
+// (arm 54): identity says a lookalike is NOT an exit, so it must be announced
+// as the genuine crash it is, never silently re-thrown.
+//
+// WHAT THE CHECKS PIN. (a) NO self-failure text on the sandboxed run — the
+// defect's identity; (b) the guard's OWN verdict line is still present — it
+// was not replaced; (c) the driver reports `settled:"rejected"` with
+// `sentinel:true` — `hookMain` PROPAGATES the sentinel so the engine can
+// classify the run as an exit (a fix that swallowed it and resolved would
+// break the engine's own exit accounting); (d) a FORGED lookalike is
+// ANNOUNCED, not exit-swapped — the guard may classify the sentinel by
+// IDENTITY only, never by shape, because the engine's own comparison is
+// identity (`e === EXIT_SENTINEL`, :532/:634/:656/:986/:1030/:1043/:1053) and
+// a shape test would silently suppress a genuine crash's announcement (the
+// announce's own trailing process.exit is re-thrown by this driver's patch,
+// so for arm 54 the announce PRESENCE is the discriminator, not settlement).
+//
+// MUTATION CONTRACT (this section's). Deleting the re-throw from `hookMain`
+// (`if (isEngineExit(e)) throw e;`) reds 52 and 53 on (a); replacing
+// it with a swallow-that-resolves reds them on (c); reverting it to a SHAPE
+// test (`e && e.__hookEngineExit`) reds arm 54 on (d) — the announce vanishes
+// — while 52/53 stay green; that asymmetry IS the identity-vs-shape
+// discriminator.
+console.log("\n=== T68-E: engine-path parity — the sandboxed exit is not a crash ===");
+
+const ENGINE = path.join(path.dirname(GUARD), "lib", "hook-engine.js");
+const ENGINE_SHIM_DRIVER = path.join(tempRoot, "engine-exit-shim-driver.cjs");
+fs.writeFileSync(
+  ENGINE_SHIM_DRIVER,
+  [
+    "// T68-E driver — written by landing-window/run.mjs; the contract it",
+    "// simulates EXACTLY: the sandboxed process.exit (:232) that dispatch.js",
+    "// runs its in-process rows under throws the engine's OWN frozen sentinel",
+    "// OBJECT (hook-engine.js::EXIT_SENTINEL, :71/:2690) — required below from",
+    "// the same module the guard requires, so identity holds as in dispatch.js.",
+    "// The patch is installed BEFORE hookMain() is called; realExit is the",
+    "// un-patched exit for THIS driver's own termination.",
+    "const realExit = process.exit.bind(process);",
+    `const { EXIT_SENTINEL } = require(${JSON.stringify(ENGINE)});`,
+    "process.exit = function hookEngineExitShim() { throw EXIT_SENTINEL; };",
+    `require(${JSON.stringify(GUARD)}).hookMain()`,
+    '  .then(() => { process.stdout.write(JSON.stringify({ settled: "resolved", sentinel: false }) + "\\n", () => realExit(0)); })',
+    '  .catch((e) => { process.stdout.write(JSON.stringify({ settled: "rejected", sentinel: e === EXIT_SENTINEL }) + "\\n", () => realExit(0)); });',
+    "",
+  ].join("\n"),
+);
+const driveSandboxed = (payload, env) =>
+  driveHook(ENGINE_SHIM_DRIVER, { stdinRaw: JSON.stringify(payload), cwd: PRIMARY, env });
+const shimVerdict = (r) => {
+  let marker = null;
+  try { marker = JSON.parse(r.stdout.trim().split("\n").pop()); } catch { marker = null; }
+  return {
+    marker,
+    falseAnnounce: /did not complete|guard self-failure/.test(r.combined),
+    verdictPresent: r.stdout.includes('"continue":true'),
+  };
+};
+
+const ENGINE_FORGED_DRIVER = path.join(tempRoot, "engine-forged-lookalike-driver.cjs");
+fs.writeFileSync(
+  ENGINE_FORGED_DRIVER,
+  [
+    "// T68-E driver #2 — the FORGERY pole (arm 54). The engine throws its OWN",
+    "// frozen sentinel OBJECT; this child throws a fresh FROZEN LOOKALIKE with",
+    "// the same shape instead. Identity says it is NOT the sentinel, so it is",
+    "// the genuine crash it is: ANNOUNCED, never silently re-thrown. This arm",
+    "// reds the moment the guard classifies the sentinel by SHAPE — the",
+    "// forgeable form a paired security review rejects.",
+    `const { EXIT_SENTINEL } = require(${JSON.stringify(ENGINE)});`,
+    "const realExit = process.exit.bind(process);",
+    "process.exit = function hookEngineForgedShim() { throw Object.freeze({ __hookEngineExit: true }); };",
+    `require(${JSON.stringify(GUARD)}).hookMain()`,
+    '  .then(() => { process.stdout.write(JSON.stringify({ settled: "resolved", sentinel: false }) + "\\n", () => realExit(0)); })',
+    '  .catch((e) => { process.stdout.write(JSON.stringify({ settled: "rejected", sentinel: e === EXIT_SENTINEL }) + "\\n", () => realExit(0)); });',
+    "",
+  ].join("\n"),
+);
+const driveForged = (payload, env) =>
+  driveHook(ENGINE_FORGED_DRIVER, { stdinRaw: JSON.stringify(payload), cwd: PRIMARY, env });
+
+// Arm one — the CLEAN PASSTHROUGH branch, no window open: `deliver()` still
+// exits, so the sentinel still fires, and the unfixed guard still re-announces
+// a silently-cleared call as unchecked.
+const sClean = shimVerdict(driveSandboxed(bashCall("git status --porcelain", OTHER), otherEnv()));
+check(
+  "52  T68-E a completed PASSTHROUGH survives a sandboxed process.exit",
+  sClean.falseAnnounce === false &&
+    sClean.verdictPresent === true &&
+    sClean.marker !== null && sClean.marker.settled === "rejected" && sClean.marker.sentinel === true,
+  `falseAnnounce=${sClean.falseAnnounce} verdictPresent=${sClean.verdictPresent} marker=${JSON.stringify(sClean.marker)}`,
+  "a `did not complete`/`guard self-failure` line = the guard read the engine's sandboxed process.exit (EXIT_SENTINEL, hook-engine.js:71/:232) as a CRASH and re-announced a COMPLETED call as unchecked — the false row dispatch.js writes for every checked call (measured live). A marker that is not `rejected`-with-sentinel = the fix swallows the sentinel instead of propagating it, and the engine can no longer classify the run as an exit",
+);
+
+// Arm two — the ADVISORY branch: window open on the primary, a foreign write.
+// This is where the damage is worst: the false announce REPLACES the
+// finding-bearing verdict rather than merely accompanying it.
+openWindow("t68e-sandboxed-exit");
+const rAdvisedShim = driveSandboxed(writeCall(WRITE_TARGET, OTHER), otherEnv());
+closeWindow();
+const sAdvised = shimVerdict(rAdvisedShim);
+check(
+  "53  T68-E a completed ADVISORY survives a sandboxed process.exit, verdict intact",
+  sAdvised.falseAnnounce === false &&
+    sAdvised.verdictPresent === true &&
+    rAdvisedShim.combined.includes("A LANDING WINDOW IS OPEN") &&
+    sAdvised.marker !== null && sAdvised.marker.settled === "rejected" && sAdvised.marker.sentinel === true,
+  `falseAnnounce=${sAdvised.falseAnnounce} verdictPresent=${sAdvised.verdictPresent} windowNamed=${rAdvisedShim.combined.includes("A LANDING WINDOW IS OPEN")} marker=${JSON.stringify(sAdvised.marker)}`,
+  "a self-failure line, or a missing window line, = the sandboxed path substitutes a crash report for the advisory exactly where production runs the hook — the per-call verdict is lost while the direct-path arms above stay green and this suite reads as covering it",
+);
+
+// Arm three — the FORGERY pole: a frozen LOOKALIKE (`{ __hookEngineExit: true }`)
+// is not the engine's sentinel, so identity sends it down the CRASH path —
+// ANNOUNCED, never exit-swapped. The ANNOUNCE is the discriminator: a shape
+// test re-throws the lookalike silently (no announce); identity announces the
+// genuine crash it is. The marker settles `rejected` in BOTH worlds — the
+// announce helper itself ends in `process.exit` (landing-window-guard.js:1194),
+// which this driver's patched exit re-throws as the same lookalike — so
+// settlement is NOT asserted; `sentinel:false` (the identity reading) is.
+// THIS ARM WAS BORN RED (MEASURED first run: 69p/1f, announced=true
+// settled=rejected) — the guessed `resolved` assertion was corrected AFTER
+// reading :1194, and the correction is kept as the arm's own falsifiability
+// record: the check demonstrably reds, then greens on the right property.
+const rForged = driveForged(bashCall("git status --porcelain", OTHER), otherEnv());
+const fForged = shimVerdict(rForged);
+const forgedAnnounced = fForged.falseAnnounce; // reused matcher; for THIS arm the announce is the CORRECT outcome
+check(
+  "54  T68-E a forged sentinel lookalike is announced, not exit-swapped",
+  forgedAnnounced === true &&
+    fForged.verdictPresent === true &&
+    fForged.marker !== null && fForged.marker.sentinel === false,
+  `announced=${forgedAnnounced} verdictPresent=${fForged.verdictPresent} marker=${JSON.stringify(fForged.marker)}`,
+  "a SHAPE test (`e.__hookEngineExit`) swaps ANY error carrying that property into an `exit`: this lookalike is not the engine's sentinel (identity, the engine's own classification), so the guard must ANNOUNCE it as the genuine crash it is. announced=true = identity refused the swap; announced=false = shape test reintroduced and the crash announcement silently suppressed — the regression this arm exists to red",
 );
 
 // ---------------------------------------------------------------------------

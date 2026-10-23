@@ -93,4 +93,4 @@ The unit gate never reaches that file. Red first, builder reverted in place, the
 
 214 green — though that suite was never the instrument here. The golden file is.
 
-Two consecutive clean rounds. W9 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W9 lands.

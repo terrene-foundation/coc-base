@@ -1,5 +1,6 @@
 {
   "rule_id": "instrument-discipline/MUST-1",
   "severity": "halt-and-report",
-  "laundering_form": "discarded-by-successor"
+  "laundering_form": "discarded-by-successor",
+  "foreground": null
 }

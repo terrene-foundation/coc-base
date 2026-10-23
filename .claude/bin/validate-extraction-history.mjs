@@ -300,8 +300,19 @@ function listJournalEntries(journalDir) {
   let entries;
   try {
     entries = readdirSync(journalDir);
-  } catch {
-    return [];
+  } catch (e) {
+    // FAIL CLOSED, do not return []. Absence is ALREADY handled by the
+    // `existsSync` guard at the call site, which exits 2 — so reaching this catch
+    // means the dir EXISTS and could not be listed (a permission fault, an I/O
+    // error). Returning [] made that report "scanned 0 journal entries; 0
+    // Rule-11-mandated" and EXIT 0: a clean Rule-11 verdict over a corpus the
+    // validator never read. "No mandated extraction" and "could not look" are
+    // opposite conclusions and were the same output.
+    console.error(
+      `error: journal dir exists but could not be listed: ${journalDir} (${e.code || e.message})\n` +
+        `       This validator cannot speak for a corpus it did not read; refusing to report clean.`,
+    );
+    process.exit(2);
   }
   // Filter: NNNN-*.md, exclude .pending/ subdir contents (we don't recurse).
   return entries

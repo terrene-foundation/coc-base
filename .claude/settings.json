@@ -8,6 +8,9 @@
   },
   "permissions": {
     "deny": [
+      "Edit(.claude/learning/burndown-events.pending.jsonl*)",
+      "Edit(.claude/learning/hook-findings/**)",
+      "Edit(.claude/learning/fleet/**)",
       "Edit(.claude/learning/presence-mechanism.json)",
       "Edit(.claude/learning/posture.json)",
       "Edit(.claude/learning/posture.json.bak)",
@@ -44,8 +47,8 @@
           },
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PreToolUse --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
-            "timeout": 270
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PreToolUse --registry-sha256=8ceaf62255f2e1218eb350cf2b3d4f6e9ffb2d890501f8d4ab93ad3e7985687c",
+            "timeout": 578
           }
         ]
       }
@@ -60,20 +63,20 @@
           },
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SessionStart --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
-            "timeout": 132
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SessionStart --registry-sha256=8ceaf62255f2e1218eb350cf2b3d4f6e9ffb2d890501f8d4ab93ad3e7985687c",
+            "timeout": 169
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Edit|Write|NotebookEdit|TodoWrite",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PostToolUse --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
-            "timeout": 235
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PostToolUse --registry-sha256=8ceaf62255f2e1218eb350cf2b3d4f6e9ffb2d890501f8d4ab93ad3e7985687c",
+            "timeout": 242
           }
         ]
       }
@@ -83,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SessionEnd --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SessionEnd --registry-sha256=8ceaf62255f2e1218eb350cf2b3d4f6e9ffb2d890501f8d4ab93ad3e7985687c",
             "timeout": 60
           }
         ]
@@ -94,8 +97,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PreCompact --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
-            "timeout": 66
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PreCompact --registry-sha256=8ceaf62255f2e1218eb350cf2b3d4f6e9ffb2d890501f8d4ab93ad3e7985687c",
+            "timeout": 77
           }
         ]
       }
@@ -105,8 +108,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" UserPromptSubmit --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
-            "timeout": 29
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" UserPromptSubmit --registry-sha256=8ceaf62255f2e1218eb350cf2b3d4f6e9ffb2d890501f8d4ab93ad3e7985687c",
+            "timeout": 50
           }
         ]
       }
@@ -116,7 +119,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SubagentStop --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SubagentStop --registry-sha256=8ceaf62255f2e1218eb350cf2b3d4f6e9ffb2d890501f8d4ab93ad3e7985687c",
             "timeout": 11
           }
         ]
@@ -127,8 +130,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" Stop --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
-            "timeout": 96
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" Stop --registry-sha256=8ceaf62255f2e1218eb350cf2b3d4f6e9ffb2d890501f8d4ab93ad3e7985687c",
+            "timeout": 129
           }
         ]
       }

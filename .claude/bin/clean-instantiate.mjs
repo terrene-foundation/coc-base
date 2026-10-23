@@ -58,15 +58,20 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  deriveDynamicTokens, walkFiles, readTextOrNull, synthHex, makeScrubber, SCRUB_MODES, assertNoSymlinkEscape, foldForGate,
+  deriveDynamicTokens, walkFiles, readTextOrNull, readTextOrReason, synthHex, makeScrubber, SCRUB_MODES, assertNoSymlinkEscape, foldForGate,
   readRegularFileNoFollow,
   isScrubPlaceholderToken,
   jsonParseOrThrow,
+  loadRedactionMap,
+  maskRedactionValues,
+  redactionMapCoverageLine,
+  gateTokenHit,
 } from "./lib/identity-scrub.mjs";
 // clause-e.2 key basenames/suffixes — SAME source the runtime tripwire scans, so the
 // clean-instantiate DELETE fence and the committed-key tripwire never drift (redteam #965 R3).
 import { FORBIDDEN_KEY_BASENAMES, FORBIDDEN_KEY_SUFFIXES } from "./lib/mesh-keys.mjs";
 import { isFixtureCorpusFile } from "./lib/fixture-corpus.mjs";
+const { isTestRunnerContext } = createRequire(import.meta.url)("../hooks/lib/test-runner-context.js");
 // r4-v4 F4 (correctness item 13): the SHARED canonical-set identity gate —
 // the same `assertTreeFreeOfPrivateIdentity` every registered content exit runs
 // — over the WHOLE post-clear tree. The slug set is the CLONE's own declaration
@@ -82,6 +87,49 @@ import {
 
 const require = createRequire(import.meta.url);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+// ── PRINT MASK (C1 R1 security finding H5) ───────────────────────────────────────────────
+//
+// The operator's redaction map feeds this ceremony's canon-token snapshot through
+// `deriveDynamicTokens`, so a map value is a token it greps for — and, before this, a token it
+// PRINTED: assert-zero's `<path>  ~  <token>` lines, the object-store scan's `blob <sha>  ~
+// <token>` lines (which run in the default DRY RUN whenever the clone has history), file paths,
+// and the origin URL the DRY RUN would record. A ceremony whose purpose is asserting zero canon
+// identity was itself printing identity.
+//
+// EVERY line this script prints goes through `say` / `sayErr`, which mask map values into their
+// `@@CAT-NNN@@` tokens through `maskRedactionValues` — the printers' mask, which matches the way
+// assert-zero does: FOLDED (`foldForGate`) and as a SUBSTRING, so a value glued inside a word or
+// spelled with a combining mark is masked in prose too, and a line it cannot isolate the value in
+// is withheld (C1 R2 F5a; it used to be word-bounded and unfolded, and printed exactly those).
+// A HIT or a PATH is additionally read again at the point it is built with `maskHit`: the masked
+// string is read the way the gate reads it and withheld whole if a value is still there.
+//
+// The same contract as `edition-output-gate.mjs::maskHitForPrint`, restated here because this
+// script SHIPS to consumers and that module is loom-only. Detection is untouched: masking runs
+// on what is printed, after the gate decided. A refused map THROWS (as it does at the derive).
+const PRINT_WITHHELD = "<withheld: still carried a redaction-map value after masking>";
+let printMaskCache = null;
+function printMask() {
+  if (!printMaskCache) {
+    const map = loadRedactionMap();
+    printMaskCache = { map, folded: map.entries.map((e) => foldForGate(e.value)).filter(Boolean) };
+  }
+  return printMaskCache;
+}
+function maskText(s) {
+  const pm = printMask();
+  return pm.map.entries.length ? maskRedactionValues(String(s), { map: pm.map }) : String(s);
+}
+function maskHit(s) {
+  const out = maskText(s);
+  const { folded } = printMask();
+  if (!folded.length) return out;
+  const f = foldForGate(out);
+  return folded.some((v) => f.includes(v)) ? PRINT_WITHHELD : out;
+}
+function say(...parts) { console.log(maskText(parts.map(String).join(" "))); }
+function sayErr(...parts) { console.error(maskText(parts.map(String).join(" "))); }
 
 /**
  * The slug set the post-clear SHARED gate scans for (r4-v4 item 13), derived
@@ -99,7 +147,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
  * root's file is already absent. Absent on both → INERT, reported, never silent.
  *
  * The parse/validate path is the SHARED lib's (`jsonParseOrThrow`; the same
- * ≥4-char-or-hyphen floor `strip-build-internal.mjs::assertValidOrgValue`
+ * ≥4-char-or-hyphen floor `identity-scrub.mjs::assertValidOrgValue`
  * enforces, so a sub-floor value cannot become a needle that substring-matches
  * ordinary prose). The scanner itself is imported, never reimplemented.
  * @returns {{slugs: string[], note: string}}
@@ -243,17 +291,12 @@ function parseArgs(argv) {
     else if (t === "--root") a.root = argv[++i];
     else if (t === "--upstream-canon-url") a.upstreamCanonUrl = argv[++i];
     else if (t === "--ecosystem-id") a.ecosystemId = argv[++i];
-    // --scanner-path: TEST-ONLY injection seam (mirrors edition-emit.mjs's
-    // checkClientTemplateCompleteness/runOutputDisclosureScan `{ scannerPath }` opt) that
-    // overrides assertZero's structural-scanner invocation. ENV-GATED (F7 A23 redteam R2
-    // LOW): honored ONLY when process.env.CLEAN_INSTANTIATE_TEST_MODE === "1" -- without that
-    // marker the flag is silently IGNORED (falls back to the real scanner), so a production
-    // invocation cannot be steered onto a hostile/no-op scanner via this flag. Exists solely
-    // so the regression suite can drive assertZero's fail-closed scanner-errored-with-zero-
-    // findings branch without touching the real scan-synced-disclosure.mjs. Unset (the
-    // default) always resolves to the real scanner, in EVERY invocation mode.
+    // Scanner failure fixture seam: both the runner mistake guard and the explicit
+    // test-mode marker are required (.claude/bin/clean-instantiate.mjs::parseArgs).
+    // Caller-controlled markers are not a security boundary; S2 owns preload refusal.
     else if (t === "--scanner-path") {
       const scannerPathArg = argv[++i];
+      if (!isTestRunnerContext()) throw Object.assign(new Error("--scanner-path requires a test-runner context"), { code: "ERR_TEST_RUNNER_REQUIRED" });
       if (process.env.CLEAN_INSTANTIATE_TEST_MODE === "1") a.scannerPath = scannerPathArg;
       // else: silently ignored (not a usage error) -- the real scanner runs regardless.
     }
@@ -475,8 +518,10 @@ function assertOriginNotPublished(root) {
  * → status UNKNOWN, never an all-clear). Capped at `maxBlobs` with a logged truncation (no silent cap).
  * @returns {{ ok: boolean, ran: boolean, hits: string[], scanned: number, truncated: boolean, error?: string }}
  */
-function scanObjectStore(root, canonTokens, { maxBlobs = 5000 } = {}) {
-  const lc = canonTokens.map((t) => t.toLowerCase());
+function scanObjectStore(root, canonTokens, { maxBlobs = 5000, bounded = new Set() } = {}) {
+  // The ONE gate fold and the ONE matcher every gate shares (C1 R2 F1: a `bounded` token — a
+  // hex/digit-only or short redaction-map value — counts only word-bounded, never dropped).
+  const lc = canonTokens.map((t) => foldForGate(t));
   const hits = [];
   let scanned = 0, truncated = false;
   // Envelope OUTSIDE the try: this scan's catch returns `ran: false`, and an
@@ -484,7 +529,10 @@ function scanObjectStore(root, canonTokens, { maxBlobs = 5000 } = {}) {
   // complete rather than as a missing prerequisite.
   const { gitBin, localEnv } = gitEnvelope("the object-store disclosure scan");
   try {
-    const objs = execFileSync(gitBin, ["-C", root, "rev-list", "--objects", "--all"], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, env: localEnv })
+    // stderr PIPED on both reads below, never inherited: git's own diagnostics name the root and
+    // object paths, and an inherited stream reaches the terminal before `say` could mask it. A
+    // failure still surfaces, masked, through the `error` this scan returns (C1 R2 F5b sibling).
+    const objs = execFileSync(gitBin, ["-C", root, "rev-list", "--objects", "--all"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 * 1024 * 1024, env: localEnv })
       .split("\n").map((l) => l.trim()).filter(Boolean);
     for (const line of objs) {
       const sha = line.split(" ")[0];
@@ -496,12 +544,13 @@ function scanObjectStore(root, canonTokens, { maxBlobs = 5000 } = {}) {
       if (type !== "blob") continue;
       if (scanned >= maxBlobs) { truncated = true; break; }
       let content;
-      try { content = execFileSync(gitBin, ["-C", root, "cat-file", "-p", sha], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: localEnv }); } catch { continue; }
+      try { content = execFileSync(gitBin, ["-C", root, "cat-file", "-p", sha], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024, env: localEnv }); } catch { continue; }
       scanned++; // count only blobs actually READ + grepped (a read failure does not inflate the count)
       // grep ALL blob content: a binary blob won't carry a clean canon-token substring, and if
       // it somehow does, flagging it is the fail-closed direction (no space/NUL pre-filter).
-      const lower = content.toLowerCase();
-      for (let i = 0; i < lc.length; i++) { if (lower.includes(lc[i])) { hits.push(`blob ${sha.slice(0, 12)}  ~  ${canonTokens[i]}`); break; } }
+      const lower = foldForGate(content);
+      // H5: the token can be a redaction-map value — print its map token, never the value.
+      for (let i = 0; i < lc.length; i++) { if (gateTokenHit(lower, lc[i], { bounded: bounded.has(canonTokens[i]) })) { hits.push(`blob ${sha.slice(0, 12)}  ~  ${maskHit(canonTokens[i])}`); break; } }
     }
     return { ok: true, ran: true, hits, scanned, truncated };
   } catch (e) {
@@ -535,7 +584,10 @@ function resetHistory(root) {
   // neutralizer prefix takes. `user.name`/`user.email` are supplied explicitly,
   // so the absent `HOME` cannot leave the commit without an identity.
   const { gitBin, localEnv } = gitEnvelope("the fresh-root re-commit");
-  const git = (...args) => execFileSync(gitBin, ["-C", root, ...args], { stdio: ["ignore", "ignore", "inherit"], env: localEnv });
+  // stderr is CAPTURED, not inherited (H5): git's own error text can name absolute paths, and an
+  // inherited stream would reach the terminal without passing the print mask. A failure's text
+  // rides `e.message` into the return below, which the caller prints through `say`.
+  const git = (...args) => execFileSync(gitBin, ["-C", root, ...args], { stdio: ["ignore", "ignore", "pipe"], env: localEnv });
   try {
     git("init", "-q");
     git("add", "-A");
@@ -690,10 +742,6 @@ function isPlaceholderToken(t) {
   if (isScrubPlaceholderToken(t)) return true;    // scrub vocabulary + synthHex (any length)
   return false;
 }
-function snapshotCanonTokens(root) {
-  const { gate } = deriveDynamicTokens(root);
-  return [...new Set(gate.filter((t) => typeof t === "string" && !isPlaceholderToken(t)))];
-}
 // Snapshot BOTH the fail-closed gate token list AND the [from,to] scrub pairs in a
 // SINGLE pre-clear derive. Both MUST be captured BEFORE performClear resets the
 // carriers (roster → placeholder etc.) — a post-clear re-derive returns near-empty,
@@ -701,7 +749,11 @@ function snapshotCanonTokens(root) {
 // gate ⊆ scrub-froms (identity-scrub emits a scrub pair for every gated token), so
 // neutralize(scrubPairs) removes exactly what assertZero(canonTokens) greps.
 function snapshotCanonIdentity(root) {
-  const { gate, scrub, unhonoured } = deriveDynamicTokens(root);
+  const { gate, gateBounded, scrub, unhonoured, redactionMapCounts, redactionAuthority } = deriveDynamicTokens(root);
+  // The loaded redaction map's per-category entry counts, on every run (counts only, never a
+  // value): a map-less run is legitimate on a client clone, but it must be VISIBLE — assert-zero
+  // over no map-only value used to read exactly like one over all of them (the H4 residual).
+  sayErr(`clean-instantiate: ${redactionMapCoverageLine(redactionMapCounts, redactionAuthority)}`);
   // ENFORCEMENT-SURFACE PARITY (security.md). The publish fence
   // (`publish-to-public.mjs::runIdentityTokenGate`) fails CLOSED on a token the operator DECLARED
   // and derive could not honour; this is the OTHER independent validation surface for the same
@@ -722,8 +774,12 @@ function snapshotCanonIdentity(root) {
       `remove them, then re-run.`,
     );
   }
-  const canonTokens = [...new Set(gate.filter((t) => typeof t === "string" && !isPlaceholderToken(t)))];
-  return { canonTokens, scrubPairs: scrub };
+  const usable = (t) => typeof t === "string" && !isPlaceholderToken(t);
+  const unbounded = [...new Set(gate.filter(usable))];
+  // C1 R2 F1: hex/digit-only and short redaction-map values are gated too, matched WORD-BOUNDED;
+  // `canonBounded` names them, and a token already gated unbounded keeps the stricter match.
+  const canonBounded = new Set(gateBounded.filter((t) => usable(t) && !unbounded.includes(t)));
+  return { canonTokens: [...unbounded, ...canonBounded], canonBounded, scrubPairs: scrub };
 }
 
 // ── placeholder artifacts ────────────────────────────────────────────────────
@@ -937,7 +993,7 @@ function performClear(root, opts) {
   //     the gate reports clean). Disposition: DELETE, the same one edition-emit.mjs's
   //     CLIENT_TEMPLATE_REMOVE gives this path and the same state a template-instantiated
   //     client starts from; ABSENT is the benign empty case every reader already handles
-  //     (strip-build-internal.mjs::orgSets), and /ecosystem-init writes the client's own.
+  //     (identity-scrub.mjs::orgSets), and /ecosystem-init writes the client's own.
   //     NOT neutralized/placeholdered: an empty-but-present declaration reads as "declared
   //     nothing", which is a different state from "not yet declared", and the file's whole
   //     purpose is to carry values a scrub pair would have to know in advance.
@@ -1156,22 +1212,32 @@ function neutralizeWholeTree(root, scrubPairs) {
 /**
  * @param {string} root
  * @param {string[]} canonTokens
- * @param {{ scannerPath?: string, keyMaterial?: string[], expectTrustRootAbsent?: boolean, sharedGate?: boolean, privateSlugs?: string[], privateSlugsNote?: string }} [opts]
+ * @param {{ scannerPath?: string, keyMaterial?: string[], bounded?: Set<string>, expectTrustRootAbsent?: boolean, sharedGate?: boolean, privateSlugs?: string[], privateSlugsNote?: string }} [opts]
+ *   bounded: the members of `canonTokens` matched WORD-BOUNDED (C1 R2 F1), from snapshotCanonIdentity;
  *   keyMaterial: pre-clear canon signer key fragments (snapshotCanonKeyMaterial) grepped EXACTLY;
  *   expectTrustRootAbsent: post-clear only — a surviving .claude/trust-root.json is a hit.
  *   sharedGate + privateSlugs (r4-v4 item 13): POST-CLEAR only — run the SHARED
  *   `assertTreeFreeOfPrivateIdentity` over the whole tree with the slug set captured at ENTRY.
- *   scannerPath overrides the structural-scanner
- *   invocation below -- TEST-ONLY seam (see parseArgs's `--scanner-path`, ENV-GATED on
- *   process.env.CLEAN_INSTANTIATE_TEST_MODE === "1"), mirrors edition-emit.mjs's
- *   `runOutputDisclosureScan(tree, repoRoot, { scannerPath })`. Unset (the default,
- *   `undefined` — always the case outside CLEAN_INSTANTIATE_TEST_MODE) always resolves to
- *   the real scan-synced-disclosure.mjs.
+ *   scannerPath overrides the scanner for failure fixtures; its CLI gates are
+ *   .claude/bin/clean-instantiate.mjs::parseArgs (runner context plus test mode).
+ *   The default resolves to the real scan-synced-disclosure.mjs.
  */
 function assertZero(root, canonTokens, opts = {}) {
   const hits = [];
+  // The DISTINCT files that carried a hit, counted from the RAW paths: the printed hits are masked
+  // (H5), and two withheld paths print identically, so a count taken off them would undercount.
+  const hitFiles = new Set();
+  // Files this gate could not OPEN. Distinct from the binary skip inside the walk, which is
+  // DELIBERATE (see its comment): `readTextOrNull` collapsed "binary, skip by design" and
+  // "could not be read at all" into ONE null, so an unreadable carrier of canon identity was
+  // skipped and the ceremony still reported clean — while this gate's entire promise is that
+  // ZERO canon trust-identity remains. A FAIL-CLOSED gate MUST be able to tell them apart
+  // (operator-ratified Gate-1 port of the template's readTextOrReason split, 2026-10-06).
+  const unreadable = [];
   const keyMaterial = Array.isArray(opts.keyMaterial) ? opts.keyMaterial : [];
   const foldedTokens = canonTokens.map((t) => foldForGate(t));
+  // The members of `canonTokens` matched WORD-BOUNDED (`snapshotCanonIdentity`'s `canonBounded`).
+  const boundedTokens = opts.bounded instanceof Set ? opts.bounded : new Set();
   const benign = opts.benign || { keys: new Set(), error: null };
   const benignKeys = benign.keys instanceof Set ? benign.keys : new Set();
   // An UNREADABLE registry is a HIT, exactly as at publish: a broken adjudicator is not an
@@ -1190,7 +1256,16 @@ function assertZero(root, canonTokens, opts = {}) {
     // blocked — acceptable because emit is the PRIMARY M1 source-prevention path and the client owns
     // their tree's binaries. A raw NUL-corrupted SOURCE reads as binary here too, but the emit LAYER 3
     // is the fence that catches that class at the source (the client-template is built by emit, not clean).
-    let txt = readTextOrNull(f); if (txt === null) return;
+    const { text: txt0, reason: readReason, error: readErr } = readTextOrReason(f);
+    if (readReason === "unreadable") {
+      // A hole in THIS gate's own coverage, not a skip: the file exists at a path the walk
+      // reached and could not be read (permission, I/O). Named with its errno so the operator
+      // can fix it; never folded into the binary skip below, whose `null` is by design.
+      unreadable.push(`${maskHit(path.relative(root, f))}  (${maskText(readErr)})`); // H5: a NAME can carry a value
+      return;
+    }
+    let txt = txt0;
+    if (txt === null) return; // binary — the deliberate, documented skip below
     const rel = path.relative(root, f);
     // MO-OPT holistic post-multi-wave redteam (MO-OPT-1): the ceremony's OWN
     // placeholder ecosystem.json legitimately carries upstream_canon.url = the
@@ -1211,13 +1286,16 @@ function assertZero(root, canonTokens, opts = {}) {
     }
     // BOTH sides through the ONE shared gate fold (never a local .toLowerCase() — the U+0130
     // homograph evasion identity-scrub.mjs::foldForGate documents), then the publish fences'
-    // adjudicated-hit test. Unbounded: a token is a hit unless EVERY occurrence is ratified benign.
+    // adjudicated-hit test. Unbounded (a `boundedTokens` member: word-bounded occurrences only): a
+    // token is a hit unless EVERY counted occurrence is ratified benign.
     const folded = foldForGate(txt);
     for (let i = 0; i < foldedTokens.length; i++) {
+      const b = { bounded: boundedTokens.has(canonTokens[i]) };
       const hit = adjudicationLib
-        ? adjudicationLib.tokenIsUnadjudicatedHit(folded, foldedTokens[i], benignKeys)
-        : Boolean(foldedTokens[i]) && folded.includes(foldedTokens[i]);
-      if (hit) hits.push(`${rel}  ~  ${canonTokens[i]}`);
+        ? adjudicationLib.tokenIsUnadjudicatedHit(folded, foldedTokens[i], benignKeys, b)
+        : gateTokenHit(folded, foldedTokens[i], b);
+      // H5: both halves masked — the token can be a redaction-map value and the path can carry one.
+      if (hit) { hits.push(`${maskHit(rel)}  ~  ${maskHit(canonTokens[i])}`); hitFiles.add(rel); }
     }
     // Canon KEY MATERIAL (see snapshotCanonKeyMaterial): exact, case-SENSITIVE (base64 is), and
     // over the JSON-unescaped text because a roster/trust-root stores armor on one `\n`-joined
@@ -1226,7 +1304,7 @@ function assertZero(root, canonTokens, opts = {}) {
       const flat = txt.replace(/\\n/g, "\n");
       let n = 0;
       for (const k of keyMaterial) if (flat.includes(k)) n++;
-      if (n) hits.push(`${rel}  ~  <canon signer key material: ${n} fragment(s)>`);
+      if (n) { hits.push(`${maskHit(rel)}  ~  <canon signer key material: ${n} fragment(s)>`); hitFiles.add(rel); }
     }
   });
   // A trust root present AFTER the clear is canon's by construction: the clear deletes it and
@@ -1246,6 +1324,7 @@ function assertZero(root, canonTokens, opts = {}) {
   // its content for actual canon tokens. Any OTHER structural finding fails.
   let scannerFindings = [];
   let scannerErrored = false;
+  let scannerErroredReason = "";
   const scannerBin = opts.scannerPath || path.join(SCRIPT_DIR, "scan-synced-disclosure.mjs");
   try {
     // stdio pipe (not the default that lets the child's stderr reach the
@@ -1266,23 +1345,44 @@ function assertZero(root, canonTokens, opts = {}) {
   } catch (e) {
     const rawOut = (e.stdout || "") + (e.stderr || "");
     const rawFindings = rawOut.split("\n").map((l) => l.trim()).filter((l) => /\[SHAPE:/.test(l));
-    if (rawFindings.length === 0) {
-      // FAIL-CLOSED (evidence-first-claims.md MUST-3 / F7 A2 — the ceremony is a VERIFIER
-      // here, not a trust actor). The scanner exits 1 with `[SHAPE:…]` lines for a genuine
-      // finding, and exit 0 (no catch at all) for a genuinely clean run — so entering this
-      // catch with ZERO `[SHAPE:]` lines means the scanner did NOT run to completion (a bad
-      // arg, a malformed input file, an uncaught exception), which is NOT the same as
-      // "0 findings". Silently converting that into a pass is exactly the "cleaner treated
-      // as trust actor" failure mode this gate exists to close — treat it as scanner-status
-      // UNKNOWN, never an all-clear.
-      scannerErrored = true;
+    // EXIT STATUS FIRST (Gate-1 H-1, security-review round 1). The scanner's FULL code
+    // vocabulary is 0 clean / 1 findings / 2 NO VALID RESULT / 3 crashed, and its header
+    // states a caller MUST NOT collapse them. Exit 2 is the COVERAGE FENCE, which prints
+    // any PARTIAL findings it recorded BEFORE refusing — so "≥1 [SHAPE:] line in the
+    // captured output" NO LONGER witnesses "the scan ran to completion" (the premise the
+    // old content-only classifier stated). That classifier read exit 2 + a partial finding
+    // as a genuine finding set, and when every partial finding was the ecosystem.json-exempt
+    // line it converted a REFUSED scan into PASS. Exit 1 is the ONLY code that asserts a
+    // disclosure leak; anything else reaching this catch (2, 3, a kill signal, a spawn
+    // failure) is the ABSENCE of a verdict and fails closed REGARDLESS of output content.
+    const scannerExit = e.status;
+    if (scannerExit === 1) {
+      if (rawFindings.length === 0) {
+        // FAIL-CLOSED (evidence-first-claims.md MUST-3 / F7 A2 — the ceremony is a VERIFIER
+        // here, not a trust actor). Exit 1 with ZERO `[SHAPE:…]` lines is a state the
+        // scanner's own vocabulary does not produce (a bad arg, a malformed input file, an
+        // uncaught exception) — NOT the same as "0 findings". Silently converting that into
+        // a pass is exactly the "cleaner treated as trust actor" failure mode this gate
+        // exists to close: treat it as scanner-status UNKNOWN, never an all-clear.
+        scannerErrored = true;
+        scannerErroredReason = "exit 1 with ZERO [SHAPE:] findings -- it did NOT run to completion";
+      } else {
+        // EXACT-path anchor (HIGH-2): the scanner emits `<relpath>:<line>  [SHAPE:…]`,
+        // so require ecosystem.json to be followed by the `:<line>` separator. A
+        // `startsWith` prefix would also drop a sibling like `ecosystem.json.bak` /
+        // `ecosystem.json.d/leak.md` — letting a structural shape on an adversarial
+        // sibling escape the gate. Only the ceremony's OWN ecosystem.json is exempt.
+        scannerFindings = rawFindings.filter((l) => !/^\.claude\/bin\/ecosystem\.json:\d/.test(l));
+      }
     } else {
-      // EXACT-path anchor (HIGH-2): the scanner emits `<relpath>:<line>  [SHAPE:…]`,
-      // so require ecosystem.json to be followed by the `:<line>` separator. A
-      // `startsWith` prefix would also drop a sibling like `ecosystem.json.bak` /
-      // `ecosystem.json.d/leak.md` — letting a structural shape on an adversarial
-      // sibling escape the gate. Only the ceremony's OWN ecosystem.json is exempt.
-      scannerFindings = rawFindings.filter((l) => !/^\.claude\/bin\/ecosystem\.json:\d/.test(l));
+      // Exit 2 (coverage fence: the scan refused a verdict) / exit 3 (crash fence: STARTED,
+      // did NOT COMPLETE) / a kill signal / a spawn failure (status null). None asserts a
+      // leak and none supports an all-clear — the ASSERT-ZERO CANNOT SPEAK shape, exactly as
+      // `unreadable[]` is handled above.
+      scannerErrored = true;
+      scannerErroredReason = scannerExit === 2 || scannerExit === 3
+        ? `exit ${scannerExit} (${scannerExit === 2 ? "coverage fence -- NO VALID RESULT for this surface" : "crash fence -- the scan DID NOT COMPLETE"}), whatever findings it printed`
+        : `no scan verdict (${scannerExit === null || scannerExit === undefined ? `killed by ${e.signal || "an unknown signal"}` : `exit ${scannerExit}`}) -- status outside the scanner's vocabulary`;
     }
   }
   // r4-v4 F4 (correctness item 13): the SHARED canonical-set identity gate over
@@ -1300,11 +1400,11 @@ function assertZero(root, canonTokens, opts = {}) {
   if (opts.sharedGate) {
     const privateSlugs = Array.isArray(opts.privateSlugs) ? opts.privateSlugs : [];
     if (!privateSlugs.length) {
-      console.log(`  (shared private-slug gate INERT — ${opts.privateSlugsNote || "no declared org values"}; the token + shape gates above remain armed)`);
+      say(`  (shared private-slug gate INERT — ${opts.privateSlugsNote || "no declared org values"}; the token + shape gates above remain armed)`);
     } else {
       try {
         assertSharedIdentityGate(root, { slugs: privateSlugs, label: "clean-instantiate post-clear tree" });
-        console.log(`  (shared private-slug gate: clean over the whole post-clear tree, ${privateSlugs.length} declared org value(s))`);
+        say(`  (shared private-slug gate: clean over the whole post-clear tree, ${privateSlugs.length} declared org value(s))`);
       } catch (e) {
         hits.push(`<shared private-slug gate>  ~  ${e.message}`);
       }
@@ -1312,11 +1412,14 @@ function assertZero(root, canonTokens, opts = {}) {
   }
   return {
     hits,
+    hitFiles: hitFiles.size,
+    unreadable,
     scannerOk: !scannerErrored && scannerFindings.length === 0,
     scannerOut: scannerErrored
-      ? "structural scanner exited WITHOUT emitting any [SHAPE:] findings -- it did NOT run to " +
-        "completion (fail-closed, NOT an all-clear); investigate the scan-synced-disclosure.mjs " +
-        "invocation (bad args / malformed input file / uncaught exception)."
+      ? "structural scanner did NOT produce a usable verdict -- " + scannerErroredReason +
+        ". Fail-closed, NOT an all-clear; investigate the scan-synced-disclosure.mjs invocation " +
+        "or the coverage gap it named (bad args / malformed input file / uncaught exception / " +
+        "a path it could not examine)."
       : scannerFindings.slice(0, 30).join("\n"),
   };
 }
@@ -1330,23 +1433,24 @@ function assertZero(root, canonTokens, opts = {}) {
  * history, then (S6) the remote-awareness probe, and emits guidance scoped to the ACTUAL path.
  * DETECTION-ONLY: it certifies the LOCAL store only and cannot certify REMOTE cleanliness.
  * @param {boolean} applied  true in the APPLY path (worktree already cleared), false in DRY RUN
+ * @param {Set<string>} [bounded]  the members of `canonTokens` matched WORD-BOUNDED (C1 R2 F1)
  */
-function emitHistoryGuidance(root, historyN, canonTokens, applied) {
+function emitHistoryGuidance(root, historyN, canonTokens, applied, bounded = new Set()) {
   const histDesc = historyN < 0
     ? "an UNDETERMINED number of (git history count ERRORED -- fail-closed: assume history PRESENT)"
     : `${historyN} commit(s) of`;
-  console.log(`\u26a0 .git/ carries ${histDesc} canon HISTORY (authorship, pre-clear blobs, the real root_commit) -- NOT reached by the working-tree clear.`);
+  say(`\u26a0 .git/ carries ${histDesc} canon HISTORY (authorship, pre-clear blobs, the real root_commit) -- NOT reached by the working-tree clear.`);
   // S7 -- scan the LOCAL object store (assertZero skips .git; history is the carrier it cannot reach).
-  const store = scanObjectStore(root, canonTokens);
+  const store = scanObjectStore(root, canonTokens, { bounded });
   if (!store.ran) {
-    console.log(`  \u26a0 .git/ object-store scan DID NOT RUN (${store.error || "error"}) -- history canon-status UNKNOWN (fail-closed: assume dirty).`);
+    say(`  \u26a0 .git/ object-store scan DID NOT RUN (${store.error || "error"}) -- history canon-status UNKNOWN (fail-closed: assume dirty).`);
   } else if (store.hits.length) {
     const bound = store.truncated ? ` (first ${store.scanned} blob(s), TRUNCATED)` : ` (${store.scanned} blob(s))`;
-    console.log(`  \u26a0 .git/ LOCAL object store carries ${store.hits.length} canon-token hit(s) in history${bound}:`);
-    for (const h of store.hits.slice(0, 20)) console.log(`       ${h}`);
+    say(`  \u26a0 .git/ LOCAL object store carries ${store.hits.length} canon-token hit(s) in history${bound}:`);
+    for (const h of store.hits.slice(0, 20)) say(`       ${h}`);
   } else {
     const bound = store.truncated ? ` (first ${store.scanned} blob(s) scanned, TRUNCATED -- more unscanned)` : ` (${store.scanned} blob(s) scanned)`;
-    console.log(`  .git/ local object store: 0 canon-token hits${bound}. This certifies the LOCAL store ONLY -- it CANNOT certify REMOTE cleanliness (a dangling published object survives with no ref).`);
+    say(`  .git/ local object store: 0 canon-token hits${bound}. This certifies the LOCAL store ONLY -- it CANNOT certify REMOTE cleanliness (a dangling published object survives with no ref).`);
   }
   // S6 -- remote-awareness: is ANY configured remote already carrying published objects?
   // (F7 A23 redteam R2 MED: extended from a single hardcoded "origin" probe to every remote --
@@ -1363,37 +1467,37 @@ function emitHistoryGuidance(root, historyN, canonTokens, applied) {
   // a truthy-array guard that does not throw on `null.length`.
   const remotes = gitAllRemotes(root);
   if (remotes === null) {
-    console.log(`  ⚠ could not enumerate remotes ('git remote' ERRORED even though .git/ exists) -- remote-status UNKNOWN, treated as if a remote may be published (fail-closed).`);
+    say(`  ⚠ could not enumerate remotes ('git remote' ERRORED even though .git/ exists) -- remote-status UNKNOWN, treated as if a remote may be published (fail-closed).`);
   }
   const remoteNamesToWarn = remotes && remotes.length ? remotes : ["origin"];
   let anyRemoteRisk = false;
   for (const remote of remoteNamesToWarn) {
     const status = probeRemotePublished(root, remote);
     if (status === "unpushed") {
-      console.log(`  remote '${remote}' has NO refs (fresh/unpushed) -- the local-clone-then-fresh-push path. Re-run with --reset-history (or strip history) BEFORE the first push to '${remote}'; that genuinely prevents canon objects reaching it.`);
+      say(`  remote '${remote}' has NO refs (fresh/unpushed) -- the local-clone-then-fresh-push path. Re-run with --reset-history (or strip history) BEFORE the first push to '${remote}'; that genuinely prevents canon objects reaching it.`);
       continue;
     }
     anyRemoteRisk = true;
     const why = status === "published"
       ? `remote '${remote}' ALREADY carries objects`
       : `remote '${remote}' could NOT be probed (offline / no such remote / auth) -- fail-closed: assume published`;
-    console.log(`  ${why}. A published git object CANNOT be deleted by force-push/reset (served by SHA even with no ref), so "strip before pushing" does NOT help here:`);
-    console.log(`    -> DESTROY + RECREATE the remote repo (delete it, create a fresh empty one), then push the cleared tree.`);
+    say(`  ${why}. A published git object CANNOT be deleted by force-push/reset (served by SHA even with no ref), so "strip before pushing" does NOT help here:`);
+    say(`    -> DESTROY + RECREATE the remote repo (delete it, create a fresh empty one), then push the cleared tree.`);
   }
   if (anyRemoteRisk) {
-    console.log(`    -> PREVENT AT THE SOURCE: instantiate from the pre-scrubbed client-template edition (scripts/publish-to-private-template.mjs), never from a canon clone -- the client template never carries canon objects.`);
+    say(`    -> PREVENT AT THE SOURCE: instantiate from the pre-scrubbed client-template edition (scripts/publish-to-private-template.mjs), never from a canon clone -- the client template never carries canon objects.`);
   }
-  if (!applied) console.log(`  (DRY RUN -- no clear performed yet; --apply runs the clear + fail-closed gate.)`);
+  if (!applied) say(`  (DRY RUN -- no clear performed yet; --apply runs the clear + fail-closed gate.)`);
 }
 
 
 function main() {
   const a = parseArgs(process.argv);
-  if (a.help) { console.log("usage: clean-instantiate.mjs [--apply] [--reset-history] [--root <dir>] [--upstream-canon-url <url>] [--ecosystem-id <label>]"); return 0; }
-  if (a.bad) { console.error(`unknown argument: ${a.bad}`); return 2; }
+  if (a.help) { say("usage: clean-instantiate.mjs [--apply] [--reset-history] [--root <dir>] [--upstream-canon-url <url>] [--ecosystem-id <label>]"); return 0; }
+  if (a.bad) { sayErr(`unknown argument: ${a.bad}`); return 2; }
 
   const root = a.root ? path.resolve(a.root) : (gitToplevel(process.cwd()) || process.cwd());
-  if (!existsSync(path.join(root, ".claude"))) { console.error(`✗ ${displayRoot(root)} has no .claude/ — not a COC repo`); return 2; }
+  if (!existsSync(path.join(root, ".claude"))) { sayErr(`✗ ${displayRoot(root)} has no .claude/ — not a COC repo`); return 2; }
 
   // HIGH — symlink-escape / arbitrary-file-write guard (holistic redteam; made
   // UNCONDITIONAL by the F7 redteam MEDIUM/LOW-2 fix — see
@@ -1425,17 +1529,17 @@ function main() {
   try {
     assertNoSymlinkEscape(root);
   } catch (e) {
-    console.error(`✗ ${e && e.message ? e.message : String(e)}`);
-    console.error("  refusing to run clean-instantiate (no read/mutation of the tree when this guard fires).");
+    sayErr(`✗ ${e && e.message ? e.message : String(e)}`);
+    sayErr("  refusing to run clean-instantiate (no read/mutation of the tree when this guard fires).");
     return 2;
   }
   // FIFO / socket / device preflight — see findSpecialFiles. Same position and disposition as the
   // symlink guard above: before ANY read or mutation, dry run and --apply alike.
   const special = findSpecialFiles(root);
   if (special.length) {
-    console.error(`✗ ${special.length} non-regular file(s) (FIFO / socket / device) in the tree — reading or writing one blocks or misbehaves:`);
-    for (const s of special.slice(0, 20)) console.error(`   ${s}`);
-    console.error("  refusing to run clean-instantiate (no read/mutation of the tree when this guard fires). Remove them and re-run.");
+    sayErr(`✗ ${special.length} non-regular file(s) (FIFO / socket / device) in the tree — reading or writing one blocks or misbehaves:`);
+    for (const s of special.slice(0, 20)) sayErr(`   ${maskHit(s)}`); // H5: a NAME can carry a value
+    sayErr("  refusing to run clean-instantiate (no read/mutation of the tree when this guard fires). Remove them and re-run.");
     return 2;
   }
   // TEST-ONLY seam, gated on the SAME CLEAN_INSTANTIATE_TEST_MODE=1 marker as --scanner-path and
@@ -1458,7 +1562,7 @@ function main() {
   // would FALSE-pass even if the first run left residue. Refuse rather than
   // silently claim clean; verification belongs against the FIRST run's output.
   if (a.apply && isAlreadyCleared(root)) {
-    console.error(`✗ ${displayRoot(root)} is already cleared (roster genesis is a PLACEHOLDER-).\n` +
+    sayErr(`✗ ${displayRoot(root)} is already cleared (roster genesis is a PLACEHOLDER-).\n` +
       `  Re-running --apply cannot re-derive the canon snapshot (the carriers are gone), so it\n` +
       `  cannot honestly re-verify. If you need to confirm the clear, check the FIRST run's output,\n` +
       `  or re-clone canon and run --apply once. (To re-anchor your OWN ecosystem, use /ecosystem-init.)`);
@@ -1473,14 +1577,14 @@ function main() {
   if (a.apply) {
     const remoteGuard = assertOriginNotPublished(root);
     if (!remoteGuard.ok) {
-      console.error(`✗ ${remoteGuard.error}`);
+      sayErr(`✗ ${remoteGuard.error}`);
       return 2;
     }
   }
 
   // Snapshot the gate tokens AND the scrub pairs in ONE pre-clear derive (the
   // neutralize pass below needs the pairs; a post-clear re-derive returns empty).
-  const { canonTokens, scrubPairs } = snapshotCanonIdentity(root);
+  const { canonTokens, canonBounded, scrubPairs } = snapshotCanonIdentity(root);
   // r4-v4 item 13: the SHARED gate's slug set, ALSO captured pre-clear — the
   // clear DELETES the declaration this derives from (performClear section (n)),
   // so this is the only moment the canon org values exist to scan FOR.
@@ -1489,48 +1593,57 @@ function main() {
   // after which there is nothing left to snapshot it from.
   const keyMaterial = snapshotCanonKeyMaterial(root);
   const benign = snapshotBenignAdjudications(root);
-  if (benign.absentNote) console.log(benign.absentNote);
-  else console.log(`benign-collision adjudications loaded: ${benign.keys.size}${benign.error ? " (REGISTRY ERROR — fail-closed)" : ""}`);
-  if (benign.rejectedNote) console.error(benign.rejectedNote);
-  console.log(`\n=== clean-instantiate (${a.apply ? "APPLY" : "DRY RUN"}) — root: ${displayRoot(root)} ===`);
-  console.log(`canon trust-identity tokens snapshotted: ${canonTokens.length}`);
-  console.log(`canon signer key-material fragments snapshotted: ${keyMaterial.length}`);
-  console.log(
+  if (benign.absentNote) say(benign.absentNote);
+  else say(`benign-collision adjudications loaded: ${benign.keys.size}${benign.error ? " (REGISTRY ERROR — fail-closed)" : ""}`);
+  if (benign.rejectedNote) sayErr(benign.rejectedNote);
+  say(`\n=== clean-instantiate (${a.apply ? "APPLY" : "DRY RUN"}) — root: ${displayRoot(root)} ===`);
+  say(`canon trust-identity tokens snapshotted: ${canonTokens.length}`);
+  say(`canon signer key-material fragments snapshotted: ${keyMaterial.length}`);
+  say(
     entrySharedGate.slugs.length
       ? `shared private-slug gate: ${entrySharedGate.slugs.length} declared org value(s) snapshotted at entry (post-clear scan armed) — ${entrySharedGate.note}`
       : `shared private-slug gate: INERT — ${entrySharedGate.note}`,
   );
 
   if (!a.apply) {
-    const preview = assertZero(root, canonTokens, { scannerPath: a.scannerPath, keyMaterial, benign });
+    const preview = assertZero(root, canonTokens, { scannerPath: a.scannerPath, keyMaterial, bounded: canonBounded, benign });
     const historyN = gitHistoryCount(root);
-    console.log(`\nDRY RUN — would clear: roster→placeholder · journal/ DELETE · team-memory facts · ecosystem.json→placeholder · tenant-denylist→empty · coordination state · scripts/publish-to-public.mjs DELETE · mesh handle-vault.json DELETE · trust-root.json DELETE · burndown/ DELETE · cross-repo-authz/ DELETE · VERSION→placeholder · loom-workspace-names.json→reset · whole-tree NEUTRALIZE`);
-    console.log(`current tree carries ${preview.hits.length} canon-token occurrence(s) across ${new Set(preview.hits.map((h) => h.split("  ~  ")[0])).size} file(s) (these would be cleared/surfaced).`);
-    console.log(`upstream_canon would be set to: ${a.upstreamCanonUrl || "(placeholder)"}`);
-    if (historyN !== 0) emitHistoryGuidance(root, historyN, canonTokens, false); // != 0: >0 real history OR -1 errored-unknown -> fail-closed
-    console.log(`\nRun with --apply to perform the clear + whole-tree neutralize + fail-closed assert-zero gate.`);
+    say(`\nDRY RUN — would clear: roster→placeholder · journal/ DELETE · team-memory facts · ecosystem.json→placeholder · tenant-denylist→empty · coordination state · scripts/publish-to-public.mjs DELETE · mesh handle-vault.json DELETE · trust-root.json DELETE · burndown/ DELETE · cross-repo-authz/ DELETE · VERSION→placeholder · loom-workspace-names.json→reset · whole-tree NEUTRALIZE`);
+    say(`current tree carries ${preview.hits.length} canon-token occurrence(s) across ${preview.hitFiles} file(s) (these would be cleared/surfaced).`);
+    say(`upstream_canon would be set to: ${a.upstreamCanonUrl || "(placeholder)"}`);
+    if (historyN !== 0) emitHistoryGuidance(root, historyN, canonTokens, false, canonBounded); // != 0: >0 real history OR -1 errored-unknown -> fail-closed
+    say(`\nRun with --apply to perform the clear + whole-tree neutralize + fail-closed assert-zero gate.`);
     return 0;
   }
 
   const done = performClear(root, a);
-  console.log("\nCLEARED:"); for (const d of done) console.log(`  ✓ ${d}`);
+  say("\nCLEARED:"); for (const d of done) say(`  ✓ ${d}`);
 
   // Whole-tree NEUTRALIZE — clear the ~130+ token-carrying files the 6 structured
   // surfaces above never touch (test-harness/audit fixtures, workspaces, prose/config),
   // BEFORE the fail-closed assert-zero backstop greps for them. Fed by the pre-clear
   // scrub pairs; skips .git + the ceremony's own ecosystem.json (upstream_canon.url).
   const neutralized = neutralizeWholeTree(root, scrubPairs);
-  console.log(`  ✓ whole-tree neutralize → ${neutralized} file(s) rewritten`);
+  say(`  ✓ whole-tree neutralize → ${neutralized} file(s) rewritten`);
 
-  const { hits, scannerOk, scannerOut } = assertZero(root, canonTokens, { scannerPath: a.scannerPath, keyMaterial, benign, expectTrustRootAbsent: true, sharedGate: true, privateSlugs: entrySharedGate.slugs, privateSlugsNote: entrySharedGate.note });
-  console.log("");
-  if (hits.length || !scannerOk) {
-    console.error(`✗ ASSERT-ZERO FAILED — residual canon identity remains in the WORKING TREE (nothing is "clean"):`);
-    for (const h of hits.slice(0, 40)) console.error("   " + h);
-    if (!scannerOk) { console.error("   structural scanner findings:"); console.error(scannerOut); }
+  const { hits, unreadable, scannerOk, scannerOut } = assertZero(root, canonTokens, { scannerPath: a.scannerPath, keyMaterial, bounded: canonBounded, benign, expectTrustRootAbsent: true, sharedGate: true, privateSlugs: entrySharedGate.slugs, privateSlugsNote: entrySharedGate.note });
+  say("");
+  // An UNREADABLE carrier fails the gate even with zero hits: "0 canon tokens" and "could not
+  // look at N files" are opposite conclusions and were the same output (`evidence-first-claims.md`
+  // MUST-3, `probe-driven-verification.md` MUST-7). The gate refuses to SPEAK, rather than
+  // reporting a clean it cannot support.
+  if (unreadable.length) {
+    sayErr(`✗ ASSERT-ZERO CANNOT SPEAK — ${unreadable.length} file(s) could not be read, so "zero canon identity remains" is UNPROVEN for them:`);
+    for (const u of unreadable.slice(0, 40)) sayErr("   " + u);
+    sayErr(`   Fix the read (permissions / a FIFO / an I/O fault) or remove the file, then re-run.`);
+  }
+  if (hits.length || !scannerOk || unreadable.length) {
+    sayErr(`✗ ASSERT-ZERO FAILED — residual canon identity remains in the WORKING TREE (nothing is "clean"):`);
+    for (const h of hits.slice(0, 40)) sayErr("   " + h);
+    if (!scannerOk) { sayErr("   structural scanner findings:"); sayErr(scannerOut); }
     return 1;
   }
-  console.log(`✓ WORKING-TREE ASSERT-ZERO PASSED — 0 canon trust-identity tokens + structural scanner clean.`);
+  say(`✓ WORKING-TREE ASSERT-ZERO PASSED — 0 canon trust-identity tokens + structural scanner clean.`);
 
   // HIGH-3: the working tree is clean, but a `git clone` of canon retains the
   // ENTIRE canon history in .git/ — the one carrier assert-zero cannot reach.
@@ -1541,16 +1654,16 @@ function main() {
     if (historyN > 0 && a.resetHistory) {
       const rr = resetHistory(root);
       if (rr.ok) {
-        console.log(`✓ HISTORY RESET — .git/ re-anchored to a fresh root commit (${historyN} canon commit(s) discarded).`);
+        say(`✓ HISTORY RESET — .git/ re-anchored to a fresh root commit (${historyN} canon commit(s) discarded).`);
       } else {
-        console.log(`✓ canon .git/ HISTORY DISCARDED (${historyN} commit(s) removed), but the fresh commit did not complete: ${rr.error}`);
-        console.log(`  → run \`git -C ${displayRoot(root)} add -A && git -C ${displayRoot(root)} commit -m "Clean ecosystem instantiation"\` manually. Canon history is already gone — safe to push once committed.`);
+        say(`✓ canon .git/ HISTORY DISCARDED (${historyN} commit(s) removed), but the fresh commit did not complete: ${rr.error}`);
+        say(`  → run \`git -C ${displayRoot(root)} add -A && git -C ${displayRoot(root)} commit -m "Clean ecosystem instantiation"\` manually. Canon history is already gone — safe to push once committed.`);
       }
     } else {
-      emitHistoryGuidance(root, historyN, canonTokens, true);
+      emitHistoryGuidance(root, historyN, canonTokens, true, canonBounded);
     }
   }
-  console.log(`\nNext: run /ecosystem-init to re-anchor genesis to YOUR owner, then /enroll operators.`);
+  say(`\nNext: run /ecosystem-init to re-anchor genesis to YOUR owner, then /enroll operators.`);
   return 0;
 }
 
@@ -1563,9 +1676,22 @@ let exitCode;
 try {
   exitCode = main();
 } catch (e) {
+  if (e && e.code === "ERR_TEST_RUNNER_REQUIRED") {
+    console.error(`✗ ${e.message}`);
+    process.exit(2);
+  }
+  // A REFUSED redaction map (in-repo path, mode looser than 0600, symlink, malformed) is reported
+  // as a refusal too: its message is value-free and path-free by construction (RedactionMapError),
+  // while an uncaught stack would print the absolute install path. Written with `console.error`,
+  // not `sayErr` — the mask would load the same refused map and throw again.
+  if (e && e.code === "ERR_REDACTION_MAP") {
+    console.error(`✗ ${e.message}`);
+    console.error("  refusing to run clean-instantiate: the operator redaction map could not be trusted, so neither the gate nor its output could honour it.");
+    process.exit(2);
+  }
   if (!(e && e.code === "ERR_UNSAFE_FILE_READ")) throw e;
-  console.error(`✗ ${e.message}`);
-  console.error("  refusing to run clean-instantiate on a non-regular file (FIFO / socket / device / symlink) at a path it reads.");
+  sayErr(`✗ ${e.message}`);
+  sayErr("  refusing to run clean-instantiate on a non-regular file (FIFO / socket / device / symlink) at a path it reads.");
   exitCode = 2;
 }
 process.exit(exitCode);

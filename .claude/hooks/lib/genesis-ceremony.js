@@ -100,12 +100,20 @@ function _defaultLocalAppend(repoDir) {
     // eslint-disable-next-line global-require
     const path = require("path");
     // eslint-disable-next-line global-require
-    const { appendSinkLine } = require("./append-sink.js");
+    const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
+    const { assertRecordSize } = require("./fold-record-limits.js");
     // loom#1349 R1 F3 — routed through the shared hardened primitive. Genesis rows anchor the
     // repo's trust root, so a symlinked sink here would land the anchor outside the repo.
     const sinkPath = path.join(repoDir, ".claude", "learning", "coordination-log.jsonl");
     try {
-      const w = appendSinkLine({ repoDir, sinkPath, line: JSON.stringify(record) });
+      const line = JSON.stringify(record);
+      assertRecordSize(Buffer.byteLength(line, "utf8"));
+      const w = appendSinkLine({
+        repoDir,
+        additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+        sinkPath,
+        line,
+      });
       if (!w.ok)
         return { ok: false, error: "default local append failed", reason: `${w.error} — ${w.reason}` };
       return { ok: true };
@@ -113,6 +121,7 @@ function _defaultLocalAppend(repoDir) {
       return {
         ok: false,
         error: "default local append failed",
+        code: err && err.code,
         reason: err && err.message ? err.message : String(err),
       };
     }
@@ -1206,17 +1215,10 @@ function _defaultReadChainHead({ cwd, roster, verifiedId }) {
     if (err && err.code === "ENOENT") return null;
     throw err;
   }
-  const records = raw
-    .split("\n")
-    .filter((l) => l.length > 0)
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter((r) => r && typeof r === "object");
+  const { parseCoordinationLog } = require("./fold-record-limits.js");
+  const { records } = parseCoordinationLog(raw, {
+    malformed: "skip", objectRecordsOnly: true, maxRecords: null,
+  });
   if (records.length === 0) return null;
   const folded = coordinationLog.foldLog(records, roster, {});
   return coordinationLog.computeOwnChainHead(folded, verifiedId);

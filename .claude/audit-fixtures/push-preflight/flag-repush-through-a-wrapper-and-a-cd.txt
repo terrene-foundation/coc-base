@@ -5,7 +5,7 @@
     "why": "no-parity-since-last-push"
   },
   "input": {
-    "command": "cd /Users/x/repo && sudo git push --force-with-lease origin feat/rate-limit",
+    "command": "cd {{FIXTURE_HOME_V1:MAC}}x/repo && sudo git push --force-with-lease origin feat/rate-limit",
     "remoteBranchExists": true,
     "workflows": [
       "name: gate\non: [pull_request]\njobs:\n  g:\n    runs-on: [self-hosted]\n    steps:\n      - run: |\n          echo \"starting the gate\"\n          node .claude/bin/validate-xref-integrity.mjs\n          git status --porcelain\n      - run: pre-commit run --all-files\n"

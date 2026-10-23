@@ -47,6 +47,20 @@
  * session root, an absent classifier, a hook error. See the fail-open note in the lib.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["ps"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: one POSIX `ps -Ao pid,ppid,pcpu,etime,command -ww` through lib/session-load-backstop.js::readProcessTable (spawnSync). STATELESS by design — no throttle marker on disk; the finding goes to stdout via lib/instruct-and-wait.js."
+ * }
+ */
+
 const path = require("node:path");
 const os = require("node:os");
 

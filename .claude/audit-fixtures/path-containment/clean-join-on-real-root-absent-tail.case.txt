@@ -1,0 +1,13 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function refTarget(root, ref) {
+  const realRoot = fs.realpathSync(root);
+  let target;
+  try {
+    target = fs.realpathSync(path.join(realRoot, ref));
+  } catch {
+    target = path.resolve(realRoot, ref);
+  }
+  return target.startsWith(realRoot + path.sep);
+}

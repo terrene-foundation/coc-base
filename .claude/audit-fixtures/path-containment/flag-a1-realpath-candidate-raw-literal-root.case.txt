@@ -1,0 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function inSandbox(p) {
+  const cand = fs.realpathSync(p);
+  return cand.startsWith("/srv/sandbox" + path.sep);
+}

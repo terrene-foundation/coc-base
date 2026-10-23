@@ -34,4 +34,4 @@ Open and recorded as open, not scheduled: a wrapper form — `eval "$CMD"`, `sh 
 `xargs gh` — reaches a shell without presenting a segment-leading `gh` to this
 matcher, so it walks past. No date booked; no structural signal has been named.
 
-Run from `/Users/me/repos/loom`; the one case is green.
+Run from `{{FIXTURE_HOME_V1:MAC}}me/repos/loom`; the one case is green.

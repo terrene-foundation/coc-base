@@ -196,8 +196,11 @@ export const CANONICAL_STATE_DENY = [
   "Edit(.claude/learning/presence-mechanism.json)",
   "Edit(.claude/operators.roster.json)",
   "Edit(.claude/learning/coordination-log.jsonl)",
+  "Edit(.claude/learning/burndown-events.pending.jsonl*)",
   "Edit(.claude/learning/.heartbeat-cache*)",
   "Edit(.claude/learning/.session-end-cache*)",
+  "Edit(.claude/learning/hook-findings/**)",
+  "Edit(.claude/learning/fleet/**)",
 ];
 
 // Match a single permission-matcher entry: `Tool` or `Tool(<specifier>)`.

@@ -136,7 +136,7 @@ permanent-by-default shape the deferral registry itself exists to close.
 | `.claude/test-harness/phase2-deferrals.json`    | the registry a row is declared in — AFTER acceptance  |
 
 Full mechanics, the fence rationale, and the append-only contract live in
-`.claude/deferral-requests/README.md` — loom-side like the tools above, so it is
+loom's deferral-request queue documentation — loom-side like the tools above, so it is
 absent from a consumer tree; there, the scope note at the top of this page is the
 whole contract.
 

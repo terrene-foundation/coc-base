@@ -19,15 +19,15 @@
  *  (A) content_commitment = HMAC(k_eco, "kml/content/v1" ‖ content_bytes) — the
  *      domain-separated form (specs/02 clause (f), RES-13). The UP pull publishes
  *      THIS in place of the raw content_hash (D-6). k_eco is PER-TRUST-BOUNDARY
- *      (held by one tenant's levels, NEVER by loom-command, NEVER shared across
+ *      (held by one tenant's levels, NEVER by the UP-pull aggregator, NEVER shared across
  *      mutually-distrusting clients), ≥128-bit CSPRNG, env/keychain, never
- *      committed — sourced through lib/mesh-keys.mjs. loom-command sees EQUALITY
+ *      committed — sourced through lib/mesh-keys.mjs. The UP-pull aggregator sees EQUALITY
  *      (within-tenant merge detection survives) but holds no k_eco (the RES-8
  *      membership oracle is dead by construction).
  *
  *  (B) THE SCRUB-AT-SOURCE ENFORCEMENT POINT. The registry text is `git fetch`ed
- *      by loom-command, so a fence AFTER the fetch is structurally too late — the
- *      raw objects are already in loom-command's `.git`. Therefore the project
+ *      by the UP-pull aggregator, so a fence AFTER the fetch is structurally too late — the
+ *      raw objects are already in the UP-pull aggregator's `.git`. Therefore the project
  *      AUTHORS its tuple ALREADY-SCRUBBED, pre-commit. `authorRegistryTuple`
  *      WIRES the S1 fence (mesh-registry-scrub.mjs::scrubTuple) into that
  *      authoring path: it runs the scrub and REFUSES to emit a committable tuple

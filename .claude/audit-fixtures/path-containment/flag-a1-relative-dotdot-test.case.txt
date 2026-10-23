@@ -1,0 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function escapes(rawRoot, p) {
+  const root = path.resolve(rawRoot);
+  const realCand = fs.realpathSync(p);
+  const rel = path.relative(root, realCand);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return true;
+  return false;
+}

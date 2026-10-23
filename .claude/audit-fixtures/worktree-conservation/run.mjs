@@ -84,6 +84,13 @@ for (const f of fs.readdirSync(HERE).filter((n) => n.endsWith(".json")).sort()) 
     // was live and unpinned. These cases drive `resolveConfig({})` so the shipped
     // default is what classifies, and a silent narrowing of it reds.
     check(f, expected, LIB.classifyTree(body.facts, LIB.resolveConfig({})));
+  } else if (body.arm === "evaluateUnmeasured") {
+    // R1 LOW-L4 (conservation-gate.md MUST-4). The SAME surveys the silent
+    // evaluateConservation fixtures (14, 15) hold, read by the blind-spot arm: a
+    // failed or partly unmeasured survey NOTES what it did not measure; a fully
+    // measured forest and a firing one stay silent here.
+    const note = LIB.evaluateUnmeasured(body.survey);
+    check(f, expected, note ? `notes ${note.failed ? "failed" : note.unmeasured.map((t) => t.name).join(",")}` : "silent");
   } else {
     failures.push(`  ${f}\n      unknown arm: ${body.arm}`);
     cases++;

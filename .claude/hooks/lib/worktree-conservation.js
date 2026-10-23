@@ -659,6 +659,7 @@ async function surveyForest(repoDir, cfg, opts = {}) {
 // ── the finding predicate (PURE) ────────────────────────────────────────────
 
 const KIND_AT_RISK = "uncommitted-at-risk";
+const KIND_UNMEASURED = "survey-unmeasured";
 
 /**
  * Decide whether this survey is a finding. Pure: no git, no clock, no fs.
@@ -696,6 +697,50 @@ function evaluateConservation(survey) {
           : null,
       })),
   };
+}
+
+/**
+ * The survey's own BLIND SPOT, as a finding of its own (R1 LOW-L4; `conservation-gate.md`
+ * MUST-4 — an empty outcome is distinguishable from a successful one). evaluateConservation
+ * stays silent on a survey that could not be taken, or on a forest whose quiet trees were not
+ * measured, because neither is EVIDENCE of loss; but silence there reads exactly like "the
+ * forest was surveyed and is clean". So when no tree is at risk AND the survey did not see the
+ * whole forest, this names what it did NOT measure. Returns null when the whole forest was
+ * measured (the common case stays silent), else
+ *   { kind: "unmeasured", failed, reason, census, unmeasured: [{name, path, branch}], budgetExhausted }.
+ * A survey that FIRES is not double-reported: its report already states the unmeasured count.
+ */
+function evaluateUnmeasured(survey) {
+  if (!survey) return { kind: KIND_UNMEASURED, failed: true, reason: "no survey was produced", census: null, unmeasured: [], budgetExhausted: false };
+  if (survey.ok !== true || !survey.counts)
+    return { kind: KIND_UNMEASURED, failed: true, reason: survey.reason || "the survey did not complete", census: null, unmeasured: [], budgetExhausted: false };
+  const trees = Array.isArray(survey.trees) ? survey.trees : [];
+  if (trees.some((t) => t && t.state === STATE_AT_RISK)) return null;
+  const unmeasured = trees.filter((t) => t && t.state === STATE_UNMEASURED);
+  if (unmeasured.length === 0) return null;
+  return {
+    kind: KIND_UNMEASURED,
+    failed: false,
+    reason: survey.budgetExhausted === true ? "the survey budget was exhausted" : "some trees could not be read",
+    census: survey.census,
+    unmeasured: unmeasured.map((t) => ({ name: t.name, path: t.path, branch: t.branch })),
+    budgetExhausted: survey.budgetExhausted === true,
+  };
+}
+
+/** The lines of an unmeasured note: what was not measured, and that it is UNKNOWN, not clean. */
+function unmeasuredLines(note) {
+  if (note.failed)
+    return [
+      `State that the worktree-conservation survey could NOT be taken (${note.reason}): NO worktree in the forest was measured, so whether any holds quiet uncommitted work is UNKNOWN — not clean.`,
+      "Run `git worktree list --porcelain` and `git -C <path> status --porcelain` per tree (or `node .claude/bin/worktree-reap.mjs --no-size`) for a read.",
+    ];
+  const lines = [
+    `State that ${note.unmeasured.length} of ${note.census} worktree(s) were NOT measured (${note.reason}), so whether they hold quiet uncommitted work is UNKNOWN — not clean:`,
+  ];
+  for (const t of note.unmeasured) lines.push(`  - ${t.name} (${t.branch || "detached"}): ${t.path}`);
+  lines.push("Run `node .claude/bin/worktree-reap.mjs --no-size` for a full per-tree read.");
+  return lines;
 }
 
 // ── rendering ───────────────────────────────────────────────────────────────
@@ -744,6 +789,7 @@ module.exports = {
   STATE_PARKED,
   STATE_UNMEASURED,
   KIND_AT_RISK,
+  KIND_UNMEASURED,
   DEFAULT_WIP_MINUTES,
   DEFAULT_PARKED_HOURS,
   DEFAULT_BUDGET_MS,
@@ -757,6 +803,8 @@ module.exports = {
   classifyTree,
   surveyForest,
   evaluateConservation,
+  evaluateUnmeasured,
+  unmeasuredLines,
   reportLines,
   summarize,
   _internal: { envNumber, idleMsFrom, newestMtimeMs, fmtIdle },

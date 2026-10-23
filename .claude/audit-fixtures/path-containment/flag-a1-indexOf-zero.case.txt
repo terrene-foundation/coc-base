@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 sec F6: a prefix test spelled as an index.
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  return c.indexOf(path.resolve(root) + path.sep) === 0;
+}

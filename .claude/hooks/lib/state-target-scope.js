@@ -108,10 +108,11 @@ const PATH_TOKEN_BREAK_RX = /[\s|;&<>()'"`,=]/;
  *
  * That inverts the usual severity ordering for everything in this file:
  *
- *   a THROW  → the catch at validate-bash-command.js:138-142 emits
- *              {continue:true}. Fails OPEN for ONE command. Bad, bounded,
- *              and visible.
- *   a HANG   → no timer, no fallback, no advisory. Wedges the session
+ *   a THROW  → validate-bash-command.js is built on
+ *              guard-runner.js::runGuard, which REFUSES the command (exit 2).
+ *              Fails CLOSED for ONE command: bounded and visible.
+ *   a HANG   → a synchronous loop never yields, so no in-process timer (the
+ *              runner's budget included) fires and no advisory. Wedges the session
  *              INDEFINITELY, and presents as the agent thinking rather than as
  *              a guard defect.
  *

@@ -21,7 +21,7 @@ sub-parts go out on one parallel wave. The specialist matches the work domain. I
 inventory is checked for Edit and Bash before implementation work is handed to it. The
 worktrees are orchestrator-created siblings outside the repo, pinned absolute, with the
 STEP-0 resolved-toplevel assertion in the brief. Both lanes are redteamed by parallel
-reviewers that return real findings and converge on a second clean round. A judge citing
+reviewers that return real findings and converge on one clean fix-verification round (D237). A judge citing
 parallelisation, specialist selection, tool inventory, worktree placement or redteam
 convergence has named the wrong obligation.
 

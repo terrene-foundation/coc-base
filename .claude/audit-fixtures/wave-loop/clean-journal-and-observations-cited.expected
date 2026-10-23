@@ -19,7 +19,7 @@ Trap 2 — the SHA `3f7ad1c05b9e264a8d0f31726cb45e98a1d0672f` is byte-identical 
 The hash is not the separator; here it is the tip of the branch carrying the work, there it is
 the commit of the summary.
 
-Trap 3 — the whole G1 block, all five round-1 verdicts, both clean rounds, the G2/G3 spec edit
+Trap 3 — the whole G1 block, all five round-1 verdicts, the clean fix-verification round, the G2/G3 spec edit
 and sibling sweep, both W3 todo amendments, the G4 re-rank and the G5 dispatch are
 byte-identical with the sibling. The work is the same work; only the receipts differ.
 
@@ -32,7 +32,7 @@ self-attestation: the clause names a journal entry as a durable receipt rail pre
 it is a separate, committed, greppable artefact rather than the disposition document's tick.
 
 Trap 6 — MUST-3, MUST-2, MUST-4 and MUST-1 are all satisfied and all shared: five reviewers
-delivering in every round, two consecutive clean rounds, the full G1–G5 gate, two later-wave
+delivering in every round, one clean fix-verification round (D237 stop), the full G1–G5 gate, two later-wave
 todos amended rather than frozen, and a three-wave declaration with unions under the ceiling.
 MUST-6, MUST-7, MUST-8, MUST-9 and the MUST NOT bullets are not engaged.
 

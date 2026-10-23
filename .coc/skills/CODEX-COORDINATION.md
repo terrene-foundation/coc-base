@@ -47,9 +47,24 @@ of read-only execution. Preserve operating restrictions even when a host grants
 broader technical capabilities.
 
 For concurrent writes, follow the repository's worktree and ownership discipline.
-Pass the isolated worktree as execution context, then use paths relative to its
-root for edits. Spawning an agent alone does not create an isolated checkout.
-Collect the returned commit, inspect the claimed files, and verify the result.
+Use the orchestrator's assigned existing sibling lane of the installed repository,
+including when the WIP cap is full; partition files among workers in that lane.
+An independent clone is not that lane, and the primary checkout is not a fallback.
+Before dispatch, resolve the assigned target with the read-only preflight below;
+it creates no worktree and grants no authorization. The implementation is
+`codex-rule-context.js::resolveWorkhorseWriteTarget`
+(`.claude/hooks/lib/codex-rule-context.js:306-326`).
+
+```bash
+node "<installed-repo>/.claude/bin/codex-workhorse-target.mjs" --installed-root "<installed-repo>" --worktree "<assigned-existing-lane>"
+```
+
+Pin the returned canonical worktree as the execution context and absolute edit
+target in the brief; assign disjoint files and require a step-0 root assertion.
+A refused target needs an orchestrator decision, never a new clone, primary write
+or shell-write workaround. Spawning an agent does not create a checkout or prove
+its effective sandbox accepts the target: require a reached typed edit in the lane
+before claiming the workhorse can write. Collect its commit and delivered evidence.
 [Official subagent reference](https://learn.chatgpt.com/docs/agent-configuration/subagents).
 
 ## Independent local sessions: the address has two parts

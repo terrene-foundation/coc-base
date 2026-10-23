@@ -80,28 +80,55 @@
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMainModule } from "./lib/entry-point.mjs";
+import { discoverRunners } from "./lib/audit-fixture-runners.mjs";
+import { isHarnessSuiteFile as isNodeSuite } from "./lib/harness-suite-files.mjs";
 
 const require = createRequire(import.meta.url);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const { tokenize } = require(path.resolve(HERE, "..", "hooks", "lib", "block-evidence-provenance.js"));
+const { localRequireClosure } = require(path.resolve(HERE, "..", "hooks", "lib", "hook-registry-contract.js"));
 
-/* The hardened git shim (loom#1471): an absolute binary + a constant env, so no
- * ambient GIT_DIR can point this enumeration at another tree. */
+/* Git binding: hooks/lib/git-subprocess-env.js:184-208,347-369. */
 let _shim;
 function gitInvocation() {
   if (_shim === undefined) {
-    _shim = null;
-    try {
-      const m = require(path.resolve(HERE, "..", "hooks", "lib", "git-subprocess-env.js"));
-      if (m && typeof m.resolveGitBinary === "function" && typeof m.gitEnv === "function") _shim = m;
-    } catch {
-      /* shim absent — PATH fallback, the pre-shim behaviour */
-    }
+    const m = require(path.resolve(HERE, "..", "hooks", "lib", "git-subprocess-env.js"));
+    if (!m || typeof m.resolveGitBinary !== "function" || typeof m.gitEnv !== "function") throw new Error("GIT_BINDING_UNAVAILABLE");
+    _shim = m;
   }
-  const bin = _shim ? _shim.resolveGitBinary() : null;
-  return { bin: bin || "git", env: _shim ? _shim.gitEnv() : process.env };
+  const bin = _shim.resolveGitBinary();
+  if (!bin || !path.isAbsolute(bin)) throw new Error("GIT_BINDING_UNAVAILABLE");
+  return { bin, env: _shim.gitEnv() };
+}
+
+function relativePath(value) {
+  if (typeof value !== "string" || !value || /[\\\0]/.test(value) || path.posix.isAbsolute(value)
+      || /^[a-z]:/i.test(value) || value.split("/").includes("..")) throw new Error("INVALID_RELATIVE_PATH");
+  const rel = path.posix.normalize(value);
+  if (rel === "." || rel.startsWith("../")) throw new Error("INVALID_RELATIVE_PATH");
+  return rel;
+}
+function containedPath(repo, rel) {
+  const root = fs.realpathSync(repo);
+  const candidate = fs.realpathSync(path.join(root, relativePath(rel)));
+  const tail = path.relative(root, candidate);
+  if (!tail || tail === ".." || tail.startsWith(".." + path.sep) || path.isAbsolute(tail)) throw new Error("PATH_OUTSIDE_REPOSITORY");
+  return candidate;
+}
+const readContained = (repo, rel) => fs.readFileSync(containedPath(repo, rel), "utf8");
+function optionalText(repo, rel) {
+  try { fs.lstatSync(path.join(repo, relativePath(rel))); }
+  catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  return readContained(repo, rel);
+}
+const suiteOperand = value => value.startsWith("-") ? "./" + value : value;
+function shellQuote(value) {
+  const text = String(value);
+  return /^[A-Za-z0-9_./:@+-]+$/.test(text) ? text : "'" + text.replaceAll("'", "'\\''") + "'";
 }
 
 /*
@@ -175,6 +202,20 @@ const FANOUT_PERCENTILE = 70;
  *     language-neutral, and TREE-WIDE keys on `git ls-files`, which every language
  *     spells the same way in a subprocess call.
  */
+/* A *.test.* INSIDE an audit fixture is the fixture's DATA, not a suite: the scanner under
+ * test READS it (scan-synced-disclosure's test-mjs-destination-flip ships a scanned
+ * `.claude/bin/sample.test.mjs`). The fixture's own `run.mjs` is the suite, and
+ * collectAuditSuites owns it. The guard sits AFTER the layout classification in
+ * collectSuites' discovery loop, so it skips ONLY suite classification: fixture trees carry
+ * real shared SOURCE (`_lib/…`, imported by real suites), and those basenames stay in the
+ * calibration and reference populations exactly as before. (c99b56cec placed the guard
+ * BEFORE the layout branch and thereby dropped 614 fixture-tree basenames from the
+ * calibration population. MEASURED on the TRACKED-ONLY lane tree at that commit's parent:
+ * sourceBasenames 6247→5633, referenced basenames 1154→1010, fan-out p70 4→5. The
+ * 6248/5634 pair recorded elsewhere came from a tree carrying one untracked-not-ignored
+ * file, which `repoFiles` includes via `--others`. That over-claim is corrected here.) */
+const AUDIT_FIXTURE_TREE_RX = /^\.claude\/audit-fixtures\/[^/]+\//;
+
 const SUITE_LAYOUTS = [
   {
     id: "node",
@@ -223,6 +264,7 @@ const SOURCEISH_RX = /\.(mjs|cjs|js|jsx|ts|tsx|py|rs|go|json|yaml|yml|toml|md)$/
 const REGISTRY_FILTERS = [
   { dir: ".claude/test-harness/tests", registry: ".claude/test-harness/ci-suites.json" },
   { dir: ".claude/bin", registry: ".claude/test-harness/ci-suites-bin.json" },
+  { dir: ".claude/hooks/lib/guard-foundation/tests", registry: ".claude/test-harness/ci-suites-guard-foundation.json" },
 ];
 
 /* Bounds. A monorepo can carry thousands of test files, and this is run before a
@@ -373,13 +415,14 @@ function git(repo, args) {
  * A tool whose whole purpose is to stop a silent miss must not have a silent miss of its
  * own at the moment it is most likely to be used.
  */
-function changedFiles(repo, base) {
+function changedFiles(repo, base, issues) {
   const out = new Set();
   let committedOk = false;
   try {
-    for (const f of git(repo, ["diff", "--name-only", `${base}...HEAD`]).split("\n")) if (f) out.add(f);
+    for (const f of git(repo, ["diff", "--name-only", "-z", "--no-renames", `${base}...HEAD`]).split("\0")) if (f) out.add(f);
     committedOk = true;
   } catch (err) {
+    issues.push({ kind: "changed-base", error: err.message });
     process.stderr.write(
       `owed-suites: could not diff against ${base} (${String(err.message).trim()}). ` +
         "Reporting on the WORKING TREE only — this is a partial answer, not a clean one.\n",
@@ -387,12 +430,18 @@ function changedFiles(repo, base) {
   }
   try {
     // -z + NUL split so a path with a space or quote is not mangled into two.
-    for (const rec of git(repo, ["status", "--porcelain=1", "-z", "--untracked-files=all"]).split("\0")) {
+    const records = git(repo, ["status", "--porcelain=1", "-z", "--untracked-files=all"]).split("\0");
+    for (let i = 0; i < records.length; i++) {
+      const rec = records[i];
       if (!rec) continue;
-      const p = rec.slice(3);
-      if (p) out.add(p);
+      if (rec.slice(3)) out.add(rec.slice(3));
+      if (/[RC]/.test(rec.slice(0, 2))) {
+        if (!records[i + 1]) throw new Error("CHANGED_RENAME_INCOMPLETE");
+        out.add(records[++i]);
+      }
     }
-  } catch {
+  } catch (error) {
+    issues.push({ kind: "changed-worktree", error: error.message });
     if (!committedOk) process.stderr.write("owed-suites: could not read the working tree either.\n");
   }
   return [...out].sort();
@@ -423,7 +472,7 @@ const PATH_CTOR_RX =
  * real repo directory is a real repo directory. */
 const BARE_PATH_RX = /["'`]([A-Za-z0-9_.@+-]+(?:\/[A-Za-z0-9_.@+-]+)+)\/?["'`]/g;
 
-function enumeratedSubtrees(repo, body) {
+function enumeratedSubtrees(repo, body, issues = []) {
   if (!WALK_RX.test(body)) return [];
   const out = new Set();
   const candidates = [];
@@ -441,9 +490,9 @@ function enumeratedSubtrees(repo, body) {
     // that is the TREE-WIDE band's job, reached by a different and explicit signal.
     if (!rel || rel === "." || rel.startsWith("..") || path.isAbsolute(rel)) continue;
     try {
-      if (fs.statSync(path.join(repo, rel)).isDirectory()) out.add(rel);
-    } catch {
-      /* not a real repo directory — not ownership */
+      if (fs.statSync(containedPath(repo, rel)).isDirectory()) out.add(relativePath(rel));
+    } catch (error) {
+      if (error.message === "PATH_OUTSIDE_REPOSITORY") issues.push({ kind: "subtree-containment", path: rel, error: error.message });
     }
   }
   return [...out];
@@ -462,12 +511,13 @@ function enumeratedSubtrees(repo, body) {
  * a blind spot exactly where a lane is most likely to consult it — the same defect
  * `changedFiles` records for the pre-commit case.
  */
-function repoFiles(repo) {
+function repoFiles(repo, issues) {
   try {
     return git(repo, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
       .split("\0")
       .filter(Boolean);
   } catch (err) {
+    issues.push({ kind: "source-enumeration", error: err.message });
     process.stderr.write(
       `owed-suites: git could not enumerate this repo (${String(err.message).trim()}). ` +
         "Any empty result below is THAT failure, not an empty owed set.\n",
@@ -479,25 +529,284 @@ function repoFiles(repo) {
 /** Loom-shaped registry narrowing. Returns null when the registry is absent or
  *  unreadable, which means NO filter — never an empty set (an empty set would read
  *  as "nothing is owed", the one answer this tool must never fabricate). */
-function registryFor(repo, rel) {
+function registryFor(repo, rel, context) {
   for (const f of REGISTRY_FILTERS) {
     if (path.dirname(rel) !== f.dir) continue;
-    if (f._cache === undefined) {
-      f._cache = null;
-      try {
-        const j = JSON.parse(fs.readFileSync(path.join(repo, f.registry), "utf8"));
-        if (j && j.suites && typeof j.suites === "object") f._cache = new Set(Object.keys(j.suites));
-      } catch {
-        /* absent or unreadable — no narrowing */
-      }
+    const root = context.root;
+    if (context.cache.has(f.registry)) return context.cache.get(f.registry);
+    f._cache ??= new Map();
+    let raw;
+    try { raw = optionalText(root, f.registry);
+      if (raw === null) { context.cache.set(f.registry, null); return null; } }
+    catch (error) {
+      context.issues.push({ kind: "suite-registry-read", path: f.registry, error: error.message });
+      context.cache.set(f.registry, null);
+      return null;
     }
-    return f._cache;
+    const cached = f._cache.get(root);
+    if (cached?.raw === raw) {
+      if (cached.error) context.issues.push({ kind: "suite-registry-invalid", path: f.registry, error: cached.error });
+      context.records.set(f.registry, cached.entries);
+      context.cache.set(f.registry, cached.names);
+      return cached.names;
+    }
+    let names = null, error = null, entries = null;
+    try {
+      const j = JSON.parse(raw);
+      if (!j?.suites || typeof j.suites !== "object" || Array.isArray(j.suites)) throw new Error("suites map missing");
+      entries = j.suites;
+      names = new Set(Object.keys(entries));
+    } catch (cause) {
+      error = cause.message;
+      context.issues.push({ kind: "suite-registry-invalid", path: f.registry, error });
+    }
+    f._cache.set(root, { raw, names, error, entries });
+    context.records.set(f.registry, entries);
+    context.cache.set(f.registry, names);
+    return names;
   }
   return null;
 }
 
+/* Dependency edges use the registry emitter's parser, not basename fan-out.
+ * SSOT: hooks/lib/hook-registry-contract.js:1664-2175,2309-2526
+ * (requireSites, localRequireClosure — symbol names added 2026-10-09 so the
+ * next insertion above either range is detectable without a re-derivation).
+ * Audit population/runner SSOT: bin/lib/audit-fixture-runners.mjs:69-127. */
+function collectAuditSuites(repo) {
+  const issues = [];
+  const suites = [];
+  const excluded = [];
+  let discovered = null;
+  try { if (optionalText(repo, ".claude/test-harness/ci-audit-fixtures.json") !== null
+      || fs.existsSync(path.join(repo, ".claude/audit-fixtures"))) {
+    const fixtures = containedPath(repo, ".claude/audit-fixtures");
+    // Discovery SSOT stat/readdir: bin/lib/audit-fixture-runners.mjs:69-76,112-127.
+    // Preflight every child, including data-only dirs that return no runner.
+    let complete = true;
+    for (const id of fs.readdirSync(fixtures)) {
+      try {
+        const child = containedPath(repo, ".claude/audit-fixtures/" + id);
+        if (fs.statSync(child).isDirectory()) fs.readdirSync(child);
+      } catch (error) { issues.push({ kind: "audit-discovery", id, error: error.message }); complete = false; }
+    }
+    if (complete) discovered = discoverRunners(fixtures);
+  } } catch (error) { issues.push({ kind: "audit-population", error: error.message }); }
+  if (!discovered && !fs.existsSync(path.join(repo, ".claude/test-harness/ci-audit-fixtures.json")) && !issues.length) return { suites, issues, excluded };
+  discovered ??= { dirs: [], problems: [], runnerFile: new Map() };
+  issues.push(...discovered.problems.map((problem) => ({ kind: "audit-runner", problem })));
+  let declared = null;
+  try {
+    declared = JSON.parse(readContained(repo, ".claude/test-harness/ci-audit-fixtures.json")).runners;
+    if (!declared || typeof declared !== "object" || Array.isArray(declared)) throw new Error("runners map missing");
+  } catch (error) {
+    issues.push({ kind: "audit-registry", error: error.message });
+  }
+  for (const id of discovered.dirs) {
+    let rel;
+    try {
+      const root = fs.realpathSync(repo);
+      const candidate = containedPath(repo, path.relative(root, discovered.runnerFile.get(id)).split(path.sep).join("/"));
+      rel = path.relative(root, candidate).split(path.sep).join("/");
+      if (!rel || rel.startsWith("../") || path.isAbsolute(rel)) throw new Error("audit runner outside repository");
+    } catch (error) { issues.push({ kind: "audit-containment", id, error: error.message }); continue; }
+    if (declared && !Object.hasOwn(declared, id)) issues.push({ kind: "unregistered-audit", runner: rel });
+    if (declared && Object.hasOwn(declared, id) && !["run", "excluded"].includes(declared[id]?.mode)) {
+      issues.push({ kind: "invalid-audit-mode", id, mode: declared[id]?.mode ?? null });
+    }
+    // Only SSOT mode=run is enrolled: run-audit-fixtures.mjs:876-892.
+    if (declared?.[id]?.mode === "excluded") {
+      const entry = declared[id];
+      // Exclusion intent SSOT: bin/run-audit-fixtures.mjs:604-625.
+      if (["reason", "issue", "remove_when"].some(field => typeof entry[field] !== "string" || !entry[field])
+          || (Array.isArray(entry.xfail) && entry.xfail.length > 0)
+          || entry.min_cases !== undefined || entry.timeout_ms !== undefined) issues.push({ kind: "invalid-audit-exclusion", id });
+      excluded.push({ id, rel, mode: "excluded" }); continue;
+    }
+    if (declared?.[id]?.mode !== "run") continue;
+    let body;
+    try {
+      const file = containedPath(repo, rel);
+      if (fs.statSync(file).size > SUITE_BODY_MAX) throw new Error("runner exceeds suite body bound");
+      body = fs.readFileSync(file, "utf8");
+    } catch (error) { issues.push({ kind: "audit-body", id, error: error.message }); continue; }
+    suites.push({ name: id, rel, layout: "audit", audit_id: id, mode: declared?.[id]?.mode ?? "unregistered",
+      body, sources: SOURCEISH_RX, stem: id, treeWide: /["'`]ls-files["'`]|git ls-files/.test(body),
+      subtrees: enumeratedSubtrees(repo, body, issues) });
+  }
+  if (declared) for (const id of Object.keys(declared)) {
+    if (!discovered.runnerFile.has(id)) issues.push({ kind: "missing-audit-runner", id });
+  }
+  return { suites, issues, excluded };
+}
+
+function dependencyOwners(repo, changed, suites, snapshot) {
+  const affected = new Set(changed.map(relativePath));
+  const issues = [];
+  const readset = new Set();
+  const manifests = new Map();
+  const dataParses = snapshot?.dataParses ?? new Map();
+  const dependencyReaders = new Map();
+  const manifestPath = ".claude/hook-registry.json";
+  try {
+    const raw = optionalText(repo, manifestPath);
+    if (raw !== null) {
+      const manifest = JSON.parse(raw);
+      if (!Array.isArray(manifest.hooks) || !Array.isArray(manifest.runtimes)) throw new Error("hooks/runtimes arrays missing");
+      const members = new Set();
+      for (const row of [...manifest.hooks, ...manifest.runtimes]) {
+        const entry = relativePath(row.file ?? row.entry);
+        if (typeof entry !== "string" || !Array.isArray(row.deps)) throw new Error("entry/deps missing");
+        members.add(entry);
+        for (const dep of row.deps) {
+          if (typeof dep.path !== "string") throw new Error("dependency path missing");
+          members.add(relativePath(dep.path));
+        }
+      }
+      manifests.set(manifestPath, members);
+      readset.add(manifestPath);
+      if ([...members].some((rel) => affected.has(rel))) affected.add(manifestPath);
+    }
+  } catch (error) { issues.push({ kind: "manifest-closure", path: manifestPath, error: error.message }); }
+  // Contributor schema/readers: bin/lib/community-membership.mjs:961-1011.
+  // These are byte-record edges; selection does not certify the recorded digest.
+  for (const [output, field] of [[".codex/authoring-projection.json", "sources"], [".codex/rules-index.json", "rules"]]) {
+    try {
+      const raw = optionalText(repo, output);
+      if (raw === null) continue;
+      const record = JSON.parse(raw);
+      if (!Array.isArray(record[field])) throw new Error("contributor array missing");
+      for (const row of record[field]) {
+        if (typeof row?.source !== "string" || !/^[a-f0-9]{64}$/.test(row.sha256 ?? "")) throw new Error("contributor source/digest missing");
+        if (affected.has(relativePath(row.source))) affected.add(output);
+      }
+      readset.add(output);
+    } catch (error) { issues.push({ kind: "contributor-record", path: output, error: error.message }); }
+  }
+  // Filesystem collection and tracked-source discovery are semantic edges.
+  // Rule inputs: bin/emit-cli-artifacts.mjs:655-692; drift caller: check-cli-emit-drift.mjs:231-239.
+  if (changed.some((rel) => /^\.claude\/(?:rules\/|variants\/[^/]+\/rules\/)/.test(rel))) {
+    affected.add(".codex/authoring-projection.json");
+    affected.add(".codex/rules-index.json");
+    affected.add(".claude/bin/emit-cli-artifacts.mjs");
+    affected.add(".claude/bin/check-cli-emit-drift.mjs");
+  }
+  const contractsSource = changed.some((rel) => /^\.claude\/(?:hooks|bin)\/.*\.(?:mjs|cjs|js)$/.test(rel));
+  if (contractsSource) {
+    affected.add(manifestPath);
+    affected.add(".claude/bin/emit-hook-registry.mjs");
+  }
+  // Collection scope: .claude/test-harness/tests/harness-git-env-regrowth.test.mjs:67-84;
+  // .claude/test-harness/tests/enforcement-predicate-partition.test.mjs:696-708.
+  // Population candidates are conservative; changed/deleted bytes are not executed.
+  const scanners = new Set();
+  if (changed.some((rel) => /^(?:\.claude\/(?:test-harness|audit-fixtures)\/|tests\/).*\.(?:mjs|cjs|js)$/.test(rel))) scanners.add("harness-git-env-regrowth.test.mjs");
+  if (changed.some((rel) => /^\.claude\/hooks\/.*\.(?:mjs|cjs|js)$/.test(rel))) scanners.add("enforcement-predicate-partition.test.mjs");
+  // Reader SSOT: .claude/test-harness/tests/private-identity-exits.test.mjs:555-605.
+  if (suites.some((suite) => suite.name === "private-identity-exits.test.mjs")) {
+    const declaration = ".claude/bin/lib/exit-registry.json";
+    try {
+      const d = JSON.parse(readContained(repo, declaration)).discovery;
+      if (!Array.isArray(d?.dirs) || !d.dirs.length || d.dirs.some((dir) => typeof dir !== "string" || !dir || path.posix.normalize(dir) !== dir || dir.startsWith("../") || path.isAbsolute(dir))) throw new Error("discovery dirs invalid");
+      if (typeof d.ext !== "string" || !/^[a-z]+(?:\|[a-z]+)*$/.test(d.ext)) throw new Error("discovery extensions invalid");
+      const ext = new RegExp("\\.(?:" + d.ext + ")$");
+      readset.add(declaration);
+      if (changed.includes(declaration) || changed.some((rel) => ext.test(rel) && d.dirs.some((dir) => rel.startsWith(dir + "/")))) scanners.add("private-identity-exits.test.mjs");
+    } catch (error) { issues.push({ kind: "scanner-discovery", path: declaration, error: error.message }); }
+  }
+  const rows = [];
+  for (const suite of suites) {
+    if (!/\.(?:mjs|cjs|js)$/.test(suite.rel)) continue;
+    const closure = localRequireClosure(repo, suite.rel, snapshot?.requireParses);
+    readset.add(suite.rel);
+    if (!closure.ok) {
+      issues.push({ kind: "dependency-unresolved", suite: suite.rel, error: closure.error });
+      continue;
+    }
+    const paths = new Set([suite.rel, ...closure.files.map((file) => file.path)]);
+    for (const rel of paths) {
+      if (!dependencyReaders.has(rel)) dependencyReaders.set(rel, new Set());
+      dependencyReaders.get(rel).add(suite.rel);
+    }
+    // Literal root-relative data references are a conservative selection edge,
+    // not an assertion that code verifies the referenced bytes. Shared tokenizer
+    // excludes comments: hooks/lib/block-evidence-provenance.js:188-297.
+    for (const rel of [...paths]) {
+      readset.add(rel);
+      if (!/\.(?:mjs|cjs|js)$/.test(rel)) continue;
+      let parsed;
+      try {
+        const raw = readContained(repo, rel);
+        const hash = createHash("sha256").update(raw).digest("hex");
+        const capturedHash = closure.files.find(file => file.path === rel)?.sha256;
+        if (capturedHash && capturedHash !== hash) throw new Error("DEPENDENCY_READ_CHANGED");
+        const key = rel + "\0" + hash;
+        parsed = dataParses.get(key);
+        if (!parsed) { parsed = tokenize(raw); dataParses.set(key, parsed); }
+      } catch (error) { parsed = { ok: false, error: error.message }; }
+      if (!parsed.ok) { issues.push({ kind: "data-reference-parse", suite: suite.rel, path: rel, error: parsed.error }); continue; }
+      for (const token of parsed.tokens) {
+        if (token.type === "string" && /^\.(?:claude|codex)\//.test(token.value)
+            && path.posix.normalize(token.value) === token.value) paths.add(token.value);
+      }
+    }
+    for (const [manifest, members] of manifests) if (paths.has(manifest)) {
+      for (const member of members) paths.add(member);
+    }
+    for (const site of closure.dynamic) issues.push({ kind: "dynamic-dependency", suite: suite.rel, ...site });
+    const reasons = [...affected].filter((rel) => paths.has(rel)).map((rel) => "DEPENDENCY " + rel);
+    if (scanners.has(suite.name)) reasons.push("DISCOVERY tracked eligible source population");
+    if (reasons.length) rows.push({ suite: suite.rel, layout: suite.layout, ...(suite.audit_id ? { audit_id: suite.audit_id } : {}), mode: suite.mode ?? "run", reasons: reasons.sort() });
+  }
+  for (const issue of [...issues]) {
+    if (issue.kind !== "data-reference-parse") continue;
+    for (const owner of dependencyReaders.get(issue.path) ?? []) {
+      if (!issues.some(row => row.kind === issue.kind && row.path === issue.path && row.suite === owner)) {
+        issues.push({ ...issue, suite: owner });
+      }
+    }
+  }
+  const byRel = new Map(suites.map((suite) => [suite.rel, suite]));
+  const unresolvedOwners = [...new Set(issues.map((issue) => issue.suite)
+    .filter((rel) => typeof rel === "string" && byRel.has(rel)))].sort();
+  for (const rel of unresolvedOwners) {
+    const suite = byRel.get(rel);
+    let row = rows.find((item) => item.suite === rel);
+    if (!row) {
+      row = { suite: rel, layout: suite.layout, ...(suite.audit_id ? { audit_id: suite.audit_id } : {}),
+        mode: suite.mode ?? "run", reasons: [] };
+      rows.push(row);
+    }
+    row.unresolved = true;
+    row.reasons = [...new Set([...row.reasons, ...issues.filter((issue) => issue.suite === rel)
+      .map((issue) => "UNRESOLVED " + issue.kind)])].sort();
+  }
+  return { rows: rows.sort((a, b) => a.suite.localeCompare(b.suite)), issues, unresolvedOwners,
+    readset: [...readset].sort(), fallback: issues.some((issue) => !issue.suite) ? "full-enrolled-corpus" : null };
+}
+
 function collectSuites(repo) {
   const suites = [];
+  const issues = [];
+  const registryContext = { root: fs.realpathSync(repo), cache: new Map(), records: new Map(), issues };
+  const excluded = [];
+  const files = repoFiles(repo, issues);
+  for (const filter of REGISTRY_FILTERS) {
+    registryFor(repo, filter.dir + "/__probe__.test.mjs", registryContext);
+    const entries = registryContext.records.get(filter.registry);
+    if (!entries) continue;
+    const onDisk = files.filter(rel => path.dirname(rel) === filter.dir && isNodeSuite(rel));
+    for (const rel of onDisk) if (!Object.hasOwn(entries, path.basename(rel))) issues.push({ kind: "unregistered-suite", path: rel });
+    for (const [name, entry] of Object.entries(entries)) {
+      const rel = filter.dir + "/" + name;
+      if (path.basename(name) !== name || !isNodeSuite(name) || !onDisk.includes(rel)) issues.push({ kind: "missing-suite", path: rel });
+      if (!entry || typeof entry !== "object" || Array.isArray(entry) || !["bulk", "dedicated", "excluded"].includes(entry.mode)) issues.push({ kind: "invalid-suite-mode", path: rel });
+      if (entry?.mode === "excluded") {
+        excluded.push({ rel, mode: "excluded" });
+        if (["reason", "issue", "remove_when"].some(field => typeof entry[field] !== "string" || !entry[field])) issues.push({ kind: "invalid-suite-exclusion", path: rel });
+      }
+    }
+  }
   const perLayout = new Map();
   /* The fan-out CALIBRATION population: real source basenames in this repo that are
    * NOT themselves suites. This is the population the BROAD decision is applied to (a
@@ -506,29 +815,38 @@ function collectSuites(repo) {
   let scanned = 0;
   let truncated = 0;
   let oversize = 0;
-  for (const rel of repoFiles(repo)) {
+  for (const rel of files) {
     const layout = SUITE_LAYOUTS.find((L) => L.match(rel));
     if (!layout) {
       if (SOURCEISH_RX.test(rel)) sourceBasenames.add(path.basename(rel));
       continue;
     }
+    // A *.test.* inside an audit fixture is the fixture's DATA, not a suite — but it may be
+    // real shared SOURCE elsewhere in the fixture tree (`_lib/…`). The guard therefore sits
+    // AFTER the `!layout` population above: it skips SUITE CLASSIFICATION only, leaving the
+    // calibration and reference populations untouched.
+    if (AUDIT_FIXTURE_TREE_RX.test(rel)) continue;
     scanned++;
     if (suites.length >= SUITE_SCAN_MAX) {
       truncated++;
       continue;
     }
     const name = path.basename(rel);
-    const declared = registryFor(repo, rel);
-    if (declared && !declared.has(name)) continue;
+    registryFor(repo, rel, registryContext);
+    const entry = REGISTRY_FILTERS.find(filter => filter.dir === path.dirname(rel));
+    if (entry && registryContext.records.has(entry.registry) && !isNodeSuite(name)) continue;
+    const mode = entry && registryContext.records.get(entry.registry)?.[name]?.mode;
+    if (mode === "excluded") continue;
     let body = "";
     try {
-      const abs = path.join(repo, rel);
+      const abs = containedPath(repo, rel);
       if (fs.statSync(abs).size > SUITE_BODY_MAX) {
         oversize++;
         continue;
       }
       body = fs.readFileSync(abs, "utf8");
-    } catch {
+    } catch (error) {
+      issues.push({ kind: "suite-read", path: rel, error: error.message });
       continue;
     }
     suites.push({
@@ -538,12 +856,16 @@ function collectSuites(repo) {
       sources: layout.sources,
       stem: layout.stem(name),
       body,
+      ...(mode ? { mode } : {}),
       treeWide: /["'`]ls-files["'`]|git ls-files/.test(body),
-      subtrees: enumeratedSubtrees(repo, body),
+      subtrees: enumeratedSubtrees(repo, body, issues),
     });
     perLayout.set(layout.id, (perLayout.get(layout.id) || 0) + 1);
   }
-  return { suites, perLayout, scanned, truncated, oversize, sourceBasenames };
+  const audit = collectAuditSuites(repo);
+  suites.push(...audit.suites);
+  if (audit.suites.length) perLayout.set("audit", audit.suites.length);
+  return { suites, perLayout, scanned, truncated, oversize, sourceBasenames, issues: [...issues, ...audit.issues], auditExcluded: audit.excluded, excluded };
 }
 
 /**
@@ -570,11 +892,12 @@ function layoutBlindSpots(changed, perLayout) {
 /* How each layout's suites are RUN. Suggestions, not gospel — a repo may wrap its
  * runner — but a suggestion in the wrong language is worse than none. */
 const RUNNERS = {
-  node: (f) => `node --test ${f.join(" \\\n              ")}`,
-  pytest: (f) => `pytest ${f.join(" ")}`,
-  cargo: (f) => `cargo test ${f.map((x) => `--test ${path.basename(x).replace(/\.rs$/, "")}`).join(" ")}`,
-  go: (f) => `go test ${[...new Set(f.map((x) => "./" + path.dirname(x)))].join(" ")}`,
-  _default: (f) => f.join(" "),
+  audit: (f) => f.map((rel) => "node .claude/bin/run-audit-fixtures.mjs --only " + shellQuote(path.basename(path.dirname(rel)))).join("\n  "),
+  node: (f) => `node --test ${f.map(value => shellQuote(suiteOperand(value))).join(" \\\n              ")}`,
+  pytest: (f) => `pytest ${f.map(value => shellQuote(suiteOperand(value))).join(" ")}`,
+  cargo: (f) => `cargo test ${f.map((x) => { const name = path.basename(x).replace(/\.rs$/, ""); return name.startsWith("-") ? "--test=" + shellQuote(name) : "--test " + shellQuote(name); }).join(" ")}`,
+  go: (f) => `go test ${[...new Set(f.map((x) => "./" + path.dirname(x)))].map(shellQuote).join(" ")}`,
+  _default: (f) => f.map(shellQuote).join(" "),
 };
 
 function groupByLayout(rels, suites) {
@@ -588,12 +911,22 @@ function groupByLayout(rels, suites) {
   return out;
 }
 
-function main() {
-  const args = parseArgs(process.argv.slice(2));
+function main(argv = process.argv.slice(2), corpus) {
+  const args = parseArgs(argv);
   const repo = args.repo;
-  const changed = args.files ?? changedFiles(repo, args.base);
-  const { suites, perLayout, truncated, oversize, sourceBasenames } = collectSuites(repo);
+  const inputIssues = [];
+  const changed = [];
+  for (const rel of args.files ?? changedFiles(repo, args.base, inputIssues)) {
+    try { changed.push(relativePath(rel)); }
+    catch (error) { inputIssues.push({ kind: "changed-path", error: error.message, path: rel }); }
+  }
+  const { suites, perLayout, truncated, oversize, sourceBasenames, issues, auditExcluded, excluded } = corpus ?? collectSuites(repo);
   const blindSpots = layoutBlindSpots(changed, perLayout);
+  const snapshot = corpus && (corpus.dependencySnapshot ??= { requireParses: new Map(), dataParses: new Map() });
+  const dependency = dependencyOwners(repo, changed, suites, snapshot);
+  dependency.issues.push(...issues, ...inputIssues);
+  if (truncated || oversize) dependency.issues.push({ kind: "suite-read-incomplete", truncated, oversize });
+  if (issues.length || inputIssues.length || truncated || oversize) dependency.fallback = "full-enrolled-corpus";
 
   if (!suites.length) {
     const msg =
@@ -616,6 +949,10 @@ function main() {
             layouts_probed: SUITE_LAYOUTS.map((L) => L.id),
             changed: changed.length,
             owed: [],
+            coupled: [],
+            unresolved_owners: [],
+            unresolved_owner_count: 0,
+            always_owed: [],
             subtree: [],
             tree_wide: [],
             broad: [],
@@ -719,12 +1056,23 @@ function main() {
         {
           changed: changed.length,
           owed: rows,
+          coupled: dependency.rows,
+          unresolved_owners: dependency.unresolvedOwners,
+          unresolved_owner_count: dependency.unresolvedOwners.length,
+          always_owed: [...new Set([...treeWide, ...dependency.unresolvedOwners])].sort(),
+          selector_subject_sha256: createHash("sha256").update(fs.readFileSync(fileURLToPath(import.meta.url))).digest("hex"),
+          coupling_incomplete: dependency.issues.length > 0,
+          coupling_issues: dependency.issues,
+          coupling_readset: dependency.readset,
+          selection_fallback: dependency.fallback,
           subtree: subtreeBands,
           tree_wide: treeWide,
           broad,
           blind_spots: blindSpots,
           suites_enumerated: suites.length,
           layouts: Object.fromEntries(perLayout),
+          audit_excluded: auditExcluded,
+          excluded_suites: excluded,
           truncated,
           fanout_max: FANOUT_MAX,
           fanout_max_source: fan.source,
@@ -739,6 +1087,23 @@ function main() {
   }
 
   const say = (s) => process.stdout.write(s + "\n");
+  if (dependency.issues.length) {
+    say(dependency.fallback
+      ? "Selection INCOMPLETE: full enrolled corpus required; unresolved coupling inputs follow."
+      : "Selection INCOMPLETE: unresolved owners remain always owed; known owners are preserved.");
+    for (const issue of dependency.issues) say("  " + JSON.stringify(issue));
+  }
+  say(`ALWAYS OWED unresolved dependencies — ${dependency.unresolvedOwners.length} suite(s)`);
+  for (const rel of dependency.unresolvedOwners) say("  " + rel);
+  if (dependency.rows.length) {
+    say("DEPENDENCY owners (not suppressed by basename fan-out):");
+    for (const row of dependency.rows) {
+      say("  " + row.suite + " [" + row.mode + "] " + row.reasons.join("; "));
+      say(row.layout === "audit"
+        ? "    node .claude/bin/run-audit-fixtures.mjs --only " + shellQuote(row.audit_id)
+        : "    node --test " + shellQuote(suiteOperand(row.suite)));
+    }
+  }
   say("");
   say(`OWED SUITES — ${changed.length} changed file(s); ${rows.length} suite(s) NAME or REFERENCE them`);
   say("");
@@ -826,7 +1191,7 @@ function main() {
  * mutation is plainly live — the extractor returns `[]` guarded and `["."]` unguarded
  * — but no subprocess-level fixture could ever show that. A guard whose behaviour no
  * instrument can observe is not a verified guard (instrument-discipline.md MUST-2(b)). */
-export { enumeratedSubtrees, collectSuites, layoutBlindSpots, deriveFanoutMax, corpusFanout, SUITE_LAYOUTS };
+export { main, dependencyOwners, enumeratedSubtrees, collectSuites, layoutBlindSpots, deriveFanoutMax, corpusFanout, SUITE_LAYOUTS, SOURCEISH_RX };
 
 // Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
 if (isMainModule(import.meta.url)) {

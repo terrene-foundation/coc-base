@@ -74,6 +74,17 @@ The `ci` half of that block's `**Invoker class:**` rests on
 have bought a discharge by omitting the half that needs a command, which is the failure the
 field exists to prevent.
 
+Relocated VERBATIM from that block's `**Detection mechanism:**` bullet on 2026-10-08 (a
+structural-cleanup extraction holding the rule-injection budget; no obligation left the rule —
+the bullet keeps its probe registration, its scanner, its tests/fixtures pointers and the
+deferred-probe sentence):
+
+> both poles quote the SAME ledger rows and the SAME thresholds byte-for-byte and separate only on whether the 30-day window is computed per row or narrated, so a judge that does not re-derive the dates scores the violating pole clean.
+
+> — a 30-char substantiveness floor on `reason`/`graduation`, real-calendar `expires`, risk-band horizon ceiling, past-expiry hard fail
+
+> (the object-construction form returns `null` for a missing key and cannot tell ABSENT from PRESENT-AND-NULL)
+
 ---
 
 ## `self-referential-codify.md` — the structural detector's arming record
@@ -194,6 +205,30 @@ ARMED IS NOT PROVEN EFFECTIVE: registration is measured, no live firing has been
 Enforcement of record remains the Phase-1 GATE-REVIEW sweep plus the CI scanners named in the
 rule; this hook narrows the gap rather than closing it. Severity `advisory` when armed — a
 TIMING cap (MUST-1 binds the `/codify`, not the keystroke), NOT the MUST-2 lexical cap.
+
+### Relocated VERBATIM from `self-referential-codify.md` on 2026-10-08
+
+A structural-cleanup extraction holding the rule-injection budget. No obligation left the rule:
+the D237 paragraph keeps its stop-rule bones, the review-layer Detection bullet keeps its
+PERMANENT manual layer and the whole no-hook-can-reach half, and the canonical
+`**Detection mechanism:**` bullet keeps its probes, its scanner, its fixtures anchor and the
+deferred-probe sentence.
+
+> the blast radius is bounded by the artifact and the next session's deeper gate catches what a shallow round missed
+
+> that mechanical-only depth
+
+> the substring-mask failure class was structurally closed
+
+> (Pre-F119, that L5 default skipped Round 1 entirely; F119 made convergence posture-invariant, so the residual L5 gap is now the shallow per-round depth — which this rule closes below.)
+
+> checks the proposal's file list against it, and dispatches the Rule-1 multi-agent redteam-with-tests team when any match
+
+> whether a `/codify` is under way at all
+
+> so it narrows this layer's gap rather than replacing it
+
+> Those two bullets carried different variant labels before the structural detector landed; the labels changed, the reason this bullet exists did not.
 
 **MUST-6's `ci` backing.** `.claude/bin/registration-preflight.mjs` carries a real `run:` step
 in `.github/workflows/coc-artifact-eval.yml`, read in context rather than tallied, so MUST-6's

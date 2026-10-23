@@ -1,0 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 sec F6: a function destructured from the path object is still path.resolve.
+const { resolve } = path;
+
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  return c.startsWith(resolve(root) + path.sep);
+}

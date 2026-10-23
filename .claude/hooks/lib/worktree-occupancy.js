@@ -58,21 +58,25 @@ const path = require("path");
 const fs = require("fs");
 const { execFileSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env");
-// sanitizeName — DEFINED HERE, not imported (2026-08-27 merge resolution).
-// It previously came from `unlanded-work-surface.js`, but that export exists only
-// on this branch: main's copy of that file evolved 8 other exports and never
-// carried this one, so importing it across the merge yielded `undefined` and
-// silently propagated an undefined re-export through worktree-forest.js.
-// This module is the only real consumer, so the function lives with its consumer
-// rather than reaching into a file another lane owns.
-const NAME_MAX = 100;
-function sanitizeName(raw) {
-  let s = String(raw == null ? "" : raw);
-  s = s.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
-  s = s.replace(/`/g, "'").replace(/\s+/g, " ").trim();
-  if (s.length > NAME_MAX) s = s.slice(0, NAME_MAX) + "…";
-  return s || "(unnamed)";
-}
+const { askOnce, eventGitKey } = require("./event-git.js");
+// The shared non-blocking, fd-checked reader — see `worktreeAdminId`.
+const { readRegularFileBounded } = require("./landing-window-read.js");
+
+// Canonical common-dir argv; sharing requires the complete question key:
+// binary, cwd, argv and envelope (.claude/hooks/lib/event-git.js:53-56).
+// Matching argv alone does not share answers across environment profiles.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
+// sanitizeName, exactRealOrNull, the (dev, ino) identity primitives and the whole process-cwd
+// placement (`occupancyOf`) come from ONE shared module. Identity, not strings: a firmlink, bind
+// mount or other alias of a worktree resolves to a DIFFERENT string than the cwd lsof reports, so an
+// occupied tree read free (train-8 R2 security N1, HIGH). Before that, the realpath lived in ONE shared
+// resolver module, `containment-realpath.js`, built on the OS realpath so every spelling of
+// one directory canonicalises alike. Three local JS-realpath copies (here, the rs reclaimer,
+// codify-self-referential) were the case-folding hole of train-8 R1 security F1: an occupied
+// worktree recorded under a case-variant spelling read free. sanitizeName moved there with
+// them (it was defined here, not imported from `unlanded-work-surface.js`, since the
+// 2026-08-27 merge resolution), so the occupancy `why` can name a blocking pid and cwd.
+const { exactRealOrNull, idOf, ancestryOf, occupancyOf, parseLsofCwds, augmentFromProc, sanitizeName } = require("./containment-realpath.js");
 
 const GIT_TIMEOUT_MS = 3000;
 // MEASURED, not picked. On this clone (43 worktrees, ~2,300 open cwds, a host
@@ -127,15 +131,6 @@ function runGit(args, opts = {}) {
   return runTool(gitBin, args, { ...opts, env: gitEnv() });
 }
 
-/** realpath when it resolves, else the lexical resolve. Never throws. */
-function realOr(p) {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
-}
-
 // ── enumeration ─────────────────────────────────────────────────────────────
 
 /**
@@ -144,12 +139,29 @@ function realOr(p) {
  * THE single place this lookup happens, so the property "this lineage never uses
  * `--show-toplevel` to find the main checkout" has ONE mutation point and is
  * therefore testable by mutation rather than being an unfalsifiable claim about
- * two identical call sites.
+ * two identical call sites. The canonical argv asks for the toplevel in the same
+ * spawn; sharing also requires matching binary, cwd and envelope
+ * (.claude/hooks/lib/event-git.js:53-56). The answer READ here is still the
+ * common-dir line, never the toplevel.
  */
 function gitCommonDir(cwd) {
-  const r = runGit(["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  if (!r.ok) return null;
-  return r.out.trim() || null;
+  const gitBin = resolveGitBinary();
+  if (!gitBin) return null;
+  // ONE answer per distinct question per hook event (lib/event-git.js). Outside
+  // an event scope `askOnce` runs the probe directly — unchanged behaviour.
+  const probe = askOnce(
+    eventGitKey({ gitBin, cwd, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+    () => {
+      const r = runGit(CANONICAL_COMMON_DIR_ARGS, { cwd });
+      return r.ok ? { ok: true, value: String(r.out || "") } : { ok: false, reason: String(r.err || "git rev-parse failed") };
+    },
+  );
+  if (!probe.ok) return null;
+  const lines = String(probe.value || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return lines.length ? lines[lines.length - 1] : null;
 }
 
 /**
@@ -161,12 +173,13 @@ function gitCommonDir(cwd) {
  * becomes a removal candidate. Returns null on any git error, and callers MUST
  * fail closed on null — without the main top nothing can prove a path is not the
  * checkout, and naming the checkout removable is the one verdict that must never
- * be emitted.
+ * be emitted. A main top that git names but the OS cannot resolve is ALSO null:
+ * the raw string is not the canonical form any candidate is compared in.
  */
 function resolveMainWorktreeRoot(cwd) {
   const common = gitCommonDir(cwd);
   if (!common) return null;
-  return realOr(path.dirname(common));
+  return exactRealOrNull(path.dirname(common));
 }
 
 /**
@@ -226,10 +239,23 @@ function listWorktrees(cwd) {
  * Absolute paths of every worktree EXCEPT the main checkout and the one this
  * process is standing in.
  *
- * Both exclusions compare REALPATHS, symmetrically on each side. A session
+ * Both exclusions compare IDENTITIES — `(st_dev, st_ino)` — never strings: a cwd or
+ * a recorded worktree spelled through a firmlink or bind mount resolves to a different
+ * string than its canonical twin (train-8 R2 security N1 / N3). A session
  * running from a LINKED worktree sees the main checkout as an ordinary entry in
  * `git worktree list`, so excluding only `cwd` would leave the MAIN checkout
  * reachable as a "sibling" candidate — the exact shape a `cwd`-keyed guard misses.
+ * The CURRENT exclusion is containment, not equality: a session standing in a
+ * SUBDIRECTORY of a worktree is standing in that worktree.
+ *
+ * FAIL CLOSED, every side (train-8 R1 correctness L-a). The exclusions used to fall
+ * back to the LEXICAL string when resolution failed, and the main root's null was
+ * skipped — so an unresolvable spelling of the main or current tree missed its
+ * exclusion entry and was returned as a removal candidate. Now:
+ *   - a candidate that does not resolve EXACTLY is possibly-main / possibly-current
+ *     and is NOT returned (a genuinely absent worktree has nothing to reclaim anyway);
+ *   - an unresolvable `cwd` or main root means nothing can be shown to be neither,
+ *     so NOTHING is returned.
  *
  * Returns [] on a git error rather than null, because every caller of THIS
  * function treats it as "nothing to scan" and none of them report a count from
@@ -238,10 +264,18 @@ function listWorktrees(cwd) {
 function listGitWorktreePaths(cwd) {
   const rows = listWorktrees(cwd);
   if (rows === null) return [];
-  const excluded = new Set([realOr(cwd)]);
+  const hereChain = ancestryOf(cwd);
   const mainRoot = resolveMainWorktreeRoot(cwd);
-  if (mainRoot) excluded.add(mainRoot);
-  return rows.map((r) => r.path).filter((p) => !excluded.has(realOr(p)));
+  const mainId = mainRoot === null ? null : idOf(mainRoot);
+  if (hereChain === null || mainId === null) return [];
+  return rows
+    .map((r) => r.path)
+    .filter((p) => {
+      const id = idOf(p);
+      if (id === null) return false; // possibly main / possibly current: never a candidate
+      if (id === mainId) return false;
+      return !hereChain.includes(id); // the session stands in it, or beneath it
+    });
 }
 
 /**
@@ -263,10 +297,15 @@ function worktreeAdminId(wtPath) {
   try {
     const st = fs.statSync(path.join(wtPath, ".git"));
     if (!st.isFile()) return null; // a directory ⇒ this is the main worktree
-    raw = fs.readFileSync(path.join(wtPath, ".git"), "utf8");
   } catch {
     return null;
   }
+  // Non-blocking and decided on the opened fd: a FIFO swapped in after the stat
+  // was a blocking readFileSync on the worktree-forest hook path. Any refusal is
+  // the existing "no admin id" answer, null.
+  const got = readRegularFileBounded(path.join(wtPath, ".git"));
+  if (!got.ok) return null;
+  raw = got.text;
   const m = raw.match(/^gitdir:\s*(.+?)\s*$/m);
   if (!m) return null;
   const id = path.basename(m[1].replace(/[/\\]+$/, ""));
@@ -356,17 +395,15 @@ function snapshotProcesses({ timeout = SNAPSHOT_TIMEOUT_MS } = {}) {
     if (m) snap.argv.push({ pid: Number(m[1]), command: m[2] });
   }
 
-  // `-F pn` ⇒ machine-readable: `p<pid>` then `n<path>`, one field per line.
-  const ls = runTool("lsof", ["-d", "cwd", "-w", "-F", "pn"], { timeout });
+  // `-F pDin` ⇒ machine-readable: `p<pid>`, then the cwd's device `D`, inode `i` and name
+  // `n`. D + i are the cwd's IDENTITY, which places it even when its name is truncated, deleted
+  // or an alias spelling (train-8 R2 N1/N5); measured present for every record on both fleet OS.
+  const ls = runTool("lsof", ["-d", "cwd", "-w", "-F", "pDin"], { timeout });
   if (ls.status === null && !ls.ok) {
     snap.why = `lsof DID NOT RUN (${ls.err.trim().slice(0, 120)}) — treating every worktree as occupied`;
     return snap;
   }
-  let pid = null;
-  for (const line of (ls.out || "").split("\n")) {
-    if (line.startsWith("p")) pid = Number(line.slice(1));
-    else if (line.startsWith("n") && pid != null) snap.cwds.push({ pid, cwd: line.slice(1) });
-  }
+  snap.cwds = parseLsofCwds(ls.out);
 
   if (!snap.cwds.some((e) => e.pid === process.pid)) {
     snap.why =
@@ -375,6 +412,8 @@ function snapshotProcesses({ timeout = SNAPSHOT_TIMEOUT_MS } = {}) {
     return snap;
   }
 
+  // linux: every same-user process lsof did not name, through /proc (train-8 R2 N2).
+  augmentFromProc(snap);
   snap.determinate = true;
   return snap;
 }
@@ -387,31 +426,8 @@ function snapshotProcesses({ timeout = SNAPSHOT_TIMEOUT_MS } = {}) {
  * consequences and must never collapse.
  */
 function occupantsOf(snapshot, wtPath) {
-  if (!snapshot || !snapshot.determinate) {
-    return {
-      determinate: false,
-      occupied: true,
-      pids: [],
-      why: (snapshot && snapshot.why) || "no process snapshot",
-    };
-  }
-  const real = realOr(wtPath);
-  const inside = (p) => {
-    const r = realOr(p);
-    return r === real || r.startsWith(real + path.sep);
-  };
-  const pids = new Set();
-  for (const e of snapshot.cwds) {
-    if (snapshot.selfPids.has(e.pid)) continue;
-    if (inside(e.cwd)) pids.add(e.pid);
-  }
-  // argv is CORROBORATION ONLY. A build started INSIDE the worktree with relative
-  // paths carries no path in its command line, which is why cwd is primary.
-  for (const e of snapshot.argv) {
-    if (snapshot.selfPids.has(e.pid)) continue;
-    if (e.command.includes(real) || e.command.includes(wtPath)) pids.add(e.pid);
-  }
-  return { determinate: true, occupied: pids.size > 0, pids: [...pids].sort((a, b) => a - b), why: null };
+  // ONE implementation, shared with the rs reclaimer: identity placement, name-scoped taint.
+  return occupancyOf(snapshot, wtPath);
 }
 
 // ── pressure bands (PURE) ───────────────────────────────────────────────────
@@ -447,7 +463,6 @@ module.exports = {
   GIT_TIMEOUT_MS,
   SNAPSHOT_TIMEOUT_MS,
   runGit,
-  realOr,
   gitCommonDir,
   resolveMainWorktreeRoot,
   listWorktrees,
@@ -460,6 +475,6 @@ module.exports = {
   crossedBand,
   // Re-exported so a consumer of THIS module never has to reach for a second
   // import to make a name safe for `agent_must_report`. One owner
-  // (`unlanded-work-surface.js`), one implementation, two reachable names.
+  // (`containment-realpath.js`), one implementation, two reachable names.
   sanitizeName,
 };

@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function within(root, p) {
+  const realRoot = fs.realpathSync(root);
+  const cand = path.resolve(p);
+  return cand.startsWith(realRoot + path.sep);
+}

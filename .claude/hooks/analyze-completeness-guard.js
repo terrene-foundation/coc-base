@@ -36,13 +36,16 @@
  *                      genesis-anchor-guard.js / validate-bash-command.js), re-caught
  *                      by the next phase-gate, with NO data loss / credential escape /
  *                      privilege escalation (practically unreachable single-operator).
- *                      block stays correct; ambiguity (unresolved workspace, any
- *                      error) fails OPEN.
- *   Fail-OPEN: any error / timeout / unresolved workspace → {continue:true}. A
- *              FRESH workspace (analysis not yet started — every compulsory tree
- *              empty) also passes: the gate fires only on PARTIAL completion, never
- *              on a legitimate fresh start.
- *   Budget:   ≤5s; setTimeout fallback emits {continue:true} (cc-artifacts.md Rule 7).
+ *                      block stays correct; an unresolved workspace passes.
+ *   Passes: an unresolved workspace → {continue:true}. A FRESH workspace
+ *              (analysis not yet started — every compulsory tree empty) also
+ *              passes: the gate fires only on PARTIAL completion, never on a
+ *              legitimate fresh start.
+ *   Fails CLOSED: a crash, a hang past the budget or an unreadable payload is a
+ *              REFUSAL (guard-runner.js::runGuard; cc-artifacts.md Rule 7 — a
+ *              deny-capable row that cannot finish cannot clear the call).
+ *   Budget:   ≤5s, armed by the runner outside the engine (the registry row's own
+ *             timeout bounds it inside).
  *
  * Workspace-generic — NO hardcoded project. Resolves via
  * workspace-utils.js::detectActiveWorkspace (newest; excludes `instructions` +
@@ -53,18 +56,32 @@
  *   COC_OPERATOR_REPO_DIR — test injection of the repo root.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns git read-only (lib/repo-dir-override.js + lib/state-resolver.js::requireMainCheckout) to identify the main checkout; the gate itself is read-only (readdirSync/statSync) and emits to stdout only."
+ * }
+ */
+
 "use strict";
 
+// The run budget outside the engine (guard-runner.js::runGuard). A hang past it
+// is a budget REFUSAL, never a pass: this row is deny-capable (cc-artifacts.md
+// Rule 7), so a run that cannot finish cannot clear the advancing Skill.
 const TIMEOUT_MS = 5000;
-
-// cc-artifacts.md Rule 7 fail-open safety net. Hook-internal hang MUST NOT block
-// the agent forever; {continue:true} surfaces no halt.
-let fallback = null;
 
 const fs = require("fs");
 const path = require("path");
 
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+const { runGuard } = require("./lib/guard-runner.js");
 const { detectActiveWorkspace } = require(
   path.join(__dirname, "lib", "workspace-utils.js"),
 );
@@ -189,8 +206,6 @@ function decideAnalyzeGate({ repoDir, toolName, skillName, args }) {
 
 // ---- main (only when invoked directly) --------------------------------------
 
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
-
 function resolveRepoDir(payload) {
   // loom#1871 HIGH-1 — the override is now bound to the SESSION REPOSITORY.
   // It was honoured on the sole evidence that the directory EXISTED, so a
@@ -207,144 +222,116 @@ function resolveRepoDir(payload) {
 // through instruct-and-wait.js's hookSpecificOutput.additionalContext channel
 // (which is for message-bearing emits). Only the block branch below uses emit().
 function passthrough() {
-  clearTimeout(fallback);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
 
-async function main() {
-  try {
-    const payload = await readStdinBounded();
-    const hookEvent = payload.hook_event_name || "PreToolUse";
-    const toolName = payload.tool_name;
-    if (toolName !== "Skill") passthrough();
+async function main(payload) {
+  const hookEvent = payload.hook_event_name || "PreToolUse";
+  const toolName = payload.tool_name;
+  if (toolName !== "Skill") return passthrough();
 
-    const ti = (payload && payload.tool_input) || {};
-    const skillName = skillNameOf(ti);
-    if (!ADVANCING_SKILLS.has(skillName)) passthrough();
+  const ti = (payload && payload.tool_input) || {};
+  const skillName = skillNameOf(ti);
+  if (!ADVANCING_SKILLS.has(skillName)) return passthrough();
 
-    const sessionCwd = resolveRepoDir(payload);
-    // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
-    // The former `|| sessionCwd` could not fire; `decideAnalyzeGate` reads
-    // workspace + phase state relative to this root, and against an
-    // unidentified directory it finds none — which reads as "no gate applies".
-    //
-    // loom#1606 (S23/DP-3) — WHAT THE FAILURE BRANCH BELOW CLAIMS, AND WHY ITS
-    // SEVERITY IS UNCHANGED. That branch DOES NOT BLOCK, and it used to say it
-    // did. `halt-and-report` returns `{continue: true}` / exit 0
-    // (`lib/instruct-and-wait.js`), so the advancing Skill RUNS. MEASURED: a
-    // `/todos` payload from a non-git directory emits `"continue":true`
-    // alongside the body's own "NOT BLOCKED — the action ALREADY RAN" head,
-    // while the user-facing line read "refused rather than passed through".
-    // Two sentences in ONE output, contradicting each other.
-    //
-    // The severity is UNCHANGED, and that is a decision, not an oversight. The
-    // sibling gate in `validate-prod-deploy.js` records the deciding test:
-    // block where the operator HAS a recovery path, halt-and-report where a
-    // hard block would strand them. This branch fires precisely when git cannot
-    // identify the checkout (dubious ownership, container bind-mount, CI runner)
-    // and offers NO escape hatch, so blocking here would wedge `/todos` and
-    // `/implement` with no way forward — the reason `integrity-guard.js` reached
-    // the same disposition. Promoting this to `block` needs an escape hatch
-    // first; that is a separate decision, not a wording fix.
-    //
-    // WHY THIS RATIONALE LIVES ABOVE THE CALL AND NOT INSIDE THE BRANCH.
-    // `tests/integration/multi-operator/trust-resolver-fail-closed-1471.test.js`
-    // asserts the fail-closed invariant over a FIXED 900-CHARACTER WINDOW that
-    // starts at this `requireMainCheckout(` call, and its comment stripper is
-    // LENGTH-PRESERVING — comments are blanked to spaces, they do not shrink.
-    // Prose parked between the call and its `emit(` therefore consumes the
-    // window and pushes the verdict out of view, reddening the invariant even
-    // though the code is correct (MEASURED: this rationale as a block comment
-    // inside the branch moved call->emit from 92 to 1556 characters). Keep the
-    // branch body VERDICT-ONLY; rationale goes here.
-    const mainRes = requireMainCheckout(sessionCwd);
-    if (!mainRes.ok) {
-      clearTimeout(fallback);
-      // Severity rationale + placement contract: see the loom#1606 note above.
-      emit({
-        hookEvent,
-        severity: "halt-and-report",
-        what_happened: `Analyze-completeness gate could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
-        why: "multi-operator-coc/analyze-completeness-guard — the gate decision reads workspace + phase state relative to the main checkout. Against an unidentified root it finds nothing, which is indistinguishable from `no gate applies`. This warning does NOT block: the command proceeds with the gate UNRUN, so its result is UNKNOWN rather than clean.",
-        agent_must_report: [
-          `Session cwd: ${sessionCwd}`,
-          `Resolver reason: ${mainRes.reason}`,
-          "The analyze-completeness gate did NOT run — its result is UNKNOWN, not clean.",
-          "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
-        ],
-        agent_must_wait:
-          "Do not advance the phase until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
-        // The `why` above was corrected to stop claiming this branch blocks;
-        // this line carried the SAME overstatement ("refused rather than passed
-        // through") and is the ONLY line the user actually sees, so leaving it
-        // would have shipped the contradiction the correction exists to remove.
-        user_summary:
-          "analyze-completeness-guard — main checkout unidentifiable; gate did NOT run, command proceeds with its result UNKNOWN",
-      });
-      // emit() exits
-    }
-    const repoDir = mainRes.repoDir;
-    const args = ti.args || ti.arguments || "";
-
-    const decision = decideAnalyzeGate({
-      repoDir,
-      toolName,
-      skillName,
-      args,
-    });
-
-    if (decision.action !== "block") passthrough();
-
-    const trees = decision.emptyTrees.join(", ");
-    clearTimeout(fallback);
-    emit({
+  const sessionCwd = resolveRepoDir(payload);
+  // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
+  // The former `|| sessionCwd` could not fire; `decideAnalyzeGate` reads
+  // workspace + phase state relative to this root, and against an
+  // unidentified directory it finds none — which reads as "no gate applies".
+  //
+  // loom#1606 (S23/DP-3) — WHAT THE FAILURE BRANCH BELOW CLAIMS, AND WHY ITS
+  // SEVERITY IS UNCHANGED. That branch DOES NOT BLOCK, and it used to say it
+  // did. `halt-and-report` returns `{continue: true}` / exit 0
+  // (`lib/instruct-and-wait.js`), so the advancing Skill RUNS. MEASURED: a
+  // `/todos` payload from a non-git directory emits `"continue":true`
+  // alongside the body's own "NOT BLOCKED — the action ALREADY RAN" head,
+  // while the user-facing line read "refused rather than passed through".
+  // Two sentences in ONE output, contradicting each other.
+  //
+  // The severity is UNCHANGED, and that is a decision, not an oversight. The
+  // sibling gate in `validate-prod-deploy.js` records the deciding test:
+  // block where the operator HAS a recovery path, halt-and-report where a
+  // hard block would strand them. This branch fires precisely when git cannot
+  // identify the checkout (dubious ownership, container bind-mount, CI runner)
+  // and offers NO escape hatch, so blocking here would wedge `/todos` and
+  // `/implement` with no way forward — the reason `integrity-guard.js` reached
+  // the same disposition. Promoting this to `block` needs an escape hatch
+  // first; that is a separate decision, not a wording fix.
+  //
+  // WHY THIS RATIONALE LIVES ABOVE THE CALL AND NOT INSIDE THE BRANCH.
+  // `tests/integration/multi-operator/trust-resolver-fail-closed-1471.test.js`
+  // asserts the fail-closed invariant over a FIXED 900-CHARACTER WINDOW that
+  // starts at this `requireMainCheckout(` call, and its comment stripper is
+  // LENGTH-PRESERVING — comments are blanked to spaces, they do not shrink.
+  // Prose parked between the call and its `emit(` therefore consumes the
+  // window and pushes the verdict out of view, reddening the invariant even
+  // though the code is correct (MEASURED: this rationale as a block comment
+  // inside the branch moved call->emit from 92 to 1556 characters). Keep the
+  // branch body VERDICT-ONLY; rationale goes here.
+  const mainRes = requireMainCheckout(sessionCwd);
+  if (!mainRes.ok) {
+    // Severity rationale + placement contract: see the loom#1606 note above.
+    return emit({
       hookEvent,
-      severity: "block",
-      what_happened: `/${skillName} blocked — workspace '${decision.workspace}' has started analysis but compulsory /analyze output tree(s) are empty: ${trees}.`,
-      why: "analyze-output-completeness/MUST-1 — /analyze declares 01-analysis, 02-plans, 03-user-flows, and specs/ compulsory; advancing to /todos or /implement while any is empty sends feature planning into unvalidated journeys (origin loom#675). The empty-directory signal is a deterministic fs check (file-state, not lexical) — block-eligible per hook-output-discipline.md MUST-2.",
+      severity: "halt-and-report",
+      what_happened: `Analyze-completeness gate could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
+      why: "multi-operator-coc/analyze-completeness-guard — the gate decision reads workspace + phase state relative to the main checkout. Against an unidentified root it finds nothing, which is indistinguishable from `no gate applies`. This warning does NOT block: the command proceeds with the gate UNRUN, so its result is UNKNOWN rather than clean.",
       agent_must_report: [
-        `Workspace: ${decision.workspace}`,
-        `Empty compulsory tree(s): ${trees}`,
-        "Populate each empty tree with the missing /analyze output before re-running this command.",
-        "If 03-user-flows genuinely does not apply (a pure back-end change with no user-facing surface), write workspaces/" +
-          decision.workspace +
-          "/03-user-flows/00-no-user-flows.md stating WHY — a documented rationale file satisfies the gate; a silent-empty tree does not.",
-        "specs/ is satisfied by EITHER workspaces/<project>/specs/ OR repo-root specs/.",
+        `Session cwd: ${sessionCwd}`,
+        `Resolver reason: ${mainRes.reason}`,
+        "The analyze-completeness gate did NOT run — its result is UNKNOWN, not clean.",
+        "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
       ],
       agent_must_wait:
-        "Do not retry the advancing command until every compulsory /analyze output tree is populated (or carries a documented rationale file).",
-      user_summary: `analyze-output-completeness — /${skillName} blocked; ${decision.workspace} missing ${trees}`,
+        "Do not advance the phase until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+      // The `why` above was corrected to stop claiming this branch blocks;
+      // this line carried the SAME overstatement ("refused rather than passed
+      // through") and is the ONLY line the user actually sees, so leaving it
+      // would have shipped the contradiction the correction exists to remove.
+      user_summary:
+        "analyze-completeness-guard — main checkout unidentifiable; gate did NOT run, command proceeds with its result UNKNOWN",
     });
-    // emit() exits
-  } catch (err) {
-    // Defense-in-depth: any unexpected exception MUST fail OPEN.
-    try {
-      process.stderr.write(
-        `[ADVISORY] analyze-completeness-guard internal error: ${err && err.message ? err.message : String(err)}\n`,
-      );
-    } catch {
-      // best-effort
-    }
-    try {
-      clearTimeout(fallback);
-      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    } catch {
-      // best-effort
-    }
-    process.exit(0);
   }
+  const repoDir = mainRes.repoDir;
+  const args = ti.args || ti.arguments || "";
+
+  const decision = decideAnalyzeGate({
+    repoDir,
+    toolName,
+    skillName,
+    args,
+  });
+
+  if (decision.action !== "block") return passthrough();
+
+  const trees = decision.emptyTrees.join(", ");
+  return emit({
+    hookEvent,
+    severity: "block",
+    what_happened: `/${skillName} blocked — workspace '${decision.workspace}' has started analysis but compulsory /analyze output tree(s) are empty: ${trees}.`,
+    why: "analyze-output-completeness/MUST-1 — /analyze declares 01-analysis, 02-plans, 03-user-flows, and specs/ compulsory; advancing to /todos or /implement while any is empty sends feature planning into unvalidated journeys (origin loom#675). The empty-directory signal is a deterministic fs check (file-state, not lexical) — block-eligible per hook-output-discipline.md MUST-2.",
+    agent_must_report: [
+      `Workspace: ${decision.workspace}`,
+      `Empty compulsory tree(s): ${trees}`,
+      "Populate each empty tree with the missing /analyze output before re-running this command.",
+      "If 03-user-flows genuinely does not apply (a pure back-end change with no user-facing surface), write workspaces/" +
+        decision.workspace +
+        "/03-user-flows/00-no-user-flows.md stating WHY — a documented rationale file satisfies the gate; a silent-empty tree does not.",
+      "specs/ is satisfied by EITHER workspaces/<project>/specs/ OR repo-root specs/.",
+    ],
+    agent_must_wait:
+      "Do not retry the advancing command until every compulsory /analyze output tree is populated (or carries a documented rationale file).",
+    user_summary: `analyze-output-completeness — /${skillName} blocked; ${decision.workspace} missing ${trees}`,
+  });
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js).
-function hookMain() {
-  fallback = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  return main();
-}
+// in-process by lib/hook-engine.js (dispatch.js). Built by the fail-closed runner:
+// it reads the payload, bounds the run, and refuses on a crash, a hang or an
+// unreadable payload — this guard carries no timer, catch or stdin reader of its own.
+const hookMain = runGuard("analyze-completeness-guard", main, { budgetMs: TIMEOUT_MS });
 
 // Library surface for the fixture runner / unit tests (and hookMain for the engine).
 module.exports = {

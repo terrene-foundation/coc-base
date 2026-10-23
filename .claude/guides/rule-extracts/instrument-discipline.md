@@ -85,7 +85,14 @@ reads a status from and the parse cannot tell it from `make test`. It is `halt-a
 the violation completes when the laundered status is READ as a verdict, which is not observable at
 tool-call time, and blocking would refuse a legitimate `| head -50` issued merely to look at
 output. It stays silent on `pipefail`/`PIPESTATUS`, on a first stage that is not a gate, and on a
-last stage that propagates a real status. Bipolar fixtures:
+last stage that propagates a real status. **Narrowed 2026-10-10 (journal/0661) to the part that IS
+observable:** the shape now fires only when the laundered status is USED in the same statement —
+an `&&`/`||` acting on it, an `if`/`while`/`until`/`!` head, an expanding `$?`/`PIPESTATUS` read in
+the next statement, or a backgrounded run whose notification reports it
+(`violation-patterns.js::launderedStatusBanked`). A display-only `gate | tail -3` with no status
+read is silent; measured over the operator's transcripts, 139 resolved firings fell to 41, every
+survivor carrying a status use. Named residual: `gate | tail; echo x; echo "rc=$?"` (the read two
+statements on) is not attributed. Bipolar fixtures:
 `.claude/audit-fixtures/violation-patterns/detectExitCodeLaundering/`; executing suite:
 `.claude/test-harness/tests/exit-code-laundering.test.mjs`.
 

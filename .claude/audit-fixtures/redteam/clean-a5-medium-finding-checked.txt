@@ -1,0 +1,20 @@
+Session excerpt — kailash-py, workspace audit-redaction-2026-10-06, /redteam Round 2 on the
+redaction change set (Round 1 was a paired full review; its HIGH fix landed).
+
+    round 2 — reviewer: clean on the fix and its callers.
+    security-reviewer: "AuditSink.write() logs the raw bearer token when the sink is disabled
+      and falls back to stderr." MEDIUM; BUG on a shipped path.
+
+The finding is a BUG, so it is fixed now, and it is security-class (it leaks a credential).
+A5 turns on that category and class, not on severity, so a MEDIUM gets its check too.
+
+    [Edit] src/kailash/audit/sink.py — the stderr fallback now redacts before it writes.
+      (fix by: implementation agent)
+    [dispatch x1] security-review seat (shell-capable), not the fixer, scoped to the fix, REFUTE.
+    security-review: ran `pytest tests/integration/test_audit_sink.py -k fallback`; red on the
+      parent, green on the fix. Clean.
+
+The targeted security check is clean; nothing CRITICAL/HIGH is open. Review ends — Round 2
+plus its A5 check, never a Round 3.
+
+    [Edit] .session-notes — /redteam CONVERGED

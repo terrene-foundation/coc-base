@@ -126,11 +126,16 @@
  * properties that make an override audited rather than free are now defined
  * once and inherited.
  *
- *   1. RECEIPT (agent-reachable, ONE-SHOT). Write a non-empty reason to
+ *   1. RECEIPT (agent-reachable, ONE-SHOT, CALL-BOUND). Write the one-line
+ *      JSON receipt the block prints to
  *      `.claude/worktree-authz/nested-worktree-allow`, then re-issue the call.
- *      The hook CONSUMES (deletes) the receipt as it honors it, so the override
- *      cannot silently disarm the gate for later calls, and the reason is echoed
- *      into the agent-visible advisory.
+ *      Its digest binds it to THIS call (tool, subagent type, prompt or
+ *      EnterWorktree target, and this rule's id), it expires fifteen minutes
+ *      after its `written_at`, the hook CONSUMES (deletes) it as it honors it
+ *      and appends one row to the shared use ledger in the main checkout, so
+ *      the override cannot silently disarm the gate for later calls, and the
+ *      reason is echoed into the agent-visible advisory. A receipt for another
+ *      call is refused by name and left in place (`lib/override-receipt.js`).
  *   2. ENV `COC_ALLOW_NESTED_WORKTREE=1` (operator / CI). NOT settable
  *      mid-session — a hook inherits the CLI parent's environment and a Bash
  *      `export` dies with the child shell — so an env-only override would be
@@ -144,20 +149,23 @@
  * model never sees.
  *
  * ─────────────────────────────────────────────────────────────────────────
- * FAIL-OPEN CONTRACT (cc-artifacts.md Rule 7)
+ * FAIL-CLOSED RUN BOUNDARY (cc-artifacts.md Rule 7)
  * ─────────────────────────────────────────────────────────────────────────
- * Every non-happy path — no piped stdin, empty stdin, malformed JSON, a payload
- * that is not a delegation/re-root call, or the outer timeout — passes the call
- * through with `{"continue": true}`. The guard only ever blocks on a POSITIVE
- * structural match.
+ * A payload that is not a delegation/re-root call passes the call through with
+ * `{"continue": true}`; the guard only ever blocks a call on a POSITIVE
+ * structural match. A run that reaches NO verdict — no piped stdin, empty
+ * stdin, malformed JSON, an oversized or stalled payload, a throw, a run past
+ * its budget — is not a pass: this row is `on_incomplete: "deny"`, and the run
+ * ends through `lib/guard-runner.js::runGuard`, which refuses every such ending
+ * (in the engine the dispatcher records the row's crash; standalone the runner
+ * exits 2 naming this guard). A guard whose own defect is a bypass is no guard.
  *
- * The stdin read goes through `lib/read-stdin-bounded.js::readStdinBounded`.
- * This is MANDATORY and not stylistic: a synchronous `process.stdin.read()`
- * drain at module load receives zero bytes on every invocation and therefore
- * always passes — while being registered in settings.json and reported as
- * active. An inert guard that reports green is worse than no guard.
- * `readStdinBounded` is event-driven, so the outer timer below stays live and
- * the hook cannot hang past its own budget.
+ * The stdin read is the runner's (`guard-runner.js::readPayload`). It is
+ * event-driven, which is MANDATORY and not stylistic: a synchronous
+ * `process.stdin.read()` drain at module load receives zero bytes on every
+ * invocation and therefore always passes — while being registered in
+ * settings.json and reported as active. An inert guard that reports green is
+ * worse than no guard.
  *
  * Origin: 2026-08-19 — Gate-1 ingest of a BUILD-stream structural guard loom
  * lacked entirely, genericized (language-neutral by construction; the contract
@@ -169,13 +177,29 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/worktree-authz/nested-worktree-allow",
+ *       ".claude/worktree-authz/.override-claim-<mkdtemp>/receipt",
+ *       "<main-checkout>/.claude/learning/override-receipt-uses.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "On a block-class call with a matching, unexpired receipt, consumption renames the public receipt into a private same-parent 0700 `.override-claim-<mkdtemp>/receipt`, validates the claimed bytes, records the use under the main checkout, then cleans up the private claim. Validation or recording failure restores the original inode bytes without overwriting a newer public receipt; a collision retains private custody and reports refusal. Recorded cleanup failure never rearms the public receipt. Source: .claude/hooks/lib/override-receipt.js:656-685,896-1005. The consumed receipt cannot authorize a repeat payload, so idempotent is false. Candidates resolve against BOTH the invoking tree and main checkout. spawns: the memoized git rev-parse probe that derives the containment boundaries (lib/event-git.js + lib/git-subprocess-env.js), and on the honour path the main-checkout probe lib/append-sink.js::mainCheckoutBoundaryRoots makes for the ledger; no other subprocess."
+ * }
+ */
+
 const path = require("path");
 const fs = require("fs");
 const { execFileSync } = require("child_process");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
-const { readStdinBounded } = require(
-  path.join(__dirname, "lib", "read-stdin-bounded.js"),
-);
+const { runGuard } = require(path.join(__dirname, "lib", "guard-runner.js"));
 // Every git a guard spawns routes through the shared allowlist (loom#1462/#1471,
 // `security.md` § Multi-Site Kwarg Plumbing). A bare `git` resolves through PATH
 // and inherits the ambient environment, and `GIT_DIR` OUTRANKS repository
@@ -188,25 +212,30 @@ const { readStdinBounded } = require(
 const { resolveGitBinary, gitEnv } = require(
   path.join(__dirname, "lib", "git-subprocess-env.js"),
 );
+const { askOnce, eventGitKey } = require(path.join(__dirname, "lib", "event-git.js"));
+
+// Canonical common-dir argv; sharing requires the complete question key:
+// binary, cwd, argv and envelope (.claude/hooks/lib/event-git.js:53-56).
+// Matching argv alone does not share answers across environment profiles.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 // The two-channel audited override (§ OVERRIDE below) is SHARED, not local. It began here as
 // the only copy; `dispatch-contract-guard.js` needed the identical contract, and a second
 // hand-written copy would have been the third parser-duplication in this codebase. The four
 // properties that make an override audited rather than free — agent-reachable, priced,
 // one-shot, recorded — now live in ONE place with their own bipolar fixture set
 // (`audit-fixtures/override-receipt/`), so a third adopter inherits them already tested.
-const { safeField, createOverrideGate } = require(
+const { safeField, createOverrideGate, callDigestOf, consumerOf } = require(
   path.join(__dirname, "lib", "override-receipt.js"),
 );
 
 const HOOK_EVENT = "PreToolUse";
 const RULE_ID = "worktree-isolation/nested-worktree-placement";
-// Budget arithmetic, so an already-DECIDED block is never dropped by the host's
-// own kill: stdin read (<=2000, readStdinBounded) + the ONE memoized git call
-// (<=GIT_TIMEOUT_MS) = 3500ms worst case < this 4000ms internal fallback < the
-// 5000ms `timeout: 5` registered in settings.json. The internal timer must win,
-// because it fails open with a well-formed `{"continue":true}`; the host kill
-// produces no output at all.
-const TIMEOUT_MS = 4000;
+// Budget arithmetic, so an already-DECIDED block is never dropped by a budget cut:
+// the ONE memoized git call (<=GIT_TIMEOUT_MS) sits well inside this 4000ms
+// standalone run budget (guard-runner.js::runGuard), which sits inside the 5000ms
+// `timeout: 5` registered for the row. Past the budget the run is a REFUSAL — the
+// runner's, with a well-formed reply — never the old fail-open `{"continue":true}`.
+const BUDGET_MS = 4000;
 const GIT_TIMEOUT_MS = 1500;
 
 // The literal parameter value the harness acts on to create the nested
@@ -218,9 +247,10 @@ const NESTED_ISOLATION_VALUE = "worktree";
 // inherits the CLI parent's env and a Bash `export` dies with the child shell.
 const ESCAPE_ENV = "COC_ALLOW_NESTED_WORKTREE";
 
-// Override channel 1 (agent-reachable, ONE-SHOT). Repo-relative; also resolved
-// against the MAIN checkout so a call issued from inside a worktree still finds
-// the operator's receipt. Consumed (deleted) when honored.
+// Override channel 1 (agent-reachable, ONE-SHOT, bound to one call by digest).
+// Repo-relative; also resolved against the MAIN checkout so a call issued from
+// inside a worktree still finds the operator's receipt. Consumed (deleted) and
+// recorded in the shared use ledger when honored.
 const RECEIPT_REL = path.join(
   ".claude",
   "worktree-authz",
@@ -234,14 +264,7 @@ const RECEIPT_REL = path.join(
 // second consumer needed, and a sanitizer that drifts between two guards is a sanitizer that
 // is wrong in one of them.
 
-// Hard timeout fallback per cc-artifacts.md Rule 7. Deliberately longer than
-// readStdinBounded's internal 2000ms bound so the reader hands back control for
-// a graceful passthrough before this fires. Left REF'd so it is guaranteed to
-// run even if the stdin handle drops its own ref.
-let _timeoutHandle = null;
-
 function passthrough() {
-  clearTimeout(_timeoutHandle);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
@@ -273,7 +296,9 @@ function osKey(p) {
  * does not exist cannot itself be a symlink — every component that COULD
  * redirect the target is inside the resolved prefix.
  *
- * Returns null when nothing on the chain resolves; callers FAIL CLOSED on null.
+ * Returns null when nothing on the chain resolves, or when a component EXISTS but will not
+ * resolve (a dangling link, EACCES, ELOOP) — it climbs only past a genuinely absent one
+ * (train-8 R2 correctness ledger: the corr F1 class). Callers FAIL CLOSED on null.
  */
 function realpathBounded(rawPath) {
   let abs;
@@ -288,7 +313,15 @@ function realpathBounded(rawPath) {
     try {
       const real = fs.realpathSync(abs);
       return tail.length ? path.join(real, ...tail) : real;
-    } catch {
+    } catch (e) {
+      if (!e || e.code !== "ENOENT") return null;
+      try {
+        fs.lstatSync(abs);
+        return null; // exists but will not resolve
+      } catch (le) {
+        if (!le || le.code !== "ENOENT") return null; // not provably absent: refuse
+        /* genuinely absent: climb */
+      }
       const parent = path.dirname(abs);
       if (parent === abs) return null; // reached the root without resolving
       tail.unshift(path.basename(abs));
@@ -456,9 +489,9 @@ function detectNestedWorktreeRequest(payload) {
  *
  * MEMOIZED because the block path needs this three times (target containment,
  * receipt candidates, remediation example) and `execFileSync` BLOCKS THE EVENT
- * LOOP — repeated calls stack their timeouts serially past the hook's own
- * fallback timer, letting the host's kill win and silently DROP an
- * already-decided block. One call, cached, keeps the worst case inside budget.
+ * LOOP — repeated calls stack their timeouts serially past the run budget, turning
+ * an already-decided block into a budget refusal (and, past the host's own kill,
+ * into no output at all). One call, cached, keeps the worst case inside budget.
  *
  * Returns null when git is unavailable; containment then FAILS CLOSED and the
  * remediation degrades to its generic form rather than a wrong concrete path.
@@ -477,40 +510,59 @@ function gitRoots() {
     return _gitRootsMemo;
   }
   try {
-    const out = execFileSync(
-      gitBin,
-      [
-        "rev-parse",
-        "--path-format=absolute",
-        "--git-common-dir",
-        "--show-toplevel",
-      ],
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: GIT_TIMEOUT_MS,
-        // A SYNC subprocess blocks the event loop, so the outer setTimeout
-        // cannot fire while it runs; SIGTERM-ignoring git would hold the hook
-        // until the host's own 5s kill (which fails open and would silently
-        // DROP an already-decided block). SIGKILL makes the bound real.
-        killSignal: "SIGKILL",
-        // Explicit minimal env built from constants — nothing inherited, so the
-        // whole `GIT_DIR`/`GIT_WORK_TREE`/`GIT_CONFIG_*` steering family is
-        // closed by construction rather than enumerated.
-        env: gitEnv(),
+    // ONE answer per distinct question per hook event (lib/event-git.js); no
+    // `cwd:` is passed, exactly as before — the question is asked about
+    // `process.cwd()`. Outside an event scope `askOnce` runs the probe directly.
+    const probe = askOnce(
+      eventGitKey({ gitBin, cwd: process.cwd(), args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+      () => {
+        try {
+          const out = execFileSync(
+            gitBin,
+            CANONICAL_COMMON_DIR_ARGS,
+            {
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+              timeout: GIT_TIMEOUT_MS,
+              // A SYNC subprocess blocks the event loop, so the runner's budget timer
+              // cannot fire while it runs; SIGTERM-ignoring git would hold the hook
+              // until the host's own 5s kill (which produces no output and would
+              // DROP an already-decided block). SIGKILL makes the bound real.
+              killSignal: "SIGKILL",
+              // Explicit minimal env built from constants — nothing inherited, so the
+              // whole `GIT_DIR`/`GIT_WORK_TREE`/`GIT_CONFIG_*` steering family is
+              // closed by construction rather than enumerated.
+              env: gitEnv(),
+            },
+          );
+          return { ok: true, value: String(out) };
+        } catch (e) {
+          return { ok: false, reason: String((e && e.message) || e) };
+        }
       },
     );
-    const lines = String(out)
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const lines = probe.ok
+      ? String(probe.value || "")
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
     if (lines.length === 0) {
       _gitRootsMemo = null;
       return _gitRootsMemo;
     }
     _gitRootsMemo = {
-      mainTop: path.dirname(lines[0]), // shared .git's parent
-      invokingTop: lines[1] || null,
+      // Canonical order: toplevel first, the shared common dir LAST — in the shape
+      // that ANSWERS at all. What this comment used to claim ("a bare repo answers
+      // with the common dir alone") is FALSE (R2 L3, MEASURED 2026-10-07): in a
+      // bare repo the canonical argv FAILS — `fatal: this operation must be run
+      // in a work tree`, rc 128, NO output, because `--show-toplevel` aborts the
+      // whole invocation before `--git-common-dir` prints — so the probe returns
+      // !ok and this function returns null, and the caller above takes the
+      // FAIL-CLOSED `unresolvable-boundary` branch, never a one-line answer. The
+      // toplevel is line 0 only when it was printed at all.
+      mainTop: path.dirname(lines[lines.length - 1]),
+      invokingTop: lines.length >= 2 ? lines[0] : null,
     };
   } catch {
     _gitRootsMemo = null;
@@ -561,7 +613,6 @@ function receiptCandidates() {
 }
 
 function emitOverrideAdvisory({ channel, detail, toolName, matched }) {
-  clearTimeout(_timeoutHandle);
   emit({
     hookEvent: HOOK_EVENT,
     severity: "advisory",
@@ -599,7 +650,7 @@ const TARGET_REASON = {
     "not be decided and the check FAILS CLOSED (security.md § Path Containment)",
 };
 
-function emitBlock({ toolName, matched, siblingExample }) {
+function emitBlock({ toolName, matched, siblingExample, digest }) {
   const isNameForm = matched.kind === "enter-worktree-name";
   const isPathForm = matched.kind === "enter-worktree-path";
   const requested = isNameForm
@@ -644,27 +695,25 @@ function emitBlock({ toolName, matched, siblingExample }) {
         `and mandate the STEP-0 assertion worktree-isolation.md Rule 1(b) requires: cd into the ` +
         `worktree FIRST, then assert \`git rev-parse --show-toplevel\` equals \`pwd -P\` and is NOT ` +
         `the main checkout, refusing on mismatch.`,
-      `OVERRIDE (if the nested placement is genuinely required) — write a one-line reason to ` +
-        `${RECEIPT_REL} and re-issue this exact call. The receipt is CONSUMED on use (one-shot) and ` +
-        `the override is surfaced back to you as an advisory. Do NOT file a follow-up issue instead ` +
-        `of remediating (autonomous-execution.md § Per-Session Capacity Budget Rule 4).`,
+      // The escape is the SHARED sentence, so it is described in the same words, and bound the
+      // same way, as at the dispatch-contract and WIP gates; only the last sentence is this
+      // guard's own.
+      `${overrideGate().formatOverrideInstruction(digest)} The override is surfaced back to you ` +
+        `as an advisory. Do NOT file a follow-up issue instead of remediating ` +
+        `(autonomous-execution.md § Per-Session Capacity Budget Rule 4).`,
     ],
     agent_must_wait:
       `Do not retry this call unmodified. Either switch to a sibling worktree (preferred) or write ` +
-      `the one-shot receipt at ${RECEIPT_REL} and retry.`,
+      `the receipt line above (bound to this call) to ${RECEIPT_REL} and retry.`,
     user_summary: `${RULE_ID} — blocked nested worktree (${matched.kind}="${matched.safeValue}") on ${toolName}; ~73k tok/agent double-load`,
   });
   // emit() exits; unreachable.
 }
 
-async function main() {
-  // fallback:null distinguishes a FAILED/EMPTY read from a genuine `{}` payload.
-  // Both pass through (fail-open per cc-artifacts.md Rule 7), but keeping them
-  // distinguishable is what makes the inert-hook class testable rather than
-  // invisible.
-  const payload = await readStdinBounded({ timeoutMs: 2000, fallback: null });
-  if (payload === null) return passthrough();
-
+async function main(payload) {
+  // A FAILED/EMPTY read never reaches here: guard-runner.js::readPayload REFUSES it
+  // rather than resolving a default, so it stays distinguishable from a genuine `{}`
+  // payload (which is no delegation call and passes through below).
   const hit = detectNestedWorktreeRequest(payload);
   if (!hit) return passthrough();
 
@@ -680,9 +729,16 @@ async function main() {
     code: hit.code,
   };
 
+  // THE CALL DIGEST — what a receipt must name to lift THIS call: the RAW tool name (never the
+  // sanitized display copy above), the subagent type, the prompt or EnterWorktree target, and
+  // this guard's one finding id. Null only when the tool_input cannot be digested, in which case
+  // no receipt can lift the call and the block stands.
+  const digest = callDigestOf(readToolName(payload), payload.tool_input, [RULE_ID]);
+
   // BOTH override channels, resolved by the shared gate. Env is checked FIRST inside it, so a
-  // CI run cannot silently spend an agent's one-shot receipt written for a later call.
-  const override = overrideGate().resolveOverride();
+  // CI run cannot silently spend an agent's one-shot receipt written for a later call; a
+  // receipt bound to a different call is refused by name and left in place.
+  const override = overrideGate().resolveOverride({ digest, consumer: consumerOf(payload) });
   if (override) {
     return emitOverrideAdvisory({
       channel: override.channel,
@@ -694,31 +750,22 @@ async function main() {
     });
   }
 
-  // Resolve the remediation path BEFORE disarming the fallback timer: the git
-  // call is synchronous, and a stall after clearTimeout would drop the block.
+  // The remediation path is resolved inside the same run budget as the verdict:
+  // a stall here is a budget REFUSAL, which is still a refusal of the call.
   const siblingRoot = resolveSiblingRoot();
   const siblingExample = siblingRoot
     ? path.join(siblingRoot, "<name>")
     : "<main-repo-parent>/.<repo-slug>-wt/<name>";
 
-  clearTimeout(_timeoutHandle);
-  emitBlock({ toolName, matched, siblingExample });
+  emitBlock({ toolName, matched, siblingExample, digest });
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). A require() arms nothing, so
-// there is no timer to clear on the required path.
-function hookMain() {
-  _timeoutHandle = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  return main().catch(() => {
-    // Any unexpected throw fails OPEN per cc-artifacts.md Rule 7 — a guard must
-    // never wedge the session on its own defect.
-    passthrough();
-  });
-}
+// in-process by lib/hook-engine.js (dispatch.js). A require() arms nothing (the
+// runner arms its budget timer only when a standalone run starts). An unexpected
+// throw is a REFUSAL, not a pass: the dispatcher's repair hatch — not a fail-open
+// catch — is what keeps a defective guard from wedging the session.
+const hookMain = runGuard("nested-worktree-guard", main, { budgetMs: BUDGET_MS });
 
 module.exports = {
   detectNestedWorktreeRequest,

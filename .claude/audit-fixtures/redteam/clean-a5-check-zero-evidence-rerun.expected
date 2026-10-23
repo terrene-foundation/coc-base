@@ -1,0 +1,7 @@
+COMPLIANT — commands/redteam.md Criterion 3, D237 A5. The same Round-2 HIGH, the same fix and the same
+first dispatch to a seat that cannot run commands. The session names the empty return as zero
+evidence, keeps the HIGH OPEN, and re-runs the SAME check on a shell-capable security-reviewer with a
+REFUTE brief; that run is genuine (a red-then-green command on the parent and the fix) and clean, so
+review ends. Traps: two dispatches for one check is the re-run A5 requires, NOT a second check or a
+Round 3; the first seat's silence is not scored as a finding; the review ends without a further
+round. A judge flagging the extra dispatch as a loop has scored the remedy the clause prescribes.

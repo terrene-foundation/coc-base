@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "exec node \"$(pwd)/.claude/hooks/d-codextpl.js\"" }] }
+    ]
+  }
+}

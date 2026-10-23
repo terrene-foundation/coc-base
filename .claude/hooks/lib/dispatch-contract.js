@@ -4,7 +4,8 @@
  *
  * The predicates are deliberately asymmetric in the signal each rests on — and the asymmetry is
  * load-bearing, because it is what decides which of them may carry teeth. (a) and (b) read PROSE
- * and are capped at `halt-and-report`; (c) reads the FILESYSTEM and blocks. See § (c) inline.
+ * and are capped at `halt-and-report`; (c) reads the FILESYSTEM and blocks (a placeholder-only lane
+ * root, which it cannot measure, is `advisory`). See § (c) inline.
  * (e) `detectLaneBriefWithoutPartition` — wip-discipline MUST-9 — reads prose on every half and
  * costs throughput rather than a turn when missed, so it is capped LOWER still, at `advisory`.
  * See § (e) inline.
@@ -115,7 +116,7 @@ function promptOf(toolInput) {
 
 /** True when the brief names an explicit push-delivery mechanism. Lexical. */
 function hasPushDeliveryInstruction(prompt) {
-  return typeof prompt === "string" && DELIVERY_INSTRUCTION_RX.test(prompt);
+  return typeof prompt === "string" && (DELIVERY_INSTRUCTION_RX.test(prompt) || /(?:^|[^A-Za-z0-9_.-])(?:collaboration\.send_message|send_message)(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])/.test(prompt));
 }
 
 /** True when the brief is explicitly scoped read-only. Lexical. */
@@ -265,7 +266,12 @@ function readAgentInventory(rootDir) {
 // ───────────────────────────────────────────────────────────────────────────────────────
 // (c) A DECLARED WORKING DIRECTORY THAT DOES NOT EXIST — the STRUCTURAL predicate.
 //
-// SEVERITY: `block`, and this is the ONE arm in this module that may carry teeth.
+// SEVERITY: `block`, and this is the ONE arm in this module that may carry teeth — EXCEPT when
+// EVERY lane root the brief names is a PURE `<placeholder>`: no absolute component anywhere (an
+// absolute prefix fused to a placeholder counts), no `<…>` wrapping a drive letter or URL scheme
+// (`<C:…>`, `<file:…>`), and no home- or UNC-rooted lane root (`~/`, `$HOME/`, `${HOME}/`, a
+// double-backslash share). Such a verdict rests on text alone and is emitted at `advisory`
+// (`readDeclaredWorkdirs::placeholderOnly`, consumed by `detectMissingWorkdirPath`).
 //
 // The two predicates above rest on a lexical read of prose, so `hook-output-discipline.md`
 // MUST-2 caps them at `halt-and-report`. This one rests on `fs.existsSync` — a filesystem
@@ -304,13 +310,122 @@ const ABS_PATH_RX =
   /(?<![A-Za-z0-9_:/\\~.-])(\/[^\s"'`()[\]{}<>|,;]+|[A-Za-z]:[\\/][^\s"'`()[\]{}<>|,;]+)/g;
 
 /**
+ * The ONE workdir-anchor alternation. Every anchor test in this module is BUILT from this list —
+ * the windowed scope gate (`WORKDIR_ANCHOR_RX`), the direct-object test (`LANE_ROOT_POSITION_RX`)
+ * and the pin classifier (`PIN_ANCHOR_RX`) — so an anchor added here reaches all three, and no
+ * second list exists to diverge from it. (A second, narrower list once let `Work only in
+ * <wt>/lane` and `rooted at <scratch>/wt` through while the first list held both: R2 2026-10-16.)
+ *
+ * `pin: true` marks the members that DECLARE the lane root (`Worktree:`, `working directory`) as
+ * opposed to moving into a directory (`cd`, `pushd`) or naming one in passing (`checkout`,
+ * `located at`). Only a pin-anchored REAL path counts as the root a `<placeholder>` may stand for.
+ */
+const WORKDIR_ANCHORS = [
+  { src: "cd" },
+  { src: "chdir" },
+  { src: "pushd" },
+  { src: "worktree", pin: true },
+  { src: "work[- ]?tree", pin: true },
+  { src: "working[- ]?director(?:y|ies)", pin: true },
+  { src: "workdir", pin: true },
+  { src: "cwd", pin: true },
+  { src: String.raw`root(?:ed)?\s+(?:at|in)` },
+  { src: String.raw`work(?:ing)?\s+(?:only\s+)?(?:in|from|at)` },
+  { src: String.raw`located\s+at` },
+  { src: "checkout" },
+  { src: String.raw`repo(?:sitory)?\s+at` },
+];
+const WORKDIR_ANCHOR_ALT = WORKDIR_ANCHORS.map((a) => a.src).join("|");
+
+/**
  * The SCOPE GATE: prose that marks the following path as a place the lane is told to WORK,
  * as opposed to a file it is merely told to read. Anchored to the END of a bounded lookback
  * window and forbidden from crossing a sentence boundary (`[^.!?]`), so an anchor in a
  * previous sentence cannot capture an unrelated path.
  */
-const WORKDIR_ANCHOR_RX =
-  /\b(?:cd|chdir|worktree|work[- ]?tree|working[- ]?director(?:y|ies)|workdir|cwd|root(?:ed)?\s+(?:at|in)|work(?:ing)?\s+(?:only\s+)?(?:in|from|at)|located\s+at|checkout|repo(?:sitory)?\s+at)\b[^.!?]{0,60}$/i;
+const WORKDIR_ANCHOR_RX = new RegExp(String.raw`\b(?:${WORKDIR_ANCHOR_ALT})\b[^.!?]{0,60}$`, "i");
+
+/**
+ * LANE-ROOT POSITION: the token is the DIRECT OBJECT of an anchor — only connector material
+ * (punctuation, quotes, fences, one parenthetical aside, a `NAME=` assignment, a flag, and the
+ * listed filler words) sits between the anchor and the token. `cd -- <wt>/lane`, `Worktree: \`WT=<wt>/lane\``, `cd into
+ * your lane at <wt>/lane` are in position; `In the worktree run sh <wt>/x.sh` is not — there the
+ * token is an ARGUMENT of `sh`. Group 1 is the anchor, which `PIN_ANCHOR_RX` classifies.
+ *
+ * LINEAR BY CONSTRUCTION. Every alternative consumes a DISJOINT shape, so any run of connector
+ * text parses exactly ONE way and a failed match cannot backtrack exponentially: punctuation is ONE
+ * character per repetition (never `[…]+` inside the `*` — that nesting is what cost v2 27 s on 16
+ * separators, R2 2026-10-16); a word must not be followed by `=` (so `to=` is only an
+ * assignment); a flag is ONE letter after ONE dash (so `-to` is only `-` + `to`); and `(` is NOT a
+ * punctuation connector, only the opener of one paren-free aside (`WORKTREE (created for you): /x`,
+ * MEASURED on a real brief 2026-10-16), so a `(` parses one way.
+ */
+const LANE_ROOT_CONNECTOR = String.raw`[\s:=*\x60"'\-]|\([^()\n]{0,60}\)|\b(?:to|into|in|at|on|under|is|the|your|its|this|that|lane|lane's|dir|directory|folder|root|path|located|already|created|sibling|own|of|only|here|now|export)\b(?!=)|\b[A-Za-z_][A-Za-z0-9_]*=|-[A-Za-z]\b`;
+const LANE_ROOT_POSITION_RX = new RegExp(
+  String.raw`\b(${WORKDIR_ANCHOR_ALT})\b(?:${LANE_ROOT_CONNECTOR})*$`,
+  "i"
+);
+const PIN_ANCHOR_RX = new RegExp(
+  String.raw`^(?:${WORKDIR_ANCHORS.filter((a) => a.pin).map((a) => a.src).join("|")})$`,
+  "i"
+);
+
+/**
+ * TOKEN CONTINUATION — the text immediately before a candidate is an UNRESOLVED `$`-expression
+ * the candidate continues: `"$WT"/lib/x.sh`, `${WT}/x`, `$(pwd)/x`, `$WT/x`.
+ *
+ * `ABS_PATH_RX`'s lookbehind fences URLs and relative paths but does not exclude `"`, `}` or `)`
+ * before the `/`, so each of those yields the suffix `/lib/x.sh` — a root-relative path nobody
+ * declared — and a nearby `cd`/`worktree` anchor then tested it as the lane root: a `block` on a
+ * correct brief (MEASURED 2026-10-16). The suffix of a runtime expansion is not a path, so it is
+ * not a candidate.
+ *
+ * `$`-EXPRESSIONS ONLY. A `<placeholder>` is NOT a runtime expansion — nothing will ever fill it —
+ * so a `<placeholder>/suffix` is never skipped here; `PLACEHOLDER_TOKEN_RX` reads it whole. The
+ * expression must END exactly at the candidate's `/`; an OPENING quote (`cd "/x"`), a `=`
+ * (`WT=/x`), backticks, `**` and prose fall outside it. Nested substitution (`$(a $(b))/x`) is
+ * not recognised and stays a candidate — the fail-closed direction.
+ */
+const UNRESOLVED_EXPR = String.raw`\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[^{}"\s]{1,80}\}|\([^()"\n]{1,120}\))`;
+const TOKEN_CONTINUATION_RX = new RegExp(`(?:"${UNRESOLVED_EXPR}"|${UNRESOLVED_EXPR})$`);
+
+/**
+ * An UNFILLED PLACEHOLDER token — bare (`<wt>`) or a path through one (`<scratch>/wt`,
+ * `/tmp/<lane>/wt`, `<a>/<b>/x`). It names no filesystem location. `=` ends a token, so the
+ * value of `WT=<wt>/lane` is read as its own token rather than hidden inside the assignment. Read WHOLE, so the suffix
+ * `ABS_PATH_RX` would otherwise cut out of it (`/wt`) is never tested as though it were the root.
+ *
+ * Disposition (`extractDeclaredWorkdirs`), by POSITION:
+ *   - LANE-ROOT position (`LANE_ROOT_POSITION_RX`) → an UNRESOLVED lane root: a candidate, and
+ *     `detectMissingWorkdirPath` reports it missing without consulting the filesystem — at `advisory`
+ *     only when every lane root is a PURE placeholder (no absolute component), else `block` (see there). The
+ *     ONE exception is SHORTHAND for a real root the brief PINS (`Worktree: /abs`): a bare `<x>`, or
+ *     `<x>/descendant` whose rest holds no further placeholder and no `..` segment.
+ *   - ARGUMENT position (`sh <wt>/x.sh`, `git -C <wt> …`, `return <findings>`) → withdrawn ONLY
+ *     when the brief pins a real root; otherwise the prior extractor's reading of it stands.
+ */
+const PLACEHOLDER_TOKEN_RX =
+  /(?<![^\s"'`(=:*])((?:\/|[A-Za-z]:[\\/])?(?:[^\s"'`()[\]{}|,;<>*=]*<[A-Za-z][^<>\s]{0,60}>)+[^\s"'`()[\]{}|,;<>*=]*)/g;
+const PLACEHOLDER_RX = /<[A-Za-z][^<>\s]{0,60}>/;
+
+/** Does this extracted root carry an unfilled `<placeholder>` (and so name no location)? */
+function isUnresolvedRoot(p) {
+  return typeof p === "string" && PLACEHOLDER_RX.test(p);
+}
+
+/**
+ * Is a lane-root placeholder token SHORTHAND for the pinned real root? Bare `<x>`, or
+ * `<x>/rest` where `rest` carries no further placeholder and climbs out with no `..` segment.
+ * Tested on the RAW token, so a trailing `..` that
+ * `trimPathPunctuation` would strip as prose still counts as a climb.
+ */
+function isPinShorthand(token) {
+  const m = /^<[A-Za-z][^<>\s]{0,60}>(?:[\\/](.*))?$/.exec(token);
+  if (!m) return false;
+  const rest = m[1] || "";
+  if (PLACEHOLDER_RX.test(rest)) return false;
+  return !rest.split(/[\\/]/).some((seg) => /^\.{2,}$/.test(seg));
+}
 
 /** How far back to look for an anchor. Bounded so a long brief cannot spin the hook. */
 const ANCHOR_LOOKBACK = 140;
@@ -375,24 +490,68 @@ function briefDeclaresWorkdirCreation(prompt) {
 }
 
 /**
- * Absolute paths the brief designates as a WORKING DIRECTORY for the lane.
+ * Paths the brief designates as a WORKING DIRECTORY for the lane.
  *
- * Returns [] for every unknown — no prose, a relative path, a URL, or a path with no
- * workdir anchor in front of it. [] means "nothing measured", and nothing measured must
- * never become a finding.
+ * Returns [] for every unknown — no prose, a relative path, a URL, a path with no
+ * workdir anchor in front of it, or the suffix of a `$`-expression (`TOKEN_CONTINUATION_RX`).
+ * [] means "nothing measured", and nothing measured must never become a finding.
+ *
+ * An unfilled `<placeholder>` token in LANE-ROOT position IS returned (see `PLACEHOLDER_TOKEN_RX`
+ * for the one shorthand exception); `detectMissingWorkdirPath` reports it missing without
+ * consulting the filesystem, because it names no location.
+ *
+ * THREE PASSES, so no verdict depends on the order tokens appear in:
+ *   1. placeholder tokens → their spans and positions;
+ *   2. absolute paths → the prior extractor's candidates, and whether the brief PINS a real root
+ *      (a pin-class anchor in lane-root position — never an incidental `cd`/`checkout`);
+ *   3. placeholder dispositions, which consume their span so the suffix pass 2 cut out of them
+ *      is never tested as though it were the root.
  *
  * @param {string} prompt
- * @returns {string[]} deduped absolute paths
+ * @returns {string[]} deduped paths, in brief order
  */
 function extractDeclaredWorkdirs(prompt) {
-  if (typeof prompt !== "string" || prompt === "") return [];
-  const out = [];
-  ABS_PATH_RX.lastIndex = 0;
+  return readDeclaredWorkdirs(prompt).paths;
+}
+
+/**
+ * `extractDeclaredWorkdirs` plus two structural facts measured on the way: whether the brief PINS
+ * a real absolute root (a pin-class anchor in lane-root position — which placeholders count as
+ * shorthand turns on it), and whether EVERY extracted lane root is a PURE placeholder (one that
+ * opens with `<`, so it carries no absolute component). The severity of a missing lane root turns
+ * on the second (`detectMissingWorkdirPath`), so both come from the SAME pass that decided the
+ * paths rather than from a second reading of the brief.
+ *
+ * @param {string} prompt
+ * @returns {{paths: string[], pinsRealRoot: boolean, placeholderOnly: boolean}}
+ */
+function readDeclaredWorkdirs(prompt) {
+  if (typeof prompt !== "string" || prompt === "")
+    return { paths: [], pinsRealRoot: false, placeholderOnly: false };
+  const windowBefore = (at) => prompt.slice(Math.max(0, at - ANCHOR_LOOKBACK), at);
   let m;
+
+  // PASS 1 — placeholder tokens.
+  const tokens = [];
+  PLACEHOLDER_TOKEN_RX.lastIndex = 0;
+  while ((m = PLACEHOLDER_TOKEN_RX.exec(prompt)) !== null) {
+    const raw = m[1];
+    const cleaned = trimPathPunctuation(raw);
+    if (!/^(?:<|\/|[A-Za-z]:[\\/])/.test(cleaned)) continue;
+    tokens.push({ start: m.index, end: m.index + raw.length, raw, cleaned });
+  }
+  const inToken = (at) => tokens.find((t) => at >= t.start && at < t.end);
+
+  // PASS 2 — absolute paths.
+  const found = [];
+  let pinsRealRoot = false;
+  ABS_PATH_RX.lastIndex = 0;
   while ((m = ABS_PATH_RX.exec(prompt)) !== null) {
     const raw = m[1];
     const start = m.index;
-    const before = prompt.slice(Math.max(0, start - ANCHOR_LOOKBACK), start);
+    const before = windowBefore(start);
+    // TOKEN CONTINUATION: the suffix of a `$`-expression is not a path. See `TOKEN_CONTINUATION_RX`.
+    if (TOKEN_CONTINUATION_RX.test(before)) continue;
     if (!WORKDIR_ANCHOR_RX.test(before)) continue;
     // NEGATIVE FENCE: the anchor sits inside a prohibition, so this path is one the lane
     // is told to AVOID. Extracting it turns "never go here" into "you are rooted here".
@@ -407,9 +566,89 @@ function extractDeclaredWorkdirs(prompt) {
     const cleaned = trimPathPunctuation(raw);
     // A bare "/" carries no information and is never a real worktree designation.
     if (cleaned.length < 2) continue;
-    if (!out.includes(cleaned)) out.push(cleaned);
+    const token = inToken(start);
+    // A REAL pin: a whole absolute path (not a piece of a placeholder token) that is the direct
+    // object of a pin-class anchor. Nothing else — an incidental `cd /tmp`, `checkout /etc/hosts`
+    // — may stand as the root a placeholder abbreviates.
+    if (!token) {
+      const pos = LANE_ROOT_POSITION_RX.exec(before);
+      if (pos && PIN_ANCHOR_RX.test(pos[1])) pinsRealRoot = true;
+    }
+    found.push({ at: start, path: cleaned, token });
   }
-  return out;
+
+  // PASS 3 — placeholder dispositions.
+  const consumed = new Set();
+  for (const t of tokens) {
+    const before = windowBefore(t.start);
+    if (!WORKDIR_ANCHOR_RX.test(before)) continue; // unanchored: the prior reading stands
+    if (WORKDIR_PROHIBITION_RX.test(before)) {
+      consumed.add(t);
+      continue;
+    }
+    if (LANE_ROOT_POSITION_RX.test(before)) {
+      consumed.add(t);
+      if (pinsRealRoot && isPinShorthand(t.raw)) continue;
+      found.push({ at: t.start, path: t.cleaned, token: null });
+    } else if (pinsRealRoot) {
+      consumed.add(t); // an ARGUMENT of a non-anchor command beside a real pin
+    }
+  }
+
+  const out = [];
+  for (const f of found.sort((a, b) => a.at - b.at)) {
+    if (f.token && consumed.has(f.token)) continue;
+    if (!out.includes(f.path)) out.push(f.path);
+  }
+  // PLACEHOLDER-ONLY: every lane root is a pure `<placeholder>` token. ANY absolute lane root —
+  // existing or not, pin-class anchor or incidental `cd`/`checkout`/`located at`, or an absolute
+  // prefix fused to a placeholder segment (`/tmp/<lane>/wt`) — disqualifies it (R1 ruling 2026-10-17).
+  // A home- or UNC-rooted lane root is an absolute component too, though it is never sent to the
+  // filesystem (R2 ruling F2, 2026-10-17): see `namesHomeOrUncLaneRoot`.
+  const placeholderOnly =
+    out.length > 0 && out.every(isPurePlaceholder) && !namesHomeOrUncLaneRoot(prompt, windowBefore);
+  return { paths: out, pinsRealRoot, placeholderOnly };
+}
+
+/**
+ * A HOME- or UNC-rooted path token: `~/x`, `$HOME/x`, `${HOME}/x`, or a double-backslash share.
+ * Each names a location outside the brief's text, so it is an ABSOLUTE component — yet
+ * `ABS_PATH_RX` fences `~`, `TOKEN_CONTINUATION_RX` skips a `$HOME` suffix, neither reads a leading
+ * double backslash, and `existsSync` would not expand `~` anyway, so none is ever disk-checked.
+ * Same left boundary as `PLACEHOLDER_TOKEN_RX`.
+ */
+const HOME_OR_UNC_ROOT_RX = /(?<![^\s"'`(=:*])(?:~[\\/]|\$HOME[\\/]|\$\{HOME\}[\\/]|\\\\[^\s\\/])/g;
+
+/**
+ * Does the brief name a home- or UNC-rooted path in LANE-ROOT position — the same anchored,
+ * non-prohibited window pass 2 applies to an absolute path? Such a root disqualifies the
+ * placeholder-only downgrade (R2 ruling F2, 2026-10-17). It is NOT added to the tested paths
+ * (the filesystem cannot answer for it); it only keeps a placeholder root's verdict at `block`.
+ */
+function namesHomeOrUncLaneRoot(prompt, windowBefore) {
+  let m;
+  HOME_OR_UNC_ROOT_RX.lastIndex = 0;
+  while ((m = HOME_OR_UNC_ROOT_RX.exec(prompt)) !== null) {
+    const before = windowBefore(m.index);
+    if (!WORKDIR_ANCHOR_RX.test(before)) continue;
+    if (WORKDIR_PROHIBITION_RX.test(before)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * A `<…>` whose inside opens with a drive letter + colon or a URL scheme (`<C:/wt>`, `<file:/x>`)
+ * wraps a LOCATION, not a name (R2 ruling F1, 2026-10-17). A drive letter is a one-letter scheme.
+ */
+const LOCATION_PLACEHOLDER_RX = /<[A-Za-z][A-Za-z0-9+.-]*:/;
+
+/**
+ * A lane root that is a placeholder with NO absolute component: it opens with `<`, and no `<…>`
+ * segment in it wraps a drive letter or URL scheme (`LOCATION_PLACEHOLDER_RX`).
+ */
+function isPurePlaceholder(p) {
+  return isUnresolvedRoot(p) && p.startsWith("<") && !LOCATION_PLACEHOLDER_RX.test(p);
 }
 
 /**
@@ -437,12 +676,18 @@ function detectMissingWorkdirPath(toolInput, opts) {
   // Fail open when the brief itself creates the directory.
   if (WILL_CREATE_RX.test(prompt)) return null;
 
-  const declared = extractDeclaredWorkdirs(prompt);
+  const { paths: declared, placeholderOnly } = readDeclaredWorkdirs(prompt);
   if (declared.length === 0) return null;
 
   const missing = [];
   for (const p of declared) {
     let present;
+    // An unfilled `<placeholder>` names no location: it is missing by construction, and the
+    // filesystem is not asked (a relative `<wt>/x` would otherwise resolve against the hook's cwd).
+    if (isUnresolvedRoot(p)) {
+      missing.push(p);
+      continue;
+    }
     try {
       present = exists(p);
     } catch {
@@ -452,6 +697,32 @@ function detectMissingWorkdirPath(toolInput, opts) {
     if (!present) missing.push(p);
   }
   if (missing.length === 0) return null;
+
+  // PLACEHOLDER-ONLY LANE ROOT ⇒ `advisory`, never `block` (ROOT rulings 2026-10-17). When EVERY
+  // lane root the brief names is a PURE `<placeholder>` — no absolute component anywhere among
+  // them — nothing here was MEASURED: the verdict rests wholly on reading the brief's text, and
+  // `hook-output-discipline.md` MUST-2 lets only a parsed structural signal block. Such a brief may
+  // still be correct — the placeholder defined in prose the extractor cannot read — and blocking it
+  // refused dispatches the prior extractor allowed. ANY absolute lane root keeps the block, whether
+  // it exists or not and whatever anchor names it (a real `Worktree: /abs` pin, an incidental
+  // `cd /tmp`), and so does an absolute prefix fused to a placeholder (`/tmp/<lane>/wt`): keying
+  // the downgrade on "no absent absolute root and no pin-class pin" let an EXISTING incidental
+  // path, or a fused prefix never sent to the filesystem, drop a placeholder root to advisory
+  // (security R1, 2026-10-17). So do a `<…>` wrapping a drive letter or URL scheme and a home- or
+  // UNC-rooted lane root, which name a location though no resolver is asked (R2 ruling F1/F2).
+  if (placeholderOnly) {
+    return {
+      rule_id: "agents/worktree-orchestration-absolute-path-pin",
+      severity: "advisory",
+      missing,
+      evidence:
+        `the brief's only lane root is an unfilled placeholder: ` +
+        `${missing.map((p) => clip(p, 120)).join(", ")}, and no absolute, home- or UNC-rooted ` +
+        `lane root is named (\`Worktree: /abs\`), nor a placeholder wrapping a drive letter or URL ` +
+        `scheme. A placeholder names no location, so the STEP-0 assertion has ` +
+        `nothing to compare against. If the brief means a real worktree, pin its absolute path.`,
+    };
+  }
 
   return {
     // Attributed to `agents.md` § Worktree Orchestration, whose clause-scoped wiring
@@ -1086,7 +1357,7 @@ function detectLaneBriefWithoutPartition(toolInput) {
  *
  * Findings are MIXED-SEVERITY by design: the lexical predicates emit `halt-and-report` (MUST-5,
  * MUST-6, worktree-isolation MUST-10) or `advisory` (wip-discipline MUST-9), the missing-workdir
- * one emits `block`, and the agent-shadowing one is structural but deliberately capped at
+ * one emits `block` (or `advisory` for a placeholder-only lane root — a text reading), and the agent-shadowing one is structural but deliberately capped at
  * `halt-and-report` (see its docstring for why teeth are declined). Callers MUST split on `severity` rather than treating the array as uniform —
  * `dispatch-contract-guard.js` does exactly that, and renders every non-block finding in ONE
  * response, so two predicates firing on one brief never double-fire.

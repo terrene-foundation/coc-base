@@ -1,0 +1,25 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 corr F2: a realpath try whose catch climbs past ANY error (EACCES, ELOOP, a dangling
+// link) returns a real ancestor plus a tail that never resolved — a FALLBACK, not a resolver.
+function nearest(p) {
+  let cur = path.resolve(p);
+  const tail = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(cur), ...tail);
+    } catch {
+      /* not there yet: climb */
+    }
+    const up = path.dirname(cur);
+    if (up === cur) return null;
+    tail.unshift(path.basename(cur));
+    cur = up;
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return nearest(p).startsWith(r + path.sep);
+}

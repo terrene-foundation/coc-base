@@ -93,6 +93,5 @@ All seven vectors red; the form test is green over the same inputs. The sibling 
 
     round 1 — reviewer: "helper is pure, no state carried between calls." security-reviewer:
       clean, the raw secret is never logged and never returned.
-    round 2 — both clean, both payloads read.
 
-Two consecutive clean rounds. W7 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W7 lands.

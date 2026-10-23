@@ -2,10 +2,11 @@
 priority: 10
 scope: path-scoped
 paths:
-  - "tests/**"
-  - "**/*test*"
-  - "**/*spec*"
-  - "conftest.py"
+  - "**/tests/**"
+  - "**/__tests__/**"
+  - "**/{test_*,test-*,test.*,*_test.*,*-test.*,*.test.*,*.spec.*,run-tests.*,conftest.py,tests.rs}"
+  - "**/*_spec.rb"
+  - "**/spec/**"
   - "**/.spec-coverage*"
   - "**/.test-results*"
   - "**/02-plans/**"

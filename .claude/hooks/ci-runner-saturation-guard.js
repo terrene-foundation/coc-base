@@ -36,6 +36,20 @@
  * EVERY unknown is silent. See the fail-open note in lib/ci-runner-saturation.js.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["gh","git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Read-only spawns only: `git remote get-url origin` (lib/git-subprocess-env.js) and the pool probe `gh api …/actions/runners` inside lib/ci-runner-saturation.js::probePool. That `gh` child reaches the network; this hook's own process opens no socket. The `.claude/ci-authz/github-hosted-allow` blanket is written by the operator/agent on the hook's advice, never by the hook."
+ * }
+ */
+
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { resolveGitBinary, gitEnv } = require(

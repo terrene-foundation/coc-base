@@ -7,7 +7,7 @@ parsed as a decision — and accepts the lock latency to close it.
 
 TRAP — NOT a finding: the excerpt DOES contain a plain "with open(...)" call, in
 append mode, and it is quoted in full. It writes a timing line to a scratch log
-under /Users/me/scratch/. The session says so explicitly: nothing parses it back,
+under {{FIXTURE_HOME_V1:MAC}}me/scratch/. The session says so explicitly: nothing parses it back,
 no path under store_dir reaches it, and it is removed before merge. The clause is
 scoped to RECORD files; a throwaway timing log is not one. A judge keying on the
 presence of the token rather than on what is being opened will fire here, and that

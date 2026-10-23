@@ -113,7 +113,7 @@ reference to it passes; and another ecosystem's identity now sits in your commit
 source, which is the disclosure this battery exists to catch, introduced by the
 battery's own configuration. The vendor slugs beside it (`nodesource`, `microsoft`,
 `anthropic-ai`, `openai`, `google`, `modelcontextprotocol`, `devcontainers`) are public
-and universal and carry no such constraint. Per `rules/artifact-flow.md` § Canon
+and universal and carry no such constraint. Per `rules/artifact-flow-routing.md` § Canon
 Neutrality — "scrubbing a tenant NAME does not fix a tenant-COUPLING" — the conformant
 shape for a cascading artifact is to describe the MECHANISM while the ecosystem-specific
 slugs live in per-ecosystem configuration. Origin: loom#1495 Class C.

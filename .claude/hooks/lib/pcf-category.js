@@ -86,6 +86,11 @@ const {
   findGhSubcommand,
   resolveCdTrailDir,
 } = require(path.join(__dirname, "git-command-parse.js"));
+// THE shared non-blocking, fd-checked reader (O_NONBLOCK|O_NOFOLLOW, fstat on the
+// opened fd, size-bounded). Imported, never copied. Every file this guard opens on
+// its PreToolUse path — a checkout's `.git`, its `commondir`, the `--body-file` —
+// goes through it: see `checkoutOf` and `readBodyFileDiagnosed`.
+const { readRegularFileBounded } = require(path.join(__dirname, "landing-window-read.js"));
 
 /**
  * THE closed literal enum. A literal frozen array — never a template, never a
@@ -153,6 +158,7 @@ const PCF_CAUSES = Object.freeze({
   BODY_TEXT_MISSING: "BODY_TEXT_MISSING",
   /** `--body-file` was present with an empty value */
   BODY_FILE_PATH_EMPTY: "BODY_FILE_PATH_EMPTY",
+  BODY_FILE_DIRECTORY_UNKNOWN: "BODY_FILE_DIRECTORY_UNKNOWN",
   /** the path resolves outside the root this hook resolves against */
   BODY_FILE_OUTSIDE_ROOT: "BODY_FILE_OUTSIDE_ROOT",
   /** the path is inside the root but its SYMLINK TARGET escapes it */
@@ -588,7 +594,7 @@ function canonicalizeThroughExistingAncestor(target) {
   const tail = [];
   for (let i = 0; i < 64; i++) {
     try {
-      const real = fs.realpathSync(cur);
+      const real = fs.realpathSync.native(cur);
       return tail.length ? path.join(real, ...tail) : real;
     } catch {
       const parent = path.dirname(cur);
@@ -624,6 +630,20 @@ const CHECKOUT_WALK_MAX = 64;
  * Returns null when nothing resolves — every caller treats null as "no
  * widening", so an unreadable or non-repository directory lands on the
  * pre-existing single-root containment rather than on a guess.
+ *
+ * BOTH FILES ARE READ THROUGH `readRegularFileBounded`, AND THE READ DECIDES ON
+ * ITS OWN FD. This runs synchronously in the PreToolUse Bash hook
+ * (`validate-bash-command.js` → `classifyPrCreate` → `readBodyFileDiagnosed` →
+ * `inside`) for a `--body-file` outside the session root. A plain
+ * `readFileSync` of `.git` (after an lstat a FIFO could be swapped behind) or of
+ * `commondir` (no type check at all) opens O_RDONLY with O_NONBLOCK clear, and a
+ * FIFO there parked the hook in open(2) until the host killed it — measured by
+ * the security seat: control 50 ms, FIFO `commondir` killed at 6 s — and a
+ * killed dispatcher runs the call with NO guard. Every refusal is null here, the
+ * existing "no widening" answer, so the body file stays OUTSIDE_ROOT and the
+ * verdict NOT_VERIFIED. A `commondir` that is ABSENT still falls through to the
+ * documented layout form; one that EXISTS but is refused is null, never the
+ * layout guess.
  */
 function checkoutOf(startDir) {
   let cur;
@@ -651,27 +671,29 @@ function checkoutOf(startDir) {
           return { root: cur, commonDir: fs.realpathSync(dotGit) };
         }
         if (st.isFile()) {
-          const m = /^\s*gitdir:\s*(.+?)\s*$/m.exec(
-            fs.readFileSync(dotGit, "utf8").slice(0, 4096),
-          );
+          const dotGitRead = readRegularFileBounded(dotGit);
+          if (!dotGitRead.ok) return null;
+          const m = /^\s*gitdir:\s*(.+?)\s*$/m.exec(dotGitRead.text.slice(0, 4096));
           if (!m) return null;
           const gitDir = fs.realpathSync(path.resolve(cur, m[1]));
           // git writes a `commondir` sidecar inside a worktree's gitdir holding
           // the (usually relative) path to the shared git directory. Read it
           // when present; fall back to the documented
-          // `<common>/worktrees/<name>` layout when it is not.
-          try {
-            const rel = fs
-              .readFileSync(path.join(gitDir, "commondir"), "utf8")
-              .trim();
-            if (rel) {
-              return {
-                root: cur,
-                commonDir: fs.realpathSync(path.resolve(gitDir, rel)),
-              };
+          // `<common>/worktrees/<name>` layout ONLY when it is absent — a
+          // sidecar that exists but is refused (FIFO, symlink, oversized) is
+          // null, the "no widening" answer, never the layout guess.
+          const side = readRegularFileBounded(path.join(gitDir, "commondir"));
+          if (side.ok) {
+            const rel = side.text.trim();
+            let named = null;
+            try {
+              named = rel ? fs.realpathSync(path.resolve(gitDir, rel)) : null;
+            } catch {
+              /* an unresolvable pointer falls through to the layout form, as before */
             }
-          } catch {
-            /* fall through to the layout form */
+            if (named) return { root: cur, commonDir: named };
+          } else if (side.code !== "ENOENT") {
+            return null;
           }
           if (path.basename(path.dirname(gitDir)) === "worktrees") {
             return {
@@ -740,7 +762,7 @@ function readBodyFileDiagnosed(filePath, repoRoot, command, opts = {}) {
 
   let root;
   try {
-    root = fs.realpathSync(repoRoot);
+    root = fs.realpathSync.native(repoRoot);
   } catch (err) {
     return fail(
       PCF_CAUSES.ROOT_UNRESOLVABLE,
@@ -748,38 +770,31 @@ function readBodyFileDiagnosed(filePath, repoRoot, command, opts = {}) {
     );
   }
 
-  // WHERE A RELATIVE `--body-file` IS RESOLVED FROM — the loom#1990 defect.
-  //
-  // `repoRoot` is the hook payload's `cwd`, which is the SESSION directory. In
-  // this repo's own workflow that is the MAIN CHECKOUT, while the command runs
-  // in a linked worktree it reaches with a `cd <wt> &&` prefix. Resolving the
-  // body file against the session directory therefore looked for it in a tree
-  // the command never enters: MEASURED, every `gh pr create --body-file <rel>`
-  // issued from a worktree reported NOT_VERIFIED / BODY_FILE_MISSING, which is
-  // essentially every PR opened here.
-  //
-  // The base is now the directory the command ACTUALLY runs in, tracked by the
-  // shared `resolveCdTrailDir` walk. When that walk cannot know the directory it
-  // returns `known: false` and this falls back to `root` — today's behaviour,
-  // hence today's NOT_VERIFIED. It never invents a root, and an unreadable body
-  // can never become a "categorized" pass by this route: the base only decides
-  // WHICH file is looked at, and every failure below still returns `text: null`.
+  // An unknown command directory cannot identify a relative body file. Preserve
+  // raw argument components until native resolution; cd-L normalization does
+  // not apply to file arguments. Source: .claude/hooks/lib/pcf-category.js:755-838.
   const trail =
     typeof opts.invocationDir === "string" && opts.invocationDir
       ? { dir: opts.invocationDir, known: true }
-      : resolveCdTrailDir(command, root, {
+      : resolveCdTrailDir(command, repoRoot, {
           stopWhen: (seg) => !!findGhSubcommand(seg, "pr", "create"),
         });
-  let base = root;
-  if (trail.known && trail.dir) {
-    try {
-      base = fs.realpathSync(trail.dir);
-    } catch {
-      base = root;
-    }
+  if (!trail.known || !trail.dir) {
+    return fail(
+      PCF_CAUSES.BODY_FILE_DIRECTORY_UNKNOWN,
+      "the command directory could not be resolved; the body file was not read",
+    );
   }
-
-  const target = path.resolve(base, filePath);
+  let base;
+  try {
+    base = fs.realpathSync.native(trail.dir);
+  } catch (err) {
+    return fail(
+      PCF_CAUSES.BODY_FILE_DIRECTORY_UNKNOWN,
+      "the command directory " + shortPath(trail.dir) + " could not be resolved (" + (err && err.code ? err.code : "UNKNOWN") + "); the body file was not read",
+    );
+  }
+  const target = path.isAbsolute(filePath) ? filePath : base + path.sep + filePath;
 
   // CONTAINMENT — widened from ONE root to the SESSION'S OWN REPOSITORY, and no
   // further. A body file authored in a linked worktree is not inside the main
@@ -806,7 +821,7 @@ function readBodyFileDiagnosed(filePath, repoRoot, command, opts = {}) {
 
   let candidate;
   try {
-    candidate = fs.realpathSync(target);
+    candidate = fs.realpathSync.native(target);
   } catch (err) {
     const code = err && err.code ? err.code : "UNKNOWN";
     // The path did not resolve. Was it even AIMED inside the root? Answer it on
@@ -878,19 +893,26 @@ function readBodyFileDiagnosed(filePath, repoRoot, command, opts = {}) {
     );
   }
 
-  try {
-    return { text: fs.readFileSync(candidate, "utf8"), cause: null, detail: null };
-  } catch (err) {
-    // Fails CLOSED by design: an unreadable body yields NOT_VERIFIED at the
-    // caller, never a clean or an uncategorized verdict. The ABSENCE of text IS
-    // the signal, and it is now reported WITH its cause rather than as a bare
-    // null (zero-tolerance.md Rule 3 — no silent fallback, and no anonymous
-    // one either).
+  // THE READ DECIDES ON ITS OWN FD (`readRegularFileBounded`): the stat above
+  // only names the cause for a file that is already wrong. A FIFO swapped in
+  // after it was a plain `readFileSync` that blocked the PreToolUse hook; now
+  // the non-blocking open + fstat refuse it, with the same causes as above.
+  // Fails CLOSED by design: an unreadable body yields NOT_VERIFIED at the
+  // caller, never a clean or an uncategorized verdict. The ABSENCE of text IS
+  // the signal, and it is reported WITH its cause rather than as a bare null
+  // (zero-tolerance.md Rule 3 — no silent fallback, and no anonymous one either).
+  const got = readRegularFileBounded(candidate, { maxBytes: BODY_FILE_MAX_BYTES });
+  if (got.ok) return { text: got.text, cause: null, detail: null };
+  if (got.code === "ENOTREG") {
+    return fail(PCF_CAUSES.BODY_FILE_NOT_A_FILE, `${shortPath(candidate)} exists but is not a regular file`);
+  }
+  if (got.code === "EFBIG") {
     return fail(
-      PCF_CAUSES.BODY_FILE_UNREADABLE,
-      `${shortPath(candidate)} could not be read: ${err && err.code ? err.code : "UNKNOWN"}`,
+      PCF_CAUSES.BODY_FILE_TOO_LARGE,
+      `${shortPath(candidate)} is over the ${BODY_FILE_MAX_BYTES}-byte read cap (${got.reason})`,
     );
   }
+  return fail(PCF_CAUSES.BODY_FILE_UNREADABLE, `${shortPath(candidate)} could not be read: ${got.code || "UNKNOWN"}`);
 }
 
 /**
@@ -1031,6 +1053,8 @@ function causeSentence(cause) {
   switch (cause) {
     case PCF_CAUSES.BODY_FILE_PATH_EMPTY:
       return "no path followed --body-file";
+    case PCF_CAUSES.BODY_FILE_DIRECTORY_UNKNOWN:
+      return "the command directory is UNKNOWN, so the body file was not read";
     case PCF_CAUSES.BODY_FILE_OUTSIDE_ROOT:
       return "the path is OUTSIDE the root this guard reads against";
     case PCF_CAUSES.BODY_FILE_ESCAPES_CONTAINMENT:
@@ -1106,6 +1130,8 @@ function formatCategoryRemediation(v) {
     "create is verifiable.";
 
   switch (v.cause) {
+    case PCF_CAUSES.BODY_FILE_DIRECTORY_UNKNOWN:
+      return head + " CAUSE-SPECIFIC FIX: use a supported literal command directory, then verify the body file there; an UNKNOWN directory cannot be replaced with the session root.";
     case PCF_CAUSES.BODY_FILE_OUTSIDE_ROOT:
       return `${head} CAUSE-SPECIFIC FIX: the body file is outside the root this guard resolves \`--body-file\` against (the detail above names both). Relative vs absolute is NOT the axis — the ROOT is; a file authored in a linked worktree is not inside the main checkout either way. Put the body file under the named root, or open the PR from the checkout that root belongs to.`;
     case PCF_CAUSES.BODY_FILE_ESCAPES_CONTAINMENT:

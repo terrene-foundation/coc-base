@@ -1379,13 +1379,15 @@ const WARGS = (act) => [
   // unfolded form does not. Without this, the source check above could pass against
   // an `mi` that never sees a mixed-case input.
   {
-    const body = "cross-repo-authorized: Integrum-Global/tpc_backend read";
+    // Synthetic slug: the org is MIXED-CASE in the body and lower-case in both patterns,
+    // so the two forms can disagree — keep that asymmetry if the slug ever changes.
+    const body = "cross-repo-authorized: Example-Org/sample_backend read";
     const folded = new RegExp(
-      "^cross-repo-authorized:[ \\t]+integrum-global/tpc_backend[ \\t]+(?:read|write)[ \\t]*$",
+      "^cross-repo-authorized:[ \\t]+example-org/sample_backend[ \\t]+(?:read|write)[ \\t]*$",
       "mi",
     );
     const unfolded = new RegExp(
-      "^cross-repo-authorized:[ \\t]+integrum-global/tpc_backend[ \\t]+(?:read|write)[ \\t]*$",
+      "^cross-repo-authorized:[ \\t]+example-org/sample_backend[ \\t]+(?:read|write)[ \\t]*$",
       "m",
     );
     check(

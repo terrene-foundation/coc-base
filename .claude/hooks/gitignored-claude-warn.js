@@ -33,10 +33,23 @@
  *   1 = hook error (e.g. timeout, malformed input)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git check-ignore -v` via lib/git-subprocess-env.js (absolute binary, minimal env) — a local read, so the hook's own process opens no network. The warning renders to stdout as additionalContext; no durable write anywhere."
+ * }
+ */
+
 const path = require("path");
-const { execFileSync } = require("child_process");
-const { resolveGitBinary, gitEnv } = require(
-  path.join(__dirname, "lib", "git-subprocess-env.js"),
+const { resolveTargetRepo, targetGit } = require(
+  path.join(__dirname, "lib", "target-repo-git.js"),
 );
 
 const TIMEOUT_MS = 5000;
@@ -105,7 +118,7 @@ function checkPath(data) {
   // We pass -v for verbose; we only care about the exit code.
   const cwd = data.cwd || process.cwd();
   let ignored = false;
-  try {
+  {
     // loom#1471 (s49). LOCAL profile. `cwd` chose a DIRECTORY; an ambient
     // `GIT_DIR` outranked it, so the question "is .claude ignored HERE?" was
     // answered by an attacker-named repository's `.gitignore` — and this hook
@@ -119,21 +132,23 @@ function checkPath(data) {
     // here in any case (`check-ignore` is outside CONFIG_PROFILE_SUBCOMMANDS and
     // gitConfigInvocation() THROWS on it), and admitting global config to widen
     // a warning would re-open the steering channel this closes.
-    const gitBin = resolveGitBinary();
-    // Rule 7 fail-OPEN: no binary ⇒ cannot determine ⇒ no warning, which is
-    // exactly what the catch below already does for "not a git repo". Returns
-    // this function's OWN shape — `{messages: []}`, never a bare boolean.
-    if (!gitBin) return { messages: [] };
-    execFileSync(gitBin, ["check-ignore", "-v", norm], {
-      cwd,
-      stdio: ["ignore", "ignore", "ignore"],
-      timeout: 2000,
-      env: gitEnv(),
-    });
-    ignored = true; // exit 0 — path is ignored
-  } catch (e) {
-    // exit 1 — not ignored, OR exit 128 — not in a git repo. Both → silent.
-    ignored = false;
+    //
+    // M-W4.3 RUN 8: through THE TARGET-REPO ENVELOPE (lib/target-repo-git.js).
+    // `check-ignore` reads the index, which refreshes through the repository's
+    // configured `core.fsmonitor` program — and the session's repository config is
+    // the agent's to write. The repository is resolved ONCE from `cwd`.
+    //
+    // Rule 7 fail-OPEN: an unresolvable repository (no binary, not a git repo) or a
+    // refused/unanswered read ⇒ cannot determine ⇒ no warning, the same silence as
+    // before. Returns this function's OWN shape — `{messages: []}`, never a bare
+    // boolean.
+    const at = path.resolve(cwd);
+    const resolved = resolveTargetRepo({ dir: at }, { timeout: 2000 });
+    if (!resolved.ok) return { messages: [] };
+    const r = targetGit(resolved.repo, ["check-ignore", "-v", "--", norm], { cwd: at, timeout: 2000 });
+    // exit 0 — path is ignored; exit 1 — not ignored; anything else (128, refused,
+    // unanswered) — not determined. Only exit 0 warns.
+    ignored = r.ok;
   }
 
   if (!ignored) return { messages: [] };
@@ -156,7 +171,13 @@ function checkPath(data) {
   };
 }
 
-module.exports = { hookMain };
+module.exports = {
+  hookMain,
+  // Exported for the routing closure cases (tests/integration/multi-operator/
+  // target-repo-git-routing.test.js), which plant a program in the repository's
+  // config and assert this read never runs it.
+  _checkPath: checkPath,
+};
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The

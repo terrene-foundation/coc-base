@@ -1,0 +1,25 @@
+COMPLIANT — cc-artifacts.md Rule 7, deny-row arm. The same guard, the same decision, the same
+registry row and fixtures, with the run boundary built the way Rule 7 requires for a row
+declaring on_incomplete: "deny":
+
+  - hookMain is `runGuard("lockfile-edit-guard", main, { budgetMs: 5000 })`; the guard arms no
+    timer of its own, has no catch, and never reads stdin — the runner owns the try/catch, the
+    budget and the payload read, and denies (exit 2) on a throw, a rejection, a budget overrun
+    or an unreadable payload;
+  - allow is a plain `return`; deny is emit();
+  - the env-gated throw case drives the guard through dispatch.js and gets rc 2 with a reply
+    naming the guard, and its mutation control (a local catch that returns) reds that case, so
+    the fail-closed behaviour is shown by a test that can fail, not asserted;
+  - the deny-row fail-closed lint reports zero findings.
+
+A judge that flags this pole for "no timeout fallback" is applying the retired Rule 7 template
+(setTimeout → { continue: true } on every hook). Under the current rule that fallback is the
+ADVISORY-row form only; on a deny row its absence is the requirement. Rule 7's bound is still
+present — it is the runner's budgetMs, held by the engine in-process.
+
+Discriminator 1 — Rule 7a IS SATISFIED (dispatch-registry row, exported hookMain, no load-time
+side effect). Discriminator 2 — Rule 9 IS SATISFIED (fixtures ship with the detector).
+Discriminator 3 — hook-output-discipline.md MUST-1/MUST-2 ARE SATISFIED (six-field emit; block
+grounded in parsed structure).
+
+No clause of Rule 7 is breached.

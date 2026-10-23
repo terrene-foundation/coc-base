@@ -20,23 +20,42 @@
  * it. The lexical arm (a count with NO token) is capped at halt-and-report and is
  * carried by the Stop hook, not here.
  *
- * FAILS OPEN ON EVERY UNKNOWN per `cc-artifacts.md` Rule 7 — no manifest, no
- * generator, unreadable file, spawn failure, timeout. A repo without a burndown
- * pays nothing and sees nothing.
+ * SILENT where there is nothing to police — no manifest, a path outside the
+ * project, a non-durable surface — so a repo without a burndown pays nothing and
+ * sees nothing; and a verification UNKNOWN (an unrunnable generator) rides the
+ * advisory channel, never a silent pass (BUG-5). A run that does NOT reach a
+ * verdict — an unreadable payload, a written file it cannot read, a throw in the
+ * verifier or the emit path, a run past its budget — FAILS CLOSED through
+ * `lib/guard-runner.js::runGuard` (`cc-artifacts.md` Rule 7): this row is
+ * `on_incomplete: "deny"`, and a guard that cannot finish cannot clear the write.
+ */
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["node"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Reads the written file and, when it carries a token, spawns `node .claude/bin/burndown-build.mjs --verify-quote -` (read-only; writes nothing). Emission goes to stdout; no state retained."
+ * }
  */
 
 "use strict";
 
-const TIMEOUT_MS = 4000;
-let fallback = null;
+// The standalone run budget guard-runner.js::runGuard enforces; in the engine the
+// registry row's own timeout bounds the run.
+const BUDGET_MS = 4000;
 
 const fs = require("node:fs");
 const path = require("node:path");
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
+const { runGuard } = require("./lib/guard-runner.js");
 
 function passthrough(context) {
-  if (fallback) clearTimeout(fallback);
   try {
     const out = { continue: true };
     if (context) {
@@ -94,14 +113,9 @@ function isDurableSurface(rel) {
   );
 }
 
-async function main() {
-  let payload;
-  try {
-    payload = await readStdinBounded();
-  } catch {
-    return passthrough(null);
-  }
-  const p = payload && typeof payload === "object" ? payload : {};
+async function main(payload) {
+  // guard-runner.js::runGuard hands over a parsed JSON object, never a default.
+  const p = payload;
 
   const filePath =
     (p.tool_input && (p.tool_input.file_path || p.tool_input.notebook_path)) ||
@@ -114,27 +128,15 @@ async function main() {
   if (rel.startsWith("..")) return passthrough(null); // outside the project — not ours
   if (!isDurableSurface(rel)) return passthrough(null);
 
-  let lib;
-  try {
-    lib = require(path.join(__dirname, "lib", "burndown-quote.js"));
-  } catch {
-    return passthrough(null);
-  }
+  // A throw from any of these three — the verifier lib failing to load, the
+  // written file unreadable, the verifier throwing — is no verdict, and the runner
+  // refuses it: a durable write this guard could not check is not a clean one.
+  const lib = require(path.join(__dirname, "lib", "burndown-quote.js"));
   if (!lib.findManifest(PROJECT_DIR)) return passthrough(null);
 
-  let text;
-  try {
-    text = fs.readFileSync(filePath, "utf8");
-  } catch {
-    return passthrough(null);
-  }
+  const text = fs.readFileSync(filePath, "utf8");
 
-  let res;
-  try {
-    res = lib.verifyText(PROJECT_DIR, text);
-  } catch {
-    return passthrough(null);
-  }
+  const res = lib.verifyText(PROJECT_DIR, text);
   // An UNKNOWN is surfaced, never swallowed (BUG-5): "could not verify" and
   // "verified, clean" are opposite facts and used to render identically.
   if (res.unknown) {
@@ -154,41 +156,36 @@ async function main() {
     surface: `durable write to ${rel}`,
   });
 
-  if (fallback) clearTimeout(fallback);
-  try {
-    // `instructAndWait` RETURNS `{json, exitCode}` — it does NOT write stdout.
-    // Returning it without emitting is a silent no-op: the finding is computed
-    // in full and then discarded, and every surface reports success. That is
-    // exactly the result-not-delivered failure class, and this hook shipped it
-    // once before the fixtures caught it.
-    const { instructAndWait } = require("./lib/instruct-and-wait.js");
-    const emitted = instructAndWait({
-      hookEvent: "PostToolUse",
-      severity: "block",
-      rule_id: "burndown-integrity/MUST-1",
-      what_happened: `A durable write to '${rel}' contains ${res.invalid.length} INVALID burndown quote(s).`,
-      why: body,
-      agent_must_report: [
-        `File: ${rel}`,
-        ...res.invalid.slice(0, 5).map((f) => `Invalid: ${f.raw} — ${f.why}`),
-        "Re-quote from the generated block; do NOT hand-adjust the number.",
-      ],
-    });
-    process.stdout.write(JSON.stringify(emitted.json) + "\n");
-    process.exit(emitted.exitCode);
-  } catch {
-    return passthrough(body); // even the emit path fails open
-  }
+  // `instructAndWait` RETURNS `{json, exitCode}` — it does NOT write stdout.
+  // Returning it without emitting is a silent no-op: the finding is computed
+  // in full and then discarded, and every surface reports success. That is
+  // exactly the result-not-delivered failure class, and this hook shipped it
+  // once before the fixtures caught it. An emit path that THROWS is not
+  // softened into an advisory any more (it used to hand the body back as
+  // continue:true context): the throw reaches the runner, which refuses.
+  const { instructAndWait } = require("./lib/instruct-and-wait.js");
+  const emitted = instructAndWait({
+    hookEvent: "PostToolUse",
+    severity: "block",
+    rule_id: "burndown-integrity/MUST-1",
+    what_happened: `A durable write to '${rel}' contains ${res.invalid.length} INVALID burndown quote(s).`,
+    why: body,
+    agent_must_report: [
+      `File: ${rel}`,
+      ...res.invalid.slice(0, 5).map((f) => `Invalid: ${f.raw} — ${f.why}`),
+      "Re-quote from the generated block; do NOT hand-adjust the number.",
+    ],
+  });
+  process.stdout.write(JSON.stringify(emitted.json) + "\n");
+  process.exit(emitted.exitCode);
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). It arms the fallback timer the
-// file used to arm at load time, then runs main() with the SAME catch handler.
-function hookMain() {
-  fallback = setTimeout(() => passthrough(null), TIMEOUT_MS);
-  if (typeof fallback.unref === "function") fallback.unref();
-  return main().catch(() => passthrough(null));
-}
+// in-process by lib/hook-engine.js (dispatch.js). guard-runner.js::runGuard reads
+// the payload (refusing an empty, stalled, unparseable or oversized stdin), runs
+// main, and refuses a throw or a standalone run past BUDGET_MS — the endings the
+// old fallback timer and `.catch` passed through as `{continue:true}`.
+const hookMain = runGuard("burndown-quote-write-guard", main, { budgetMs: BUDGET_MS });
 
 module.exports = { hookMain };
 

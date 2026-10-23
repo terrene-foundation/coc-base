@@ -1,0 +1,378 @@
+{
+  "codex_version": "codex-cli 0.162.1",
+  "measured_on": "2026-10-14",
+  "harness": "tests/codex-measure/measure.sh (codex sandbox -P loom-guard; user layer + trusted project .codex/config.toml)",
+  "policy_sha256": "2a55dbd7127cfb6749044dc8a6d808bdf9c1d4a2e1f6344bb50e44e8ff116da8",
+  "extends": {
+    "refused": "sh: <outside>/probe: Operation not permitted",
+    "without_extends": "codex sandbox exit 134; the probe never ran"
+  },
+  "read": [
+    {
+      "path": ".claude/hooks",
+      "refused": "sh: .claude/hooks/probe-new: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/settings.json",
+      "refused": "sh: .claude/settings.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "refused": "sh: .claude/settings.local.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/learning/posture.json",
+      "refused": "sh: .claude/learning/posture.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/learning/coordination-log.jsonl",
+      "refused": "sh: .claude/learning/coordination-log.jsonl: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/learning/violations.jsonl",
+      "refused": "sh: .claude/learning/violations.jsonl: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/operators.roster.json",
+      "refused": "sh: .claude/operators.roster.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".git/hooks",
+      "refused": "sh: .git/hooks/probe-new: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".git/config",
+      "refused": "sh: .git/config: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/land-lane.mjs",
+      "refused": "sh: .claude/bin/land-lane.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/entry-point.mjs",
+      "refused": "sh: .claude/bin/lib/entry-point.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/landing-window.mjs",
+      "refused": "sh: .claude/bin/lib/landing-window.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": "scripts/ci/commit-msg-direct-stamp.mjs",
+      "refused": "sh: scripts/ci/commit-msg-direct-stamp.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": "scripts/ci/dev-push-guard.mjs",
+      "refused": "sh: scripts/ci/dev-push-guard.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/coc-roster-register.mjs",
+      "refused": "sh: .claude/bin/coc-roster-register.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/reconcile-settings-deny.mjs",
+      "refused": "sh: .claude/bin/reconcile-settings-deny.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/hook-dispatch-migrate.mjs",
+      "refused": "sh: .claude/bin/hook-dispatch-migrate.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/handover-render.mjs",
+      "refused": "sh: .claude/bin/handover-render.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/vault-handover.mjs",
+      "refused": "sh: .claude/bin/vault-handover.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/VERSION",
+      "refused": "sh: .claude/VERSION: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/trust-root.json",
+      "refused": "sh: .claude/trust-root.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/build-trust-root.mjs",
+      "refused": "sh: .claude/bin/build-trust-root.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/ecosystem.json",
+      "refused": "sh: .claude/bin/ecosystem.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/operators.roster.schema.json",
+      "refused": "sh: .claude/operators.roster.schema.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/learning/.initialized",
+      "refused": "sh: .claude/learning/.initialized: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/learning/presence-mechanism.json",
+      "refused": "sh: .claude/learning/presence-mechanism.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/learning/coordination-mode.json",
+      "refused": "sh: .claude/learning/coordination-mode.json: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/coc-manifest.mjs",
+      "refused": "sh: .claude/bin/lib/coc-manifest.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/identity-scrub.mjs",
+      "refused": "sh: .claude/bin/lib/identity-scrub.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/manifest-source.mjs",
+      "refused": "sh: .claude/bin/lib/manifest-source.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/slot-parser.mjs",
+      "refused": "sh: .claude/bin/lib/slot-parser.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/strip-build-internal.mjs",
+      "refused": "sh: .claude/bin/lib/strip-build-internal.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/variant-overlay.mjs",
+      "refused": "sh: .claude/bin/lib/variant-overlay.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/reconcile-settings-hooks.mjs",
+      "refused": "sh: .claude/bin/reconcile-settings-hooks.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/handover-render.mjs",
+      "refused": "sh: .claude/bin/lib/handover-render.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    },
+    {
+      "path": ".claude/bin/lib/vault-handover.mjs",
+      "refused": "sh: .claude/bin/lib/vault-handover.mjs: Operation not permitted",
+      "control": "ALLOWED",
+      "without_read_entries": "ALLOWED",
+      "layers": [
+        "user",
+        "project"
+      ]
+    }
+  ],
+  "not_verified": [],
+  "measured_redundant": {
+    "git_write": "commit ALLOWED with the \".git\" write entry removed",
+    "tmp_write": "mktemp ALLOWED with the absolute write entries removed"
+  },
+  "default_permissions": "UNDETERMINED — codex sandbox requires -P, so selection without it is not observable"
+}

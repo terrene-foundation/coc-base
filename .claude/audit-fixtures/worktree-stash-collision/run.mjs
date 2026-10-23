@@ -52,7 +52,7 @@
  */
 import "../_lib/no-ambient-git.cjs";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -170,6 +170,12 @@ function makeRepo(root, name) {
   runGit(dir, ["config", "user.email", "fixture@example.invalid"]);
   runGit(dir, ["config", "user.name", "fixture"]);
   writeGit(dir);
+  mkdirSync(join(dir, "sub"));
+  const selected = runGit(dir, ["-C", "sub", "rev-parse", "--show-toplevel"]).trim();
+  const direct = runGit(dir, ["rev-parse", "--show-toplevel"]).trim();
+  if (realpathSync.native(selected) !== realpathSync.native(dir) || selected !== direct)
+    throw new Error("cd-sub oracle selected a different repository");
+  process.stdout.write(`  ORACLE ${name}/cd-sub repository=${selected}\n`);
   return dir;
 }
 function writeGit(dir) {

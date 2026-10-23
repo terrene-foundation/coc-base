@@ -68,7 +68,7 @@ function readLocalVersion(cwd) {
  * `type: coc-source` declaration into an 11-line `coc-project` stub — the one
  * downgrade that makes `isManifestOwnerClass` false, no-opping emit Validator 15,
  * Validator 17's half B, and V16's presence classifier while printing green
- * (#1399). `validate-bash-command.js:768` BLOCKS exactly that at the Bash
+ * (#1399). `validate-bash-command.js::validateBashCommand` (its `STATE_PATH_RX` lane, the "VERSION (#1399" note) BLOCKS exactly that at the Bash
  * boundary; produced here it needs no Bash call and no Edit call, so both fences
  * are bypassed by construction.
  *

@@ -23,8 +23,9 @@
  * honesty over a false "exact token set" claim).
  *
  * This module contains ZERO identity itself — it is identity-free machinery that
- * EXTRACTS identity from a repo's `operators.roster.json` + tenant denylist at
- * RUNTIME. It is therefore safe to SYNC + PUBLISH (`.claude/bin/**`): a consumer
+ * EXTRACTS identity from a repo's `operators.roster.json` + tenant denylist, the
+ * canonical `canon-identity-values.json` declaration (`orgSets`) and the private
+ * repositories its root `.gitmodules` declares (`privateRepoNames`) at RUNTIME. It is therefore safe to SYNC + PUBLISH (`.claude/bin/**`): a consumer
  * receiving it sees only the extraction logic, never a literal canon token.
  *
  * deriveDynamicTokens(repoDir) returns { scrub, gate, unhonoured }:
@@ -53,131 +54,26 @@
  * Node ESM, zero dependencies.
  */
 import {
-  readdirSync, statSync, lstatSync, realpathSync, openSync, fstatSync, readSync, closeSync, constants as FS,
+  readdirSync, readFileSync, statSync, lstatSync, realpathSync, openSync, fstatSync, readSync, closeSync, constants as FS,
+  writeFileSync, renameSync, mkdirSync, chmodSync, rmSync, readlinkSync,
 } from "node:fs";
+import os from "node:os";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-/**
- * The typed refusal of `readRegularFileNoFollow` / `readTextOrNull`. `code` is always
- * `ERR_UNSAFE_FILE_READ`; `kind` names WHAT was refused; `label` names the file by the
- * caller's ROLE label or its BASENAME — never by absolute path (which carries
- * `/Users/<operator>/`), and never with any of its bytes.
- *
- *   kind: "absent" | "symlink" | "fifo" | "socket" | "directory" | "char-device" |
- *         "block-device" | "not-regular" | "oversize" | "swapped" | "unreadable"
- */
-export class UnsafeFileReadError extends Error {
-  constructor(label, kind, detail) {
-    super(`${label}: refusing to read — ${detail}`);
-    this.name = "UnsafeFileReadError";
-    this.code = "ERR_UNSAFE_FILE_READ";
-    this.kind = kind;
-    this.label = label;
-  }
-}
+const {
+  UnsafeFileReadError, statKind, O_NONBLOCK,
+  READ_REGULAR_FILE_MAX_BYTES, readRegularFileNoFollow,
+  RedactionMapError, GitEnvelopeError, spawnGitEnveloped,
+  nearestRealAncestor, markerAtOrAbove, isInsideGitWorkTree, assertMapPathUsable, resolveRedactionMapPath, resolveAccountHome,
+} = createRequire(import.meta.url)("../../hooks/lib/redaction-map-binding.js");
+export {
+  UnsafeFileReadError, READ_REGULAR_FILE_MAX_BYTES, readRegularFileNoFollow,
+  RedactionMapError, GitEnvelopeError, spawnGitEnveloped, isInsideGitWorkTree, resolveRedactionMapPath, resolveAccountHome,
+};
 
-/** The file-type kind of a Stats object, for refusal text. */
-function statKind(st) {
-  if (st.isSymbolicLink()) return "symlink";
-  if (st.isFIFO()) return "fifo";
-  if (st.isSocket()) return "socket";
-  if (st.isDirectory()) return "directory";
-  if (st.isCharacterDevice()) return "char-device";
-  if (st.isBlockDevice()) return "block-device";
-  return st.isFile() ? "file" : "not-regular";
-}
-
-const O_NOFOLLOW = typeof FS.O_NOFOLLOW === "number" ? FS.O_NOFOLLOW : 0;
-const O_NONBLOCK = typeof FS.O_NONBLOCK === "number" ? FS.O_NONBLOCK : 0;
-
-/** Default size cap: far above any roster / denylist / trust root, far below a memory hazard. */
-export const READ_REGULAR_FILE_MAX_BYTES = 8 * 1024 * 1024;
-
-/**
- * Open `p` and read it ONLY IF it is a regular file, deciding that from the OPENED descriptor
- * rather than from a path lookup made before the open.
- *
- * WHY. `existsSync` + `readFileSync` follows a symlink (an attacker-shaped tree could point
- * `.claude/operators.roster.json` at any file on the operator's machine and have it parsed as
- * identity), blocks forever on a FIFO (measured: a FIFO roster hung the derive until killed), and
- * an `lstat`-then-read check is a RACE — the name can be re-pointed between the check and the read.
- * Here the kernel does the check at open time:
- *   - `O_NOFOLLOW` makes the open FAIL (ELOOP) when the final component is a symlink;
- *   - `O_NONBLOCK` makes opening a FIFO return at once instead of waiting for a writer;
- *   - `fstat` on the descriptor then reports what was ACTUALLY opened, so nothing can be swapped
- *     in afterwards — the bytes read are the bytes of the thing that was checked.
- *
- * PLATFORM. `O_NOFOLLOW` is defined on darwin and linux. Where it is absent (win32), the read is
- * made race-EVIDENT instead: `lstat` must report a regular file, and after `open` the descriptor's
- * `fstat` must name the SAME `dev`+`ino` — a swap between the two raises `kind:"swapped"`. It fails
- * closed on every mismatch; it does not silently degrade to a following read.
- *
- * Only the FINAL component is protected from links: a symlinked PARENT directory is resolved
- * normally (callers that must contain a whole path resolve it with `realpathSync` first).
- *
- * @param {string} p                     path to read
- * @param {object} [opts]
- * @param {number} [opts.maxBytes]       refuse (kind "oversize") above this many bytes
- * @param {string} [opts.label]          role name for messages; defaults to the basename
- * @param {boolean} [opts.allowAbsent]   return null instead of throwing when nothing is at `p`
- * @param {BufferEncoding|null} [opts.encoding]  "utf8" (default) → string; null → Buffer
- * @param {boolean} [opts.forceLstatFallback]  TEST SEAM: take the no-O_NOFOLLOW path on any OS
- * @returns {string|Buffer|null}
- * @throws {UnsafeFileReadError}
- */
-export function readRegularFileNoFollow(p, {
-  maxBytes = READ_REGULAR_FILE_MAX_BYTES, label, allowAbsent = false, encoding = "utf8", forceLstatFallback = false,
-} = {}) {
-  const name = label || path.basename(String(p));
-  const noFollow = forceLstatFallback ? 0 : O_NOFOLLOW;
-  let pre = null;
-  if (!noFollow) {
-    try { pre = lstatSync(p, { bigint: true }); } catch (e) {
-      if (e && e.code === "ENOENT" && allowAbsent) return null;
-      throw new UnsafeFileReadError(name, e && e.code === "ENOENT" ? "absent" : "unreadable", `cannot stat it (${(e && e.code) || "error"})`);
-    }
-    const k = statKind(pre);
-    if (k !== "file") throw new UnsafeFileReadError(name, k, `it is a ${k}, not a regular file`);
-  }
-  let fd;
-  try {
-    fd = openSync(p, FS.O_RDONLY | noFollow | O_NONBLOCK);
-  } catch (e) {
-    const c = e && e.code;
-    if (c === "ENOENT" && allowAbsent) return null;
-    // ELOOP (linux, darwin) / EMLINK (some BSDs) is how O_NOFOLLOW reports a final-component link.
-    if (noFollow && (c === "ELOOP" || c === "EMLINK")) throw new UnsafeFileReadError(name, "symlink", "it is a symlink, not a regular file");
-    if (c === "EISDIR") throw new UnsafeFileReadError(name, "directory", "it is a directory, not a regular file");
-    throw new UnsafeFileReadError(name, c === "ENOENT" ? "absent" : "unreadable", `cannot open it (${c || "error"})`);
-  }
-  try {
-    const st = fstatSync(fd, { bigint: true });
-    const k = statKind(st);
-    if (k !== "file") throw new UnsafeFileReadError(name, k, `it is a ${k}, not a regular file`);
-    if (pre && (pre.dev !== st.dev || pre.ino !== st.ino)) {
-      throw new UnsafeFileReadError(name, "swapped", "the path was replaced between the check and the open");
-    }
-    if (st.size > BigInt(maxBytes)) {
-      throw new UnsafeFileReadError(name, "oversize", `it is ${st.size} bytes, above the ${maxBytes}-byte cap`);
-    }
-    // Read to EOF from the descriptor, never past the cap: a file that GROWS after the fstat is
-    // refused rather than read unbounded.
-    const chunks = [];
-    let total = 0;
-    const buf = Buffer.allocUnsafe(64 * 1024);
-    for (;;) {
-      const n = readSync(fd, buf, 0, buf.length, null);
-      if (n === 0) break;
-      total += n;
-      if (total > maxBytes) throw new UnsafeFileReadError(name, "oversize", `it grew above the ${maxBytes}-byte cap while being read`);
-      chunks.push(Buffer.from(buf.subarray(0, n)));
-    }
-    const out = Buffer.concat(chunks, total);
-    return encoding ? out.toString(encoding) : out;
-  } finally {
-    closeSync(fd);
-  }
-}
 
 /**
  * Read a file as UTF-8 text, or null when it is binary (NUL-byte sniff over the
@@ -196,10 +92,42 @@ export function readRegularFileNoFollow(p, {
  * scrub and the gate must see. What is checked is the OPENED descriptor, so a link to a FIFO is
  * refused like a FIFO. Config reads that must never follow a link use `readRegularFileNoFollow`.
  * No size cap: tree files are unbounded by design (the previous read had none either).
+ *
+ * This is now a THIN WRAPPER: `readTextOrReason` performs the read and can tell
+ * "binary, skip by design" from "could not be read at all" — a distinction a
+ * FAIL-CLOSED caller needs and this collapse cannot express. Callers that only
+ * want the text keep using this, and keep its THROW on a non-regular file.
  */
 export function readTextOrNull(f) {
+  return readTextOrReason(f).text;
+}
+
+/**
+ * The read behind `readTextOrNull`, DISTINGUISHING WHY the text is absent.
+ *
+ * `readTextOrNull` collapses "this file is binary, skip it by design" and "this
+ * file could not be read at all" into ONE null, so a caller scanning for residual
+ * identity tokens cannot tell a legitimate skip from a hole in its own coverage —
+ * the two are the same bytes downstream. Its caller is clean-instantiate's
+ * assertZero, the FAIL-CLOSED gate whose entire promise is that ZERO canon
+ * trust-identity remains, so an unreadable carrier was skipped while the ceremony
+ * still reported clean. A fail-closed gate MUST be able to tell them apart.
+ *
+ * MEASURED RATIFICATION (2026-10-06, operator-ratified Gate-1 port): the split is
+ * the template-side shape recovered into this module; the throwing contract of
+ * `readTextOrNull` is unchanged, because every caller reads a throw as "refuse to
+ * run" and a reason would silently downgrade that to "skip me".
+ *
+ * @returns {{text: string|null, reason: "ok"|"binary"|"unreadable"|"directory", error?: string}}
+ *   `binary` and `directory` are DELIBERATE non-text outcomes (never a coverage
+ *   hole); `directory` is its own value rather than folded into either, because a
+ *   directory passed to a FILE read is an EISDIR — not content, and not a failed
+ *   read. Only `unreadable` means the read is UNKNOWN for a path that expected to
+ *   yield text.
+ */
+export function readTextOrReason(f) {
   let fd;
-  try { fd = openSync(f, FS.O_RDONLY | O_NONBLOCK); } catch {
+  try { fd = openSync(f, FS.O_RDONLY | O_NONBLOCK); } catch (err) {
     // A SOCKET cannot be opened at all (ENXIO / EOPNOTSUPP), so its kind is only visible to a stat
     // of the name. Without this it read as a failed read → `null` → "binary, skip" — the silent
     // pass the refusal below exists to prevent (measured: a socket returned null). A genuinely
@@ -208,13 +136,14 @@ export function readTextOrNull(f) {
     try { st = statSync(f); } catch { /* absent / unstattable: a failed read */ }
     const k = st ? statKind(st) : "file";
     if (k !== "file" && k !== "directory") throw new UnsafeFileReadError(path.basename(String(f)), k, `it is a ${k}, not a regular file`);
-    return null;
+    if (k === "directory") return { text: null, reason: "directory" };
+    return { text: null, reason: "unreadable", error: (err && err.code) || String(err) };
   }
   let buf;
   try {
     const k = statKind(fstatSync(fd));
     // A directory is not content and never blocks; it keeps its former `null` (EISDIR) result.
-    if (k === "directory") return null;
+    if (k === "directory") return { text: null, reason: "directory" };
     if (k !== "file") throw new UnsafeFileReadError(path.basename(String(f)), k, `it is a ${k}, not a regular file`);
     const chunks = [];
     const b = Buffer.allocUnsafe(64 * 1024);
@@ -222,13 +151,377 @@ export function readTextOrNull(f) {
     buf = Buffer.concat(chunks);
   } catch (e) {
     if (e instanceof UnsafeFileReadError) throw e;
-    return null;
+    return { text: null, reason: "unreadable", error: (e && e.code) || String(e) };
   } finally {
     closeSync(fd);
   }
   const n = Math.min(buf.length, 8192);
-  for (let i = 0; i < n; i++) if (buf[i] === 0) return null; // binary → skip
-  return buf.toString("utf8");
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return { text: null, reason: "binary" }; // binary → skip
+  return { text: buf.toString("utf8"), reason: "ok" };
+}
+
+// ── THE CANONICAL IDENTITY DECLARATION ───────────────────────────────────────
+// `orgSets` / `privateOrgSlugs` and the org-value validator were defined in
+// `strip-build-internal.mjs` until 2026-10-10 and MOVED here unchanged in behaviour;
+// that module imports and re-exports them, so every existing import still resolves.
+//
+// WHY THEY MOVED. `deriveDynamicTokens` (below) now harvests the private REPOSITORY
+// names, and a repository is private exactly when its owner is a private org — so this
+// module needs the private org set. `strip-build-internal.mjs` already imports this
+// module (`foldForGate`), so importing it back would close an import CYCLE that every
+// importer of this module would then load, including the ones that never touch
+// strip-build-internal today. A new third module would avoid the cycle but needs its own
+// distribution classification on every lane and edition, and an importer that ships
+// without it fails to load. Here, the declaration reader stays zero-dependency and
+// travels wherever this module already does.
+//
+// Read MODULE-RELATIVE (`../../canon-identity-values.json` from `.claude/bin/lib/`), the
+// same anchor the reader always had — this file sits in the same directory.
+
+/** GitHub org-name shape: 2–39 chars — 1-char values ARE REJECTED (F7: the
+ * previous regex admitted them while its comment claimed 2–39) — alnum with
+ * interior hyphens, and NOT a common word. */
+const ORG_VALUE_RX = /^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$/;
+// M1 (cc-architect, 2026-10-04): a 2–3 character value is almost always an
+// English word once the shape check passes (`is`, `to`, `at` all do), and a
+// short true org name is vanishingly rare while the COST of a false positive is
+// rewriting prose ("This is a test" → "This is <org> test", measured). So a
+// value must ALSO be either ≥4 characters or contain a hyphen — every real
+// slug in this ecosystem carries the hyphen (both the private canon slug and
+// the public template org are hyphenated; neither is written here, and the
+// literal that briefly was is exactly what the delivered-tree scan caught
+// before this line learned to describe instead of name). A genuinely short org
+// can be added to the stopword-exempt seed deliberately.
+const ORG_VALUE_MIN = 4;
+const ORG_VALUE_STOPWORDS = new Set([
+  "a", "an", "at", "is", "it", "of", "on", "or", "to", "in", "by",
+  "the", "and", "for", "org", "com", "github", "enterprise", "foundation",
+]);
+function assertValidOrgValue(value, where) {
+  const v = String(value).trim().toLowerCase();
+  const longEnough = v.length >= ORG_VALUE_MIN || v.includes("-");
+  if (!ORG_VALUE_RX.test(v) || !longEnough || ORG_VALUE_STOPWORDS.has(v)) {
+    // LOG-HYGIENE (Tier-1 r4): the REJECTED value is itself a candidate private
+    // identity (this function validates the private declaration) — print its
+    // LENGTH and the redacted placeholder, never the value.
+    throw new Error(
+      `strip-build-internal: INVALID org value ${JSON.stringify("<PRIVATE-ORG>")} (length ${v.length}) at ${where}. ` +
+        "Org values must be GitHub-org-shaped (2–39 chars, alnum + interior hyphens), ≥4 chars or " +
+        "hyphen-bearing, and not a common word. Refusing rather than rewriting prose with an invalid slug.",
+    );
+  }
+  return v;
+}
+
+/**
+ * THE CANONICAL ORG SETS — read from `.claude/canon-identity-values.json`, the
+ * canonical identity declaration (already fenced `loom_only` +
+ * CLIENT_TEMPLATE_REMOVE, so it ships nowhere). This is the SOURCE for the
+ * private-slug guarantee:
+ *   • PRIVATE slugs are subject to the delivery GATE (sync-tier-aware asserts
+ *     ZERO case-insensitive occurrences, raw substring, any form, in every
+ *     delivered and emitted tree) and to the best-effort path-prefix rewrites.
+ *   • RETIRED slugs stay in the private set forever (F4): a transfer or rename
+ *     would otherwise silently SHRINK the set while the old slug sits in
+ *     carriers.
+ *   • PUBLIC slugs are orgs the templates LIVE IN — clone URLs and runner
+ *     endpoints naming them are CORRECT and are never gated or rewritten.
+ *   • NEVER only the current `remote_links`: this declaration is the authority.
+ *   • A non-string or malformed entry THROWS rather than being skipped (F4).
+ * LAZY (F1): resolved on FIRST USE, never at module load — the client-template
+ * seed and the public fork are `coc-source` trees with NO ecosystem.json, and an
+ * import-time throw deadlocks `/ecosystem-init`. The DISTRIBUTION entrypoints
+ * call `assertPrivateOrgConfig()` (strip-build-internal) before they distribute;
+ * the scanner and coc-manifest imports NEVER throw on a missing config.
+ */
+const CANON_IDENTITY_REL = path.join("..", "..", "canon-identity-values.json");
+let _orgSets = null;
+export function orgSets() {
+  if (_orgSets) return _orgSets;
+  const identityPath = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    CANON_IDENTITY_REL,
+  );
+  let rawText;
+  try {
+    rawText = readFileSync(identityPath, "utf8");
+  } catch (e) {
+    // L1 (cc-architect, 2026-10-04): ONLY absence is the benign case. Any OTHER
+    // read error (EACCES, EISDIR, ELOOP …) is NOT "no config" — treating it as
+    // MISSING would silently empty the private set and disarm both the gate and
+    // the rewrites. Rethrow it typed.
+    if (e && e.code === "ENOENT") {
+      // ABSENT (a fork or downstream consumer without canon identity): EMPTY
+      // sets, NO throw — /ecosystem-init supplies the fork's own values later.
+      return (_orgSets = { private: [], retired: [], public: [] });
+    }
+    throw new Error(
+      `canon-identity-values.json could not be read at ${CANON_IDENTITY_REL}: ${e && e.code ? e.code : "read error"}`,
+    );
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch (e) {
+    throw new Error(
+      // L2 (security read): V8's JSON.parse message QUOTES an excerpt of the
+      // input, and this file holds the org slugs — the excerpt printed the
+      // value. Generic message; the position is not worth the disclosure.
+      // The RELATIVE constant, never the full path, and never through
+      // `strip-build-internal.mjs::redactPrivateIdentity`: this throw runs INSIDE
+      // orgSets() (the memo is not yet set), and that redactor resolves the slug
+      // set via orgSets — MEASURED as unbounded mutual recursion ("Maximum call
+      // stack size exceeded") on the malformed-config pole.
+      `canon-identity-values.json present but unparseable at ${CANON_IDENTITY_REL} — refusing ` +
+        "to proceed with a silently-emptied private set (the parser's message is withheld: it quotes the input).",
+    );
+  }
+  const read = (key) => {
+    const v = parsed ? parsed[key] : undefined;
+    if (v === undefined) return [];
+    if (!Array.isArray(v)) {
+      throw new Error(`canon-identity-values.json::${key} must be an array (got ${typeof v})`);
+    }
+    return v.map((s) => {
+      if (typeof s !== "string") {
+        throw new Error(
+          // F6a (security read): print the TYPE only — JSON.stringify of the
+          // entry could echo a value-shaped string (or an object carrying one).
+          `canon-identity-values.json::${key} holds a NON-STRING entry (type ${Array.isArray(s) ? "array" : typeof s}) — refusing to skip it silently (F4).`,
+        );
+      }
+      return assertValidOrgValue(s, `canon-identity-values.json::${key}`);
+    });
+  };
+  return (_orgSets = {
+    private: read("private_org_slugs"),
+    retired: read("retired_org_slugs"),
+    public: read("public_org_slugs"),
+  });
+}
+/** The orgs subject to rewriting AND to the delivery gate: private + retired. */
+export function privateOrgSlugs() {
+  const s = orgSets();
+  return [...new Set([...s.private, ...s.retired])].sort();
+}
+
+// ── PRIVATE REPOSITORY NAMES — derived from `.gitmodules`, never typed ──────
+// A repository whose owner is a PRIVATE org (`privateOrgSlugs`, private + retired) has a
+// name that is itself a disclosure token: it names a non-public sibling system. The only
+// file in a checkout that declares such a repository is the root `.gitmodules` (the url of
+// each submodule section), so the set is DERIVED from it. No module may write one of these
+// names as a literal: a typed list ships the very value it exists to withhold.
+//
+// FAIL-CLOSED, mirroring `edition-emit.mjs::declaredSubmodulePaths` and NOT the
+// fail-SAFE-toward-walking direction of `submodule-paths.mjs` — that module answers "which
+// subtree may a walker skip", where an empty answer restores the old walk; this answers
+// "which names must a gate hold", where an empty answer silently disarms the gate:
+//   - no `.gitmodules` (a consumer, a fork, most trees)  → [] (the one legitimate empty);
+//   - an empty private org set                           → [] WITHOUT reading the file
+//     (nothing can be owned by a private org, so a consumer is never bricked by its own
+//     `.gitmodules`);
+//   - present but a symlink, FIFO, directory, unreadable → `UnsafeFileReadError` (typed);
+//   - a submodule section with no url, a url that does not parse into an owner and a
+//     repository, or a private-owned name too short to gate → `PrivateRepoNameError`.
+// Every message names a section INDEX and a LENGTH, never a url or a name.
+//
+// DECLARED BOUNDS: a private repository that is NOT a submodule of this checkout is not
+// derivable here and is not in the set; a RELATIVE submodule url (`../x.git`) names no
+// owner in its own text, so it is refused rather than guessed.
+
+/** The typed refusal of the `.gitmodules` derivation. `code` is `ERR_PRIVATE_REPO_NAMES`. */
+export class PrivateRepoNameError extends Error {
+  constructor(detail) {
+    super(`.gitmodules: refusing to derive the private repository names — ${detail}`);
+    this.name = "PrivateRepoNameError";
+    this.code = "ERR_PRIVATE_REPO_NAMES";
+  }
+}
+
+// The git-config subset `.gitmodules` uses: `[submodule "x"]` / `[submodule.x]` headers and
+// `key = value` lines. Same grammar `submodule-paths.mjs` parses for `path =`; restated
+// here rather than imported so this module stays zero-dependency (it is the survives-
+// self-delete home `clean-instantiate.mjs` relies on — see the header).
+const GITMODULES_SECTION_RE = /^\s*\[([^\]]*)\]\s*$/;
+const GITMODULES_KEY_RE = /^\s*([A-Za-z][A-Za-z0-9-]*)\s*=\s*(.*)$/;
+// Counted independently of the section parse: a header the section regex cannot read (a
+// missing `]`) is still a submodule declaration, and dropping it would drop its url.
+const GITMODULES_RAW_HEADER_RE = /^\s*\[\s*submodule\b/gim;
+
+function isSubmoduleSectionHeader(header) {
+  const name = header.trim().toLowerCase();
+  return name === "submodule" || name.startsWith("submodule.") || name.startsWith('submodule "');
+}
+
+/** Unquote / unescape one git-config value and drop an unquoted inline `#`/`;` comment. */
+function decodeGitConfigValue(raw) {
+  let out = "";
+  let inQuotes = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === "\\") {
+      const next = raw[i + 1];
+      if (next === undefined) break;
+      i++;
+      out += next === "n" ? "\n" : next === "t" ? "\t" : next;
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && (ch === "#" || ch === ";")) break;
+    out += ch;
+  }
+  return out.trim();
+}
+
+/**
+ * The OWNER candidates and the REPOSITORY a remote url names, lower-cased — or null when
+ * the url names no host (a relative or local path) or no path segment at all.
+ *
+ * Forms: `https://host/org/repo(.git)`, `ssh://[user@]host[:port]/org/repo(.git)`, the scp
+ * form `[user@]host:org/repo(.git)`, and Azure DevOps (`dev.azure.com/<org>/<project>/_git/
+ * <repo>`, `ssh.dev.azure.com:v3/<org>/<project>/<repo>`, `<org>.visualstudio.com/…`).
+ * The repository is the LAST segment. EVERY earlier segment is an owner candidate, and so is
+ * every HOST label (the org of `<org>.visualstudio.com`, or a self-hosted forge named for its
+ * org), so a GitLab subgroup path, an ADO project path, a path-prefixed host and a host-root
+ * repository (`https://host/repo.git`, no owner segment) all classify without a per-host
+ * table: a match on ANY candidate makes the repository private, which can only widen the
+ * gate, never narrow it. A host-root url is CLASSIFIED rather than refused — its owner is the
+ * host, which is a parsed fact; only a url with no host at all (relative, local) is ambiguous.
+ */
+function remoteOwnersAndRepo(url) {
+  let raw = String(url).trim().replace(/\/+$/, "").replace(/\.git$/i, "");
+  if (!raw) return null;
+  let host;
+  let pathPart;
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(raw);
+  if (scheme) {
+    if (scheme[1].toLowerCase() === "file") return null;
+    const rest = scheme[2];
+    const slash = rest.indexOf("/");
+    host = slash === -1 ? rest : rest.slice(0, slash);
+    pathPart = slash === -1 ? "" : rest.slice(slash + 1);
+  } else {
+    // scp form `[user@]host:path`. A one-letter "host" is a Windows drive (`C:\…`, `C:/…`)
+    // and anything carrying a path separator before the colon is a LOCAL path, not a host.
+    const scp = /^(?:[^@/\\\s]+@)?([^/\\:\s]+):(.+)$/.exec(raw);
+    if (!scp || scp[1].length === 1) return null;
+    host = scp[1];
+    pathPart = scp[2];
+  }
+  host = host.replace(/^[^@]*@/, "").replace(/:\d+$/, "").toLowerCase();
+  if (!host) return null;
+  // `_git` is Azure DevOps' vendor segment, never an owner or a repository.
+  const segs = pathPart.split("/").filter((s) => s && s !== "_git");
+  if (segs.length < 1) return null;
+  const owners = segs.slice(0, -1).map((s) => s.toLowerCase());
+  for (const label of host.split(".")) if (label) owners.push(label);
+  return { owners, repo: segs[segs.length - 1].toLowerCase() };
+}
+
+// A repository name the GATE can hold: GitHub's repository-name alphabet, and long enough
+// (or hyphenated) that a raw substring scan does not fire on ordinary prose — the same floor
+// `assertValidOrgValue` applies to an org, for the same reason. A private-owned name that
+// fails it is REFUSED, never dropped: dropping it would leave that repository ungated.
+const REPO_NAME_RX = /^[a-z0-9._-]{1,100}$/;
+function repoNameProblem(name) {
+  if (!REPO_NAME_RX.test(name) || name === "." || name === "..") return "is not repository-name-shaped";
+  // A punctuation-only name (`-`, `---`, `...`) passes the alphabet check and then rides
+  // the hyphen clause below regardless of length, yet can never be a real repository
+  // name. As a gate TOKEN it is worse than useless: `-` or `---` matches ordinary prose
+  // (markdown rules, table separators), so a crafted `.gitmodules` could mint a token
+  // that either floods the scan or, in the scrub direction, mangles every hyphen it
+  // touches. Security review 2026-10-11: require at least one letter or digit.
+  if (!/[a-z0-9]/.test(name)) return "carries no letter or digit";
+  if (!(name.length >= ORG_VALUE_MIN || name.includes("-")) || ORG_VALUE_STOPWORDS.has(name)) {
+    return "is too short (or too common a word) to gate without halting on ordinary prose";
+  }
+  return null;
+}
+
+/**
+ * The repositories a `.gitmodules` TEXT declares under a private owner, lower-cased,
+ * deduplicated, sorted. PURE: no filesystem. Throws `PrivateRepoNameError` on a section it
+ * cannot classify (see the block comment above); a url under a NON-private owner
+ * contributes nothing.
+ * @param {string} text   the `.gitmodules` content
+ * @param {string[]} slugs the private (+ retired) org slugs
+ * @returns {string[]}
+ */
+export function parsePrivateRepoNames(text, slugs) {
+  if (typeof text !== "string") throw new PrivateRepoNameError("the declaration is not text");
+  const priv = new Set((slugs || []).map((s) => String(s).trim().toLowerCase()).filter(Boolean));
+  const sections = [];
+  let cur = null;
+  for (const line of text.split(/\r?\n/)) {
+    const sec = GITMODULES_SECTION_RE.exec(line);
+    if (sec) {
+      cur = isSubmoduleSectionHeader(sec[1]) ? { urls: [] } : null;
+      if (cur) sections.push(cur);
+      continue;
+    }
+    if (!cur) continue;
+    const kv = GITMODULES_KEY_RE.exec(line);
+    if (kv && kv[1].toLowerCase() === "url") cur.urls.push(decodeGitConfigValue(kv[2]));
+  }
+  const rawHeaders = (text.match(GITMODULES_RAW_HEADER_RE) || []).length;
+  if (rawHeaders !== sections.length) {
+    throw new PrivateRepoNameError(
+      `${rawHeaders} submodule header(s) but only ${sections.length} readable section(s) — a malformed header would drop its url`,
+    );
+  }
+  const out = new Set();
+  sections.forEach((s, i) => {
+    if (s.urls.length === 0) {
+      throw new PrivateRepoNameError(`submodule section #${i} (0-based) declares no url, so its owner cannot be classified`);
+    }
+    for (const u of s.urls) {
+      const parsed = remoteOwnersAndRepo(u);
+      if (!parsed) {
+        throw new PrivateRepoNameError(
+          `submodule section #${i} (0-based): its url (length ${u.length}) names no owner and repository ` +
+            "(a relative, local or unrecognized remote form) — refusing rather than guessing its owner",
+        );
+      }
+      if (!parsed.owners.some((o) => priv.has(o))) continue;
+      const problem = repoNameProblem(parsed.repo);
+      if (problem) {
+        throw new PrivateRepoNameError(
+          `submodule section #${i} (0-based): its private-owned repository name (length ${parsed.repo.length}) ${problem}`,
+        );
+      }
+      out.add(parsed.repo);
+    }
+  });
+  return [...out].sort();
+}
+
+// The checkout THIS module belongs to (`.claude/bin/lib/` → three levels up) — the same
+// anchoring `orgSets` uses for the declaration, so the default answer is always about the
+// checkout whose canon identity is loaded.
+const MODULE_CHECKOUT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+let _defaultPrivateRepoNames = null;
+
+/**
+ * The private repository names `<root>/.gitmodules` declares — by default THIS module's own
+ * checkout. `slugs` overrides the private org set (hermetic fixtures pass a synthetic one);
+ * absent, `privateOrgSlugs()` is used, and the default call is memoized like `orgSets`.
+ * @param {string} [root]
+ * @param {{ slugs?: string[]|null }} [opts]
+ * @returns {string[]}
+ * @throws {UnsafeFileReadError|PrivateRepoNameError}
+ */
+export function privateRepoNames(root = MODULE_CHECKOUT_ROOT, { slugs = null } = {}) {
+  const set = slugs || privateOrgSlugs();
+  if (!set.length) return [];
+  const memo = slugs === null && path.resolve(root) === MODULE_CHECKOUT_ROOT;
+  if (memo && _defaultPrivateRepoNames) return [..._defaultPrivateRepoNames];
+  const txt = readRegularFileNoFollow(path.join(root, ".gitmodules"), { label: ".gitmodules", allowAbsent: true });
+  const names = txt === null ? [] : parsePrivateRepoNames(txt, set);
+  if (memo) _defaultPrivateRepoNames = names;
+  return [...names];
 }
 
 /**
@@ -271,11 +564,16 @@ export const SCRUB_PLACEHOLDER = Object.freeze({
   NAME_VARIANT: "example-maintainer",
   HOST: "example-host",
   DOMAIN: "example.com", // a WHOLE declared domain — RFC 2606 reserved, so it names nobody. Written
-  // by `harvestDomain`'s whole-domain substitution (`.claude/bin/lib/identity-scrub.mjs:476`), which
+  // by `harvestDomain`'s whole-domain substitution (`.claude/bin/lib/identity-scrub.mjs::harvestDomain`), which
   // rewrites the domain ALONE, bounded, rather than an address: `EMAIL` merely CONTAINS this domain.
   TENANT: "a downstream tenant",
   CANON_OWNER: "<canon-owner>",
   ADO_PROJECT: "<ado-project>",
+  // A private repository name (`privateRepoNames`). NOT angle-bracketed, deliberately: the
+  // angle form is reserved for neutralize SENTINELS a SUBSTITUTE-mode static entry may
+  // supersede (`isNeutralizeSentinel`), and no public substitute exists for a private
+  // repository — every lane neutralizes it to this one generic name.
+  PRIVATE_REPO: "example-repo",
 });
 const SCRUB_PLACEHOLDER_LOWER = new Set(Object.values(SCRUB_PLACEHOLDER).map((v) => v.toLowerCase()));
 
@@ -302,6 +600,9 @@ export function isSynthHexStream(t) {
 export function isScrubPlaceholderToken(t, { minSynthHexLength = 1 } = {}) {
   if (typeof t !== "string") return false;
   if (SCRUB_PLACEHOLDER_LOWER.has(t.toLowerCase())) return true;
+  // A redaction-map token (`@@CAT-NNN@@`, see § REDACTION MAP) is a replacement, never an
+  // identity: a gate reading scrubbed bytes back must not flag the token it wrote.
+  if (isRedactionToken(t)) return true;
   return t.length >= minSynthHexLength && isSynthHexStream(t);
 }
 
@@ -886,6 +1187,10 @@ export function makeHomepathRe() {
   return new RegExp(HOMEPATH_RE_SOURCE, "gu");
 }
 
+export function makeHomepathFormRe() {
+  return new RegExp(homepathPatternSource(false), "gu");
+}
+
 // ── makeHomepathRe, piece by piece. Group 1 is the home ROOT, group 2 the USERNAME CHAIN, in every
 // form — consumers read `m[2]`; homepathPlaceholder replaces exactly group 2.
 //
@@ -966,7 +1271,11 @@ const HP_WIN_LB = String.raw`(?<=\\|(?:\\|[A-Za-z]:/)${HP_USERS_ANYCASE}/)`;
 const HP_WINNAME = String.raw`${HP_START}${HP_NC}*(?:${HP_INSEP}+${HP_WSTART}${HP_NC}*)*`;
 const HP_POSIXNAME = String.raw`${HP_START}${HP_NC}*`;
 const HP_CHAIN = (name) => String.raw`${name}(?:(?=${HP_UPLOOK})(?:${HP_DOTSEG})+${HP_SEP}${name})*`;
-const HOMEPATH_RE_SOURCE = String.raw`${HP_SEP}${HP_KIND}${HP_SEP}${HP_EXCL}((?:${HP_WIN_LB}${HP_CHAIN(HP_WINNAME)}|${HP_CHAIN(HP_POSIXNAME)}))`;
+function homepathPatternSource(excludeNonOperatorProfiles) {
+  const excluded = excludeNonOperatorProfiles ? HP_EXCL : "";
+  return String.raw`${HP_SEP}${HP_KIND}${HP_SEP}${excluded}((?:${HP_WIN_LB}${HP_CHAIN(HP_WINNAME)}|${HP_CHAIN(HP_POSIXNAME)}))`;
+}
+const HOMEPATH_RE_SOURCE = homepathPatternSource(true);
 
 /**
  * The replacement for a makeHomepathRe match: the match with its USERNAME replaced by `<user>`,
@@ -1047,9 +1356,16 @@ export const SYNTHETIC_FIXTURE_USERS = new Set([
  */
 export const SCRUB_MODES = Object.freeze({ NEUTRALIZE: "NEUTRALIZE", SUBSTITUTE: "SUBSTITUTE" });
 
-/** A neutralize SENTINEL is the angle-bracket placeholder form (`<canon-owner>`). */
+/**
+ * A neutralize SENTINEL is the angle-bracket placeholder form (`<canon-owner>`), or a
+ * redaction-map token (`@@CAT-NNN@@`). The map token is a neutralizer by construction — it
+ * names a category, never a public substitute — so a SUBSTITUTE-mode static entry for the
+ * SAME value (e.g. an org slug's public name) keeps precedence over it, exactly as it does
+ * over `<canon-owner>`. Without this, an operator whose map enrols a value a static pair
+ * already substitutes would see the public lane write the token instead of the name.
+ */
 function isNeutralizeSentinel(value) {
-  return typeof value === "string" && /^<[^>]*>$/.test(value);
+  return typeof value === "string" && (/^<[^>]*>$/.test(value) || isRedactionToken(value));
 }
 
 /**
@@ -1416,11 +1732,20 @@ export function makeScrubber(dynScrubPairs, { mode, staticScrub = [], preserveSy
  * loadCustomerIdentityShape "never silently disable the guard" contract).
  *
  * @param {string} repoDir absolute path to the repo root whose .claude/ holds
- *        disclosure-tenant-denylist.json + operators.roster.json.
- * @returns {{ scrub: [string,string][], gate: string[] }}
+ *        disclosure-tenant-denylist.json + operators.roster.json, and whose root
+ *        `.gitmodules` declares the private repositories (§ 5 below).
+ * @param {{ privateSlugs?: string[]|null, redactionMap?: string|false|undefined }} [opts]
+ *        `privateSlugs`: the private org set § 5 classifies owners against; absent,
+ *        `privateOrgSlugs()` (this checkout's declaration). A hermetic fixture passes a
+ *        synthetic set. `redactionMap`: the operator's redaction map (§ 6) — a path, `false`
+ *        to disable it, or absent for the account selector
+ *        (.claude/hooks/lib/redaction-map-binding.js::resolveRedactionMapPath).
+ * @returns {{ scrub: [string,string][], gate: string[], gateBounded: string[], unhonoured: object[] }}
+ *        `gate` is matched as an UNBOUNDED substring; `gateBounded` holds tokens EVERY gate consumer
+ *        MUST also match, but WORD-BOUNDED (`gateTokenHit(..., { bounded: true })`) — see § 6.
  */
-export function deriveDynamicTokens(repoDir) {
-  const scrub = [], gate = [];
+export function deriveDynamicTokens(repoDir, { privateSlugs = null, redactionMap } = {}) {
+  const scrub = [], gate = [], gateBounded = [];
   // Tokens the operator DECLARED but this function cannot honour — today, denylist entries below
   // TENANT_TOKEN_MIN_LEN. Carried out as a THIRD return key (purely additive; every consumer
   // destructures by name) so a PUBLISH FENCE can fail CLOSED on it. A `console.warn` alone is not
@@ -1703,49 +2028,55 @@ export function deriveDynamicTokens(repoDir) {
     //
     // SUBJECT `deriveDynamicTokens`, returning { scrub, gate, unhonoured } — the keys are READ OUT of the producer's own return statement, not typed.
     // INPUT SET — DISCOVERED, never declared: `git grep -l --untracked -F deriveDynamicTokens -- *.mjs *.js`
-    // matched 18 file(s) carrying 49 call site(s). The manifest declares the SYMBOL,
+    // matched 23 file(s) carrying 76 call site(s). The manifest declares the SYMBOL,
     // the GLOBS and the TARGET; the FILES, the CALL SITES and every column below are found.
     //
-    // RUNTIME CONSUMERS (6):
-    //   .claude/bin/clean-instantiate.mjs:457 ::snapshotCanonTokens
+    // RUNTIME CONSUMERS (7):
+    //   .claude/bin/clean-instantiate.mjs:694 ::snapshotCanonTokens
     //       reads: gate (destructured)
     //       length compares in fn: none
     //       callers of snapshotCanonTokens: 0 — DEAD CODE on this tree
-    //   .claude/bin/clean-instantiate.mjs:467 ::snapshotCanonIdentity
+    //   .claude/bin/clean-instantiate.mjs:704 ::snapshotCanonIdentity
     //       reads: gate, scrub, unhonoured (destructured)
     //       length compares in fn: none
-    //       callers of snapshotCanonIdentity: 1 (.claude/bin/clean-instantiate.mjs:964)
-    //   .claude/bin/edition-emit.mjs:477 ::makeClientTemplateScrubber
+    //       callers of snapshotCanonIdentity: 1 (.claude/bin/clean-instantiate.mjs:1523)
+    //   .claude/bin/edition-emit.mjs:791 ::makeClientTemplateScrubber
     //       reads: scrub (destructured)
     //       length compares in fn: none
-    //       callers of makeClientTemplateScrubber: 7 (.claude/bin/edition-emit.mjs:541, .claude/bin/edition-emit.mjs:542, .claude/bin/edition-emit.mjs:1065, .claude/bin/fork-conference-pack.mjs:11842, …)
-    //   .claude/bin/lib/edition-output-gate.mjs:348 ::assertDisclosureCleanNeutralize
+    //       callers of makeClientTemplateScrubber: 7 (.claude/bin/edition-emit.mjs:1279, .claude/bin/edition-emit.mjs:1280, .claude/bin/edition-emit.mjs:2256, .claude/bin/fork-conference-pack.mjs:11974, …)
+    //   .claude/bin/lib/edition-output-gate.mjs:500 ::assertDisclosureCleanNeutralize
     //       reads: gate (destructured)
     //       length compares in fn: hits.length >= CAP
-    //       callers of assertDisclosureCleanNeutralize: 9 (.claude/bin/lib/edition-output-gate.mjs:543, .claude/test-harness/tests/disclosure-adjudication.test.mjs:319, .claude/test-harness/tests/disclosure-adjudication.test.mjs:345, .claude/test-harness/tests/disclosure-adjudication.test.mjs:414, …)
-    //   scripts/publish-to-public.mjs:137 ::makeScrubber
+    //       callers of assertDisclosureCleanNeutralize: 11 (.claude/bin/lib/edition-output-gate.mjs:695, .claude/test-harness/tests/disclosure-adjudication.test.mjs:322, .claude/test-harness/tests/disclosure-adjudication.test.mjs:348, .claude/test-harness/tests/disclosure-adjudication.test.mjs:417, …)
+    //   `.claude/bin/scan-synced-disclosure.mjs::loadOperatorIdentityShape`
+    //       reads: filter, some (bound to `gate`)
+    //       length compares in fn: t.length >= 3 · raw.length === 0 · tokens.length === 0
+    //       load site: `.claude/bin/scan-synced-disclosure.mjs::operatorShape`
+    //   scripts/publish-to-public.mjs:191 ::makeScrubber
     //       reads: scrub (destructured)
     //       length compares in fn: none
-    //       callers of makeScrubber: UNDETERMINED — the name is declared 2× in this corpus (.claude/bin/lib/identity-scrub.mjs:541, scripts/publish-to-public.mjs:136), so a name search cannot attribute a call to THIS one
-    //   scripts/publish-to-public.mjs:300 ::runIdentityTokenGate
+    //       callers of makeScrubber: UNDETERMINED — the name is declared 2× in this corpus (.claude/bin/lib/identity-scrub.mjs:1705, scripts/publish-to-public.mjs:190), so a name search cannot attribute a call to THIS one
+    //   scripts/publish-to-public.mjs:392 ::runIdentityTokenGate
     //       reads: gate, unhonoured (destructured)
     //       length compares in fn: t.length < TENANT_TOKEN_MIN_LEN · t.length >= TENANT_TOKEN_MIN_LEN · hits.length === 0
-    //       callers of runIdentityTokenGate: 10 (.claude/bin/edition-emit.mjs:613, .claude/bin/edition-emit.mjs:875, .claude/bin/edition-emit.mjs:964, .claude/test-harness/tests/disclosure-adjudication.test.mjs:330, …)
+    //       callers of runIdentityTokenGate: 10 (.claude/bin/edition-emit.mjs:1370, .claude/bin/edition-emit.mjs:1952, .claude/bin/edition-emit.mjs:2091, .claude/test-harness/tests/disclosure-adjudication.test.mjs:333, …)
     //
-    // NON-RUNTIME CALL SITES (43 across 5 file(s)) — a DERIVED predicate:
+    // NON-RUNTIME CALL SITES (69 across 7 file(s)) — a DERIVED predicate:
     // under a test-harness/ or audit-fixtures/ directory, or a basename ending .test.mjs/.test.js.
     //   .claude/audit-fixtures/consumer-census/run.mjs — 5 (5 UNDETERMINED)
+    //   .claude/test-harness/tests/clean-instantiate.test.mjs — 1
     //   .claude/test-harness/tests/disclosure-adjudication.test.mjs — 1
     //   .claude/test-harness/tests/edition-emit.test.mjs — 2
-    //   .claude/test-harness/tests/identity-scrub.test.mjs — 32
+    //   .claude/test-harness/tests/identity-scrub.test.mjs — 56
+    //   .claude/test-harness/tests/publish-to-private-template.test.mjs — 1
     //   .claude/test-harness/tests/roster-keys-shape-fence.test.mjs — 3
     //
     // UNDETERMINED OCCURRENCES (5) — reported, never dropped and never guessed:
-    //   .claude/audit-fixtures/consumer-census/run.mjs:74 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
-    //   .claude/audit-fixtures/consumer-census/run.mjs:91 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
-    //   .claude/audit-fixtures/consumer-census/run.mjs:104 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
-    //   .claude/audit-fixtures/consumer-census/run.mjs:284 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
-    //   .claude/audit-fixtures/consumer-census/run.mjs:421 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
+    //   .claude/audit-fixtures/consumer-census/run.mjs:75 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
+    //   .claude/audit-fixtures/consumer-census/run.mjs:92 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
+    //   .claude/audit-fixtures/consumer-census/run.mjs:105 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
+    //   .claude/audit-fixtures/consumer-census/run.mjs:285 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
+    //   .claude/audit-fixtures/consumer-census/run.mjs:422 — two independent classifiers disagree on whether this occurrence is code (mask=prose, line-shape=code)
     //
     // WHAT THIS INSTRUMENT CANNOT SEE — name it, do not read silence as absence:
     //   · a length compare is reported wherever it sits in the enclosing function; this tool does
@@ -1758,8 +2089,8 @@ export function deriveDynamicTokens(repoDir) {
     //   · INDIRECT reach: a file that imports a consumer inherits that lane's behaviour and is
     //     not a call site, so it does not appear as a row.
     //
-    // input_digest: e1a5caf8dacc8c33
-    // generated_from_sha: f460e38d2062e488fc97d5bc1602cb568020bed5
+    // input_digest: 7da07ed206a9ece9
+    // generated_from_sha: 18019baa9b3744f2dc873abdb74e696868ce2e4a
     // CENSUS:END CONSUMER-CENSUS
     //
     // The block does NOT answer the question this paragraph asks of every row in it: is that
@@ -1800,6 +2131,35 @@ export function deriveDynamicTokens(repoDir) {
       gate.push(rc); scrub.push([rc, synthHex(rc), { bounded: true }]);
     }
   }
+  // (5) PRIVATE REPOSITORY NAMES — every repository `repoDir/.gitmodules` declares under a
+  // private owner (`privateRepoNames`; it refuses loudly on a section it cannot classify, and
+  // is empty without reading when the private org set is empty, so a consumer is unaffected).
+  // Read from `repoDir`, like the roster and the denylist above, so every consumer that
+  // derives from the source checkout — the publish scrub + gate, the client-template
+  // scrubber, the edition output gate, clean-instantiate and the scanner's operator shape —
+  // inherits the token with no wiring of its own.
+  //
+  // UNBOUNDED matcher. A repository name glued into a longer token (`<name>2`,
+  // `<name>_backend`, `org/<name>.git`) still names the repository; a word-bounded scrub
+  // would leave that disclosure standing in the output for the gate to halt on, rather than
+  // neutralizing it.
+  //
+  // WITH the base64 skip, which is a separate narrowing (see `isInsideOpaqueBase64Run`). A
+  // hyphenated name never sits strictly inside a standard-alphabet run (the hyphen breaks
+  // it), so for that shape the skip is inert; it exists for a hyphen-less ≥4-char name,
+  // which CAN collide inside an opaque payload by chance, where rewriting would corrupt the
+  // payload. The skip is fail-safe ONLY because every lane applying this scrubber gates
+  // with an UNBOUNDED, skip-free literal scan of these names, so a declined match HALTS
+  // rather than ships: `publish-to-public.mjs::runIdentityTokenGate` and
+  // `edition-output-gate.mjs::assertDisclosureCleanNeutralize` read `gate` below;
+  // `strip-build-internal.mjs::assertTreeFreeOfPrivateIdentity` (run on every final output
+  // tree) reads `privateRepoNames` directly; and the shape-scanner-gated lane recorded in
+  // § 4 is covered by the scanner's own `private-repo-name-token` shape, which matches
+  // unbounded with no skip.
+  for (const n of privateRepoNames(repoDir, { slugs: privateSlugs })) {
+    gate.push(n);
+    scrub.push([n, SCRUB_PLACEHOLDER.PRIVATE_REPO, { skipBase64: true }]);
+  }
   // A cross-repo authorization receipt FILENAME is a loom process token: it names the
   // sibling repo (or its purpose) and the date the read was granted. The date and
   // mode survive; the target slug is replaced (measured: one shipped verbatim in a
@@ -1808,7 +2168,47 @@ export function deriveDynamicTokens(repoDir) {
   // case is the same loom process token. The replacement is emitted in canonical lower case, and
   // `mode` is lower-cased so an `-READ.md` receipt does not round-trip its casing into the output.
   scrub.push([/\bcross-repo-authorized-(\d{4}-\d{2}-\d{2})-[A-Za-z0-9._-]*?-?(read|write)?\.md\b/gi, (_m, d, mode) => `cross-repo-authorized-${d}-<target>${mode ? "-" + String(mode).toLowerCase() : ""}.md`]);
-  return { scrub, gate, unhonoured };
+  // (6) THE OPERATOR'S REDACTION MAP — a THIRD token source beside the repo's own declarations
+  // (denylist + roster) and the canonical identity declaration. It lives OUTSIDE every work tree
+  // (`loadRedactionMap` refuses otherwise), so it carries the values a repo can never declare
+  // about itself: the operator's login, host names, home path, account ids. Every fence that
+  // derives here — publish, client-template, edition gate, clean-instantiate — inherits it with
+  // no wiring of its own. The gate gets the VALUE; the scrub pair writes the map's TOKEN, which
+  // `isNeutralizeSentinel` treats as a neutralizer so a static public substitute still wins.
+  // A refused map (in-repo path, mode looser than 0600, malformed) THROWS: the fences re-throw,
+  // so a map the operator configured but this function cannot trust aborts rather than being
+  // silently ignored. Every map pair is WORD-BOUNDED (`redactText` semantics): a value is never cut
+  // out of a longer word, so prose is never altered (C1 R1 correctness 8).
+  // A map path that was named EXPLICITLY (the `redactionMap` argument) and is
+  // absent THROWS: a fence told to use a map must not run as though it had none (C1 R1 H4). Only
+  // the DEFAULT location may be absent, which is the state of CI and of a machine with no map.
+  //
+  // EVERY map value is gated; HOW it is matched depends on its shape (C1 R2 F1). The `gate`
+  // consumers match UNBOUNDED substrings. A value under 4 chars, or one made only of hex digits,
+  // decimal digits and hyphens (an 8-hex session prefix, a UUID tenant id, a numeric account id),
+  // would halt on every digest or number that happens to contain it — a fail-closed denial of
+  // service with nothing disclosed (C1 R1 M6). The R1 fix dropped such values from the gate
+  // ENTIRELY, so a UUID tenant id or a numeric account id shipped through every fence unflagged.
+  // They now go to `gateBounded`, matched word-bounded: a standalone occurrence halts, and an
+  // in-word occurrence inside a longer hex or digit run — which is not that value — does not.
+  //
+  // `redactionMapCounts` — the loaded map's per-category entry counts (`redactionMapCounts`), or
+  // null when the map was disabled (`redactionMap: false`). Carried out so every fence that derives
+  // here can PRINT them (`redactionMapCoverageLine`): an absent default map is legitimate (CI, a
+  // consumer), but it must be visible, never indistinguishable from a covered run.
+  let mapCounts = null, redactionAuthority = null;
+  if (redactionMap !== false) {
+    const { path: mp, explicit } = redactionMap === undefined ? resolveRedactionMapPath() : { path: redactionMap, explicit: true };
+    const map = loadRedactionMap(mp, { explicit });
+    mapCounts = redactionMapCounts(map);
+    redactionAuthority = map.authority;
+    const g = redactionMapGateTokens(map);
+    unhonoured.push(...g.unhonoured);
+    gate.push(...g.gate);
+    gateBounded.push(...g.gateBounded);
+    for (const e of map.entries) if (e.value.length >= TENANT_TOKEN_MIN_LEN) scrub.push([e.value, e.token, { bounded: true }]);
+  }
+  return { scrub, gate, gateBounded, unhonoured, redactionMapCounts: mapCounts, redactionAuthority };
 }
 
 /**
@@ -2123,4 +2523,871 @@ function fingerprintForms(fp) {
   const compact = lit.replace(/\s+/g, "").replace(/^0x/i, "");
   if (compact !== lit && /^[0-9A-Fa-f]{16,}$/.test(compact)) out.push(compact);
   return out;
+}
+
+
+// ── § REDACTION MAP ──────────────────────────────────────────────────────────────────────
+//
+// The operator's redaction map: `{ entries: [{ token, cat, value }] }` at
+// Account map: .claude/hooks/lib/redaction-map-binding.js::resolveRedactionMapPath; explicit paths are for draft APIs.
+// It records values NO repository can declare about itself — the operator's login, host names,
+// home path, account and tenant ids — and assigns each a stable token `@@CAT-NNN@@`.
+//
+// THIS MODULE STAYS IDENTITY-FREE. The map is read at RUNTIME from OUTSIDE every work tree, the
+// same way the roster and denylist are read from the repo; no value is ever written into this
+// file, and `.claude/bin/redact.test.mjs` asserts that for a seeded canary map.
+//
+// Categories: OP HOST PATH ACCT ORG TEN are declared by the operator (`redact add --stdin`); SID
+// EMAIL IP are FAMILIES — detected by pattern (with allowlists for benign shapes) and enrolled by
+// `redact apply`.
+//
+// MATCHING. Case-insensitive, longest value first, and ALWAYS WORD-BOUNDED (`tokenBoundedRe`:
+// letters and digits are the only word characters). A value is never cut out of a longer word,
+// so prose is never altered, while a value inside a path segment, a dash-encoded directory name
+// or a `_`-joined slug is still caught. Tokens already in the text — written by an earlier apply,
+// or quoted on purpose — are PROTECTED from re-matching, so apply is idempotent.
+//
+// RESTORE IS EXACT AND RECORD-KEYED. `apply` writes a per-run record beside the map (mode 0600,
+// outside every work tree) holding, per file, the pre/post sha256 and the ORIGINAL spelling behind
+// every token it wrote. Restore rewrites only a file whose bytes still equal the recorded post-apply
+// bytes, puts back exactly the recorded spellings (case, BOM and line endings preserved), and
+// verifies the result against the recorded pre-apply sha256. Token-shaped text the record does not
+// own — a test's literal token, a token planted in inbound content — is never expanded.
+//
+// NO MAP IS NOT A CLEAN MAP. OP HOST PATH ACCT ORG TEN are detectable ONLY through map entries.
+// With no map, or one holding no entries in those six, `redact.mjs` scan / check refuse (exit 2,
+// the existing refusal class) instead of printing 0 for them, and `apply` refuses rather than
+// creating a map as a side effect; `--allow-no-map` is the explicit, logged opt-out (families only,
+// and never lets apply create a map). Every fence prints `redactionMapCoverageLine` — counts only.
+//
+// DOCUMENTED LIMITS — what a `check` of 0 does NOT establish:
+//   · ENCODED forms of a value are not decoded: URL/percent-encoding, JSON `\uXXXX` and `\/`
+//     escapes, base64, and a value split across lines or by a backslash path separator.
+//   · UUIDs written WITHOUT hyphens or abbreviated to anything but their 8-hex prefix; IPv6; a
+//     value glued to a letter or digit (`x<value>`, `<value>2`) — word-bounded matching treats that
+//     as a different word; git-LFS pointer targets.
+//   · Family allowlists: documentation / private / loopback / link-local / multicast IPv4 ranges,
+//     version-shaped dotted quads, well-known resolver addresses, the nil/max and RFC 4122
+//     namespace UUIDs, and noreply / git@ / reserved-domain addresses are NOT auto-enrolled. A
+//     private address that matters to you must be enrolled by hand (`add IP --stdin`).
+//   · An 8-hex prefix of a KNOWN UUID is redacted wherever it stands as its own word, including
+//     the vanishingly rare short git SHA that happens to equal it.
+//   · Confusable spellings are DETECTED by `check` (folded through `foldForGate`) but cannot be
+//     rewritten by `apply`; they stay as failures for a human to fix.
+//   · A git repository with an EXTERNAL work tree that is not announced by `GIT_WORK_TREE`
+//     (a bare dotfile repo managed by yadm / vcsh / `--work-tree=$HOME`) is invisible to the
+//     in-work-tree refusal.
+//   · File I/O residuals: the map's mode is read by `lstat` just before the no-follow open, not
+//     from the descriptor; the map directory's mode is set only when this module creates it;
+//     nothing is fsync'd before a rename. A file with OTHER hard links: the atomic rename
+//     replaces this name only, so every other name keeps the raw bytes (no write-through, and no
+//     redaction there either).
+//   · A text carrying the reserved private-use markers U+E000/U+E001 is still CHECKED, but
+//     `apply` skips it (counted as skipped-reserved) rather than risk a mis-restored token.
+
+/** Legacy variable name; account selection is .claude/hooks/lib/redaction-map-binding.js::resolveRedactionMapPath. */
+export const REDACTION_MAP_ENV = "COC_REDACTION_MAP";
+/** Operator-declared categories. */
+export const REDACTION_CATEGORIES = Object.freeze(["OP", "HOST", "PATH", "ACCT", "ORG", "TEN"]);
+/** Pattern-detected families, enrolled by `redactText(..., { enrolFamilies: true })`. */
+export const REDACTION_FAMILIES = Object.freeze(["SID", "EMAIL", "IP"]);
+/** Bounds on the map, so an enrolling apply can never grow it past what loads (C1 R1 M6). */
+export const REDACTION_MAP_MAX_ENTRIES = 20000;
+export const REDACTION_MAP_MAX_BYTES = 16 * 1024 * 1024;
+const REDACTION_ALL_CATS = [...REDACTION_CATEGORIES, ...REDACTION_FAMILIES];
+const REDACTION_TOKEN_RE = new RegExp(`^@@(${REDACTION_ALL_CATS.join("|")})-(\\d{3,})@@$`);
+const REDACTION_TOKEN_SCAN_SRC = `@@(?:${REDACTION_ALL_CATS.join("|")})-\\d{3,}@@`;
+// Private-use markers stand in for a replacement until the end of a redact pass, so no later pass
+// can match inside a value already replaced, and every replacement keeps its original spelling.
+const MARK_OPEN = "\uE000", MARK_CLOSE = "\uE001", MARK_DIGIT0 = 0xE100;
+const RESERVED_MARK_RE = /[\uE000\uE001]/g;
+const MARK_SRC = `${MARK_OPEN}[\\uE100-\\uE1FF]+${MARK_CLOSE}`;
+const PROTECT_SRC = `${REDACTION_TOKEN_SCAN_SRC}|${MARK_SRC}`;
+const TOKEN_IN_VALUE_RE = new RegExp(REDACTION_TOKEN_SCAN_SRC);
+
+/**
+ * Per-category entry COUNTS of a loaded map — every category, zero included, never a value.
+ * The map-only categories (`REDACTION_CATEGORIES`) are detectable ONLY through map entries, so a
+ * count of 0 there means that category was not checked at all; it is not a clean result.
+ *
+ * @param {{ entries: { cat: string }[] }} map a loaded map (`loadRedactionMap`)
+ * @returns {Readonly<Record<string, number>>}
+ */
+export function redactionMapCounts(map) {
+  const counts = Object.fromEntries(REDACTION_ALL_CATS.map((c) => [c, 0]));
+  for (const e of (map && map.entries) || []) if (Object.prototype.hasOwnProperty.call(counts, e.cat)) counts[e.cat]++;
+  return Object.freeze(counts);
+}
+
+/** Total entries across the map-only categories (OP HOST PATH ACCT ORG TEN) in `counts`. */
+export function redactionMapOnlyTotal(counts) {
+  return REDACTION_CATEGORIES.reduce((n, c) => n + (counts[c] || 0), 0);
+}
+
+/** `OP=1 HOST=0 … IP=0` — the counts in the fixed category order. Counts only. */
+export function formatRedactionMapCounts(counts) {
+  return REDACTION_ALL_CATS.map((c) => `${c}=${counts[c] || 0}`).join(" ");
+}
+
+/**
+ * The ONE line every fence and printer that reads the map prints, so a run with no map — or a map
+ * holding no map-only entries — is VISIBLE rather than indistinguishable from a covered run (the
+ * H4 residual: no fence used to print how many entries it had loaded). Counts only, never a value.
+ */
+export function redactionAuthorityLine(authority) {
+  if (!authority || !["UNPINNED", "EXPLICIT"].includes(authority.mode) || typeof authority.mapPresent !== "boolean") throw new RedactionMapError("authority-metadata", "redaction authority metadata is unavailable");
+  return `redaction-authority mode=${authority.mode} authority-file=${authority.mode === "EXPLICIT" ? "none" : authority.authorityPath || "unsupported-platform"} map-present=${authority.mapPresent}`;
+}
+export function redactionMapCoverageLine(counts, authority) {
+  const line = `redaction-map entries ${formatRedactionMapCounts(counts)}` + (authority ? ` — ${redactionAuthorityLine(authority)}` : "");
+  if (redactionMapOnlyTotal(counts) > 0) return line;
+  return `${line} — no map-only entries: ${REDACTION_CATEGORIES.join(" ")} values are NOT checked by this run (create a map with \`redact.mjs add <CAT> --stdin\`)`;
+}
+
+/** True when `t` is exactly one redaction-map token: `@@CAT-NNN@@`, a known CAT, >= 3 digits. */
+export function isRedactionToken(t) {
+  return typeof t === "string" && REDACTION_TOKEN_RE.test(t);
+}
+
+
+/** Account map selector: .claude/hooks/lib/redaction-map-binding.js::resolveRedactionMapPath. */
+export function defaultRedactionMapPath() {
+  return resolveRedactionMapPath().path;
+}
+
+
+/**
+ * True when `p` (which need not exist) lies under a `.git` marker — a `.git` directory or worktree
+ * FILE in the canonical path or any ancestor, or a path passing THROUGH a `.git` directory. The
+ * nearest existing ancestor is resolved with `realpathSync` first (security.md § Path Containment).
+ * This answers "is there a repository here at all?" WITHOUT asking git, so it still answers when git
+ * runs but cannot open the repository (an unknown extension; a dubious-ownership refusal): callers
+ * use it to tell "no repository" — a legitimate negative — from "a repository git could not read",
+ * which must refuse.
+ */
+export function hasGitMarkerAncestor(p) {
+  const real = nearestRealAncestor(p);
+  return real !== null && markerAtOrAbove(real);
+}
+
+/**
+ * THE canonical form of `p` for a containment decision (M-W2.1 R2 S1): `realpathSync.native` —
+ * which returns the ON-DISK spelling, so on a case-insensitive volume `MAPDIR/x` and `mapdir/x`
+ * canonicalize alike, where the JS `realpathSync` keeps whatever case it was handed — applied to
+ * the nearest EXISTING ancestor, with the not-yet-existing tail re-appended as given.
+ *
+ * It climbs ONLY past a component that is genuinely ABSENT — realpath says ENOENT AND `lstat`
+ * sees nothing there. Anything else THROWS (refuse): EACCES and ELOOP are components that exist
+ * but cannot be characterised, and an ENOENT that `lstat` CAN see is a dangling link whose target
+ * may lie anywhere. Climbing past those returned a real ancestor plus a lexical tail — a form that
+ * never resolved — so `pathWithin` judged a dangling `tree/artifact.txt -> outside/x` as INSIDE
+ * the tree (train-8 R1 correctness F1 / security F9). The same semantics as
+ * `path-containment.mjs::realpathForContainment`.
+ */
+export function canonicalPath(p) {
+  // Absolute WITHOUT lexical normalisation: a ".." after an existing component is the kernel's to
+  // resolve (after links), and one in the absent tail is refused (train-8 R2 security N6).
+  const raw = String(p);
+  let probe = path.isAbsolute(raw) ? raw : `${process.cwd()}${path.sep}${raw}`;
+  const tail = [];
+  for (;;) {
+    try {
+      return path.join(realpathSync.native(probe), ...tail);
+    } catch (e) {
+      if (!e || e.code !== "ENOENT") throw e; // EACCES / ELOOP / ENOTDIR: refuse, never climb
+      let entryExists = true;
+      try { lstatSync(probe); } catch { entryExists = false; /* genuinely absent: climb */ }
+      if (entryExists) throw new Error(`canonicalPath: ${JSON.stringify(probe)} exists but does not resolve (a dangling link); refusing to canonicalize past it`);
+    }
+    const up = path.dirname(probe);
+    // Not even the filesystem root resolved: REFUSE, never the lexical spelling — a containment
+    // decision over an unresolved form is the raw-fallback security.md § Path Containment forbids.
+    if (up === probe) throw new Error(`canonicalPath: no ancestor of ${JSON.stringify(String(p))} resolves; refusing to canonicalize lexically`);
+    const base = path.basename(probe);
+    if (base === "." || base === "..") throw new Error(`canonicalPath: ${JSON.stringify(String(p))} has a dot segment in its absent tail; refusing to collapse it lexically`);
+    if (base !== "") tail.unshift(base);
+    probe = up;
+  }
+}
+
+const swapCase = (s) => [...s].map((c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase())).join("");
+
+/**
+ * Whether the volume holding canonical path `real` folds case: the nearest existing component
+ * whose name has a case is looked up again with its case swapped, and the two must be ONE inode.
+ * A volume that cannot be shown to fold reads false (compare exactly).
+ */
+export function volumeFoldsCase(real) {
+  for (let d = path.resolve(String(real)); ; d = path.dirname(d)) {
+    const base = path.basename(d);
+    const flipped = swapCase(base);
+    if (flipped !== base) {
+      let a = null;
+      try { a = lstatSync(d); } catch { /* absent: climb */ }
+      if (a) {
+        try { const b = lstatSync(path.join(path.dirname(d), flipped)); return a.dev === b.dev && a.ino === b.ino; } catch { return false; }
+      }
+    }
+    if (path.dirname(d) === d) return false;
+  }
+}
+
+/**
+ * THE containment test for "is `candidate` the folder `root` or inside it" — both sides through
+ * `canonicalPath` (security.md § Path Containment: the SAME resolver on both), compared case- and
+ * normalization-folded exactly when `root`'s volume folds case. `redact.mjs` decides "beside the
+ * map" and asks git about a restore target's on-disk name through this and `canonicalPath`, so
+ * the two can never canonicalize differently again.
+ */
+export function pathWithin(candidate, root) {
+  let c = canonicalPath(candidate), r = canonicalPath(root);
+  if (volumeFoldsCase(r)) { c = c.normalize("NFC").toLowerCase(); r = r.normalize("NFC").toLowerCase(); }
+  return c === r || c.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
+}
+
+
+function validateRedactionEntries(entries) {
+  if (!Array.isArray(entries)) throw new RedactionMapError("malformed", "`entries` is not an array");
+  if (entries.length > REDACTION_MAP_MAX_ENTRIES) throw new RedactionMapError("full", `the map holds ${entries.length} entries, above the ${REDACTION_MAP_MAX_ENTRIES} cap`);
+  const tokens = new Set(), values = new Set();
+  entries.forEach((e, i) => {
+    if (!e || typeof e !== "object" || Array.isArray(e)) throw new RedactionMapError("malformed", `entry #${i} is not an object`);
+    const m = typeof e.token === "string" ? REDACTION_TOKEN_RE.exec(e.token) : null;
+    if (!m) throw new RedactionMapError("malformed", `entry #${i} has no valid @@CAT-NNN@@ token`);
+    if (e.cat !== m[1]) throw new RedactionMapError("malformed", `entry #${i} has a cat that disagrees with its token`);
+    if (typeof e.value !== "string" || /[\r\n]/.test(e.value) || e.value.trim() !== e.value) {
+      throw new RedactionMapError("malformed", `entry #${i} has a non-string, multi-line or padded value`);
+    }
+    // The same floor `addRedactionValue` enforces: a hand-edited 1–2 char value would be used by the
+    // CLI yet skipped by every fence (C1 R1 correctness 16), two answers to one map.
+    if (e.value.length < TENANT_TOKEN_MIN_LEN) throw new RedactionMapError("malformed", `entry #${i} has a value below the ${TENANT_TOKEN_MIN_LEN}-char floor`);
+    // A value that IS or CARRIES a token is what a map looks like after an apply rewrote it
+    // (M-W2.1 R2 S1): every raw value is gone and the map would still load as healthy, detecting
+    // nothing. Never a legitimate enrolment either — tokens are protected from re-matching.
+    if (TOKEN_IN_VALUE_RE.test(e.value)) throw new RedactionMapError("malformed", `entry #${i} has a value that is or carries a redaction token — the map looks tokenized; restore it from a backup`);
+    if (tokens.has(e.token)) throw new RedactionMapError("malformed", `entry #${i} repeats a token`);
+    const fold = e.value.toLowerCase();
+    if (values.has(fold)) throw new RedactionMapError("malformed", `entry #${i} repeats a value under another token`);
+    tokens.add(e.token); values.add(fold);
+  });
+}
+
+/**
+ * Load the map.
+ *   ABSENT at the DEFAULT location carries UNPINNED authority metadata (.claude/hooks/lib/redaction-map-binding.js::resolveRedactionMapPath). This answer comes
+ *   BEFORE the in-work-tree test, so a consumer whose ~/.config is itself a repository, and who
+ *   never made a map, is not refused (C1 R1 M2). An empty answer is NOT a covered one: the
+ *   map-only categories cannot be detected from it, so `redact.mjs` scan / check / apply REFUSE
+ *   it (exit 2) unless `--allow-no-map`, and every fence prints `redactionMapCoverageLine`.
+ *   ABSENT at an EXPLICIT path → throws `kind:"absent"` (C1 R1 H4).
+ *   REFUSED (throws `RedactionMapError`): a path inside a git work tree; on POSIX a file whose
+ *   mode grants ANY group/other bit (looser than 0600); a symlink, FIFO or other non-regular file
+ *   (via `readRegularFileNoFollow`); unparseable JSON or a malformed entry. Error text carries no
+ *   path and no value.
+ *
+ * @param {string} [p] map path; default the resolved map path
+ * @param {{ explicit?: boolean }} [opts] default: explicit unless `p` is the resolved default path
+ *        (selection: .claude/hooks/lib/redaction-map-binding.js::resolveRedactionMapPath)
+ * @returns {{ entries: {token:string, cat:string, value:string}[] }}
+ */
+export function loadRedactionMap(p = defaultRedactionMapPath(), { explicit } = {}) {
+  if (typeof p !== "string" || p.trim() === "") throw new RedactionMapError("no-path", "no map path was given");
+  const r = resolveRedactionMapPath();
+  const isExplicit = explicit === undefined ? r.explicit || path.resolve(p) !== path.resolve(r.path) : explicit;
+  let st;
+  try { st = lstatSync(p); } catch (e) {
+    if (e && e.code === "ENOENT") {
+      if (isExplicit) throw new RedactionMapError("absent", "the map named explicitly by a draft API does not exist — refusing to run as though there were no map");
+      return { entries: [], authority: { mode: r.mode, authorityPath: r.authorityPath, mapPresent: false } };
+    }
+    throw new RedactionMapError("malformed", `cannot stat the map (${(e && e.code) || "error"})`);
+  }
+  assertMapPathUsable(p);
+  if (process.platform !== "win32" && st.isFile() && (st.mode & 0o077) !== 0) {
+    throw new RedactionMapError("mode-too-open", `the map file mode is looser than 0600 (${(st.mode & 0o777).toString(8)}) — restrict it to the owner (mode 600)`);
+  }
+  const text = readRegularFileNoFollow(p, { label: "redaction-map.json", maxBytes: REDACTION_MAP_MAX_BYTES });
+  const parsed = jsonParseOrThrow(text, "redaction-map.json");
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new RedactionMapError("malformed", "the map is not a JSON object");
+  validateRedactionEntries(parsed.entries);
+  const map = { entries: parsed.entries.map((e) => ({ token: e.token, cat: e.cat, value: e.value })) };
+  Object.defineProperty(map, "authority", { value: Object.freeze({ mode: isExplicit ? "EXPLICIT" : r.mode, authorityPath: isExplicit ? null : r.authorityPath, mapPresent: true }) });
+  return map;
+}
+
+/**
+ * Replace `p`'s bytes atomically: an exclusive sibling temp file, then `rename` over `p`. `rename`
+ * replaces the directory ENTRY — it never follows a symlink at `p` and never writes through a hard
+ * link — so a swapped-in link cannot redirect the write (C1 R1 H1 / correctness 15).
+ */
+export function writeFileAtomic(p, data, mode = 0o644) {
+  const dir = path.dirname(path.resolve(p));
+  const tmp = path.join(dir, `.${path.basename(p)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`);
+  try {
+    writeFileSync(tmp, data, { mode, flag: "wx" });
+    chmodSync(tmp, mode);
+    renameSync(tmp, p);
+  } catch (e) {
+    try { rmSync(tmp, { force: true }); } catch { /* best effort: the temp file is the only residue */ }
+    throw e;
+  }
+}
+
+/**
+ * Write the map atomically with mode 0600 (directory created 0700). MERGE-CHECKED: the map on disk
+ * is re-read first and every entry it holds must appear, identically, in `map` — a writer that
+ * loaded an older map, or one that bypassed the lock, is refused (`kind:"concurrent"`) rather than
+ * allowed to drop or renumber another writer's enrolments (C1 R1 H2 / correctness 2). Hold the lock
+ * from `acquireRedactionMapLock` across load → save.
+ */
+export function saveRedactionMap(p, map) {
+  assertMapPathUsable(p);
+  validateRedactionEntries(map && map.entries);
+  let onDisk = { entries: [] };
+  try { lstatSync(p); onDisk = loadRedactionMap(p, { explicit: true }); } catch (e) {
+    if (!(e && e.code === "ENOENT")) throw e;
+  }
+  const mine = new Map(map.entries.map((e) => [e.token, e]));
+  for (const d of onDisk.entries) {
+    const m = mine.get(d.token);
+    if (!m || m.value !== d.value || m.cat !== d.cat) {
+      throw new RedactionMapError("concurrent", "the map on disk changed since it was loaded — reload it under the lock and retry; nothing was written");
+    }
+  }
+  mkdirSync(path.dirname(path.resolve(p)), { recursive: true, mode: 0o700 });
+  writeFileAtomic(p, JSON.stringify({ $id: "coc.redaction-map/v1", entries: map.entries }, null, 1) + "\n", 0o600);
+}
+
+/**
+ * Take the map's write lock: `<map>.lock`, created exclusively. Every writer (`add`, `apply`)
+ * holds it from LOAD to SAVE, so two concurrent enrolments cannot each number from the same
+ * maximum and hand one token to two values (C1 R1 H2). Returns a release function. A lock that
+ * exists is refused with its age, never silently broken; remove it by hand once no writer runs.
+ */
+export function acquireRedactionMapLock(mapPath) {
+  assertMapPathUsable(mapPath);
+  const lock = path.resolve(mapPath) + ".lock";
+  mkdirSync(path.dirname(lock), { recursive: true, mode: 0o700 });
+  try {
+    writeFileSync(lock, `${process.pid}\n`, { mode: 0o600, flag: "wx" });
+  } catch (e) {
+    if (e && e.code === "EEXIST") {
+      let age = "unknown";
+      try { age = `${Math.round((Date.now() - statSync(lock).mtimeMs) / 1000)}s`; } catch { /* raced away */ }
+      throw new RedactionMapError("locked", `another writer holds the map lock (age ${age}); if none is running, remove the .lock file beside the map`);
+    }
+    throw e;
+  }
+  return () => { try { rmSync(lock, { force: true }); } catch { /* already gone */ } };
+}
+
+/** The directory holding apply records: beside the map, so it inherits the map's outside-every-repo placement. */
+export function redactionRecordDir(mapPath) {
+  return path.join(path.dirname(path.resolve(mapPath)), "redaction-applies");
+}
+
+/**
+ * The apply-record directory, held to the MAP's location checks before anything reads or writes
+ * it (M-W2.1 R2 S5): outside every git work tree, and a real directory — never a symlink, which
+ * would let restore take its original spellings (raw values it writes back) from anywhere.
+ * Returns the directory, or null when it does not exist yet. Value-free and path-free refusals.
+ */
+function assertRecordDirUsable(mapPath) {
+  const dir = redactionRecordDir(mapPath);
+  let st;
+  try { st = lstatSync(dir); } catch (e) {
+    if (e && e.code === "ENOENT") { assertMapPathUsable(path.join(dir, "probe.json")); return null; }
+    throw new RedactionMapError("malformed", `cannot stat the apply-record directory (${(e && e.code) || "error"})`);
+  }
+  if (st.isSymbolicLink() || !st.isDirectory()) {
+    throw new RedactionMapError("malformed", "the apply-record directory beside the map is a symlink or not a directory — refusing to read or write apply records through it");
+  }
+  assertMapPathUsable(path.join(dir, "probe.json"));
+  return dir;
+}
+
+/**
+ * Persist one apply's record (mode 0600, directory 0700) and return its id. The record holds raw
+ * values — the original spellings — which is why it lives beside the map and is refused inside a
+ * work tree exactly as the map is.
+ */
+export function writeApplyRecord(mapPath, record) {
+  const dir = redactionRecordDir(mapPath);
+  if (assertRecordDirUsable(mapPath) === null) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  assertRecordDirUsable(mapPath);
+  const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}-${Math.random().toString(16).slice(2, 10)}`;
+  writeFileAtomic(path.join(dir, `${id}.json`), JSON.stringify({ $id: "coc.redaction-apply/v1", id, ...record }) + "\n", 0o600);
+  return id;
+}
+
+/** Cut apply record `id` back to `files`; with none left the record is removed. */
+function trimApplyRecord(mapPath, id, record, files) {
+  const dir = redactionRecordDir(mapPath);
+  assertRecordDirUsable(mapPath);
+  if (typeof id !== "string" || !/^[0-9A-Za-z-]+$/.test(id)) throw new RedactionMapError("malformed", "an apply record id is malformed");
+  const p = path.join(dir, `${id}.json`);
+  if (!files.length) { rmSync(p, { force: true }); return; }
+  writeFileAtomic(p, JSON.stringify({ $id: "coc.redaction-apply/v1", id, ...record, files }) + "\n", 0o600);
+}
+
+/**
+ * An apply's file-rewrite phase (C1 R2 F7). `writes` are `{ abs, text, mode, rec }`, where
+ * `rec.path` is the canonical path and `rec.pre_sha256` the hash of the bytes the rewrite was
+ * computed from. Immediately before each atomic rename the file is re-resolved and re-read: if it
+ * no longer resolves to `rec.path`, or its bytes no longer hash to `rec.pre_sha256`, someone edited
+ * it after it was read, and renaming over it would erase that edit with no trace. The phase then
+ * STOPS — that file and every later one stay unwritten — and throws `kind:"changed"` with `.index`
+ * naming the write (no path, no value). On that stop, or on any failed write, apply record `id`
+ * (which `record` was written as) is cut back to the files ACTUALLY rewritten, so a record never
+ * claims a file this apply did not write. `beforeWrite(w, i)`, when given, runs before each check.
+ *
+ * RESIDUAL, declared: an edit landing between the re-hash and the rename is still lost — closing
+ * that needs a lock the editor itself honours, which a plain text file does not have.
+ *
+ * @returns {number} the count of files rewritten
+ */
+export function commitApplyWrites(mapPath, { id, record, writes, maxBytes = READ_REGULAR_FILE_MAX_BYTES, beforeWrite = null }) {
+  const written = [];
+  try {
+    writes.forEach((w, i) => {
+      if (beforeWrite) beforeWrite(w, i);
+      let real = null, now = null;
+      try {
+        real = realpathSync(w.abs);
+        now = createHash("sha256").update(readRegularFileNoFollow(w.abs, { encoding: null, maxBytes, label: "apply target" })).digest("hex");
+      } catch { /* unresolvable or unreadable: it is not the file that was read */ }
+      if (real !== w.rec.path || now !== w.rec.pre_sha256) {
+        const e = new RedactionMapError("changed", `apply target #${i} changed since it was read, or no longer resolves to the same file — it was not rewritten`);
+        e.index = i;
+        throw e;
+      }
+      writeFileAtomic(w.abs, w.text, w.mode);
+      written.push(w.rec);
+    });
+  } catch (e) {
+    if (id) trimApplyRecord(mapPath, id, record, written);
+    throw e;
+  }
+  return written.length;
+}
+
+/** Every apply record, newest first. Each is read no-follow and parsed; an unreadable one is refused loudly. */
+export function readApplyRecords(mapPath) {
+  const dir = assertRecordDirUsable(mapPath);
+  if (dir === null) return [];
+  const names = readdirSync(dir);
+  return names.filter((n) => n.endsWith(".json")).sort().reverse()
+    .map((n) => jsonParseOrThrow(readRegularFileNoFollow(path.join(dir, n), { label: "redaction apply record", maxBytes: 256 * 1024 * 1024 }), "redaction apply record"));
+}
+
+/**
+ * Enrol `value` under `cat` and return its token. One value → one token, always: a value already
+ * present (case-insensitively) returns its EXISTING token, whatever `cat` is asked for now.
+ * Refuses (typed, value-free) an unknown category, a multi-line or padded value, a value below
+ * `TENANT_TOKEN_MIN_LEN`, a value that is itself a placeholder, or an enrolment beyond
+ * `REDACTION_MAP_MAX_ENTRIES`. Mutates `map`; the caller saves it under the lock.
+ */
+export function addRedactionValue(map, cat, value) {
+  if (!REDACTION_ALL_CATS.includes(cat)) throw new RedactionMapError("bad-category", `unknown category (expected one of ${REDACTION_ALL_CATS.join(" ")})`);
+  const v = String(value ?? "");
+  if (/[\r\n]/.test(v) || v.trim() !== v) throw new RedactionMapError("bad-value", "a value must be one line with no surrounding whitespace");
+  if (v.length < TENANT_TOKEN_MIN_LEN) throw new RedactionMapError("bad-value", `a value must be at least ${TENANT_TOKEN_MIN_LEN} chars (got ${v.length})`);
+  if (isScrubPlaceholderToken(v)) throw new RedactionMapError("bad-value", "a placeholder cannot be enrolled as a value");
+  const fold = v.toLowerCase();
+  const have = map.entries.find((e) => e.value.toLowerCase() === fold);
+  if (have) return have.token;
+  if (map.entries.length >= REDACTION_MAP_MAX_ENTRIES) throw new RedactionMapError("full", `the map is at its ${REDACTION_MAP_MAX_ENTRIES}-entry cap`);
+  let n = 0;
+  for (const e of map.entries) if (e.cat === cat) n = Math.max(n, Number(REDACTION_TOKEN_RE.exec(e.token)[2]));
+  const token = `@@${cat}-${String(n + 1).padStart(3, "0")}@@`;
+  map.entries.push({ token, cat, value: v });
+  return token;
+}
+
+/**
+ * Whether a map value is matched by the fences as an UNBOUNDED substring (true) or WORD-BOUNDED
+ * (false). A value under 4 chars, or one made only of hex digits and hyphens (which covers decimal
+ * digits), would halt an unbounded gate on every digest or number that happens to contain it
+ * (C1 R1 M6 / correctness 12), so it is matched bounded instead. It is NEVER dropped from the gate
+ * (C1 R2 F1): `redactionMapGateTokens` routes it to `gateBounded`.
+ */
+export function redactionGateEligible(value) {
+  const v = String(value);
+  return !(v.length < 4 || /^[0-9a-f-]+$/i.test(v));
+}
+
+/**
+ * The redaction map's contribution to the disclosure gates, as ONE function so every gate reads the
+ * map the same way — `deriveDynamicTokens` § 6, and any gate that reads the map without a roster.
+ * `gate`: values matched as unbounded substrings. `gateBounded`: values matched word-bounded
+ * (`redactionGateEligible` false). `unhonoured`: values below `TENANT_TOKEN_MIN_LEN`, reported by
+ * length only. Every map value at or above the floor lands in exactly one of the two gate lists.
+ *
+ * @param {{ entries: { value: string }[] }} map a loaded map (`loadRedactionMap`)
+ * @returns {{ gate: string[], gateBounded: string[], unhonoured: object[] }}
+ */
+export function redactionMapGateTokens(map) {
+  const gate = [], gateBounded = [], unhonoured = [];
+  for (const e of map.entries) {
+    if (e.value.length < TENANT_TOKEN_MIN_LEN) {
+      unhonoured.push({ reason: "below-min-length", length: e.value.length, floor: TENANT_TOKEN_MIN_LEN });
+      continue;
+    }
+    (redactionGateEligible(e.value) ? gate : gateBounded).push(e.value);
+  }
+  return { gate, gateBounded, unhonoured };
+}
+
+/**
+ * The ONE matcher for a gate token against a haystack, both ALREADY folded through `foldForGate`.
+ * Unbounded: a plain substring test. Bounded (`gateBounded` tokens): the token must not touch an
+ * ASCII letter or digit on either side — the same boundary `tokenBoundedRe` scrubs with, so the
+ * gate halts on exactly the occurrences the scrubber is able to rewrite, and on no digest or number
+ * that merely contains the value. Adjudication-aware consumers use
+ * `disclosure-adjudication.mjs::tokenIsUnadjudicatedHit(..., { bounded })`, which applies the same
+ * boundary per occurrence.
+ */
+export function gateTokenHit(foldedText, foldedToken, { bounded = false } = {}) {
+  if (!foldedToken) return false;
+  if (!bounded) return foldedText.includes(foldedToken);
+  for (let i = foldedText.indexOf(foldedToken); i !== -1; i = foldedText.indexOf(foldedToken, i + 1)) {
+    if (isBoundedOccurrence(foldedText, i, foldedToken.length)) return true;
+  }
+  return false;
+}
+
+/** True when `[idx, idx+len)` of `text` has no ASCII letter or digit immediately on either side. */
+export function isBoundedOccurrence(text, idx, len) {
+  const alnum = /[A-Za-z0-9]/;
+  return !(idx > 0 && alnum.test(text[idx - 1])) && !(idx + len < text.length && alnum.test(text[idx + len]));
+}
+
+const UUID_SHAPE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Well-known UUIDs that identify nobody: nil, max, and the RFC 4122 Appendix C namespace ids.
+const BENIGN_UUIDS = new Set([
+  "00000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff",
+  "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+  "6ba7b812-9dad-11d1-80b4-00c04fd430c8", "6ba7b814-9dad-11d1-80b4-00c04fd430c8",
+]);
+const RESERVED_EMAIL_DOMAIN_RE = /(?:^|\.)(?:example\.(?:com|org|net)|example|test|invalid|localhost|users\.noreply\.github\.com)$/i;
+const BENIGN_EMAIL_LOCAL_RE = /^(?:no-?reply|do-?not-?reply|git)$/i;
+// Public resolvers named in documentation everywhere; they identify no operator.
+const BENIGN_IPS = new Set(["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "9.9.9.9", "149.112.112.112"]);
+
+function benignIp(m, whole, off) {
+  if (BENIGN_IPS.has(m)) return true;
+  const o = m.split(".").map(Number);
+  if (o.filter((x) => x === 0).length >= 2) return true; // version-shaped (1.0.0.0) or a network address
+  if (o[0] === 0 || o[0] === 10 || o[0] === 127 || o[0] >= 224) return true;
+  if (o[0] === 169 && o[1] === 254) return true;
+  if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return true;
+  if (o[0] === 192 && o[1] === 168) return true;
+  if ((o[0] === 192 && o[1] === 0 && o[2] === 2) || (o[0] === 198 && o[1] === 51 && o[2] === 100) || (o[0] === 203 && o[1] === 0 && o[2] === 113)) return true;
+  if (o[0] === 198 && (o[1] === 18 || o[1] === 19)) return true;
+  return /(?:version|ver|v)[\s"'=:(]*$/i.test(whole.slice(Math.max(0, off - 16), off));
+}
+
+/** The family detectors, in application order. Fresh RegExps per call (the `g` flag carries state). */
+function redactionFamilyDetectors() {
+  return {
+    // Applied BEFORE the map values (C1 R1 M5), so a map value inside an address cannot be
+    // replaced alone and leave the rest of the address raw and uncounted.
+    email: { cat: "EMAIL", re: new RegExp(EMAIL_RE.source, "g"), benign: (m) => {
+      const at = m.lastIndexOf("@");
+      return RESERVED_EMAIL_DOMAIN_RE.test(m.slice(at + 1)) || BENIGN_EMAIL_LOCAL_RE.test(m.slice(0, at)) || m.toLowerCase() === SCRUB_PLACEHOLDER.EMAIL;
+    } },
+    ids: [
+      { cat: "SID", re: /(?<![0-9A-Za-z])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9A-Za-z])/gi, benign: (m) => BENIGN_UUIDS.has(m.toLowerCase()) },
+      { cat: "SID", re: /(?<![0-9A-Za-z])a[0-9a-f]{16}(?![0-9A-Za-z])/g, benign: () => false },
+      { cat: "IP", re: /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\d.])/g, benign: benignIp },
+    ],
+  };
+}
+
+function lineIndexer(text) {
+  const nl = [];
+  for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) nl.push(i);
+  return (off) => { let lo = 0, hi = nl.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (nl[mid] < off) lo = mid + 1; else hi = mid; } return lo + 1; };
+}
+
+function markFor(i) {
+  let s = "";
+  do { s = String.fromCharCode(MARK_DIGIT0 + (i & 0xff)) + s; i >>= 8; } while (i > 0);
+  return MARK_OPEN + s + MARK_CLOSE;
+}
+function markIndex(m) {
+  let i = 0;
+  for (const ch of m.slice(1, -1)) i = (i << 8) | (ch.charCodeAt(0) - MARK_DIGIT0);
+  return i;
+}
+
+/**
+ * Redact `text` with `map`. Order, each step over the output of the last, and NONE of them able to
+ * match inside a token already present or a value already replaced (C1 R1 correctness 7):
+ *   1. EMAIL family (C1 R1 M5);
+ *   2. every map value, longest first, word-bounded;
+ *   3. the id families — UUID, subagent id `a<16 hex>`, IPv4 — minus their benign allowlists
+ *      (C1 R1 correctness 4);
+ *   4. the 8-hex PREFIX of every UUID that is KNOWN (in the map, or carried by this text),
+ *      word-bounded, so it never matches inside a longer hex run (C1 R1 correctness 12).
+ * A family match that is itself a scrub placeholder (a `deadbeef` stream) is not a value and is left
+ * alone, so an apply never fails mid-run trying to enrol one.
+ *
+ * Returns `{ text, hits, enrolled, slots }`. `hits` carry CATEGORY and LINE only. `slots` lists every
+ * token occurrence in the output, in order: `{ original }` for a token this pass wrote (the exact
+ * source spelling it replaced) or `null` for a token that was already there — the input to an exact,
+ * record-keyed restore (`restoreFromSlots`). With `enrolFamilies` a family match not yet in the map
+ * is ENROLLED (mutating `map`); without it the match is replaced by a category marker that is NOT a
+ * valid token, so that result is for counting only. `families: false` applies the map alone.
+ * Text carrying the reserved private-use marker characters is refused (`kind:"reserved-chars"`).
+ */
+export function redactText(text, map, { enrolFamilies = false, families = true } = {}) {
+  const src = String(text);
+  if (src.includes(MARK_OPEN) || src.includes(MARK_CLOSE)) throw new RedactionMapError("reserved-chars", "the text carries the reserved private-use marker characters U+E000/U+E001; it cannot be redacted safely");
+  let txt = src;
+  const hits = [], spans = [];
+  let enrolled = 0;
+  const known = new Map(map.entries.map((x) => [x.value.toLowerCase(), x.token]));
+  const tokenFor = (cat, m) => {
+    const have = known.get(m.toLowerCase());
+    if (have) return have;
+    if (!enrolFamilies) return `@@${cat}@@`;
+    enrolled++;
+    const t = addRedactionValue(map, cat, m);
+    known.set(m.toLowerCase(), t);
+    return t;
+  };
+  // One protected pass: `re` matches only OUTSIDE existing tokens and earlier replacements.
+  const pass = (re, onMatch) => {
+    const combined = new RegExp(`(${PROTECT_SRC})|(?:${re.source})`, re.flags.includes("g") ? re.flags : re.flags + "g");
+    const lineAt = lineIndexer(txt);
+    txt = txt.replace(combined, (m, prot, off, whole) => {
+      if (prot !== undefined) return m;
+      const r = onMatch(m, off, whole);
+      if (r === null) return m;
+      hits.push({ cat: r.cat, line: lineAt(off) });
+      spans.push({ token: r.token, original: m });
+      return markFor(spans.length - 1);
+    });
+  };
+  const det = redactionFamilyDetectors();
+  if (families) {
+    pass(det.email.re, (m) => (det.email.benign(m) || isScrubPlaceholderToken(m) ? null : { cat: "EMAIL", token: tokenFor("EMAIL", m) }));
+  }
+  for (const e of [...map.entries].sort((a, b) => b.value.length - a.value.length)) {
+    pass(tokenBoundedRe(e.value), () => ({ cat: e.cat, token: e.token }));
+  }
+  if (families) {
+    const seen = new Set();
+    for (const m of src.match(det.ids[0].re) || []) if (!det.ids[0].benign(m)) seen.add(m.toLowerCase());
+    for (const e of map.entries) if (e.cat === "SID" && UUID_SHAPE_RE.test(e.value)) seen.add(e.value.toLowerCase());
+    for (const d of redactionFamilyDetectors().ids) {
+      pass(d.re, (m, off, whole) => (d.benign(m, whole, off) || isScrubPlaceholderToken(m) ? null : { cat: d.cat, token: tokenFor(d.cat, m) }));
+    }
+    for (const u of [...seen].sort()) {
+      const prefix = u.slice(0, 8);
+      if (isScrubPlaceholderToken(prefix)) continue;
+      pass(tokenBoundedRe(prefix), (m) => ({ cat: "SID", token: tokenFor("SID", m.toLowerCase()) }));
+    }
+  }
+  // Resolve: walk the protected stream in order, so `slots` lines up with the output's tokens.
+  const slots = [];
+  const out = txt.replace(new RegExp(PROTECT_SRC, "g"), (m) => {
+    if (m.startsWith(MARK_OPEN)) { const s = spans[markIndex(m)]; slots.push({ original: s.original }); return s.token; }
+    slots.push(null);
+    return m;
+  });
+  return { text: out, hits, enrolled, slots };
+}
+
+/**
+ * Undo one apply EXACTLY: walk the token occurrences of `text` in order against `slots` (from
+ * `redactText` at apply time) and put back each recorded original; a `null` slot — a token that was
+ * already there — is left as written. Throws if the text's token occurrences no longer line up with
+ * the record (the file changed since the apply). Never expands a token the record does not own.
+ */
+export function restoreFromSlots(text, slots) {
+  let i = 0;
+  const out = String(text).replace(new RegExp(REDACTION_TOKEN_SCAN_SRC, "g"), (m) => {
+    if (i >= slots.length) throw new RedactionMapError("concurrent", "the file carries more tokens than its apply record — it changed since the apply");
+    const s = slots[i++];
+    return s ? s.original : m;
+  });
+  if (i !== slots.length) throw new RedactionMapError("concurrent", "the file carries fewer tokens than its apply record — it changed since the apply");
+  return out;
+}
+
+/**
+ * Read-only detection: every hit `redactText` would make (never enrolling), PLUS confusable
+ * spellings of a map value that the literal matcher misses — each remaining line is folded through
+ * `foldForGate` and searched, word-bounded, for each folded value (C1 R1 L5). A confusable hit
+ * cannot be rewritten by `apply`, so it stays a `check` failure. `families: false` restricts it to
+ * the map's own values (the no-literal check on source files, where an illustrative address in a
+ * comment is not a map value).
+ */
+export function findRedactionHits(text, map, { families = true } = {}) {
+  // Read-only: a reserved marker cannot be part of a value (load refuses it), so it is neutralised
+  // rather than refused — detection must never go blind on a file that merely carries one.
+  const { text: rest, hits } = redactText(String(text).replace(RESERVED_MARK_RE, "\uFFFD"), { entries: map.entries.slice() }, { families });
+  if (map.entries.length) {
+    const folded = map.entries.map((e) => [e.cat, tokenBoundedRe(foldForGate(e.value))]);
+    rest.split("\n").forEach((line, i) => {
+      if (/^[\x00-\x7f]*$/.test(line)) return; // pure ASCII: the literal pass already decided it
+      const f = foldForGate(line);
+      for (const [cat, re] of folded) { re.lastIndex = 0; if (re.test(f)) hits.push({ cat, line: i + 1, confusable: true }); }
+    });
+  }
+  return { hits };
+}
+
+/**
+ * The fence PRINTERS' one entry point: `text` with every map-sourced value replaced by its
+ * `@@CAT-NNN@@` token. Use it on every string a gate prints: hit text, file paths, failure
+ * reasons. A path can carry a value in a NAME.
+ *
+ * A PRINTER IS NEVER WEAKER THAN A GATE (C1 R2 F5a). The gates match a value as an UNBOUNDED
+ * substring of `foldForGate(text)`, so a printer that masked word-bounded and unfolded printed
+ * exactly the occurrences the gates halt on — a value glued to a letter (`notes<value>x.md`), or
+ * spelled with a combining mark or a compatibility form. The mask therefore runs two passes:
+ *   1. every value, longest first, as a case-insensitive SUBSTRING (existing tokens protected);
+ *   2. per line, every value FOLDED (`foldForGate`) against the line folded one code point at a
+ *      time, each folded hit mapped back to the source code points that produced it.
+ * A line that still carries a folded value afterwards (a fold the per-code-point map cannot
+ * isolate) is WITHHELD whole rather than printed. Over-masking a printed string is the safe
+ * direction; the redaction verbs (`redactText`, `check`, `apply`) keep their word-bounded matcher,
+ * because they REWRITE content and a printer does not.
+ *
+ * Families are NOT applied — a printer masks what the map declares, and a fence's own finding text
+ * (a UUID it reports on purpose) is not rewritten.
+ *
+ * No map at the DEFAULT location → `text` unchanged. A map named explicitly but absent, or present
+ * but refused (in-repo path, mode looser than 0600, symlink, malformed), THROWS `RedactionMapError`
+ * exactly as `loadRedactionMap` does: a printer must never fall back to printing values.
+ *
+ * @param {string} text
+ * @param {{ map?: string | { entries: object[] } }} [opts] a map path or an already-loaded map;
+ *        default the resolved map path.
+ * @returns {string}
+ */
+export function maskRedactionValues(text, { map } = {}) {
+  const m = loadMapArg(map);
+  if (!m.entries.length) return String(text);
+  // A printer must never throw on odd input it is merely masking: strip the reserved markers first.
+  let txt = String(text).replace(RESERVED_MARK_RE, "\uFFFD");
+  const byLen = [...m.entries].sort((a, b) => b.value.length - a.value.length);
+  // PASS 1 — unfolded, case-insensitive substring; a value already replaced is never re-entered.
+  const tokens = [];
+  for (const e of byLen) {
+    const combined = new RegExp(`(${PROTECT_SRC})|(?:${tokenUnboundedRe(e.value).source})`, "gi");
+    txt = txt.replace(combined, (mm, prot) => (prot !== undefined ? mm : (tokens.push(e.token), markFor(tokens.length - 1))));
+  }
+  txt = txt.replace(new RegExp(MARK_SRC, "g"), (mm) => tokens[markIndex(mm)]);
+  // PASS 2 — folded, per line (a value never spans a newline: load refuses one).
+  const folded = byLen.map((e) => [[...foldForGate(e.value)], e.token]).filter(([f]) => f.length > 0);
+  return txt.split("\n").map((line) => maskFoldedLine(line, folded)).join("\n");
+}
+
+const WITHHELD_LINE = "<line withheld: it carries a redaction-map value in a form the mask cannot isolate>";
+
+/** True when `line`, with its tokens blanked, still folds to a string carrying a folded value. */
+function lineCarriesFoldedValue(line, folded) {
+  const f = foldForGate(line.replace(new RegExp(REDACTION_TOKEN_SCAN_SRC, "gi"), " "));
+  return folded.some(([v]) => f.includes(v.join("")));
+}
+
+/** Index of the char run `needle` within the char array `hay`, from `start`; -1 when absent. */
+function indexOfChars(hay, needle, start) {
+  outer: for (let k = start; k + needle.length <= hay.length; k++) {
+    for (let j = 0; j < needle.length; j++) if (hay[k + j] !== needle[j]) continue outer;
+    return k;
+  }
+  return -1;
+}
+
+function maskFoldedLine(line, folded) {
+  if (!lineCarriesFoldedValue(line, folded)) return line;
+  // Fold one code point at a time, recording the source span that produced each folded char.
+  const fchars = [], from = [], to = [];
+  for (let i = 0; i < line.length;) {
+    const w = line.codePointAt(i) > 0xffff ? 2 : 1;
+    for (const ch of foldForGate(line.slice(i, i + w))) { fchars.push(ch); from.push(i); to.push(i + w); }
+    i += w;
+  }
+  // Existing tokens are protected: no replacement may overlap one, nor another replacement.
+  const taken = [...line.matchAll(new RegExp(REDACTION_TOKEN_SCAN_SRC, "gi"))].map((t) => [t.index, t.index + t[0].length]);
+  const reps = [];
+  for (const [v, token] of folded) {
+    for (let k = indexOfChars(fchars, v, 0); k !== -1; k = indexOfChars(fchars, v, k + 1)) {
+      const a = from[k], b = to[k + v.length - 1];
+      if (taken.some(([s, e]) => a < e && s < b)) continue;
+      taken.push([a, b]);
+      reps.push([a, b, token]);
+    }
+  }
+  let out = line;
+  for (const [a, b, token] of reps.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + token + out.slice(b);
+  return lineCarriesFoldedValue(out, folded) ? WITHHELD_LINE : out;
+}
+
+function loadMapArg(map) {
+  if (map && typeof map === "object") return map;
+  if (map === undefined) { const r = resolveRedactionMapPath(); return loadRedactionMap(r.path, { explicit: r.explicit }); }
+  return loadRedactionMap(map, { explicit: true });
+}
+
+/**
+ * Classify a file's bytes for redaction. `utf8` → `{ text }`; `utf16` (BOM-marked) → `{ text }`
+ * for READ-ONLY scanning (apply never rewrites it); `binary` (a NUL ANYWHERE) and `non-utf8`
+ * (fails strict UTF-8 decoding) → no text. Apply rewrites only `utf8`, so it can never write a
+ * lossy decode back (C1 R1 correctness 5).
+ */
+export function classifyTextBuffer(buf) {
+  if (buf.length >= 2 && ((buf[0] === 0xff && buf[1] === 0xfe) || (buf[0] === 0xfe && buf[1] === 0xff))) {
+    const le = buf[0] === 0xff;
+    const body = buf.subarray(2);
+    const swapped = le ? body : Buffer.from(body).swap16();
+    return { kind: "utf16", text: swapped.toString("utf16le") };
+  }
+  if (buf.includes(0)) return { kind: "binary" };
+  try { return { kind: "utf8", text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf) }; }
+  catch { return { kind: "non-utf8" }; }
+}
+
+/**
+ * Depth-first walk that NEVER follows a symlink: entries are yielded as `(absPath, kind)` with kind
+ * "file" | "symlink" | "special"; a symlinked directory is yielded as a symlink and not entered, so
+ * an in-tree link to an ancestor cannot recurse (C1 R1 L4). Directories named in `skipDirs` (default
+ * `.git`) are not entered and are reported through `onSkipDir`.
+ *
+ * An entry named `.git` is skipped WHATEVER ITS KIND (C1 R2 F3). A linked worktree's `.git` is a
+ * FILE (`gitdir: <path>`), and a submodule's can be too; it is git's metadata, never content, and
+ * a rewrite of it severs the worktree from its repository (`git status` exits 128).
+ */
+export function walkFilesNoFollow(dir, cb, { skipDirs = [".git"], onSkipDir = () => {} } = {}) {
+  for (const e of readdirSync(dir)) {
+    const full = path.join(dir, e);
+    if (isGitMetadataName(e)) { onSkipDir(full); continue; }
+    let st;
+    try { st = lstatSync(full); } catch { continue; }
+    if (st.isSymbolicLink()) cb(full, "symlink");
+    else if (st.isDirectory()) { if (skipDirs.includes(e)) onSkipDir(full); else walkFilesNoFollow(full, cb, { skipDirs, onSkipDir }); }
+    else cb(full, st.isFile() ? "file" : "special");
+  }
+}
+
+/** The name git gives its metadata entry in a work tree — a directory, or a worktree's gitdir FILE. */
+export const GIT_METADATA_NAME = ".git";
+
+/**
+ * True when a path SEGMENT names git's metadata, CASE-INSENSITIVELY (M-W2.1 R2 S4): on a
+ * case-insensitive volume `.GIT` opens `.git`, and git itself refuses `.GIT` as a tracked name
+ * (core.protectHFS / protectNTFS), so no content is ever lost by treating it as metadata.
+ */
+export function isGitMetadataName(segment) {
+  return String(segment).toLowerCase() === GIT_METADATA_NAME;
+}
+
+/** The text a symlink carries — its target string — read without following it. */
+export function readSymlinkText(p) {
+  return readlinkSync(p, "utf8");
 }

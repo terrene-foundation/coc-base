@@ -248,6 +248,28 @@ const GUARD_ENV_KEYS = [
   "LOOM_ECOSYSTEM_CONFIG",
 ];
 
+function nativeDenied(r) {
+  const h = r.json?.hookSpecificOutput;
+  return r.code === 2 && h?.hookEventName === "PreToolUse" &&
+    h.permissionDecision === "deny" && typeof h.permissionDecisionReason === "string" &&
+    h.permissionDecisionReason.trim().length > 0 &&
+    typeof r.stderr === "string" && r.stderr.includes(h.permissionDecisionReason);
+}
+
+{
+  const reason = "STOP — Tool call blocked. Full refusal body.";
+  const h = { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason };
+  const good = { code: 2, json: { hookSpecificOutput: h }, stderr: reason };
+  for (const [name, result, expected] of [
+    ["exit 2 with full stderr", good, true],
+    ["exit 0 with native JSON", { ...good, code: 0 }, false],
+    ["exit 2 without stderr", { ...good, stderr: "" }, false],
+    ["exit 2 with unrelated stderr", { ...good, stderr: "another refusal" }, false],
+  ]) check(`native denial contract: ${name}`, nativeDenied(result) === expected,
+    `expected=${expected}`, "native denial accepted a missing transport signal or rejected the full refusal");
+}
+
+
 function driveGuard(fx, payload) {
   const env = { ...process.env };
   for (const k of GUARD_ENV_KEYS) delete env[k];
@@ -275,6 +297,7 @@ function driveGuard(fx, payload) {
   const tagMatch = combined.match(/\[(?:BLOCK|HALT-AND-REPORT|ADVISORY)\]/);
   return {
     code: r.status,
+    stderr: r.stderr || "",
     json,
     tag: tagMatch ? tagMatch[0] : "(none)",
     combined,
@@ -491,9 +514,9 @@ const enrolledFx = mkRepo("enrolled", { enrolled: true });
     if (want === "watched") {
       check(
         `${name}: WATCHED ⇒ the guard proceeds to verify the trust root and REFUSES`,
-        r.refused === true && r.code === 2 && r.json?.hookSpecificOutput?.permissionDecision === "deny" && r.json?.continue !== false,
+        r.refused === true && nativeDenied(r) && r.json?.continue !== false,
         `exit=${r.code} continue=${r.json?.continue} tag=${r.tag}`,
-        "a silent exit 0 here = isWatchedTool no longer matches this literal, so a sign/commit/push/roster-write proceeds on a repo with NO verifying owner-bound genesis anchor — the fail-OPEN this guard exists to prevent",
+        "missing native denial here = isWatchedTool no longer matches this literal, so a sign/commit/push/roster-write proceeds on a repo with NO verifying owner-bound genesis anchor — the fail-OPEN this guard exists to prevent",
       );
       check(
         `${name}: refusal is attributable — the emitted payload names the guard`,
@@ -504,7 +527,7 @@ const enrolledFx = mkRepo("enrolled", { enrolled: true });
     } else {
       check(
         `${name}: NOT-WATCHED ⇒ SILENT passthrough (no severity tag at all)`,
-        r.code === 0 && r.json?.continue === true && r.tag === "(none)",
+        r.code === 0 && !nativeDenied(r) && r.json?.continue === true && r.tag === "(none)",
         `exit=${r.code} continue=${r.json?.continue} tag=${r.tag}`,
         "a refusal here = the positive allowlist over-matched. For pretooluse-bash-shell-variable-skip specifically that is a hook-output-discipline.md MUST-3 violation: `$GITCMD commit` is a PRE-EXPANSION shell variable the hook cannot evaluate, and blocking on it is a lexical block. And WITHOUT the tag leg this row cannot discriminate — halt-and-report is exit 0 / continue:true, byte-identical to a silent pass on both other fields",
       );
@@ -542,9 +565,9 @@ console.log("\n=== T3: malformed-log-line-structural-null — skip, do not crash
   });
   check(
     "end-to-end: skipped-malformed + non-verifying survivor ⇒ fail CLOSED (block)",
-    r.code === 2 && r.json?.hookSpecificOutput?.permissionDecision === "deny" && r.json?.continue !== false && r.tag === "[BLOCK]",
+    nativeDenied(r) && r.json?.continue !== false && r.tag === "[BLOCK]",
     `exit=${r.code} continue=${r.json?.continue} tag=${r.tag}`,
-    "exit 0 = no verifying anchor was found and the guard let the commit through anyway. The surviving record parses but its sig is illustrative and does NOT verify, so this is precisely the fixture's declared 'only non-verifying records' case — a pass makes the fence a no-op against any log an attacker can corrupt",
+    "missing native denial = no verifying anchor was found and the guard let the commit through anyway. The surviving record parses but its sig is illustrative and does NOT verify, so this is precisely the fixture's declared 'only non-verifying records' case — a pass makes the fence a no-op against any log an attacker can corrupt",
   );
 }
 
@@ -695,7 +718,7 @@ console.log("\n=== T6: negative controls — flip one element, require the verdi
     const r = driveGuard(freshFx, payload);
     check(
       "N5: the SAME watched fixture on a fresh un-enrolled repo ⇒ NOT hard-blocked",
-      r.code === 0 && r.json?.continue === true,
+      r.code === 0 && !nativeDenied(r) && r.json?.continue === true,
       `exit=${r.code} continue=${r.json?.continue} tag=${r.tag}`,
       "a block here = a never-enrolled consumer that merely received the substrate hooks cannot land its first commit — and it would mean T2's blocks are produced by the watched-tool predicate ALONE, carrying no information about the trust-root verification they are cited for",
     );

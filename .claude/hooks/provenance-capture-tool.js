@@ -74,7 +74,28 @@
 
 "use strict";
 
-const TIMEOUT_MS = 5000;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/provenance/<session>-<session-sha256-8>.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The ledger target is NOT named in this file: lib/provenance-ledger.js::_ledgerPath builds <repoDir>/.claude/learning/provenance/<sanitized session>-<8-char sha256 of the raw id>.jsonl and appends through lib/append-sink.js. One row per recorded tool call, so a repeat is not a no-op. spawns: identity resolution (lib/operator-id.js git config / ssh-keygen probes) before the append."
+ * }
+ */
+
+// 20000, raised from 5000 (2026-10-09, Codex policy-timeout audit): this hook
+// holds a Codex `shell`/`unified_exec` policy entry with `can_deny` over the
+// Bash|Edit|Write|… matchers, and the Codex runtime fails EVERY policy closed —
+// so a load-induced timeout refuses the call. 20s is the class value the
+// 2026-10-08 audit settled on; the registered row moves with this constant.
+const TIMEOUT_MS = 20000;
 // Armed INSIDE main() — NOT at module top level — so `require()`ing this file for
 // classify() in tests does not schedule a stray timer that would fire+exit(1).
 let fallback = null;

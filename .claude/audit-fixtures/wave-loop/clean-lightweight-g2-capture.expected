@@ -27,8 +27,8 @@ placement is what keeps the three boundaries free of lease contention, and the s
 shows the contention cost that placement avoids.
 
 Trap 5 — MUST-2 is satisfied and shared: the gate fires at all three non-final boundaries with
-every step present. MUST-3 is satisfied — four reviewers, four payloads per round, two
-consecutive clean rounds before each launch. MUST-5 is satisfied — journal paths, a recorded
+every step present. MUST-3 is satisfied — four reviewers, four payloads per round, round-1 findings fixed and
+one clean fix-verification round before each launch (D237). MUST-5 is satisfied — journal paths, a recorded
 SHA, and the session-notes refresh. MUST-4 is satisfied — later-wave todos amended at each G3.
 MUST-1's declaration and unions are quoted and shared.
 

@@ -41,14 +41,14 @@
  *     This lib publishes via STAGE-THEN-`link()` rather than the sibling libs'
  *     bare `fs.openSync(path, "wx")`. Both are atomic test-and-sets, but O_EXCL
  *     publishes the NAME before the CONTENT, leaving the lockfile observable as
- *     a zero-byte file — which `_safeReadJson`/`_classifyHolder` read as
- *     `corrupt` ⇒ **dead** ⇒ reap-eligible, so a racer could reap a lease that
- *     was being born and both would hold it. `link()` publishes a fully-written
- *     inode, so that window does not exist. See `_publishLeaseAtomically`.
+ *     a zero-byte file. The stage-then-link path publishes a fully-written
+ *     inode; the degraded O_EXCL path may expose partial content. F6 keeps
+ *     corrupt/unreadable holders undetermined; _classifyLeaseLiveness gates reaping
+ *     (.claude/hooks/lib/sessionend-release-lease.js:480-500,882-935).
  *   - `coord-background.js::_foldHomedirLiveness` (the #867 pid-liveness reaper)
  *     — a crashed worker orphans its lease; the holder's `{pid, start-token}`
- *     marker lets the next acquirer classify DEAD (ESRCH / recycled PID /
- *     corrupt) and reap it, so a crash cannot deadlock every future SessionEnd.
+ *     marker distinguishes ESRCH / recycled PID from an unverifiable holder
+ *     (_classifyHolder, .claude/hooks/lib/sessionend-release-lease.js:307-350).
  *   - `codify-lease.js` / `capability-lease.js` typed Result shape, `_safeReadJson`
  *     corruption sentinel, `resolveStateDir` path derivation (Sec-MED-3 — callers
  *     cannot misroute the lease write), and per-emitter file keying.
@@ -80,6 +80,14 @@
  * it DEFERS its releases (they linger to their claim TTL — the SAME safe
  * degradation Option A already accepts); on any other non-ok it PROCEEDS
  * best-effort (a lease IO error must never BLOCK sessionend — header contract).
+ *
+ * POLICY TRADE-OFF: persistent EIO with an unchanged old same-uid witness may
+ * become reclaimable; age is not proof of holder death. The witness narrows
+ * replacement races but decision-time stat is not a sink-time lock. Retained
+ * LOW residuals: no-pid markers and non-ESRCH existence-probe errors still take
+ * the historical dead path; they are not repaired by this batch. Source symbols:
+ * _classifyHolder / _classifyLeaseLiveness / acquireReleaseLease
+ * (.claude/hooks/lib/sessionend-release-lease.js:307-350,480-500,882-935).
  */
 
 "use strict";
@@ -149,11 +157,11 @@ const NO_HARDLINK_CODES = new Set([
  * suites, a future synchronous caller, and the `COC_TEST_*` SYNC_TEARDOWN path where the parent
  * runs the teardown itself. It is a SECOND surface, not the load-bearing one.
  *
- * RESIDUAL, stated rather than glossed: in the detached worker this WARN is unconditionally
- * discarded, and so are the sibling `process.stderr.write` advisories in `releaseOwnClaims`
- * (the contended-lease and lease-io-error notices). Those two are pre-existing, out of scope
- * here, and NOT to be cited as production observability either — the same instrument fault,
- * still open. Only the `degraded` breadcrumb has a durable channel today.
+ * OBSERVABILITY CONTRACT: stderr cannot substitute for a caller-owned durable
+ * observation. Callers must inspect the Result's degradation and undetermined
+ * liveness fields, including tombstoneHeld / restore_reason when present.
+ * The heldTombstone pathname is private custody metadata, never log payload.
+ * Source: _restoreHeldTombstone, .claude/hooks/lib/sessionend-release-lease.js:527-571.
  *
  * Shape is deliberately the SAME as `append-sink.js::_warnDegradedOnce` (module-level latch,
  * stderr only, swallowed write errors) rather than a second mechanism. It is not literally
@@ -170,9 +178,10 @@ function _warnDegradedOnce() {
       "[sessionend-release-lease] WARNING: this filesystem does not support link(2) — the " +
         "release lease falls back to a bare O_EXCL create. At-most-one-releaser STILL HOLDS, " +
         "but the lease is briefly observable ZERO-BYTE between the create and the write, and a " +
-        "concurrent acquirer sampling it in that window classifies it `corrupt` ⇒ dead ⇒ " +
-        "reap-eligible, so BOTH releasers can end up holding it and the per-emitter chain can " +
-        "fork. The half-formed-lease protection is OFF here; it is restored by putting the " +
+        "concurrent acquirer treats corrupt or unreadable content as undetermined and defers. " +
+        "Complete-at-publication protection is OFF here; use a hard-link-capable filesystem. " +
+        "Source: _classifyHolder / _classifyLeaseLiveness / acquireReleaseLease " +
+        "(.claude/hooks/lib/sessionend-release-lease.js:307-350,480-500,882-935). Put the " +
         "trust state dir (CLAUDE_TRUST_STATE_DIR / the main checkout's .claude/learning/) on a " +
         "filesystem with hard links — exFAT/FAT32, many SMB/CIFS mounts and some FUSE/container " +
         "volume drivers do not have them. (loom#874, loom#1544)",
@@ -248,10 +257,16 @@ function _leasePath(repoDir, verifiedId) {
 }
 
 function _safeReadJson(p) {
+  let raw;
   try {
-    return JSON.parse(fs.readFileSync(p, "utf8"));
+    raw = fs.readFileSync(p, "utf8");
   } catch (e) {
     if (e && e.code === "ENOENT") return null;
+    return { _unreadable: true, _error: String(e && e.message) };
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
     // Corrupt JSON → sentinel so callers can classify (never silently no-lease).
     return { _corrupt: true, _error: String(e && e.message) };
   }
@@ -265,10 +280,11 @@ function _processStartToken(pid) {
     const out = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
       stdio: ["ignore", "pipe", "ignore"],
       encoding: "utf8",
+      env: { ...process.env, TZ: "UTC", LC_ALL: "C" },
       timeout: 2000,
     });
     const t = (out || "").trim();
-    return t.length > 0 ? t : null;
+    return t.length > 0 ? "v2:" + t : null;
   } catch {
     return null;
   }
@@ -282,15 +298,24 @@ function _ownStartToken() {
   return _ownStartTokenCache;
 }
 
-/** Classify a lease's holder by its {holder_pid, holder_token} marker. Mirrors
- * coord-background.js::_foldHomedirLiveness. Only "dead" is reap-eligible.
- *   "dead"  — pid gone (ESRCH) / corrupt / no-pid / start-token mismatch (PID
- *             recycled) → reap regardless of age (the crash-orphan class).
- *   "alive" — pid alive (kill(pid,0) ok, or EPERM = alive-other-uid); a genuine
- *             in-flight releaser → contended, do NOT reap. */
+/** _classifyHolder (.claude/hooks/lib/sessionend-release-lease.js:307-350).
+ * PID truth only; _classifyLeaseLiveness supplies separate age-policy eligibility.
+ *   "dead"  — absent / no-pid / pid gone / start-token mismatch.
+ *   "alive" — pid exists, including EPERM; matching or unverified start token.
+ *   "undetermined" — corrupt or unreadable persisted marker; defer.
+ * This is a decision-time observation, not sink-time identity. */
 function _classifyHolder(existing) {
-  if (!existing || existing._corrupt) {
-    return { state: "dead", reason: "corrupt-lease" };
+  if (existing && existing._unsafe) {
+    return { state: "undetermined", reason: "unsafe-lease" };
+  }
+  if (existing && existing._corrupt) {
+    return { state: "undetermined", reason: "corrupt-lease" };
+  }
+  if (existing && existing._unreadable) {
+    return { state: "undetermined", reason: "unreadable-lease" };
+  }
+  if (!existing) {
+    return { state: "dead", reason: "absent" };
   }
   const pid =
     Number.isInteger(existing.holder_pid) && existing.holder_pid > 0
@@ -308,14 +333,286 @@ function _classifyHolder(existing) {
   if (!alive) return { state: "dead", reason: "esrch" };
   const storedToken = existing.holder_token || null;
   const liveToken = _processStartToken(pid);
-  if (storedToken && liveToken) {
-    return storedToken === liveToken
-      ? { state: "alive", reason: "token-verified" }
-      : { state: "dead", reason: "token-mismatch" }; // PID recycled
+  if (storedToken) {
+    if (typeof storedToken !== "string" ||
+      !storedToken.startsWith("v2:") || storedToken.length <= 3) {
+      return { state: "undetermined", reason: "token-format-unverified" };
+    }
+    if (liveToken) {
+      return storedToken === liveToken
+        ? { state: "alive", reason: "token-verified" }
+        : { state: "dead", reason: "token-mismatch" };
+    }
   }
   // Alive but the start-token could not be compared — a live process this
   // session; spare it (a live in-flight releaser is exactly what we serialize).
   return { state: "alive", reason: "token-unverified" };
+}
+
+// Reuse capability-lease.js::MULTILEASE_TTL_MS's existing birth floor
+// (.claude/hooks/lib/capability-lease.js:279,532-587), without changing PID truth.
+const UNDETERMINED_BIRTH_FLOOR_MS = 15 * 60 * 1000;
+
+// A real lease is a few hundred bytes; anything larger is not a lease this module
+// wrote, so it is never decoded into a liveness verdict.
+const LEASE_MAX_BYTES = 64 * 1024;
+
+function _statWitness(st) {
+  if (!st || !st.isFile() ||
+    ![st.dev, st.ino, st.size, st.mtimeMs, st.uid].every(Number.isFinite)) return null;
+  return { dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, uid: st.uid };
+}
+
+// Path-time identity of the NAME, for the pre-rename / pre-unlink recheck. lstat,
+// so a symlink planted at the name is never resolved into a "same file" witness.
+function _leaseWitness(leasePath) {
+  try {
+    return _statWitness(fs.lstatSync(leasePath));
+  } catch {
+    return null;
+  }
+}
+
+function _sameLeaseWitness(a, b) {
+  return !!a && !!b && ["dev", "ino", "size", "mtimeMs", "uid"].every(k => a[k] === b[k]);
+}
+
+/**
+ * Read a lease (or a held tombstone) so the decoded bytes and the identity
+ * witness come from ONE descriptor (R2-S2). A path read followed by a path stat
+ * can classify one inode's bytes and witness a replacement's metadata, so a dead
+ * holder's bytes would authorize moving a live holder's file. Here the file is
+ * opened O_NOFOLLOW (a symlink is never classified through its target), fstat'd
+ * (a FIFO, socket or device is refused before any read), read through a
+ * LEASE_MAX_BYTES+1 bound, and fstat'd again: metadata that changed across the
+ * read leaves the bytes UNBOUND, and unbound bytes never classify dead
+ * (_classifyLeaseLiveness).
+ *
+ * @returns {{absent:true} | {existing:object, witness:object|null, bytes?:Buffer}}
+ */
+function _readLeaseBound(p) {
+  const C = fs.constants || {};
+  let fd;
+  try {
+    if (!(C.O_NOFOLLOW > 0)) {
+      // No O_NOFOLLOW (win32): refuse a symlink by lstat before the open.
+      if (fs.lstatSync(p).isSymbolicLink()) {
+        return { existing: { _unreadable: true, _unsafe: true }, witness: null };
+      }
+    }
+    fd = fs.openSync(p, (C.O_RDONLY || 0) | (C.O_NOFOLLOW || 0) | (C.O_NONBLOCK || 0));
+  } catch (e) {
+    if (e && e.code === "ENOENT") return { absent: true, existing: null, witness: null };
+    if (e && e.code === "ELOOP") {
+      return { existing: { _unreadable: true, _unsafe: true }, witness: null };
+    }
+    return { existing: { _unreadable: true, _error: String(e && e.message) }, witness: null };
+  }
+  try {
+    let st;
+    try {
+      st = fs.fstatSync(fd);
+    } catch {
+      st = null;
+    }
+    // A FIFO, socket or device at the lease name is not a lease this module
+    // wrote, and its size says nothing about how much a read returns: refuse it
+    // before any byte is read.
+    if (st && !st.isFile()) {
+      return { existing: { _unreadable: true, _unsafe: true }, witness: null };
+    }
+    const before = _statWitness(st);
+    if (before && before.size > LEASE_MAX_BYTES) {
+      return { existing: { _unreadable: true, _unsafe: true }, witness: null };
+    }
+    let bytes;
+    try {
+      // Bounded whatever fstat said (or could not say): one byte past the limit
+      // proves the file is oversized without reading the rest of it.
+      const buf = Buffer.alloc(LEASE_MAX_BYTES + 1);
+      let used = 0;
+      while (used < buf.length) {
+        const count = fs.readSync(fd, buf, used, buf.length - used, used);
+        if (count === 0) break;
+        used += count;
+      }
+      if (used > LEASE_MAX_BYTES) {
+        return { existing: { _unreadable: true, _unsafe: true }, witness: null };
+      }
+      bytes = buf.subarray(0, used);
+    } catch (e) {
+      // Nothing was decoded, so there is nothing to bind: the witness is the
+      // identity of the inode that could not be read (age policy input only).
+      return { existing: { _unreadable: true, _error: String(e && e.message) }, witness: before };
+    }
+    let after;
+    try {
+      after = _statWitness(fs.fstatSync(fd));
+    } catch {
+      after = null;
+    }
+    const existing = _parseLease(bytes.toString("utf8"));
+    // Unavailable OR changed metadata leaves the decoded bytes bound to no inode.
+    if (!_sameLeaseWitness(before, after)) return { existing, bytes, witness: null };
+    return { existing, bytes, witness: after };
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch (_) {
+      /* read-only descriptor; nothing to flush */
+    }
+  }
+}
+
+function _parseLease(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return { _corrupt: true, _error: String(e && e.message) };
+  }
+}
+
+/**
+ * Liveness of a bound read: PID truth from _classifyHolder, then a SEPARATE age
+ * policy for undetermined content. Only a bound read may be reap-eligible, and
+ * an unbound one is never reported dead — its bytes describe no known inode.
+ */
+function _classifyLeaseLiveness(read) {
+  const verdict = _classifyHolder(read.existing);
+  if (verdict.state === "alive") return { ...verdict, reap_eligible: false };
+  if (read.absent) return { ...verdict, reap_eligible: false, age_reason: "stat-unavailable" };
+  const witness = read.witness;
+  if (!witness) {
+    return { state: "undetermined", reason: verdict.state === "dead" ? "unbound-lease" : verdict.reason,
+      reap_eligible: false, age_reason: "stat-unavailable" };
+  }
+  const result = { ...verdict, witness, reap_eligible: false };
+  if (verdict.state === "dead") return { ...result, reap_eligible: true };
+  const age = Date.now() - witness.mtimeMs;
+  result.floor_ms = UNDETERMINED_BIRTH_FLOOR_MS;
+  if (!Number.isFinite(age) || age < 0) return { ...result, age_ms: null, age_reason: "mtime-indeterminate" };
+  result.age_ms = age;
+  if (typeof process.getuid !== "function" || witness.uid !== process.getuid()) {
+    return { ...result, age_reason: "owner-unverifiable" };
+  }
+  return { ...result, reap_eligible: age >= UNDETERMINED_BIRTH_FLOOR_MS,
+    age_reason: age >= UNDETERMINED_BIRTH_FLOOR_MS ? "birth-floor-expired" : "birth-window" };
+}
+
+function _publicLiveness(liveness) {
+  const { witness: _privateWitness, ...verdict } = liveness;
+  return verdict;
+}
+
+/**
+ * Put a moved lease back at its name without ever clobbering a newborn. link(2)
+ * first: it fails EEXIST if a newborn took the name. Where the filesystem has no
+ * hard links, fall back to an O_EXCL copy of the bytes that were classified
+ * (R2-S1), since leaving the name empty would let the next acquirer publish over
+ * a live holder. Any failure keeps the tombstone as HELD custody, which
+ * _clearHeldCustody makes every later acquirer honour.
+ */
+// A tombstone that is GONE was cleared by another acquirer's _clearHeldCustody
+// (which unlinks only reap-eligible custody): nothing is held, so it is not a
+// restore failure and is not reported as a degradation.
+function _tombstoneGone(tombstone) {
+  try {
+    fs.lstatSync(tombstone);
+    return false;
+  } catch (e) {
+    return !!e && e.code === "ENOENT";
+  }
+}
+
+function _restoreHeldTombstone(tombstone, leasePath, bytes) {
+  const held = (restore_reason) => ({ heldTombstone: tombstone, tombstoneHeld: true, restore_reason });
+  try {
+    fs.linkSync(tombstone, leasePath);
+  } catch (e) {
+    const code = e && e.code;
+    if (code === "EEXIST") return held("newborn-present");
+    if (code === "ENOENT" && _tombstoneGone(tombstone)) {
+      return { tombstoneHeld: false, restore_reason: "tombstone-cleared" };
+    }
+    if (!NO_HARDLINK_CODES.has(code)) return held("restore-link-failed");
+    if (bytes == null) return held("restore-copy-unavailable");
+    let fd;
+    try {
+      fd = fs.openSync(leasePath, "wx", 0o600);
+    } catch (e2) {
+      return held(e2 && e2.code === "EEXIST" ? "newborn-present" : "restore-copy-failed");
+    }
+    let copied = false;
+    try {
+      fs.writeFileSync(fd, bytes);
+      copied = true;
+    } catch (_) {
+      /* partial copy: custody stays held, so the copy can never be reaped first */
+    }
+    try {
+      fs.closeSync(fd);
+    } catch (_) {
+      copied = false; // a close error leaves the copy's durability unknown
+    }
+    if (!copied) return held("restore-copy-failed");
+    try {
+      fs.unlinkSync(tombstone);
+      return { tombstoneHeld: false, restore_reason: "restored-by-copy" };
+    } catch {
+      return held("restore-unlink-failed");
+    }
+  }
+  try {
+    fs.unlinkSync(tombstone);
+    return { tombstoneHeld: false, restore_reason: "restored" };
+  } catch {
+    return held("restore-unlink-failed");
+  }
+}
+
+function _escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * HELD custody (R2-S1): a `<lease>.reap-<pid>-<8hex>` tombstone that a reaper
+ * could not restore or remove still holds a lease's bytes. While one exists the
+ * lease name may be empty, so a publish there could run beside the holder the
+ * tombstone names. Before every publish each held tombstone is classified like a
+ * lease: a reap-eligible one is removed (bounded clearing), anything else defers
+ * the acquire. An unreadable directory defers too — custody is then unknown,
+ * never assumed absent.
+ *
+ * @returns {{ok:true} | {ok:false, holder:object|null, liveness:object}}
+ */
+function _clearHeldCustody(leasePath) {
+  const dir = path.dirname(leasePath);
+  const pattern = new RegExp(`^${_escapeRegExp(path.basename(leasePath))}\\.reap-\\d+-[0-9a-f]{8}$`);
+  let names;
+  try {
+    names = fs.readdirSync(dir).filter((n) => pattern.test(n));
+  } catch (_) {
+    return { ok: false, holder: null, liveness: { state: "undetermined",
+      reason: "custody-unobservable", reap_eligible: false } };
+  }
+  for (const name of names) {
+    const held = path.join(dir, name);
+    const read = _readLeaseBound(held);
+    if (read.absent) continue; // its reaper finished between the scan and the read
+    const liveness = _classifyLeaseLiveness(read);
+    if (liveness.reap_eligible && _sameLeaseWitness(liveness.witness, _leaseWitness(held))) {
+      try {
+        fs.unlinkSync(held);
+        continue;
+      } catch (e) {
+        if (e && e.code === "ENOENT") continue;
+      }
+    }
+    return { ok: false, holder: _holderView(read.existing), liveness: {
+      ..._publicLiveness(liveness), reap_eligible: false,
+      heldTombstone: held, tombstoneHeld: true, restore_reason: "custody-held" } };
+  }
+  return { ok: true };
 }
 
 /**
@@ -324,9 +621,9 @@ function _classifyHolder(existing) {
  * WHY NOT `openSync(leasePath, "wx")` DIRECTLY (sec-874 follow-up): O_EXCL makes
  * the NAME appear atomically, but the CONTENT is written afterwards, so between
  * the open and the write the lease is observable as a ZERO-BYTE file. Every
- * reader in this module funnels through `_safeReadJson` → `_classifyHolder`,
- * and a zero-byte file parses as `{_corrupt:true}`, which classifies **dead** —
- * i.e. REAP-ELIGIBLE. A concurrent acquirer that sampled the path inside that
+ * acquire-side reader funnels through `_readLeaseBound` → `_classifyHolder`.
+ * Before F6, zero-byte/corrupt content classified dead and authorized a reap
+ * (1efa82cc8801010372d2837bbf36a390ee6a42df:.claude/hooks/lib/sessionend-release-lease.js:291-295). A racer inside that
  * window therefore reaped a lease that was being BORN and created its own: BOTH
  * racers returned `ok:true`, which is precisely the at-most-one-releaser
  * invariant this lib exists to hold. Widening that window to 80ms made it fire
@@ -507,7 +804,7 @@ function _publishLeaseAtomically(leasePath, body) {
 }
 
 function _holderView(existing) {
-  if (!existing || existing._corrupt) return null;
+  if (!existing || existing._corrupt || existing._unreadable) return null;
   return {
     verified_id: existing.verified_id,
     holder_pid: existing.holder_pid,
@@ -521,9 +818,11 @@ function _holderView(existing) {
 /**
  * Acquire the per-emitter single-releaser lease keyed on `verifiedId`. The
  * ATOMIC O_EXCL create IS the serialization: exactly one same-emitter releaser
- * wins; a second gets EEXIST. Before returning `contended`, a DEAD (crashed /
- * recycled-PID / corrupt) holder is reaped once (pid-liveness) so a crash cannot
- * deadlock every future SessionEnd.
+ * wins; a second gets EEXIST. _classifyLeaseLiveness and the tombstone witness
+ * select one bounded reap attempt (PID verdict or old-unknown age policy), over
+ * bytes and a witness taken from ONE descriptor (_readLeaseBound). Every publish
+ * is preceded by _clearHeldCustody, so a held tombstone defers or is cleared.
+ * Source: .claude/hooks/lib/sessionend-release-lease.js:393-465,588-616,856-859,882-935.
  *
  * @param {object} opts - { verifiedId, repoDir? }
  * @returns {{ok:true, lease, leasePath} | {ok:false, reason, ...}}
@@ -551,6 +850,13 @@ function acquireReleaseLease(opts) {
   // (post-reap) never reaps again (bounds the loop — a fresh EEXIST after our
   // reap means another acquirer won the race, which is genuine contention).
   for (let attempt = 0; attempt < 2; attempt++) {
+    // HELD custody first (R2-S1): a tombstone that still holds a lease's bytes
+    // means the name may be empty while its holder runs, so a publish there is
+    // not evidence of exclusivity. _clearHeldCustody clears or defers.
+    const custody = _clearHeldCustody(leasePath);
+    if (!custody.ok) {
+      return { ok: false, reason: "contended", holder: custody.holder, liveness: custody.liveness };
+    }
     const lease = {
       lease_id: `sereleaselease_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`,
       verified_id: verifiedId,
@@ -571,25 +877,22 @@ function acquireReleaseLease(opts) {
     if (!published.ok) {
       const e = { code: published.code, message: published.error };
       if (e.code === "EEXIST") {
-        const existing = _safeReadJson(leasePath);
-        const liveness = _classifyHolder(existing);
-        if (liveness.state === "dead" && attempt === 0) {
-          // ATOMIC stale reap (sec-874). A plain `unlinkSync(leasePath)` is a
-          // reap-race TOCTOU: between this classify-dead read and the unlink,
-          // another racer can reap the SAME stale lease AND create a LIVE one at
-          // the same path — an unconditional path-unlink then deletes that LIVE
-          // lease, both racers `open("wx")` succeed, both emit seq=N+1 → the
-          // exact fork this lib prevents. Reap via a UNIQUE-tombstone rename
-          // instead: POSIX rename is atomic on the SOURCE, so exactly ONE racer
-          // moves the file; every other racer's rename gets ENOENT and DEFERS
-          // (never blind-creates). After winning the move we CONFIRM the
-          // tombstone is the SAME dead lease we classified — if a live lease
-          // slipped into the path in the window we restore it and defer. Any
-          // ambiguity → defer, so at-most-one-releaser holds ACROSS the reap,
-          // not merely on the no-crash path.
+        // Bytes and witness from ONE descriptor (_readLeaseBound), so the
+        // classified holder and the inode the rename may move are the same file.
+        const read = _readLeaseBound(leasePath);
+        const existing = read.existing;
+        const liveness = _classifyLeaseLiveness(read);
+        if (liveness.reap_eligible && attempt === 0) {
+          // Re-check the NAME still holds the classified inode before moving it,
+          // then reclassify the moved file under its unique tombstone name;
+          // _sameLeaseWitness rejects a replacement observed around the rename.
           const tombstone = `${leasePath}.reap-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
           let renamed = false;
           try {
+            if (!_sameLeaseWitness(liveness.witness, _leaseWitness(leasePath))) {
+              return { ok: false, reason: "contended", holder: _holderView(existing),
+                liveness: { ..._publicLiveness(liveness), reap_eligible: false, age_reason: "witness-changed" } };
+            }
             fs.renameSync(leasePath, tombstone);
             renamed = true;
           } catch (_) {
@@ -598,44 +901,37 @@ function acquireReleaseLease(opts) {
           if (!renamed) {
             // Another racer already moved the stale lease. DO NOT blind-create
             // — re-read + defer as contention (the winner will hold it).
-            const now = _safeReadJson(leasePath);
+            const now = _readLeaseBound(leasePath);
             return {
               ok: false,
               reason: "contended",
-              holder: _holderView(now),
-              liveness: _classifyHolder(now),
+              holder: _holderView(now.existing),
+              liveness: _publicLiveness(_classifyLeaseLiveness(now)),
             };
           }
-          // We EXCLUSIVELY hold the tombstone. Confirm the file we moved is
-          // STILL dead — the sufficient guard: a live lease that slipped into
-          // the path in the classify→rename window classifies `alive` (its
-          // holder pid is live), so we must NOT reap it. Re-classifying the
-          // exclusively-held tombstone is race-free (no one else can touch our
-          // uniquely-named tombstone). A dead file (crash-orphan OR corrupt —
-          // no valid live holder) is safe to delete since we alone hold it.
-          const moved = _safeReadJson(tombstone);
-          const movedLive = _classifyHolder(moved);
-          if (movedLive.state === "dead") {
+          const movedRead = _readLeaseBound(tombstone);
+          const moved = movedRead.existing;
+          const movedLive = _classifyLeaseLiveness(movedRead);
+          if (movedLive.reap_eligible && movedLive.state === liveness.state &&
+            _sameLeaseWitness(liveness.witness, movedLive.witness) &&
+            _sameLeaseWitness(liveness.witness, _leaseWitness(tombstone))) {
             try {
               fs.unlinkSync(tombstone);
-            } catch (_) {
-              /* best-effort; the tombstone name is unique to this process */
+            } catch (e) {
+              // Cleared by another acquirer first: the reap is done either way.
+              if (e && e.code === "ENOENT" && _tombstoneGone(tombstone)) continue;
+              return { ok: false, reason: "contended", holder: _holderView(moved),
+                liveness: { ..._publicLiveness(movedLive), reap_eligible: false,
+                  heldTombstone: tombstone, tombstoneHeld: true, restore_reason: "reap-unlink-failed" } };
             }
-            continue; // reap confirmed → retry the atomic O_EXCL create
+            continue;
           }
-          // The moved file is a LIVE lease (a holder slipped into the path in
-          // the window). Restore it best-effort so its holder's release still
-          // resolves, and DEFER — never recreate over a live lease.
-          try {
-            fs.renameSync(tombstone, leasePath);
-          } catch (_) {
-            /* the holder may already have recreated the path; leave the tombstone (gitignored) */
-          }
+          const restored = _restoreHeldTombstone(tombstone, leasePath, movedRead.bytes);
           return {
             ok: false,
             reason: "contended",
             holder: _holderView(moved),
-            liveness: movedLive,
+            liveness: { ..._publicLiveness(movedLive), reap_eligible: false, ...restored },
           };
         }
         // A LIVE holder (or a fresh EEXIST after our reap) → genuine contention.
@@ -643,7 +939,7 @@ function acquireReleaseLease(opts) {
           ok: false,
           reason: "contended",
           holder: _holderView(existing),
-          liveness,
+          liveness: _publicLiveness(liveness),
         };
       }
       // Not EEXIST — a genuine IO failure (ENOSPC, EROFS, EACCES on the state
@@ -693,12 +989,12 @@ function acquireReleaseLease(opts) {
       : { ok: true, lease, leasePath };
   }
   // Exhausted attempts (reaped, then lost the create race to a live acquirer).
-  const existing = _safeReadJson(leasePath);
+  const last = _readLeaseBound(leasePath);
   return {
     ok: false,
     reason: "contended",
-    holder: _holderView(existing),
-    liveness: _classifyHolder(existing),
+    holder: _holderView(last.existing),
+    liveness: _publicLiveness(_classifyLeaseLiveness(last)),
   };
 }
 
@@ -722,6 +1018,9 @@ function releaseReleaseLease(opts) {
   const leasePath = _leasePath(repoDir, verifiedId);
   const existing = _safeReadJson(leasePath);
   if (existing === null) return { ok: true, noop: true, reason: "no-lease" };
+  if (existing._unreadable) {
+    return { ok: false, reason: "lease-io-error", error: existing._error };
+  }
   if (existing._corrupt) {
     // Cannot verify ownership → refuse to clobber (never silently delete
     // another holder's lock; zero-tolerance.md Rule 3).
@@ -772,6 +1071,9 @@ function readActiveReleaseLease(verifiedId, repoDir) {
   const lp = _leasePath(repoDir || process.cwd(), verifiedId);
   const existing = _safeReadJson(lp);
   if (existing === null) return { lease: null, leasePath: lp };
+  if (existing._unreadable) {
+    return { lease: null, leasePath: lp, reason: "lease-io-error", error: existing._error };
+  }
   if (existing._corrupt) {
     return {
       lease: null,

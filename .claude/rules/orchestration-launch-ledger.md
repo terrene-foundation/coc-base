@@ -3,9 +3,10 @@ priority: 10
 scope: path-scoped
 cli_delivery: skill-channel
 paths:
-  - "**/workspaces/**"
   - "**/.session-notes*"
-  - "journal/**"
+  - "**/*{launch-ledger,LAUNCH-LEDGER}*"
+  - "**/.wave-tracker*"
+  - "**/.wave-tracker.d/**"
 ---
 
 # Orchestration Launch-Ledger — Track Spawned Agents In A Durable Artifact That Survives Context Boundaries
@@ -97,7 +98,7 @@ An agent stopped by a quota, rate-limit, or session-limit failure has NOT termin
 
 Preserving an interrupted agent's uncommitted work is CORRECT — losing it is worse than any cleanup. But a blanket `git add -A` rescue is indiscriminate: it stages build outputs, scratch harnesses, measurement binaries, probe files, **and anything holding a credential**. Prefer EXPLICIT-PATH staging (`coc-sync-landing.md` MUST-2 already BLOCKS `git add -u`/`-A`/`.`); use `-A` only when the interrupted set is genuinely unknown, and then inspect it. Between staging and `git push` the orchestrator MUST (a) INSPECT the staged set rather than committing blind, (b) scan for **secrets/credentials** over a range PROVEN non-empty, and (c) scan for oversized blobs and artefact-shaped paths.
 
-**The secret scan is the non-negotiable one** — an oversized blob costs a history rewrite, but a pushed credential is unrecoverable and costs ROTATION. The checkpoint MUST land on `recovery/<name>` (`worktree-isolation.md` Rule 8) and MUST declare itself with the literal subject prefix **`checkpoint(UNREVIEWED):`**, so a merge gate can mechanically detect one reaching a PR (why it is load-bearing, and Rule-8's elaboration: the extract § "MUST-5 depth"). Pushing a per-operator scratch tree to a shared branch is a sensitivity escalation carrying `recommendation-quality.md` MUST-8's confirm-before-persist gate. **Scan commands, the empty-range trap, full BLOCKED corpus: `skills/30-claude-code-patterns/quota-pause-and-rescue-hygiene.md` § MUST-5.**
+**The secret scan is the non-negotiable one** — an oversized blob costs a history rewrite, but a pushed credential is unrecoverable and costs ROTATION. The checkpoint MUST land on `recovery/<name>` (`worktree-isolation.md` Rule 8) and MUST declare itself with the literal subject prefix **`checkpoint(UNREVIEWED):`**, so a merge gate can mechanically detect one reaching a PR (why it is load-bearing, and Rule-8's elaboration: the extract § "MUST-5 depth"). Pushing a per-operator scratch tree to a shared branch is a sensitivity escalation carrying `recommendation-quality-escalation.md` MUST-8's confirm-before-persist gate. **Scan commands, the empty-range trap, full BLOCKED corpus: `skills/30-claude-code-patterns/quota-pause-and-rescue-hygiene.md` § MUST-5.**
 
 ```text
 # DO — inspect → secret-scan (non-empty range proven) → blob-scan → recovery/<name> + checkpoint(UNREVIEWED):
