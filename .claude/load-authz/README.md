@@ -25,15 +25,25 @@ consumes it.
 
 ## `synthetic-load-allow` — the one-shot receipt
 
-A file whose **body is your stated reason** for generating load. Write it, then
-re-issue the exact refused command.
+A file holding the **one-line JSON receipt the refusal prints** —
+`{"digest":"…","reason":"…","written_at":"…"}` — with your stated reason for
+generating load in place of the placeholder. Write it, then re-issue the exact
+refused command.
 
-- **An empty file is NOT an override.** The body must be non-empty, so a stray
-  `touch` or half-finished redirect cannot lift the refusal.
+- **Bound to ONE command.** The digest covers the tool, the exact command string
+  and the refused finding, so a receipt lifts only the command it was written for;
+  one written for another command is refused by name and LEFT IN PLACE, never spent.
+- **Fifteen minutes.** It expires fifteen minutes after its own `written_at`; a stale
+  or future-dated receipt is refused by name and left in place.
+- **An empty reason is NOT an override**, and neither is the template placeholder or
+  the retired plain-text one-liner.
 - **Consumed on use.** The receipt is deleted as it is honoured, so it lifts ONE
   call, never the rest of the session.
 - **Recorded.** The stated reason is echoed back into the transcript with the
-  override notice, so the decision is on the record rather than free.
+  override notice, and the use is appended to
+  `.claude/learning/override-receipt-uses.jsonl` under the main checkout (the call
+  digest, a hash of the reason, and the session/agent identity). A use that cannot
+  be recorded is not honoured.
 - **Found in either tree.** The guard looks in the tree the command runs from AND
   in the main checkout, so a receipt an operator drops in the main checkout works
   for a call issued from a linked worktree.

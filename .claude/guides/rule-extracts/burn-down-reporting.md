@@ -96,10 +96,14 @@ is self-serving, so the reference was dropped instead. That is a judgment call, 
 outcome, and it is recorded as one.
 
 The honest consequence is that a session which never touches a `paths:` surface can close without
-this rule ever loading. The mitigation is the `paths:` set, which now includes
-`**/.session-notes.d/**` and `**/.wave-tracker*` — `/wrapup` writes the first and `wave-loop.md` G2
-writes the second, so any session reaching a real close-out fires the rule. A session that edits only
-`src/` and closes does NOT.
+this rule ever loading. The mitigation was a `paths:` set including `**/.session-notes.d/**`; it was
+narrowed on 2026-10-10 (context-budget glob narrowing), because every session PICKUP reads the
+operator fragment and loaded this rule there for no clause that binds at a read. MUST-3 forbids the
+burn-down in the notes anyway, and `commands/wrapup.md` carries that. Close-out now reaches MUST-1
+through the `residual-figure-guard.js` Stop hook, which is advisory, and through the `paths:` that
+remain: `journal/**`, `**/.wave-tracker*` (`wave-loop.md` G2 writes it), `**/04-validate/**` (sweep
+and validation reports), `**/*BURNDOWN*`. A session that edits only `src/` and closes still does NOT
+load the rule.
 
 **Fixture + probe coverage, and the MUST-4 citation tension.** Fixtures at
 `.claude/audit-fixtures/burn-down-reporting/` are **bipolar per PROBED PAIR (MUST-1, MUST-2,

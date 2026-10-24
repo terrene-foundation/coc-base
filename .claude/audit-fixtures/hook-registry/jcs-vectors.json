@@ -1,0 +1,109 @@
+{
+  "_doc": "Known-answer vectors for the RFC 8785 JCS canonicalization that content_sha256 is taken over. A consumer reproduces each row independently — strict parse, then canonicalize, then sha256 — and FAILS CLOSED on any disagreement. `expect` names the required outcome AND the layer that must produce it: refused-by-strict-parse is the strict JSON layer (duplicate keys, lone surrogates — things JSON.parse silently accepts), refused-by-canonicalizer is the RFC 8785 layer (floats where a value is not a safe integer), canonical is the success row.",
+  "scheme": "RFC 8785 JCS",
+  "implementation": ".claude/hooks/lib/weft-jcs.js (canonicalizer) + .claude/hooks/lib/hook-registry-contract.js::parseStrictJson (strict parse)",
+  "number_rule": "Numbers are safe integers only. A JSON literal that REACHES an integer value is normalized to its decimal form (1.0 -> 1, 1e2 -> 100, -0.0 -> 0); a value that is not a safe integer is refused rather than serialized (1.5, 1e21, beyond 2^53). This is the RFC 8785 cross-language number hazard closed by construction rather than by trusting every consumer's float formatting.",
+  "provenance": "Generated 2026-10-07 by running this repo's canonicalizer + strict parser over the inputs below, and cross-checked against RFC 8785's stated rules: member ordering by UTF-16 code units (§3.2.3), string serialization equal to ECMAScript well-formed JSON.stringify (§3.2.2), no insignificant whitespace (§3.2.1). The RFC appendix's own published vectors were NOT copied — they were not fetched, and this file does not claim to reproduce them. These are this implementation's frozen outputs, stated as such.",
+  "vectors": [
+    {
+      "name": "key-order-sorted-by-utf16-code-units",
+      "expect": "canonical",
+      "input_text": "{\"b\":1,\"a\":\"x\"}",
+      "canonical": "{\"a\":\"x\",\"b\":1}",
+      "sha256": "cdab067e9f3beb32d1252cfd63e492592fecbf591b0d08cadb24bb17f3864246"
+    },
+    {
+      "name": "nested-objects-and-arrays",
+      "expect": "canonical",
+      "input_text": "{\"z\":[3,{\"y\":2,\"x\":1}],\"a\":null}",
+      "canonical": "{\"a\":null,\"z\":[3,{\"x\":1,\"y\":2}]}",
+      "sha256": "d2809cde278c1f54157667fab08b91dd58ce43e9364aabc900dc01b815c483b2"
+    },
+    {
+      "name": "string-escaping-controls-and-non-ascii",
+      "expect": "canonical",
+      "input_text": "{\"a\":\"line\\nbreak \\u0007 \\\"q\\\" \\\\ \\u00fc\"}",
+      "canonical": "{\"a\":\"line\\nbreak \\u0007 \\\"q\\\" \\\\ ü\"}",
+      "sha256": "e9d6a5cb832dbf2ee924b102c4ae4dc2952571406ea9b18f8bf556956d61ead9"
+    },
+    {
+      "name": "unicode-key-order-z-before-e-acute",
+      "expect": "canonical",
+      "input_text": "{\"\\u00e9\":\"e-acute\",\"z\":\"latin-z\"}",
+      "canonical": "{\"z\":\"latin-z\",\"é\":\"e-acute\"}",
+      "sha256": "3e9a2970c796d970e85571288810d00cb61eabe9f958c5ef0087e62aa4c5565e"
+    },
+    {
+      "name": "surrogate-pair-key-sorts-before-bmp-ffff",
+      "expect": "canonical",
+      "input_text": "{\"\\uffff\":\"bmp-max\",\"\\ud83d\\ude00\":\"emoji\"}",
+      "canonical": "{\"😀\":\"emoji\",\"￿\":\"bmp-max\"}",
+      "sha256": "63e52d878dc84223746e5cd18e5f279cc820e66e0725ff3c02edb822b29c1f9d"
+    },
+    {
+      "name": "safe-integer-serialization",
+      "expect": "canonical",
+      "input_text": "{\"n\":1234567890,\"neg\":-42}",
+      "canonical": "{\"n\":1234567890,\"neg\":-42}",
+      "sha256": "449f71c1f541711b031bcf8bae632113cc1d97aafb04a9f0bfa8936520396863"
+    },
+    {
+      "name": "whitespace-does-not-affect-the-canonical-form",
+      "expect": "canonical",
+      "input_text": "{\n  \"b\" : 1 ,\n  \"a\" : \"x\"\n}",
+      "canonical": "{\"a\":\"x\",\"b\":1}",
+      "sha256": "cdab067e9f3beb32d1252cfd63e492592fecbf591b0d08cadb24bb17f3864246"
+    },
+    {
+      "name": "number-normalization-1.0-becomes-1",
+      "expect": "canonical",
+      "input_text": "1.0",
+      "canonical": "1",
+      "sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+    },
+    {
+      "name": "number-normalization-exponent-1e2-becomes-100",
+      "expect": "canonical",
+      "input_text": "1e2",
+      "canonical": "100",
+      "sha256": "ad57366865126e55649ecb23ae1d48887544976efea46a48eb5d85a6eeb4d306"
+    },
+    {
+      "name": "number-normalization-negative-zero-becomes-0",
+      "expect": "canonical",
+      "input_text": "-0.0",
+      "canonical": "0",
+      "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+    },
+    {
+      "name": "float-beyond-integer-is-refused",
+      "expect": "refused-by-strict-parse",
+      "input_text": "1.5",
+      "observed": "$: number 1.5 is not a safe integer — this document is integer-only (RFC 8785 float serialization is the cross-language interop hazard)"
+    },
+    {
+      "name": "unsafe-magnitude-1e21-is-refused",
+      "expect": "refused-by-strict-parse",
+      "input_text": "1e21",
+      "observed": "$: number 1e+21 is not a safe integer — this document is integer-only (RFC 8785 float serialization is the cross-language interop hazard)"
+    },
+    {
+      "name": "integer-beyond-2^53-is-refused",
+      "expect": "refused-by-strict-parse",
+      "input_text": "9007199254740993",
+      "observed": "$: number 9007199254740992 is not a safe integer — this document is integer-only (RFC 8785 float serialization is the cross-language interop hazard)"
+    },
+    {
+      "name": "lone-surrogate-is-refused",
+      "expect": "refused-by-strict-parse",
+      "input_text": "{\"a\":\"\\ud800\"}",
+      "observed": "$.a: string contains a lone surrogate, which is not valid Unicode and does not survive a UTF-8 round trip"
+    },
+    {
+      "name": "duplicate-object-key-is-refused",
+      "expect": "refused-by-strict-parse",
+      "input_text": "{\"a\":1,\"a\":2}",
+      "observed": "duplicate object key \"a\" at $"
+    }
+  ]
+}

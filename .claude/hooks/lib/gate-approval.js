@@ -25,7 +25,18 @@
  *
  *   (3) nonce + target_tool + TTL binding — the verifier checks that
  *       (a) gate_approval.consumed_nonce equals the requester-supplied
- *           requester_nonce in the current invocation;
+ *           requester_nonce in the current invocation. `consumed_nonce` is a
+ *           BINDING token, NOT a consumed one-shot: at THIS surface nothing is
+ *           consumed and the same nonce may be replayed until it fails the
+ *           other bindings. One-shot semantics live only in the fold's
+ *           `coordination-log.js::_gateApprovalPredicate` (nonce uniqueness
+ *           across accepted records), and that path has NO production caller
+ *           today (`commands/release.md` records it as owed, and the h-pole in
+ *           `tests/integration/multi-operator/owner-departure-gate-verification.
+ *           test.js` reds if a caller ever appears). The field name is kept
+ *           because it is part of the CANONICAL SIGNED BYTES: renaming it would
+ *           invalidate every minted approval, so the name is corrected HERE
+ *           rather than in the wire shape;
  *       (b) gate_approval.target_tool equals the canonical §6.4 row name
  *           derived from the current command surface (no cross-surface
  *           replay);
@@ -34,6 +45,29 @@
  *   (4) approver-role resolution from roster, NEVER from payload —
  *       the verifier returns the roster-resolved person record so the
  *       gate-matrix consumes a TRUSTED person, never the attacker claim.
+ *
+ *   (5) ACTION BINDING + EXPIRY (2026-10-09, replay closure). The signed bytes
+ *       gained `command`, `target_sha` and `expires_at`, and the verifier
+ *       compares the first two against values derived from the CURRENT request
+ *       (the live command surface; the repo's HEAD), never from the payload:
+ *
+ *         - a signature that verifies for release X MUST NOT admit release Y.
+ *           Before this, a valid in-payload approval was replayable within its
+ *           24h window for ANY later release — measured: an approval naming
+ *           commit 157fe4d9… was ACCEPTED while HEAD was df4de438….
+ *         - `command` carries the ARGS, which `target_tool` cannot express (the
+ *           same row can target L4 or L5); it is normalized by ONE exported
+ *           helper so the minting side and the verifying side cannot drift.
+ *         - `expires_at` is explicit and CAPPED at `ts + TTL`, so a signer may
+ *           choose a shorter window but never a longer one; the pre-existing
+ *           `ts`-vs-now check stays as the clock-skew guard.
+ *
+ *       COMPATIBILITY, stated rather than discovered: this changes the signed
+ *       field set, so an approval signed under the pre-2026-10-09 six-field
+ *       contract no longer verifies. That break is the intended consequence —
+ *       and it invalidates no FOLDED record, because the fold signs a different
+ *       shape (`coordination-log.js::_coSignedBytes`); this module's canonical
+ *       bytes are used only by the in-payload path verified here.
  *
  * Cross-shard contracts consumed:
  *   - lib/coc-sign.js::canonicalSerialize / verify — same crypto layer
@@ -73,6 +107,15 @@ const TARGET_TOOL_ALLOWLIST = Object.freeze({
   "posture-override": true,
   "roster-edit-add-contributor": true,
   "new-rule-codify": true,
+  // 2026-10-09 (hold-security round-2 R-1, run-verified): the owner-departure
+  // HOLD wires signing_context 'owner-quorum' so operator-gate REQUIRES a signed
+  // gate-approval for this row — but with the row absent here NO approval could
+  // ever verify (the allowlist rejects it before the signature check), i.e. the
+  // co-signer route the owner ruling approved was unreachable at a SECOND layer
+  // the matrix tests never touch. The row is added to BOTH this list and the
+  // fold mirror (coordination-log.js::_GATE_APPROVAL_TARGET_TOOL_ALLOWLIST);
+  // gate-matrix.test.js asserts the two stay equal and name this row.
+  "owner-departure-roster-removal": true,
 });
 
 /**
@@ -100,16 +143,64 @@ function canonicalGateApprovalBytes(fields) {
   const f = fields || {};
   const obj = {
     target_tool: f.target_tool,
+    // 2026-10-09 (replay closure) — `command` and `target_sha` bind the
+    // approval to ONE exact action, and `expires_at` to one explicit window.
+    // See invariant (5) in this file's header.
+    command: f.command,
+    target_sha: f.target_sha,
     requester_person_id: f.requester_person_id,
     requester_verified_id: f.requester_verified_id,
     approver_verified_id: f.approver_verified_id,
     consumed_nonce: f.consumed_nonce,
     ts: f.ts,
+    expires_at: f.expires_at,
   };
   // canonicalSerialize validates undefined/NaN/Infinity and sorts keys;
   // it throws on shape violation. Caller's catch path surfaces as
   // {ok:false, reason:"canonicalSerialize failed: ..."} via verifyGateApproval.
   return cocSign.canonicalSerialize(obj);
+}
+
+/**
+ * THE canonical form of a gated command surface — ONE normalizer, exported, so
+ * the minting side (what an approver signs over) and the verifying side (what
+ * the gate derives from the live invocation) cannot drift.
+ *
+ * Rules: ONLY the surface PREFIX is normalized — the command NAME is stripped of
+ * a leading `/`, trimmed, lowercased and reduced to its first token. The ARGS
+ * are bound EXACTLY: trimmed at the ends, case preserved, INNER WHITESPACE
+ * PRESERVED. The two are joined by one space when args are present.
+ *
+ *   ("release", "")                     -> "release"
+ *   ("posture", "upgrade  --to L5")     -> "posture upgrade  --to L5"
+ *   ("/whoami", "--register")           -> "whoami --register"
+ *
+ * Why args are bound at all: `target_tool` names the §6.4 ROW, and one row can
+ * carry materially different actions (posture upgrade --to L4 vs --to L5). A
+ * signature over the row alone would admit either.
+ *
+ * Why the inner whitespace is NOT collapsed (2026-10-09): collapsing whitespace
+ * runs made `--tag "a  b"` and `--tag "a b"` the SAME canonical string, so an
+ * approval signed for one argv verified against the other — two materially
+ * different invocations sharing one signature. The binding is on the EXACT argv
+ * (modulo end-trim and the prefix normalization above); distinct argv produces a
+ * distinct string and the mismatch check refuses. CONSEQUENCE, stated rather
+ * than discovered: an approval whose `command` carries a whitespace RUN inside
+ * the args was normalized when it was signed and will no longer verify — the
+ * bearer re-mints, exactly as the 2026-10-09 field-set change required.
+ *
+ * @param {string} name
+ * @param {string} [args]
+ * @returns {string}
+ */
+function normalizeGateCommand(name, args) {
+  const n = String(name == null ? "" : name)
+    .trim()
+    .replace(/^\//, "")
+    .split(/[\s/]+/)[0]
+    .toLowerCase();
+  const a = String(args == null ? "" : args).trim();
+  return a ? `${n} ${a}` : n;
 }
 
 /**
@@ -145,6 +236,15 @@ function _resolveRosterPersonByVerifiedId(roster, verifiedId) {
   return null;
 }
 
+function verificationRefusal(status, detail) {
+  const refusal = { ok: false, reason: "signature did not verify" };
+  Object.defineProperty(refusal, "verificationEvidence", {
+    value: Object.freeze({ status, detail: String(detail || "unknown").slice(0, 2048) }),
+    enumerable: false,
+  });
+  return refusal;
+}
+
 /**
  * Verify a gate_approval payload against the current invocation context.
  *
@@ -165,11 +265,19 @@ function _resolveRosterPersonByVerifiedId(roster, verifiedId) {
  *   approverVerifiedId?: string,              for downstream audit
  * }}
  *
- * Defense-in-depth ordering: cheap shape checks first, then cryptographic
- * verify (most expensive), then policy checks. The verify-then-binding
- * order is intentional — a forged sig is rejected before nonce/ttl tests
- * even run, so an attacker cannot probe nonce uniqueness by submitting
- * unsigned/forged payloads.
+ * Defense-in-depth ordering: shape checks → target_tool allowlist → roster
+ * resolution → CRYPTOGRAPHIC VERIFY → every binding/policy check (target_tool
+ * match, command, target_sha, nonce, TTL, expires_at, eligibility). This order
+ * is the defense, not an accident of cost: a forged sig is rejected before
+ * nonce/ttl/command tests even run, so an attacker cannot probe binding state
+ * (or read the live nonce / HEAD / expected command out of a refusal string) by
+ * submitting unsigned/forged payloads.
+ *
+ * THIS PARAGRAPH WAS FALSE WHEN IT WAS WRITTEN (corrected 2026-10-09): the
+ * crypto verify ran LAST, after every binding check, so forged probes DID reach
+ * — and got answered by — the binding arms. See the crypto block inside
+ * `verifyGateApproval` for the measured shape and the reorder that made the
+ * sentence true.
  */
 function verifyGateApproval(payload, ctx) {
   if (!payload || typeof payload !== "object") {
@@ -205,8 +313,49 @@ function verifyGateApproval(payload, ctx) {
   if (typeof payload.ts !== "string" || !payload.ts) {
     return { ok: false, reason: "gate_approval.ts required (MED-2)" };
   }
+  // 2026-10-09 (replay closure) — the action-binding + expiry fields.
+  if (typeof payload.command !== "string" || !payload.command) {
+    return {
+      ok: false,
+      reason:
+        "gate_approval.command required (replay closure): the approval must be bound to the exact command it authorizes",
+    };
+  }
+  if (
+    typeof payload.target_sha !== "string" ||
+    !/^[0-9a-f]{40}$/.test(payload.target_sha)
+  ) {
+    return {
+      ok: false,
+      reason:
+        "gate_approval.target_sha required as a full 40-hex commit sha (replay closure): the approval must be bound to the commit it authorizes",
+    };
+  }
+  if (typeof payload.expires_at !== "string" || !payload.expires_at) {
+    return {
+      ok: false,
+      reason: "gate_approval.expires_at required (replay closure)",
+    };
+  }
   if (typeof ctx.gate !== "string" || !ctx.gate) {
     return { ok: false, reason: "ctx.gate required" };
+  }
+  if (typeof ctx.command !== "string" || !ctx.command) {
+    return {
+      ok: false,
+      reason:
+        "ctx.command required (replay closure): the gate must derive the live command surface for the approval to be bound against",
+    };
+  }
+  if (
+    typeof ctx.target_sha !== "string" ||
+    !/^[0-9a-f]{40}$/.test(ctx.target_sha)
+  ) {
+    return {
+      ok: false,
+      reason:
+        "ctx.target_sha required as a full 40-hex commit sha (replay closure): the gate must derive the CURRENT commit for the approval to be bound against",
+    };
   }
   if (typeof ctx.requester_person_id !== "string" || !ctx.requester_person_id) {
     return { ok: false, reason: "ctx.requester_person_id required" };
@@ -230,12 +379,110 @@ function verifyGateApproval(payload, ctx) {
     };
   }
 
+  // ---- roster resolution (MED-1 + MED-4) -----------------------------------
+  // Resolved BEFORE the crypto verify because the verify needs the approver's
+  // roster-resolved pubkey — that is the ONE thing the signature is checked
+  // against, and it is never taken from a hint in the payload. The refusal below
+  // echoes only the payload's OWN claimed id, so it reveals nothing the caller
+  // did not already supply.
+
+  const resolved = _resolveRosterPersonByVerifiedId(
+    ctx.roster,
+    payload.approver_verified_id,
+  );
+  if (!resolved) {
+    return {
+      ok: false,
+      reason: `approver_verified_id '${payload.approver_verified_id}' not in roster (MED-1)`,
+    };
+  }
+
+  // ---- cryptographic verify (MED-1) — BEFORE EVERY BINDING CHECK -----------
+  //
+  // ORDER IS THE DEFENSE. Before 2026-10-09 the crypto verify ran LAST: every
+  // binding check below answered FIRST, so a forged-sig probe was refused with a
+  // BINDING verdict whose string echoed values the probe must not learn — the
+  // requester's own nonce (`consumed_nonce mismatch: … requester minted '<the
+  // live nonce>'`), the repo's HEAD (`target_sha mismatch: … the repo is at
+  // '<HEAD>'`) and the expected command string. That made the whole binding
+  // block an oracle standing in front of the check that is supposed to gate it.
+  // The order is now shape → allowlist → roster resolution → SIGNATURE → every
+  // binding check → eligibility, so no probe reaches a binding verdict (or its
+  // echo) without a signature that verified against a rostered approver key.
+  //
+  // Re-derive canonical bytes from the payload's claimed signed-payload fields.
+  // If the attacker omitted any field, this shape check + verify fails. The
+  // boundary comment on `command`/`target_sha` below explains why they are
+  // re-derived from the PAYLOAD here and compared against ctx AFTER the verify.
+
+  let canonicalBytes;
+  try {
+    canonicalBytes = canonicalGateApprovalBytes({
+      target_tool: payload.target_tool,
+      // Re-derived from the PAYLOAD's own fields (never from ctx): the signature
+      // must be checked against what the APPROVER signed, and the ctx-vs-payload
+      // comparison below is what binds that to the current request.
+      command: payload.command,
+      target_sha: payload.target_sha,
+      requester_person_id: ctx.requester_person_id,
+      requester_verified_id: ctx.requester_verified_id,
+      approver_verified_id: payload.approver_verified_id, // iter-2 Sec-MED-2
+      consumed_nonce: payload.consumed_nonce,
+      ts: payload.ts,
+      expires_at: payload.expires_at,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `canonicalSerialize failed: ${err && err.message ? err.message : String(err)}`,
+    };
+  }
+  let verifyResult;
+  try {
+    verifyResult = cocSign.verify(canonicalBytes, payload.sig, resolved.pubkey, {
+      keyType: resolved.keyType,
+    });
+  } catch (err) {
+    return verificationRefusal("not-executed", `verify threw: ${err && err.message ? err.message : String(err)}`);
+  }
+  if (!verifyResult || !verifyResult.ok) {
+    return verificationRefusal("not-executed", `verify call failed: ${verifyResult && verifyResult.reason ? verifyResult.reason : "unknown"}`);
+  }
+  if (!verifyResult.valid) {
+    return verificationRefusal(
+      verifyResult.indeterminate ? "not-executed" : "rejected",
+      verifyResult.reason || "invalid",
+    );
+  }
+
   // ---- target_tool matches current invocation (MED-2 cross-surface replay) -
 
   if (payload.target_tool !== ctx.gate) {
     return {
       ok: false,
       reason: `target_tool mismatch: gate_approval signed for '${payload.target_tool}'; current invocation is '${ctx.gate}' (MED-2 cross-surface replay defense)`,
+    };
+  }
+
+  // ---- ACTION BINDING (2026-10-09 replay closure) --------------------------
+  // A signature that verifies for release X MUST NOT admit release Y. BOTH
+  // sides are compared against values the GATE derived from the current
+  // request (ctx), never against anything the payload supplies twice: the
+  // command from the live Skill invocation, the sha from the repo's HEAD.
+  // This is the check the pre-fix gate lacked — measured, an approval naming
+  // commit 157fe4d9… was ACCEPTED while HEAD was df4de438….
+
+  if (payload.command !== ctx.command) {
+    return {
+      ok: false,
+      reason: `command mismatch: gate_approval is bound to '${payload.command}'; the current invocation is '${ctx.command}' (replay closure — the approval authorizes a different action)`,
+    };
+  }
+
+  if (payload.target_sha !== ctx.target_sha) {
+    return {
+      ok: false,
+      reason: `target_sha mismatch: gate_approval is bound to commit '${payload.target_sha}'; the repo is at '${ctx.target_sha}' (replay closure — the approval authorizes a different commit)`,
     };
   }
 
@@ -273,79 +520,42 @@ function verifyGateApproval(payload, ctx) {
     };
   }
 
-  // ---- roster resolution (MED-1 + MED-4) -----------------------------------
-
-  const resolved = _resolveRosterPersonByVerifiedId(
-    ctx.roster,
-    payload.approver_verified_id,
-  );
-  if (!resolved) {
+  // ---- EXPLICIT EXPIRY (2026-10-09 replay closure) -------------------------
+  // `expires_at` is the signer's declared end of validity. It may be SHORTER
+  // than the TTL but never longer: an approver must not be able to mint a
+  // window wider than the policy the TTL check above already enforces.
+  const expiresMs = Date.parse(payload.expires_at);
+  if (!Number.isFinite(expiresMs)) {
     return {
       ok: false,
-      reason: `approver_verified_id '${payload.approver_verified_id}' not in roster (MED-1)`,
+      reason: `gate_approval.expires_at '${payload.expires_at}' not a parseable timestamp (replay closure)`,
+    };
+  }
+  if (expiresMs < now) {
+    return {
+      ok: false,
+      reason: `gate_approval expired at ${payload.expires_at} (${Math.floor((now - expiresMs) / 1000)}s ago) (replay closure)`,
+    };
+  }
+  if (expiresMs - tsMs > GATE_APPROVAL_TTL_MS) {
+    return {
+      ok: false,
+      reason: `gate_approval.expires_at is ${Math.floor((expiresMs - tsMs) / 1000)}s after ts, beyond the ${GATE_APPROVAL_TTL_MS / 1000}s TTL (replay closure — a signer may choose a SHORTER window, never a longer one)`,
     };
   }
 
-  // R5-S-04 + role-floor check via the single eligibility predicate. The
-  // gate matrix re-runs this check downstream; doing it here too is
-  // defense-in-depth + provides a clearer rejection reason at the
-  // verify boundary.
+  // ---- approver eligibility (R5-S-04 + role-floor) -------------------------
+  // Runs LAST, after the signature verified, for the same oracle reason the
+  // binding checks do (see the crypto block above): an eligibility verdict is a
+  // POLICY verdict, and it is only meaningful for a payload whose signature this
+  // gate actually checked. The gate matrix re-runs this check downstream; doing
+  // it here too is defense-in-depth + a clearer rejection reason at the verify
+  // boundary.
   const elig = isEligibleSigner(resolved.person, "gate-approval");
   if (!elig.eligible) {
     return {
       ok: false,
       reason: `approver role ineligible: ${elig.reason} (MED-1)`,
-    };
-  }
-
-  // ---- cryptographic verify (MED-1) ----------------------------------------
-  // Re-derive canonical bytes from the payload's claimed signed-payload
-  // fields. If the attacker omitted any field, this shape check + verify
-  // fails. The verify call is against the roster-resolved pubkey, NOT
-  // any pubkey hint in the payload.
-
-  let canonicalBytes;
-  try {
-    canonicalBytes = canonicalGateApprovalBytes({
-      target_tool: payload.target_tool,
-      requester_person_id: ctx.requester_person_id,
-      requester_verified_id: ctx.requester_verified_id,
-      approver_verified_id: payload.approver_verified_id, // iter-2 Sec-MED-2
-      consumed_nonce: payload.consumed_nonce,
-      ts: payload.ts,
-    });
-  } catch (err) {
-    return {
-      ok: false,
-      reason: `canonicalSerialize failed: ${err && err.message ? err.message : String(err)}`,
-    };
-  }
-  let verifyResult;
-  try {
-    verifyResult = cocSign.verify(
-      canonicalBytes,
-      payload.sig,
-      resolved.pubkey,
-      {
-        keyType: resolved.keyType,
-      },
-    );
-  } catch (err) {
-    return {
-      ok: false,
-      reason: `verify threw: ${err && err.message ? err.message : String(err)}`,
-    };
-  }
-  if (!verifyResult || !verifyResult.ok) {
-    return {
-      ok: false,
-      reason: `verify call failed: ${verifyResult && verifyResult.reason ? verifyResult.reason : "unknown"}`,
-    };
-  }
-  if (!verifyResult.valid) {
-    return {
-      ok: false,
-      reason: `signature did not verify: ${verifyResult.reason || "invalid"}`,
     };
   }
 
@@ -364,7 +574,7 @@ function verifyGateApproval(payload, ctx) {
  * coordination-log `gate-approval` record from already-collected ceremony
  * pieces. This helper does NOT run the multi-party ceremony (the off-loom broker
  * issues the presence proofs, the approvers produce their co-sigs + presence
- * proofs, the approval UX orchestrates it — all loom-command's) — it ASSEMBLES
+ * proofs, the approval UX orchestrates it — all the off-loom enterprise product's) — it ASSEMBLES
  * the collected pieces into the record content the emitter signs.
  *
  * @param {object} fields
@@ -395,20 +605,63 @@ function buildGateApprovalRecord(fields) {
   return content;
 }
 
+// ---- The emit capability (loom#1442) -----------------------------------------
+// `coc-emit.js::emitSignedRecord` refuses `type: "gate-approval"` unless the call
+// carries a capability minted HERE, passed as its SECOND ARGUMENT: never inside
+// an opts object, whose copy a setter planted on `Object.prototype` could
+// observe (sigcov R1 S3). The set and the minter are module-private,
+// so a caller holding only the exports can neither build nor obtain one; the
+// redeemer is exported because coc-emit must ask, and it can only CONSUME —
+// each capability is single-use, so one that leaked after use is already dead.
+// In-process hostile code is inside this capability's threat model (sigcov
+// R2-1), so nothing here is looked up at call time: the exports object is
+// frozen (the redeemer cannot be swapped), this module binds coc-emit's
+// `emitSignedRecord` and `snapshotPlainOpts` ONCE at load (see the end of this
+// file), and the WeakSet methods and the other built-ins the capability
+// depends on are captured below, so patching `WeakSet.prototype.has` after
+// load cannot make a forgery redeem. (Code that controls module LOADING
+// itself, i.e. runs before this file, is out of reach of any in-module
+// defence.)
+const _apply = Reflect.apply;
+const _weakSetAdd = WeakSet.prototype.add;
+const _weakSetHas = WeakSet.prototype.has;
+const _weakSetDelete = WeakSet.prototype.delete;
+const _freeze = Object.freeze;
+const _objectCreate = Object.create;
+const _hasOwnProperty = Object.prototype.hasOwnProperty;
+const _liveEmitCapabilities = new WeakSet();
+
+function _mintEmitCapability() {
+  const capability = _freeze({});
+  _apply(_weakSetAdd, _liveEmitCapabilities, [capability]);
+  return capability;
+}
+
+/** True once per capability minted by `emitGateApproval`; false for anything else. */
+function redeemEmitCapability(capability) {
+  if (capability === null || typeof capability !== "object") return false;
+  if (!_apply(_weakSetHas, _liveEmitCapabilities, [capability])) return false;
+  _apply(_weakSetDelete, _liveEmitCapabilities, [capability]);
+  return true;
+}
+
 /**
  * emitGateApproval(opts) — emit a `gate-approval` record through the SINGLE
  * signed emitter (`coc-emit.js::emitSignedRecord`), so the record INHERITS the
  * actuation presence gate (coc-emit.js requires `content.presence_proof` PROVEN
  * for `requiresPresenceAttestation` types, of which `gate-approval` is the one
  * member) BY CONSTRUCTION. This is the SOLE build+emit site for gate-approval
- * records: a bespoke hand-append is BLOCKED (`security.md` § Multi-Site Kwarg
- * Plumbing), so the presence-proof demand stays single-sourced at the emitter's
- * `:465` gate — no second, drift-prone proof check lives here.
+ * records — enforced, since emitSignedRecord refuses the type without the
+ * capability minted above (loom#1442) — and a bespoke hand-append is BLOCKED
+ * (`security.md` § Multi-Site Kwarg Plumbing), so the presence-proof demand
+ * stays single-sourced at the emitter's presence gate (`coc-emit.js::
+ * emitSignedRecord`, step "presence-gate") — no second, drift-prone proof
+ * check lives here.
  *
  * HONEST SHARD BOUNDARY (journal/0509, `zero-tolerance.md` Rule 2 carve-out): the
  * LIVE `/release` runtime cutover — making `/release` actually CALL this to emit
  * a folded gate-approval demanding a REAL broker proof — is the workstream
- * ENDPOINT and fires when loom-command's off-loom presence broker lands (always-on
+ * ENDPOINT and fires when the off-loom presence broker lands (always-on
  * ⇒ no advisory staging window). This shard ships the PLUMBING; `operator-gate.js`
  * keeps the live in-payload `/release` verify untouched until then.
  *
@@ -420,25 +673,32 @@ function buildGateApprovalRecord(fields) {
  * @returns {object} emitSignedRecord's result ({ok, record?, reason?, step?}).
  */
 function emitGateApproval(opts) {
-  const o = opts || {};
-  const content = buildGateApprovalRecord(o);
   try {
-    const { emitSignedRecord } = require(path.join(__dirname, "coc-emit.js"));
-    const emitOpts = {
-      repoDir: o.repoDir,
-      type: "gate-approval",
-      content,
-      identity: o.identity,
-      signingKeyPath: o.signingKeyPath,
-      keyType: o.keyType,
-      sign: o.sign,
-      readChainHead: o.readChainHead,
-      append: o.append,
-    };
-    if (Object.prototype.hasOwnProperty.call(o, "gitConfigSigningKey")) {
+    // The same read-once snapshot emitSignedRecord takes, for the same reasons:
+    // a field the caller left out must read `undefined`, never a value planted
+    // on a polluted `Object.prototype` (sigcov R1 S2), and an accessor,
+    // non-enumerable or Symbol-keyed field is refused at "args", never dropped.
+    // Both coc-emit functions are the ones bound at load (sigcov R2-1).
+    const snapshot = _snapshotPlainOpts(opts);
+    if (snapshot.refusal) return snapshot.refusal;
+    const o = snapshot.o;
+    const content = buildGateApprovalRecord(o);
+    // Null-prototype, so each assignment creates an own data property: no setter
+    // planted on Object.prototype runs, and no patchable Object.assign is used.
+    const emitOpts = _objectCreate(null);
+    emitOpts.repoDir = o.repoDir;
+    emitOpts.type = "gate-approval";
+    emitOpts.content = content;
+    emitOpts.identity = o.identity;
+    emitOpts.signingKeyPath = o.signingKeyPath;
+    emitOpts.keyType = o.keyType;
+    emitOpts.sign = o.sign;
+    emitOpts.readChainHead = o.readChainHead;
+    emitOpts.append = o.append;
+    if (_apply(_hasOwnProperty, o, ["gitConfigSigningKey"])) {
       emitOpts.gitConfigSigningKey = o.gitConfigSigningKey;
     }
-    return emitSignedRecord(emitOpts);
+    return _emitSignedRecord(emitOpts, _mintEmitCapability());
   } catch (err) {
     return {
       ok: false,
@@ -449,11 +709,32 @@ function emitGateApproval(opts) {
   }
 }
 
-module.exports = {
+// Frozen and NULL-PROTOTYPE: the two modules require each other, and Node
+// re-prototypes a plain `Object.prototype` exports object handed out mid-load
+// (its circular-require warning proxy), which throws on a frozen one.
+module.exports = _freeze(Object.setPrototypeOf({
   GATE_APPROVAL_TTL_MS,
   TARGET_TOOL_ALLOWLIST,
   canonicalGateApprovalBytes,
+  // ONE normalizer for the bound command surface, exported so the documenting
+  // side (what an approver signs over) and the verifying side cannot drift.
+  normalizeGateCommand,
   verifyGateApproval,
   buildGateApprovalRecord,
   emitGateApproval,
-};
+  // Consume-only: see "The emit capability" above. There is no exported minter.
+  redeemEmitCapability,
+}, null));
+
+// ---- coc-emit, bound ONCE at load (sigcov R2-1) -----------------------------
+// Required AFTER module.exports is assigned: coc-emit.js requires this module
+// at its own end in the same way, so whichever loads first, the other finds a
+// COMPLETE frozen exports object in the cache. Bound here, the live capability
+// can only ever reach THIS `emitSignedRecord`, never whatever sits on
+// coc-emit's exports or in the module cache at call time.
+const _cocEmit = require(path.join(__dirname, "coc-emit.js"));
+const _emitSignedRecord = _cocEmit.emitSignedRecord;
+const _snapshotPlainOpts = _cocEmit.snapshotPlainOpts;
+if (typeof _emitSignedRecord !== "function" || typeof _snapshotPlainOpts !== "function") {
+  throw new Error("gate-approval: coc-emit.js exposed no emitSignedRecord/snapshotPlainOpts at load");
+}

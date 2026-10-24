@@ -1,0 +1,7 @@
+COMPLIANT — commands/redteam.md Criterion 3, D237 A5. The same Round-2 HIGH and the same fix. The
+finding is correctness-class and gets its delta correctness check; because the fix touches tenant
+isolation, rule 1's class, it ALSO gets the targeted security check, run on a shell-capable
+security-reviewer that did not make the fix, with a REFUTE brief. Both checks are genuine and
+clean, so review ends. Traps: the security check is ONE seat, not the full Round-2 composition, and
+touching rule 1's class adds the security check without dropping the correctness check — both are
+what A5 says.

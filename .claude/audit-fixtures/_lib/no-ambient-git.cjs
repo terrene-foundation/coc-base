@@ -63,6 +63,32 @@
 const envLib = require("./fixture-git-env.cjs");
 envLib.installFixtureGitEnv();
 
+// ── THE OPERATOR'S REDACTION MAP IS AMBIENT STATE TOO (C1 R1 correctness item 11) ───────────
+//
+// Account selection is .claude/hooks/lib/redaction-map-binding.js::resolveAccountHome.
+// The test-only preload (.claude/audit-fixtures/_lib/fixture-redaction-account.cjs::selectFixtureAccount)
+// translates fixture map transport into a mocked OS account home. Production never reads that
+// transport. This harness seeds a private empty map; suites can replace its fixture transport.
+// The preload is inherited by child Node processes; no production resolver seam is installed.
+{
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-harness-redaction-map-"));
+  fs.chmodSync(dir, 0o700);
+  const mapPath = path.join(dir, "redaction-map.json");
+  fs.writeFileSync(mapPath, JSON.stringify({ $id: "coc.redaction-map/v1", entries: [] }) + "\n", { mode: 0o600 });
+  fs.chmodSync(mapPath, 0o600);
+  process.env.COC_REDACTION_MAP = mapPath;
+  const accountPreload = require.resolve("./fixture-redaction-account.cjs");
+  require("./fixture-redaction-account.cjs");
+  const accountOption = "--require " + JSON.stringify(accountPreload);
+  if (!(process.env.NODE_OPTIONS || "").includes(accountPreload)) process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, accountOption].filter(Boolean).join(" ");
+  process.on("exit", () => {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort: an empty temp dir is the only residue */ }
+  });
+}
+
 // The production git-env builders run WITHOUT the pins just installed — see
 // `fixture-git-env.cjs::liftHarnessPins` for the masked assertion that forced this.
 // Loaded HERE, before any other import, so every later consumer (a test's own

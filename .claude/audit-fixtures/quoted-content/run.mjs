@@ -26,13 +26,18 @@
  * day.
  */
 
+import "../_lib/no-ambient-git.cjs";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   analyzeDocument,
   compareLineBlock,
   loadCorpusFloor,
+  resolveCitedPath,
+  gitVisibleFiles,
   selfTest,
   ID,
 } from "../../bin/validate-quoted-content.mjs";
@@ -475,6 +480,89 @@ for (const p of pairs) {
     `both poles produced the same coverage labels — a consumer could not tell an ` +
       `examined file from a scanned one, which is the whole defect`,
   );
+}
+
+// ── THE FILE SET IS THE TREE, NOT THE CHECKOUT. A bare basename resolves
+// UNIQUE-or-refuse, so an IGNORED copy of a tracked file (scratch, test output,
+// an extracted snapshot) used to flip its citations to `path-ambiguous` — and a
+// cluttered checkout then fell below the corpus floor and exited INCOMPLETE on a
+// commit a clean snapshot verified. RED pole: a tracked file plus an ignored
+// duplicate MUST still resolve, to the tracked one. GREEN-side control: two
+// TRACKED duplicates MUST stay ambiguous, so the pole cannot pass by the
+// resolver simply ignoring duplicates. Each root is its own throwaway git repo.
+{
+  const gitInit = (root) =>
+    execFileSync("git", ["-C", root, "init", "-q"], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  const gitAdd = (root, ...paths) =>
+    execFileSync("git", ["-C", root, "add", "--", ...paths], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  const put = (root, rel, body) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), body);
+  };
+  const ignoredDup = fs.mkdtempSync(path.join(os.tmpdir(), "qc-ignored-dup-"));
+  const trackedDup = fs.mkdtempSync(path.join(os.tmpdir(), "qc-tracked-dup-"));
+  try {
+    gitInit(ignoredDup);
+    put(ignoredDup, ".gitignore", "scratch/\n");
+    put(ignoredDup, "src/severity-rank.js", "export const a = 1;\n");
+    put(ignoredDup, "scratch/old-snapshot/severity-rank.js", "export const a = 0;\n");
+    gitAdd(ignoredDup, ".gitignore", "src/severity-rank.js");
+    const r = resolveCitedPath("severity-rank.js", ignoredDup);
+    assert(
+      "file set: an IGNORED duplicate does not make a tracked file's citation ambiguous",
+      r.ok === true && r.abs === path.join(ignoredDup, "src", "severity-rank.js"),
+      `expected the tracked src/severity-rank.js; got ${JSON.stringify(r)} — the index read ` +
+        `a file git ignores, so the verdict depends on checkout clutter, not on the tree`,
+    );
+
+    gitInit(trackedDup);
+    put(trackedDup, "a/severity-rank.js", "export const a = 1;\n");
+    put(trackedDup, "b/severity-rank.js", "export const a = 2;\n");
+    gitAdd(trackedDup, "a/severity-rank.js", "b/severity-rank.js");
+    const t = resolveCitedPath("severity-rank.js", trackedDup);
+    assert(
+      "file set control: two TRACKED duplicates stay path-ambiguous",
+      t.ok === false && t.reason === "path-ambiguous",
+      `expected path-ambiguous; got ${JSON.stringify(t)} — the pole above would then pass ` +
+        `because duplicates are ignored, not because ignored FILES are`,
+    );
+  } finally {
+    fs.rmSync(ignoredDup, { recursive: true, force: true });
+    fs.rmSync(trackedDup, { recursive: true, force: true });
+  }
+
+  // An UNTRACKED EMBEDDED repository is listed by `ls-files --others` as one
+  // `dir/` entry, while the sync ships every file in it the outer tree does not
+  // ignore. RED pole: such a file IS in the set. Control: a file in the same
+  // embedded repo that the OUTER .gitignore ignores is NOT, so the pole cannot
+  // pass by the set simply admitting everything under the directory.
+  const embedded = fs.mkdtempSync(path.join(os.tmpdir(), "qc-embedded-"));
+  try {
+    gitInit(embedded);
+    put(embedded, ".gitignore", "rules/nested/ignored.md\n");
+    gitAdd(embedded, ".gitignore");
+    put(embedded, "rules/nested/shipped.md", "# shipped\n");
+    put(embedded, "rules/nested/ignored.md", "# ignored\n");
+    gitInit(path.join(embedded, "rules", "nested"));
+    const set = gitVisibleFiles(embedded);
+    assert(
+      "file set: a file in an untracked embedded repo that the sync ships is examined",
+      Boolean(set) && set.has(path.join(embedded, "rules", "nested", "shipped.md")),
+      `expected rules/nested/shipped.md in the set; got ${set ? JSON.stringify([...set]) : set} — ` +
+        `the scan skipped a file the sync distributes`,
+    );
+    assert(
+      "file set control: a file the outer .gitignore ignores inside that embedded repo stays out",
+      Boolean(set) && !set.has(path.join(embedded, "rules", "nested", "ignored.md")),
+      `expected rules/nested/ignored.md absent; got ${set ? JSON.stringify([...set]) : set}`,
+    );
+  } finally {
+    fs.rmSync(embedded, { recursive: true, force: true });
+  }
 }
 
 // ── The corpus floor's own declaration must exist and be usable. A floor that

@@ -1,0 +1,1 @@
+node .claude/bin/land-lane.mjs status 2>&1 | tail -40; git diff a..b -- x.js; echo "diff rc=$?"

@@ -74,6 +74,20 @@
  * human had to ask twice. See `orchestrator-context-economy.md` § Origin.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/delegation-default/<session-id>-<sha8>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git","node"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Spawns: `git worktree list --porcelain` (worktreeBranchMap) and a child of THIS file (`--lane-depth-probe`, which itself runs git through lib/wip-lanes.js) via spawnSync. The one write is the per-signature dedupe marker appended by lib/delegation-default.js::markSurfaced, so a persisting finding is surfaced once per measured pair and a repeat run writes and emits nothing."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7, under the registered 5s timeout so this hook's own
@@ -397,7 +411,10 @@ async function main() {
     // zero-dispatch fact is the SAME fact the per-prompt and session-volume arms state when either
     // fires on zero dispatches, so it is handed WHICH arm (if any) is stating it in THIS emission —
     // a deduped arm states nothing now and cannot be referred to.
-    const laneVerdict = laneArm({ lib, ledger, payload, resolved, read, sessionId, startedAt });
+    const laneVerdict = scopeLaneVerdictToSession(
+      laneArm({ lib, ledger, payload, resolved, read, sessionId, startedAt }),
+      payload,
+    );
     const zeroDispatchStatedBy =
       findings.some((f) => f.arm === "per-prompt") && verdict.state === "ADVISE" && verdict.dispatched === 0
         ? "per-prompt"
@@ -532,6 +549,43 @@ async function main() {
 }
 
 /**
+ * OWNERSHIP SCOPE (journal/0661). The work ledger's lanes belong to every session on the machine;
+ * enumerating all of them into every session (measured: 22 lanes, most driven by other sessions)
+ * is noise this session cannot act on. A REPORT verdict keeps only the lanes this session's own
+ * transcript names (`lib/session-ownership.js`); the rest become `foreignCount`, rendered as ONE
+ * count line. Fail-OPEN: an unmeasured attribution leaves the verdict untouched (every lane listed).
+ */
+function scopeLaneVerdictToSession(v, payload) {
+  try {
+    if (!v || v.state !== "REPORT" || !Array.isArray(v.lanes) || v.lanes.length === 0) return v;
+    const hf = require(path.join(__dirname, "lib", "hook-findings.js"));
+    if (!hf.compactEnabled()) return v;
+    const ctx = hf.resolveContext({ payload });
+    if (!ctx) return v;
+    const { ownedSubjects } = require(path.join(__dirname, "lib", "session-ownership.js"));
+    const own = ownedSubjects({
+      root: ctx.root,
+      sessionId: ctx.sessionId,
+      repoDir: ctx.repoDir,
+      transcriptPath: ctx.transcriptPath,
+      kind: "lane",
+      subjects: v.lanes.map((l) => l.lane),
+    });
+    // `owned` carries every UNRESOLVED lane (fail-safe), so a cold scan lists every lane.
+    const mine = v.lanes.filter((l) => own.owned.has(l.lane));
+    const foreignCount = v.lanes.length - mine.length;
+    if (foreignCount === 0) return v;
+    return Object.assign({}, v, {
+      lanes: mine,
+      foreignCount,
+      severity: mine.some((l) => l.attribution === "ZERO") ? "halt-and-report" : "advisory",
+    });
+  } catch {
+    return v;
+  }
+}
+
+/**
  * Detector entry — the Stop hook run. Exported so the hook engine can run it in-process
  * (`lib/hook-engine.js`); the CLI entry below calls the same function.
  *
@@ -544,7 +598,7 @@ function hookMain() {
   return main();
 }
 
-module.exports = { hookMain };
+module.exports = { hookMain, scopeLaneVerdictToSession };
 
 // CLI entry. The lane-depth CHILD (`--lane-depth-probe`) is not a hook run: it is this file
 // spawned by `laneArm` with its own argv and no hook payload, so it is dispatched FIRST and never

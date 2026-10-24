@@ -1,0 +1,10 @@
+{
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Edit|Write|NotebookEdit",
+      "file": ".claude/hooks/bad-direct.js",
+      "on_incomplete": "deny"
+    }
+  ]
+}

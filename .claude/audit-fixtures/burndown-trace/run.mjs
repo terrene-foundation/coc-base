@@ -9,6 +9,7 @@
  *   arm (1) structural  → `block` on a broken chain   | intact chain → SILENT
  *   arm (2) semantic    → `advisory` on a moved anchor| unchanged anchors → SILENT
  *   scoping: no manifest / no tracker / non-chain surface → SILENT on BOTH arms
+ *   no verdict: an unreadable payload → REFUSED, exit 2 (lib/guard-runner.js)
  *   fail-open: no generator / unparseable manifest / a PRE-EXISTING exit-2
  *              refusal carrying no LINK lines → never `block`
  *
@@ -622,15 +623,27 @@ check("failopen/a DUPLICATE ledger row does not block and does not fabricate an 
   return !/SEMANTIC ARM/.test(delivered(res)) ? true : "fabricated an anchor diff from an ambiguous table";
 });
 
+check("failopen/a payload with no file_path passes through at exit 0 with no finding", () => {
+  const d = mkRepo({ rows: [{ id: "R1-alpha-item", anchor: "journal/0001-a.md" }] });
+  const res = runHook(d, JSON.stringify({ hook_event_name: "PostToolUse", tool_input: {} }));
+  return expectSilent(res);
+});
+
+// A payload the guard cannot READ is not a could-not-check UNKNOWN (those stay silent
+// or advisory, exit 0) — it is no run at all. The row is `on_incomplete: "deny"`, so
+// `lib/guard-runner.js::readPayload` REFUSES it: exit 2, naming the guard. Until the
+// fail-closed migration both passed through as a silent `{}`.
 for (const [label, payload] of [
   ["malformed stdin", "{not json"],
   ["empty stdin", ""],
-  ["a payload with no file_path", JSON.stringify({ hook_event_name: "PostToolUse", tool_input: {} })],
 ]) {
-  check(`failopen/${label} passes through at exit 0 with no finding`, () => {
+  check(`failclosed/${label} is REFUSED by the run boundary (exit 2, guard named)`, () => {
     const d = mkRepo({ rows: [{ id: "R1-alpha-item", anchor: "journal/0001-a.md" }] });
     const res = runHook(d, payload);
-    return expectSilent(res);
+    if (res.code !== 2) return `expected exit 2 (refused), got ${res.code}`;
+    if (!res.err.includes("[guard-runner] DENY burndown-trace-write-guard: burndown-trace-write-guard could not read its hook payload"))
+      return `stderr does not carry the unreadable-payload refusal: ${res.err.slice(0, 200)}`;
+    return /"continue"\s*:\s*true/.test(res.out) ? "a continue:true rode out with the refusal" : true;
   });
 }
 

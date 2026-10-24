@@ -54,15 +54,10 @@
  *                    posture read from posture.json, a file the agent is
  *                    denied write access to by settings.json::permissions.deny.
  *
- *   halt-and-report  The one branch whose signal is LEXICAL: the L2/L1
- *                    read-only Bash ALLOWLIST. It is deny-by-default over a
- *                    15-pattern list, so `rg`, `sed -n`, `awk`, `jq -r`,
- *                    `git worktree list` and every other safe-but-unlisted
- *                    read are non-matches. Promoting THAT to block would hard-
- *                    block arbitrary legitimate read-only work — precisely the
- *                    false-positive class MUST-2 exists to prevent. It stays an
- *                    annotation deliberately; see the Origin note in
- *                    hook-output-discipline.md MUST-2.
+ *   halt-and-report  Unknown simple Bash commands retain the long-tail annotation.
+ *                    Parsed dangerous forms deny at L1/L2; compounds are read-only
+ *                    only when every component is admitted. The classifier is
+ *                    .claude/hooks/lib/posture-read-only.js:200-256.
  *
  * Before loom#1590 EVERY branch here emitted halt-and-report while the comment
  * above said "block", so the file documented a fence and shipped an annotation:
@@ -77,15 +72,46 @@
  * Edit/Write target inside .claude/learning/ — settings.json is the
  * primary fence, the hook is the secondary.
  *
- * Mitigates cc-artifacts.md Rule 7 (timeout fallback).
+ * FAIL-CLOSED RUN (cc-artifacts.md Rule 7): the run is owned by
+ * lib/guard-runner.js::runGuard — a throw, a hang past the budget, or an
+ * unreadable payload REFUSES the call; this hook carries no timer of its own.
  */
 
-const TIMEOUT_MS = 5000;
-let fallback = null;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".coc-clone-init-witness",
+ *       ".claude/learning/.coc-clone-init-witness"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "This file itself writes only stdout/stderr. Its one fs capability is CONDITIONAL and delegated: lib/state-io.js::readPosture calls migrateWitnessIfPresent, which writes the F52 separate-location sentinel at <main checkout>/.coc-clone-init-witness and unlinks the legacy .claude/learning/.coc-clone-init-witness. That migration is documented idempotent (a no-op once the new location exists), which is why idempotent stays true: a repeat runs the same verdict and moves no state. spawns: the git rev-parse probes state-io uses to resolve the state dir and main checkout."
+ * }
+ */
+
+// The out-of-engine run budget handed to runGuard (inside the dispatcher the row's own
+// registered 20s is the bound). Raised 5000 -> 20000 (2026-10-08) with the registered
+// budget (5s -> 20s): the two move together or the guard is cut mid-scan under load.
+const TIMEOUT_MS = 20000;
 
 const path = require("path");
 const fs = require("fs");
-const { readPosture, isPendingWithinGrace } = require(
+const { runGuard } = require("./lib/guard-runner.js");
+const isEngineExit = (() => {
+  try {
+    const classify = require("./lib/hook-engine.js").isEngineExit;
+    if (typeof classify === "function") return classify;
+  } catch {
+    // Optional engine loader.
+  }
+  return () => false;
+})();
+const { readPosture, isPendingWithinGrace, enclosingCheckouts } = require(
   path.join(__dirname, "lib", "state-io.js"),
 );
 const { instructAndWait } = require(
@@ -107,10 +133,19 @@ const { isPostureGateProtectedPath } = require(
 // under hook-output-discipline.md MUST-2. This hook's five inline regexes were
 // the third lineage of the drift #1549 F3 extracted this module to end.
 const {
+  tokenize,
   parseGitInvocations,
   parseGhInvocations,
+  resolveCdTrailDir,
   UNRESOLVABLE_COMMAND_IDENTITY,
 } = require(path.join(__dirname, "lib", "git-command-parse.js"));
+// HIGH-1(b): git's OWN target context (-C, --git-dir/--work-tree, the per-segment chdir trail).
+// ZERO new modules: git-target-context.js was ALREADY loaded before this range, because
+// git-command-parse.js requires it at its own line 39. What this site must still not do is pull
+// the hook engine, and POSTURE-NO-ENGINE's loader census is the instrument for that.
+const { resolveGitTargetContext } = require(
+  path.join(__dirname, "lib", "git-target-context.js"),
+);
 
 /**
  * F14 LOW-3: best-effort realpath normalization for file_path before regex
@@ -121,12 +156,25 @@ const {
  * the raw file_path misses the traversal and the secondary fence
  * silently passes.
  */
-function _bestEffortRealpath(filePath) {
-  if (typeof filePath !== "string" || !filePath) return filePath;
+function _bestEffortRealpath(filePath, anchor) {
+  if (typeof filePath !== "string" || !filePath) return null;
   // Walk up ancestors until one exists; realpath that and re-join the
   // remaining segments. This handles both "the file doesn't exist yet"
   // and "intermediate dirs don't exist."
-  let p = filePath;
+  //
+  // It climbs ONLY past a genuinely ABSENT component (realpath ENOENT and lstat sees nothing).
+  // A component that EXISTS but will not resolve — a dangling link, EACCES, ELOOP — returns NULL,
+  // which the caller treats as "cannot be shown to be outside the protected set" and surfaces.
+  // It used to climb past any error, so a write through a DANGLING link aimed at a not-yet-created
+  // protected file read as the link's own (unprotected) path (train-8 R2: the corr F1 class, found by the widened path-containment detector (A3d)).
+  // Absolute only, and WITHOUT lexical normalisation: a ".." after an existing component is the
+  // kernel's to resolve (after links), never folded first (train-8 R2 security N6). A RELATIVE path
+  // resolves against the SESSION's cwd from the payload — never process.cwd(), which in the engine
+  // worker is the host's, not the session's — and with no absolute anchor it is unresolved: null,
+  // surfaced by the caller. The join is concatenation so a ".." reaches the kernel, not path.join.
+  const anchored = path.isAbsolute(filePath) || (typeof anchor === "string" && path.isAbsolute(anchor));
+  if (!anchored) return null;
+  let p = path.isAbsolute(filePath) ? filePath : `${anchor}${path.sep}${filePath}`;
   const segments = [];
   // Cap iterations defensively to avoid pathological inputs.
   for (let i = 0; i < 64; i++) {
@@ -135,47 +183,72 @@ function _bestEffortRealpath(filePath) {
       const real = fs.realpathSync(p);
       // Re-join the popped segments in original order.
       return segments.length ? path.join(real, ...segments.reverse()) : real;
-    } catch {
+    } catch (e) {
+      if (!e || e.code !== "ENOENT") return null;
+      try {
+        fs.lstatSync(p);
+        return null; // it exists but will not resolve: never guess where it points
+      } catch {
+        /* genuinely absent: climb */
+      }
       // ancestor doesn't exist; pop one segment and retry.
       const base = path.basename(p);
+      if (base === "." || base === "..") return null; // never fold a dot segment lexically (N6)
       const parent = path.dirname(p);
       if (parent === p) break;
-      segments.push(base);
+      if (base !== "") segments.push(base);
       p = parent;
     }
   }
-  // Could not resolve any ancestor; fall back to path.normalize so at
-  // least "..foo/../learning" collapses textually.
-  return path.normalize(filePath);
+  // Could not resolve any ancestor: NULL, never a lexical guess — the caller surfaces it.
+  return null;
 }
 
 function passthrough() {
-  clearTimeout(fallback);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
 
-// Read-only Bash commands permitted at L2 (the most restrictive working-tree posture)
-const READ_ONLY_BASH = [
-  /^\s*ls\b/,
-  /^\s*cat\b/,
-  /^\s*head\b/,
-  /^\s*tail\b/,
-  /^\s*grep\b/,
-  /^\s*find\b/,
-  /^\s*git\s+(status|diff|log|show|branch|blame|reflog|rev-parse|merge-base|ls-files)\b/,
-  /^\s*gh\s+(pr|issue|release|run)\s+(view|list|status)/,
-  /^\s*node\s+--version\b/,
-  /^\s*python3?\s+--version\b/,
-  /^\s*which\s+/,
-  /^\s*echo\s+/,
-  /^\s*pwd\b/,
-  /^\s*wc\b/,
-  /^\s*jq\b/,
-];
+const { classifyReadOnlyBash, literalCommandArgs } = require("./lib/posture-read-only.js");
 
-function isReadOnlyBash(cmd) {
-  return READ_ONLY_BASH.some((p) => p.test(cmd));
+function isWorkhorsePreflight(cmd, cwd, input) {
+  if (typeof cwd !== "string" || !path.isAbsolute(cwd)) return false;
+  const args = literalCommandArgs(cmd);
+  if (!args || args.length !== 6) return false;
+  if (args[1].startsWith("-")) return false;
+  if (!path.isAbsolute(args[1])) return false;
+  if (args[1].split(path.sep).includes("..")) return false;
+  if (args[0] !== "node" || args[2] !== "--installed-root" || args[4] !== "--worktree"
+      || !path.isAbsolute(args[3]) || !path.isAbsolute(args[5])) return false;
+  try {
+    const expected = fs.realpathSync.native(path.join(__dirname, "../bin/codex-workhorse-target.mjs"));
+    return fs.realpathSync.native(path.resolve(cwd, args[1])) === expected;
+  } catch { return false; }
+}
+
+function isTrustedReadOnlyScript(cmd, cwd, input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)
+      || Object.keys(input).some(key => key !== "command" && key !== "cmd")) return false;
+  if (isWorkhorsePreflight(cmd, cwd, input)) return true;
+  if (typeof cwd !== "string" || !path.isAbsolute(cwd)) return false;
+  const args = literalCommandArgs(cmd);
+  if (!args || args[0] !== "node" || !args[1] || args[1].startsWith("-")
+      || args[1].split(path.sep).includes("..")) return false;
+  try {
+    const expected = fs.realpathSync.native(path.join(__dirname, "../bin/ws-next.mjs"));
+    if (fs.realpathSync.native(path.resolve(cwd, args[1])) !== expected) return false;
+  } catch { return false; }
+  const seen = new Set();
+  for (let i = 2; i < args.length; i++) {
+    const flag = args[i];
+    if (seen.has(flag)) return false;
+    seen.add(flag);
+    if (flag === "--json") continue;
+    if (flag !== "--workspace" && flag !== "--as-of") return false;
+    const value = args[++i];
+    if (!value || value.startsWith("-") || (flag === "--as-of" && !/^(0|[1-9][0-9]*)$/.test(value))) return false;
+  }
+  return true;
 }
 
 // ---- The mutation-verb fence (L3 and below) --------------------------------
@@ -425,7 +498,11 @@ function mutationVerbGate(posture, verb, cmd) {
   };
 }
 
-function gateAtPosture(posture, tool, input) {
+function gateAtPosture(posture, tool, input, cwd) {
+  if (!["L1_PSEUDO_AGENT", "L2_SUPERVISED", "L3_SHARED_PLANNING",
+    "L4_CONTINUOUS_INSIGHT", "L5_DELEGATED"].includes(posture)) {
+    posture = "L1_PSEUDO_AGENT";
+  }
   const cmd = (input.command || "").trim();
   // loom#1549 F4 (same class as the R6-C-02 fence below): NotebookEdit
   // carries `notebook_path`. The L1/L2 gates fire on isMutationTool(tool)
@@ -453,6 +530,22 @@ function gateAtPosture(posture, tool, input) {
     return null;
   }
 
+  const bash = tool === "Bash" ? classifyReadOnlyBash(cmd,
+    segment => isTrustedReadOnlyScript(segment, cwd, input)) : null;
+  if (bash?.state === "dangerous") {
+    return {
+      severity: "block",
+      what_happened: `Bash BLOCKED at ${posture}: ${bash.reason}`,
+      why: `trust-posture/read-only — parsed reason: ${bash.reason}. The call did NOT run.`,
+      agent_must_report: [
+        "State the parsed reason and the intended effect of the command",
+        "Split the command into independently read-only calls, or ask the owner to raise posture through the sanctioned process",
+      ],
+      agent_must_wait: "Do not retry the dangerous form; use independently read-only commands or obtain the owner's posture decision.",
+      user_summary: `Read-only Bash denied: ${bash.reason}`,
+    };
+  }
+
   // L2: block all mutation tools; block all non-read-only Bash
   // F14 LOW-2 (iter-1): include MultiEdit + NotebookEdit so the L2
   //   working-tree mutation fence does not silently pass on those tools.
@@ -477,12 +570,8 @@ function gateAtPosture(posture, tool, input) {
         user_summary: `L2 blocked: ${tool} ${filePath.split("/").pop()}`,
       };
     }
-    if (tool === "Bash" && !isReadOnlyBash(cmd)) {
-      // LEXICAL signal (a 15-pattern read-only ALLOWLIST). Stays halt-and-
-      // report per MUST-2: every safe-but-unlisted read (`rg`, `sed -n`, `awk`,
-      // `git worktree list`) is a non-match, so blocking here would hard-block
-      // legitimate work. The consequential verbs are already BLOCKED above by
-      // the structural fence, so this branch guards only the long tail.
+    if (tool === "Bash" && bash?.state !== "read-only") {
+      // Unknown simple commands retain the long-tail annotation.
       return {
         severity: "halt-and-report",
         what_happened: `Mutating Bash RAN at L2_SUPERVISED: ${cmd.slice(0, 80)}`,
@@ -521,8 +610,8 @@ function gateAtPosture(posture, tool, input) {
         user_summary: `L1 blocked: ${tool}`,
       };
     }
-    if (tool === "Bash" && !isReadOnlyBash(cmd)) {
-      // LEXICAL allowlist — halt-and-report, same rationale as the L2 twin.
+    if (tool === "Bash" && bash?.state !== "read-only") {
+      // Unknown simple commands retain the long-tail annotation.
       return {
         severity: "halt-and-report",
         what_happened: `Bash RAN at L1_PSEUDO_AGENT: ${cmd.slice(0, 80)}`,
@@ -541,45 +630,349 @@ function gateAtPosture(posture, tool, input) {
   return null;
 }
 
-// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
-// did at load time happens here instead, so a require() has no side effects.
-function hookMain() {
-  fallback = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  return new Promise((resolve, reject) => {
-    let input = "";
-    if (process.stdin.isTTY) {
-      passthrough();
-    } else {
-      process.stdin.setEncoding("utf8");
-      process.stdin.on("data", (c) => (input += c));
-      process.stdin.on("end", () => {
-        try {
-          onStdinEnd(input);
-        } catch (e) {
-          return reject(e);
-        }
-        resolve();
-      });
-    }
-  });
+// ---- posture ANCHOR -------------------------------------------------------
+// EVERY posture verdict is computed from the STRICTEST of the postures the call is
+// anchored to. The session cwd is one anchor, never the privileged one: before this
+// shard the sole PreToolUse source was `readPosture(data.cwd)`, so an agent that
+// chose its own cwd (the Codex lane's pre-existing HIGH) chose its own posture.
+//
+// The ladder is LOCAL on purpose — POSTURE-NO-ENGINE counts loaders, and promoting
+// a lib require here would change that count. Unknown values normalise to L1, the
+// same normalisation gateAtPosture applies at its own entry.
+const _POSTURE_LADDER = [
+  "L1_PSEUDO_AGENT",
+  "L2_SUPERVISED",
+  "L3_SHARED_PLANNING",
+  "L4_CONTINUOUS_INSIGHT",
+  "L5_DELEGATED",
+];
+const _POSTURE_L1 = _POSTURE_LADDER[0];
+
+function _postureRank(p) {
+  const i = _POSTURE_LADDER.indexOf(p);
+  return i === -1 ? 0 : i;
+}
+function _strictestPosture(a, b) {
+  if (a === null) return b;
+  if (b === null) return a;
+  return _postureRank(a) <= _postureRank(b) ? a : b;
 }
 
-function onStdinEnd(input) {
-  let data = {};
-  try {
-    data = JSON.parse(input);
-  } catch {
-    return passthrough();
+/**
+ * The postures this event is ANCHORED to.
+ *  - `data.cwd` MUST be a non-empty ABSOLUTE string; otherwise the anchor is L1 with
+ *    NO read, because `readPosture(undefined)` falls back to `process.cwd()` inside
+ *    state-resolver — the host's cwd, which is the read this anchor exists to remove.
+ *  - In the Codex lane the SERVER stamps `CLAUDE_PROJECT_DIR` into the replayed
+ *    hook's env and the agent cannot pass it, so it is an ADDITIONAL anchor
+ *    (stricter-only, D1) — never the sole one.
+ * Reads are READ-ONLY (`{migrate:false}`): the posture of a repo this session does
+ * not own must not be nudged by having been consulted.
+ */
+function _postureAnchors(data) {
+  const out = [];
+  const cwd = data && data.cwd;
+  if (typeof cwd === "string" && cwd && path.isAbsolute(cwd)) {
+    // The session's OWN anchor: migrate is LEFT ON here (LOW-3). This is the directory the
+    // session actually runs in, so the F52 witness migration is the same housekeeping every
+    // other reader performs; only FOREIGN repos are read read-only.
+    out.push(readPosture(cwd).posture);
+  } else {
+    out.push(_POSTURE_L1);
   }
+  if (process.env.COC_RUNTIME === "codex") {
+    const proj = process.env.CLAUDE_PROJECT_DIR;
+    if (typeof proj === "string" && proj && path.isAbsolute(proj)) {
+      out.push(readPosture(proj).posture);
+    }
+    // The SHELL tool's `workdir` is a third anchor the agent chooses, and it is the directory
+    // the command actually runs in — so it can never be ignored. It is NOT the session's own
+    // anchor (the agent picked it, possibly a foreign repo), so it is read READ-ONLY.
+    const wd = data && data.tool_input && data.tool_input.workdir;
+    if (typeof wd === "string" && wd) {
+      // Item 3: the Codex workdir may be RELATIVE, resolved against the session cwd. One that
+      // cannot be resolved at all is an unknown anchor, and an unknown anchor is L1.
+      const absWd = path.isAbsolute(wd)
+        ? wd
+        : typeof cwd === "string" && path.isAbsolute(cwd)
+          ? path.resolve(cwd, wd)
+          : null;
+      out.push(
+        absWd ? readPosture(absWd, { migrate: false }).posture : _POSTURE_L1,
+      );
+    } else if (wd !== undefined) {
+      out.push(_POSTURE_L1);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every directory a BASH command is shown to act on (HIGH-1 / 1b). Two sources, both from the
+ * EXISTING exported parse: the `cd`/`pushd` trail for ANY command (`resolveCdTrailDir`), and
+ * git's own target context for each parsed invocation (`resolveGitTargetContext`, which carries
+ * `-C`, --git-dir/--work-tree and the per-segment chdir trail).
+ *
+ * `unknown` is the DECLARED RESIDUAL for an ordinary command: it keeps the anchor-only verdict.
+ * It is NOT a licence to pass a FENCED verb — `_effectivePosture` folds L1 when the command is
+ * unknown AND carries one (HIGH-1) — and over `_MAX_TARGET_DIRS` distinct directories the arm
+ * also contributes L1. The OS-sandbox lane is what closes the residual class itself; this
+ * function must not pretend to.
+ */
+function cmdOf(data) {
+  const c = data && data.tool_input && data.tool_input.command;
+  return typeof c === "string" ? c : "";
+}
+
+// Item 4: the number of directories this arm will consult. Each one costs a git resolution and a
+// posture read, and a command can name many; over the cap the arm contributes L1 rather than
+// letting one call buy unbounded work on the fault path. Deduplicated so a repeated `cd` is free.
+const _MAX_TARGET_DIRS = 8;
+
+// Item 4 (R2 MED): ONE shared deadline across every read this arm performs. Each target
+// directory costs a git resolution plus a posture read, and the readers carry no deadline of
+// their own; without this bound a single call can buy work up to the row's 20 s hook budget,
+// which runGuard answers as a timeout (a refusal for a deny row) — not a decision. Over the budget the arm contributes L1
+// and stops: an arm that ran out of time cannot be shown to have judged the call. The value
+// is the shipped hook budget (adapters.md: 2 s / 4 MiB input); the gate and the emission
+// itself stay outside it.
+const _MAX_TARGET_ARM_MS = 2000;
+
+function _bashTargetDirs(data) {
+  const cmd = data && data.tool_input && data.tool_input.command;
+  const rawCwd = data && data.cwd;
+  // Item 3: retargets are resolved against the WORKDIR when the lane supplies one — that is the
+  // directory the command actually runs in — and only fall back to the payload cwd.
+  const wd = data && data.tool_input && data.tool_input.workdir;
+  const cwd =
+    typeof wd === "string" && wd && typeof rawCwd === "string" && path.isAbsolute(rawCwd) && !path.isAbsolute(wd)
+      ? path.resolve(rawCwd, wd)
+      : typeof wd === "string" && wd && path.isAbsolute(wd)
+        ? wd
+        : rawCwd;
+  if (typeof cmd !== "string" || !cmd) return { dirs: [], unknown: true };
+  if (typeof cwd !== "string" || !path.isAbsolute(cwd)) return { dirs: [], unknown: true };
+  const dirs = [];
+  let unknown = false;
+  try {
+    const cd = resolveCdTrailDir(cmd, cwd);
+    if (cd && cd.known && typeof cd.dir === "string") dirs.push(cd.dir);
+    else unknown = true;
+  } catch {
+    unknown = true;
+  }
+  // M-B: a gh segment acts on the repo ITS OWN trail points at, not on wherever the command
+  // ENDS. `cd <L1> && gh pr merge … && cd <L5>` resolved its final dir to L5, so a mutation
+  // in a locked repo was judged by the wrong location. `stopWhen` stops the trail AT the
+  // acting segment; each fenced gh segment gets its own prefix dir. Only FENCED verbs are
+  // consulted: a read-only gh commits no mutation for the anchor to judge, and folding an
+  // unrelated gh read would widen this arm past its purpose.
+  const _fencedGh = (h) => h && h.group && h.sub && FENCED_GH_VERBS.has(`${h.group} ${h.sub}`);
+  let ghFenced = false;
+  try {
+    ghFenced = (parseGhInvocations(cmd) || []).some(_fencedGh);
+  } catch {
+    ghFenced = false;
+  }
+  if (ghFenced) {
+    for (let k = 1; k <= _MAX_TARGET_DIRS; k++) {
+      let seen = 0;
+      let stopped = false;
+      let trail = null;
+      try {
+        trail = resolveCdTrailDir(cmd, cwd, {
+          stopWhen: (t) => {
+            let fenced = false;
+            try {
+              fenced = (parseGhInvocations(t) || []).some(_fencedGh);
+            } catch {
+              fenced = false;
+            }
+            if (!fenced) return false;
+            seen += 1;
+            if (seen === k) {
+              stopped = true;
+              return true;
+            }
+            return false;
+          },
+        });
+      } catch {
+        unknown = true;
+        break;
+      }
+      if (!stopped) break; // there is no Kth fenced gh segment
+      if (trail && trail.known && typeof trail.dir === "string") dirs.push(trail.dir);
+      else unknown = true;
+    }
+  }
+  let parsed = [];
+  try {
+    parsed = parseGitInvocations(cmd) || [];
+  } catch {
+    return { dirs, unknown: true };
+  }
+  for (const g of parsed) {
+    let r;
+    try {
+      r = resolveGitTargetContext(g, cwd);
+    } catch {
+      unknown = true;
+      continue;
+    }
+    if (!r || !r.known) {
+      unknown = true;
+      // A DIR selector can be readable even when the whole context is not — `--git-dir` and
+      // `--work-tree` name a repository outright, so they are folded BEFORE the known check.
+      // Dropping them here let `GIT_DIR=<L1>/.git git commit` read as unknown-and-ignorable.
+      for (const d of [r && r.workTree, r && r.gitDir]) {
+        if (typeof d === "string" && path.isAbsolute(d)) dirs.push(d);
+      }
+      continue;
+    }
+    for (const d of [r.cwd, r.target, r.workTree, r.gitDir]) {
+      if (typeof d === "string" && path.isAbsolute(d)) dirs.push(d);
+    }
+  }
+  return { dirs, unknown };
+}
+
+function _nearestExistingDir(p) {
+  let cur = p;
+  for (;;) {
+    try {
+      if (fs.statSync(cur).isDirectory()) return cur;
+    } catch {
+      // not there — climb
+    }
+    const up = path.dirname(cur);
+    if (up === cur) return null;
+    cur = up;
+  }
+}
+
+// Is this path inside ANY git checkout? A `.git` at or above it is the cheap,
+// non-spawning answer. Used only to decide whether the target arm contributes at
+// all (D2a): a scratch path under /tmp is judged on its ANCHORS, not forced to a
+// posture by a repo it is not in. The authoritative posture still comes from git
+// through readPosture, which fails closed to L1 when git cannot identify a main
+// checkout for a path that IS in one (D2b, I4).
+function _insideAnyCheckout(dir) {
+  let cur = dir;
+  for (;;) {
+    try {
+      fs.lstatSync(path.join(cur, ".git"));
+      return true;
+    } catch {
+      // keep climbing
+    }
+    const up = path.dirname(cur);
+    if (up === cur) return false;
+    cur = up;
+  }
+}
+
+/**
+ * The posture of the repo CONTAINING the resolved target path, or null when the
+ * arm contributes nothing.
+ *  - `resolvedFp === null` (an unresolvable component, ELOOP, EACCES, ENOTDIR, or a
+ *    relative path with no absolute anchor) ⇒ L1 (I4).
+ *  - Resolves OUTSIDE any checkout ⇒ null: contributes nothing (D2a).
+ *  - Resolves INSIDE a checkout ⇒ that checkout's posture; git cannot identify the
+ *    main checkout ⇒ readPosture already fails closed to L1 (D2b).
+ */
+function _targetPosture(resolvedFp, deadlineAt) {
+  if (resolvedFp === null) return _POSTURE_L1;
+  const dir = _nearestExistingDir(resolvedFp);
+  if (!dir) return _POSTURE_L1;
+  // EVERY enclosing checkout, not just the innermost (MED-1): a nested or submodule repo can
+  // never loosen its parent's floor, so the strictest of the whole set is the target's posture.
+  // The enumeration is state-io's `enclosingCheckouts`, which rides the EXISTING bounded git
+  // resolution — no ad-hoc spawn per ancestor here (LOW-2).
+  const enc = enclosingCheckouts(dir, { deadline: deadlineAt });
+  if (!enc.ok) {
+    // git could not answer. Inside a checkout ⇒ INDETERMINATE ⇒ fail closed (D2b); inside none
+    // ⇒ contributes nothing (D2a), which is the only reading that keeps a scratch write legal.
+    return _insideAnyCheckout(dir) ? _POSTURE_L1 : null;
+  }
+  if (enc.roots.length === 0) return null; // inside no checkout at all
+  let p = null;
+  for (const root of enc.roots) {
+    p = _strictestPosture(p, readPosture(root, { migrate: false }).posture);
+  }
+  return p;
+}
+
+/** One posture decision for the whole event: strictest(anchors, target). */
+function _effectivePosture(data, isMutation, resolvedFp) {
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + _MAX_TARGET_ARM_MS;
+  const spent = () => Date.now() - startedAt > _MAX_TARGET_ARM_MS;
+  const anchors = spent() ? [_POSTURE_L1] : _postureAnchors(data);
+  let p = null;
+  for (const a of anchors) p = _strictestPosture(p, a);
+  if (isMutation) {
+    // Over the shared deadline the target arm contributes L1 WITHOUT reading.
+    if (spent()) {
+      p = _strictestPosture(p, _POSTURE_L1);
+    } else {
+      const tp = _targetPosture(resolvedFp, deadlineAt);
+      if (tp !== null) p = _strictestPosture(p, tp);
+    }
+  }
+  // HIGH-1(b): a Bash command is judged by the directories it is shown to RETARGET into, as well
+  // as by its anchors. An unresolvable command contributes nothing here — the anchor-only verdict
+  // is the declared residual.
+  const bashTargets = _bashTargetDirs(data);
+  // Item 4: dedupe, then CAP. Over the cap the retarget arm contributes L1 — a command that names
+  // more directories than this will not have them silently ignored.
+  const seenDirs = new Set();
+  for (const d of bashTargets.dirs) seenDirs.add(d);
+  if (seenDirs.size > _MAX_TARGET_DIRS) p = _strictestPosture(p, _POSTURE_L1);
+  // R2 LOW: fold the DEDUPED set, not the raw list. One plain command yields the same
+  // directory from three sources (the cd-trail base, r.cwd, r.target), and every fold costs
+  // a git resolution plus a posture read. De-duplication is the memoization here: a set is
+  // per-event, and a directory outside it is a different repo by definition.
+  for (const d of seenDirs) {
+    if (spent()) {
+      // Out of budget: stop reading and fail closed (fold to L1) instead of deciding on a
+      // partial read. There is no fallback path to spend — the row's hook budget is the
+      // whole of it and runGuard answers a timeout as a refusal, not a decision.
+      p = _strictestPosture(p, _POSTURE_L1);
+      break;
+    }
+    const tp = _targetPosture(d, deadlineAt);
+    if (tp !== null) p = _strictestPosture(p, tp);
+  }
+  if (spent()) p = _strictestPosture(p, _POSTURE_L1);
+  // HIGH-1 (R2): an UNPARSEABLE retarget in front of a FENCED verb is not an ignorable residual.
+  // The declared residual is that we cannot tell where an ordinary command acts; it is NOT a
+  // licence to run `cd $X && git commit` at a permissive anchor when $X is unknowable. A fenced
+  // verb plus an unknown retarget fails closed to L1.
+  if (bashTargets.unknown && fencedMutationVerb(cmdOf(data))) {
+    p = _strictestPosture(p, _POSTURE_L1);
+  }
+  return p === null ? _POSTURE_L1 : p;
+}
+
+// main — the decision over the PARSED payload. guard-runner.js reads and parses
+// stdin (an empty, unparseable or non-object payload REFUSES there and never reaches
+// here) and owns the budget, so this body carries no reader and no timer.
+function main(data) {
   const event = data.hook_event_name || data.hookEventName || "";
 
   if (event === "SessionStart") {
     try {
-      const posture = readPosture(data.cwd);
+      // The banner reports the SAME effective posture the gate will use, so the
+      // number a session reads at start is the number it is governed by. An
+      // unusable cwd skips the read entirely rather than falling back to the
+      // host's cwd (I3).
+      const cwdUsable =
+        typeof data.cwd === "string" && data.cwd && path.isAbsolute(data.cwd);
+      const posture = cwdUsable
+        ? readPosture(data.cwd, { migrate: false })
+        : { posture: _POSTURE_L1, pending_verification: [] };
+      const effectivePosture = _effectivePosture(data, false, null);
       // loom#875 — count only entries still WITHIN grace; a grace-expired
       // entry must not inflate the "N pending verification(s)" diagnostic.
       const pvCount = (posture.pending_verification || []).filter(
@@ -591,7 +984,7 @@ function onStdinEnd(input) {
           ? "FRESH"
           : "OK";
       process.stderr.write(
-        `[posture-gate] ${posture.posture} (${tag})` +
+        `[posture-gate] ${effectivePosture} (${tag})` +
           (pvCount ? ` — ${pvCount} pending verification(s)` : "") +
           "\n",
       );
@@ -632,14 +1025,38 @@ function onStdinEnd(input) {
     // keys; this site and integrity-guard.js were the two that did not.
     const mutationPath =
       toolInput.file_path || toolInput.filePath || toolInput.notebook_path;
-    if (isMutationTool(tool) && typeof mutationPath === "string") {
-      const fp = _bestEffortRealpath(mutationPath);
-      // The case-insensitivity dimension (and now #1409's redundant-separator
-      // dimension) reaches this surface because the predicate is BUILT from
-      // the one registry — not because someone remembered this file.
-      if (isPostureGateProtectedPath(fp)) {
-        clearTimeout(fallback);
-        const out = instructAndWait({
+    // R6-C-02 BOTH arms DEFER to the posture gate now (posture anchor shard): the gate is
+    // computed FIRST, so a BLOCK outranks this surface (I6) and the event emits exactly once
+    // (I9). A PROTECTED path still SURFACES wherever the gate does not block — the cross-CLI
+    // contract (codex-mcp-guard/test-server.mjs asserts the "surface" verdict on a non-first
+    // target) is preserved from L3 up. An UNRESOLVABLE path (relative with no payload anchor,
+    // dangling link, EACCES, ELOOP) is L1 through the target arm (I4), which blocks every
+    // mutation tool, so it never reaches the surface either; returning here instead admitted
+    // every relative-path Write at L1/L2 (POSTURE-ENGINE-EXIT / POSTURE-NO-ENGINE).
+    const isMutation = isMutationTool(tool) && typeof mutationPath === "string";
+    // null: a component exists but will not resolve, so the path cannot be shown to be
+    // OUTSIDE the protected set — judged on its lexical form for the message only.
+    const resolvedFp = isMutation
+      ? _bestEffortRealpath(mutationPath, data.cwd)
+      : null;
+    const fp = !isMutation
+      ? null
+      : resolvedFp === null
+        ? path.normalize(mutationPath)
+        : resolvedFp;
+    // The case-insensitivity dimension (and now #1409's redundant-separator
+    // dimension) reaches this surface because the predicate is BUILT from
+    // the one registry — not because someone remembered this file.
+    const protectedPath = isMutation ? isPostureGateProtectedPath(fp) : false;
+    // BOTH arms DEFER now (posture anchor shard): the gate is computed FIRST, so a
+    // BLOCK outranks this surface (I6) and an event emits exactly once (I9). The
+    // surface still fires wherever the gate does not block, which is why the Codex
+    // fixture asserting "surface" at L5 stays green — the gate is null at L5.
+    const defenseMatched = isMutation && (protectedPath || resolvedFp === null);
+    let emitDefense = null;
+    if (defenseMatched) {
+        emitDefense = () => instructAndWait({
+          escalate: "security",
           hookEvent: "PreToolUse",
           // loom#1590 — DELIBERATELY LEFT AT halt-and-report, and this is a
           // recommendation surfaced rather than a change made.
@@ -663,6 +1080,9 @@ function onStdinEnd(input) {
           // tool error and does not execute), so the protection is not resting
           // on this branch alone.
           severity: "halt-and-report",
+          // The uncanonicalizable WORDING that used to live here was dead: an unresolvable
+          // path is L1 (I4), so the gate blocks it and this surface is never emitted for one.
+          // The block's extra reporting row still names it (see the block emission below).
           what_happened: `Defense-in-depth: ${tool} attempted on protected state file ${fp.slice(-80)}`,
           why: "trust-posture/MUST-NOT — posture.json / violations.jsonl writes are reserved for hooks (R6-C-02). settings.json::permissions.deny is the primary fence; this hook is the secondary fence in case settings is malformed or overridden",
           agent_must_report: [
@@ -675,33 +1095,81 @@ function onStdinEnd(input) {
             "The user must adjudicate. If the intent was legitimate (corrupt-state recovery), the user runs /posture override; do not bypass.",
           user_summary: `posture-gate R6-C-02 halted ${tool} on ${fp.split("/").pop()}`,
         });
-        process.stdout.write(JSON.stringify(out.json) + "\n");
-        process.exit(out.exitCode);
-        return;
-      }
     }
 
+    // ---- ONE posture decision, THEN the ordered emission (I6, I9) -------------
+    // block  >  R6-C-02 surface  >  non-block gate  >  passthrough.
+    let gate = null;
     try {
-      const posture = readPosture(data.cwd);
-      const gate = gateAtPosture(posture.posture, tool, toolInput);
-      if (gate) {
-        clearTimeout(fallback);
-        // loom#1590: the severity is the BRANCH's, not a constant. This site
-        // hardcoded "halt-and-report" and so overrode every branch — which is
-        // why a file whose comment said "block" shipped as an annotation.
-        const out = instructAndWait({
-          hookEvent: "PreToolUse",
-          severity: gate.severity || "halt-and-report",
-          ...gate,
-        });
-        process.stdout.write(JSON.stringify(out.json) + "\n");
-        process.exit(out.exitCode);
-        return;
-      }
-    } catch {
-      // posture read failed → passthrough; corrupt-state already handled
-      // by readPosture's fail-closed-to-L1 default which would block
-      // here — we explicitly choose passthrough to avoid double-failure.
+      const effective = _effectivePosture(data, isMutation, resolvedFp);
+      gate = gateAtPosture(effective, tool, toolInput, data.cwd);
+    } catch (e) {
+      if (isEngineExit(e)) throw e;
+      const out = instructAndWait({
+        escalate: "security",
+        hookEvent: "PreToolUse",
+        severity: "block",
+        what_happened: "POSTURE_GATE_EVALUATION_FAILED: the posture gate could not evaluate this tool call",
+        why: "POSTURE_GATE_EVALUATION_FAILED — posture reading or tool-policy evaluation threw; the call has no completed authorization decision",
+        agent_must_report: [
+          "Report POSTURE_GATE_EVALUATION_FAILED and state that the tool call was denied",
+          "Resolve the posture evaluation failure before retrying the tool call",
+          "Do not bypass the posture gate or treat the missing decision as permission",
+        ],
+        agent_must_wait: "The call was denied. Repair the evaluation failure before retrying.",
+        user_summary: "POSTURE_GATE_EVALUATION_FAILED — tool call denied because posture evaluation failed",
+      });
+      process.stdout.write(JSON.stringify(out.json) + "\n");
+      process.exit(out.exitCode);
+      return;
+    }
+    if (gate && gate.severity === "block") {
+      // A block OUTRANKS the R6-C-02 surface (I6). When the defense arm ALSO
+      // matched, the block carries one extra reporting line naming what this call
+      // targeted, so the adjudication sees both facts in the single message the
+      // agent gets (I9: exactly one instructAndWait per event).
+      const out = instructAndWait({
+        hookEvent: "PreToolUse",
+        severity: gate.severity,
+        ...gate,
+        escalate: "security",
+        agent_must_report: [
+          ...(defenseMatched
+            ? [
+                protectedPath
+                  ? `State the protected path this call targeted: ${fp}`
+                  : `State the uncanonicalizable path this call targeted: ${fp}`,
+              ]
+            : []),
+          ...(gate.agent_must_report || []),
+        ],
+      });
+      process.stdout.write(JSON.stringify(out.json) + "\n");
+      process.exit(out.exitCode);
+      return;
+    }
+    if (defenseMatched) {
+      // The surface verdict its cross-CLI contract asserts
+      // (codex-mcp-guard/test-server.mjs: posture-gate's learning-path fence fires on
+      // the non-first target as "surface") — emitted wherever the gate does NOT block.
+      const out = emitDefense();
+      process.stdout.write(JSON.stringify(out.json) + "\n");
+      process.exit(out.exitCode);
+      return;
+    }
+    if (gate) {
+      // loom#1590: the severity is the BRANCH's, not a constant. This site
+      // hardcoded "halt-and-report" and so overrode every branch — which is
+      // why a file whose comment said "block" shipped as an annotation.
+      const out = instructAndWait({
+        hookEvent: "PreToolUse",
+        severity: gate.severity || "halt-and-report",
+        ...gate,
+        escalate: "security",
+      });
+      process.stdout.write(JSON.stringify(out.json) + "\n");
+      process.exit(out.exitCode);
+      return;
     }
     return passthrough();
   }
@@ -709,13 +1177,16 @@ function onStdinEnd(input) {
   return passthrough();
 }
 
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). A require() has no side effects.
+const hookMain = runGuard("posture-gate", main, { budgetMs: TIMEOUT_MS });
+
 module.exports = { hookMain };
 
-// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
-// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
-// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+// CLI entry.
 if (require.main === module) {
-  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
   else {
     // FW-TIER2 — a STANDALONE invocation is one hook event, so it opens the same
     // one-answer-per-question scope the dispatch worker opens. Without it every

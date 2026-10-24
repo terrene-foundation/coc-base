@@ -10,4 +10,4 @@ loom's own `bin/*.test.mjs` unit tests legitimately embed synthetic disclosure s
 
 If a future edit makes the skip unconditional (e.g. moves it to `isNeverSynced` or drops the `&& REPO_ROOT_ACTIVE === REPO_ROOT` half), this fixture flips to a clean exit and the suite goes red — the regression lock.
 
-Synthetic content only: invented home path (`/Users/fakeuser/...`) — NO real operator coordinates.
+Synthetic content only: invented home path (`<operator-home>/...`) — NO real operator coordinates.

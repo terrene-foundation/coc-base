@@ -15,7 +15,7 @@ hostname, org slug, runner label, home path, or service label.
    Self-hosted label: acme-linux-arm (invented; not example-linux-arm).
 
 4. operator-home-path shape:
-   Config lives at /Users/fakeuser/repos/loom/.claude here.
+   Config lives at {{FIXTURE_HOME_V1:MAC}}fakeuser/repos/loom/.claude here.
 
 5. operator-service-label shape:
    launchctl bootout gui/501 com.fakeco.runner.alpha

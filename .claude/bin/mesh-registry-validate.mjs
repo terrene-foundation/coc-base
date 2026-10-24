@@ -14,7 +14,7 @@
  *
  *  THE REGISTRY ARTIFACT CLASS. A knowledge-product's IDENTITY (not its bytes)
  *  is the mesh-level object. It is authored AT THE PROJECT and UP-pulled to
- *  loom-command; it is INERT AT LOOM (loom writes identities, never resolves
+ *  the UP-pull aggregator; it is INERT AT LOOM (loom writes identities, never resolves
  *  them). This validator checks the 13-field TUPLE SHAPE:
  *    name · version · lineage_id · content_hash · content_commitment ·
  *    classification · owning_level · product_class · cascade_scope ·

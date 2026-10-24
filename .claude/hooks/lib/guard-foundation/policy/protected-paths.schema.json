@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "guard-foundation/protected-paths/v1",
+  "title": "Guard foundation CLI-neutral write policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "anchors", "protected_write", "writable", "trusted_writers", "network", "integrity"],
+  "properties": {
+    "version": { "const": 1 },
+    "description": { "type": "string" },
+    "anchors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "home", "config_dir", "worktrees", "tmp", "vault"],
+      "properties": {
+        "repo": { "type": "string" },
+        "home": { "type": "string" },
+        "config_dir": { "type": "string" },
+        "worktrees": { "type": "string" },
+        "tmp": { "type": "string" },
+        "vault": { "type": "string" }
+      }
+    },
+    "protected_write": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pathRule" } },
+    "writable": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pathRule" } },
+    "trusted_writers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "entry", "paths", "reason"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "entry": { "$ref": "#/$defs/relPath" },
+          "paths": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "when", "ceremonies", "writes", "reason"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "when": { "type": "string", "minLength": 1 },
+          "ceremonies": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "writes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "network": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["purpose", "hosts"],
+        "properties": {
+          "purpose": { "type": "string", "minLength": 1 },
+          "hosts": {
+            "oneOf": [
+              { "const": "any" },
+              { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(\\*\\.)?[a-z0-9.-]+(:[0-9]{1,5})?$" } }
+            ]
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "sha256_over", "signature"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "sha256_over": { "type": "string" },
+        "signature": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "relPath": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$" },
+    "pathRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "anchor", "path", "reason"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "anchor": { "enum": ["repo", "home", "config_dir", "worktrees", "tmp", "vault"] },
+        "path": { "$ref": "#/$defs/relPath" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

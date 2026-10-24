@@ -247,7 +247,7 @@ Use this skill when:
 
 - **[17-gold-standards](../../../.claude/skills/17-gold-standards/SKILL.md)** - Mandatory best practices
 - **[16-validation-patterns](../../../.claude/skills/16-validation-patterns/SKILL.md)** - Validation patterns
-- **[01-core-sdk](../../../.claude/skills/01-core-sdk/SKILL.md)** - Core workflow patterns
+- **[01-core-sdk](../01-core-sdk/SKILL.md)** - Core workflow patterns
 - **[12-testing-strategies/oidc-offline-crypto-test-vectors](../../../.claude/skills/12-testing-strategies/oidc-offline-crypto-test-vectors.md)** - Alg-confusion (RS256→HS256 / alg:none) fail-closed verification defense + deterministic offline asymmetric-crypto test vectors
 
 ## Support

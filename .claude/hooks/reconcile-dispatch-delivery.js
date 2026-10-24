@@ -25,6 +25,13 @@
  * unresolved branch says the status is UNKNOWN and names why, the same shape
  * `lib/open-pr-surface.js` uses for a failed `gh` round-trip.
  *
+ * EFFORT ROUTING (2026-10-12) — the assurance side of `dispatch-contract-guard.js`'s routing gate:
+ * the stopping lane's DECLARED launch effort (recorded on its launch row) is compared with what was
+ * observed — Codex's own recorded effort when its payload carries one, and for Claude a band check
+ * on the lane's agent transcript (a high-class launch with <=2 tool calls and <90k tokens "may not
+ * have had its effort applied"). ADVISORY, like everything here; the result rides the `reconcile`
+ * row as `effort_check`. See `effortCheckFor`.
+ *
  * The verdict is ALSO appended to the ledger as a `reconcile` row, so it is durable and greppable
  * rather than only a line of stderr a closing lane may never surface.
  *
@@ -32,6 +39,20 @@
  */
 
 "use strict";
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/dispatch-reconcile/"],
+ *     "network": false,
+ *     "spawns": ["git","ps"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes through lib/state-resolver.js and a memoized `ps` through lib/dispatch-ledger.js; the one fs write is the `reconcile` verdict row appended to the per-session sink by lib/append-sink.js, so a repeat run appends another row."
+ * }
+ */
 
 // Bounded timer per `cc-artifacts.md` Rule 7, under the registered 5s timeout so this hook's own
 // fallback fires first and shutdown is never held up.
@@ -113,6 +134,19 @@ async function main() {
         };
     const verdict = read.ok ? lib.reconcile(read.rows) : lib.reconcile(null, read);
 
+    // EFFORT ROUTING — did the stopping lane's declared effort observably apply? ADVISORY only.
+    const effortCheck = read.ok ? effortCheckFor(payload, read.rows, lib) : null;
+    if (effortCheck && (effortCheck.state === "SUSPECT" || effortCheck.state === "MISMATCH")) {
+      try {
+        process.stderr.write(
+          (effortCheck.state === "SUSPECT"
+            ? `[dispatch-reconcile] effort may not have applied to lane ${effortCheck.lane}: ${effortCheck.reason}. `
+            : `[dispatch-reconcile] effort mismatch on lane ${effortCheck.lane}: ${effortCheck.reason}. `) +
+            "ADVISORY — this band cannot prove the effort was ignored; re-dispatch at the routed effort if the lane's result looks shallow.\n",
+        );
+      } catch {}
+    }
+
     const advisory = lib.formatReconcileAdvisory(verdict);
     if (advisory) {
       // stderr only. A Stop-family hook's stdout carries the protocol payload; the advisory is a
@@ -137,6 +171,7 @@ async function main() {
           sessionId,
           generation: lib.generationOf(payload),
           verdict,
+          effortCheck,
           nowIso: new Date().toISOString(),
         }),
       });
@@ -152,6 +187,47 @@ async function main() {
     finish();
   } catch {
     finish();
+  }
+}
+
+/**
+ * The effort check for the STOPPING lane (effort routing, 2026-10-12). ADVISORY on every path and
+ * NEVER throws: every failure is UNKNOWN.
+ *
+ * The lane is identified by joining the payload's runtime `agent_id` to a launch row's dispatch name
+ * (`normalizeAgentId`) — the same join the delivery verdict uses — and only when that name was
+ * launched in exactly ONE generation (`attributableGenerations`), so a nested lane is never judged
+ * against its same-named parent's declared effort. An UNNAMED dispatch has no join key and is
+ * UNKNOWN. The comparison itself is `effort-routing.js::assessEffortApplication`: Codex's own
+ * recorded effort when its payload carries one (`reasoning_effort`, or `effort`, agreeing), and for
+ * Claude a band read off the lane's own agent transcript (tool calls + newest usage).
+ *
+ * @returns {{state:string, reason:string, lane:string|null}|null}
+ */
+function effortCheckFor(payload, rows, lib) {
+  try {
+    const er = require(path.join(__dirname, "lib", "effort-routing.js"));
+    const p = payload && typeof payload === "object" ? payload : {};
+    const parsed = lib.normalizeAgentId(p.agent_id);
+    if (!parsed.ok || !parsed.name) {
+      return { state: "UNKNOWN", reason: "the stopping agent carries no dispatch name to join on", lane: null };
+    }
+    const lane = parsed.name;
+    const gens = lib.attributableGenerations(rows.filter((r) => r && r.kind === "launch")).get(lane);
+    if (!gens || gens.size !== 1) {
+      return { state: "UNKNOWN", reason: `lane ${lane} is launched in ${gens ? gens.size : 0} generation(s), not exactly one`, lane };
+    }
+    const launch = er.launchEffortFor(rows, lane, [...gens][0]);
+    const launchEffort = launch.state === "known" ? launch.effort : null;
+    const runtime = process.env.COC_RUNTIME === "codex" ? "codex" : "claude";
+    const natives = [p.reasoning_effort, p.effort].filter((v) => typeof v === "string" && v.trim() !== "").map((v) => v.trim());
+    const nativeEffort = natives.length > 0 && natives.every((v) => v === natives[0]) ? natives[0] : undefined;
+    const usage = runtime === "claude" && launchEffort && er.HIGH_CLASS.includes(launchEffort)
+      ? er.readAgentUsage(p.agent_transcript_path)
+      : undefined;
+    return { ...er.assessEffortApplication({ launchEffort, runtime, usage, nativeEffort }), lane };
+  } catch {
+    return { state: "UNKNOWN", reason: "the effort check could not run", lane: null };
   }
 }
 

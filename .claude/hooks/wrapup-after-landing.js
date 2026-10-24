@@ -26,6 +26,20 @@
  * the backstop that catches landings the high-ceremony commands don't cover.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Pure predicate over the payload's command string (lib/git-command-parse.js::parseGhInvocations — parsing only, no subprocess) with the finding emitted to stdout via lib/instruct-and-wait.js; nothing is written and nothing is spawned. Repeat payload ⇒ identical verdict."
+ * }
+ */
+
 const path = require("path");
 
 // cc-artifacts.md Rule 7 — timeout fallback that never hangs the session.

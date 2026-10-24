@@ -42,6 +42,16 @@ corresponding phase has not run yet. The flag is advisory.
 - Count total entries and entries by type
 - Show the 3 most recent entries (number, type, date, topic)
 
-3. Present as a compact summary.
+3. Run the next-item recommendation from the repository root, passing the workspace
+   path selected in step 2 (never substitute a fixed workspace):
+
+   ```bash
+   node .claude/bin/ws-next.mjs --workspace "<selected workspace path>"
+   ```
+
+   Include “Recommended next item + why” and the blocked/unknown counts in the
+   compact summary. Keep every displayed closure labelled UNVERIFIED and preserve
+   action_authorized=false; this recommendation grants no permission. UNKNOWN,
+   STALE and an empty shortlist remain explicit. Use --json for all observed rows.
 '''
 tools = ["read_file", "glob", "grep_search", "list_directory", "run_shell_command", "write_file"]

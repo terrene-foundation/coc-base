@@ -6,6 +6,27 @@ Procedural depth for the numbered examples referenced by the MUST clauses in `.c
 
 The MUST clauses are load-bearing baseline content that emit to every CLI's always-on rule surface. The worked syntax examples are reference material the agent needs when it is ABOUT to delegate — not on every session start. Per `cc-artifacts.md` MUST NOT "No knowledge dumps … extract reference to skills" + `rule-authoring.md` Rule 10 (paired extraction), the examples moved here to keep the always-on baseline within the per-CLI headroom floor (v6.2 Risk-0004); the load-bearing tripwire stays in the rule. The examples below are given per CLI: the Claude Code `Agent(subagent_type=…)` primitive first, then the Codex and Gemini equivalents. **Codex** selects the exact native agent name from `.codex/agents/<name>.toml`; compatibility operating-spec text remains under `.codex/prompts/` for explicit fallback. **Gemini** maps each to `@specialist` invocation (see gemini-templates). The MUST clauses are the CLI-neutral contract; the syntax below is the CC implementation.
 
+## Effort Routing — every brief opens with its ROLE
+
+Every subagent launch MUST carry the effort the routing table assigns to its ROLE (owner decision 2026-10-12). The table is ONE data file, `.claude/hooks/lib/effort-routing-policy.json` (schema-versioned `roles` → one of `low | medium | high | xhigh | max`); change a level there, never in a brief. The per-dispatch parameter is the lever because it is measured to apply (Claude low ×3: 87–88k tokens, 2 tool calls; high ×3: 95–208k, 5–8 calls).
+
+- The brief's FIRST non-empty line is `ROLE: <role>` — a parsed field, not prose.
+- The launch passes that role's level as `effort` (Claude `Agent`/`Task`) or `reasoning_effort` (Codex `spawn_agent`).
+- To run at another level, the SECOND line is `EFFORT-OVERRIDE: <level> — <reason>` and the effort is set to that level; the override is recorded in the override use ledger.
+- A `fork` runs at its parent's effort and ignores the `effort` parameter, so it cannot be routed: launch a non-fork subagent at the role's level, or add the `EFFORT-OVERRIDE` line naming the parent's level (recorded).
+- A follow-up whose ROLE needs a different effort than the agent was launched with is not a re-task: dispatch a fresh agent at the new level.
+- A GENERIC launch — a built-in skill dispatching an `Explore` or `general-purpose` agent with no natural role — uses `ROLE: explore-search` (read-only search) or `ROLE: routine-implementation` (routine edits), each at `medium`.
+
+```python
+# DO — role line first, the table's effort on the call
+Agent(subagent_type="security-reviewer", effort="high",
+      prompt="ROLE: security-review\nAudit the diff for the auth bypass...")
+# DO NOT — no role line, or an effort the table does not assign to the role
+Agent(subagent_type="security-reviewer", prompt="Audit the diff...")
+```
+
+`hooks/dispatch-contract-guard.js` enforces this at PreToolUse (`Task|Agent|Workflow`), rule id `RULE_ID` in `hooks/lib/effort-routing.js` (value agents/effort-routing), and FAILS CLOSED: a missing or malformed role line, an unknown role, a missing or different effort, a `fork` without an override, or an invalid table BLOCKS, and every block is SELF-CORRECTABLE — no human step: its message names the exact corrected first line `ROLE: <role>`, the required effort and how to pass it on both runtimes, every valid role from the shipped table, and the generic roles; an invalid table or an unloadable library names the restore the agent runs itself (`git checkout HEAD -- <file>`, or a template re-pull). A relaunch built from that message alone passes. A mislabelled role cannot be detected — the table checks the pairing, not the label's truth. The re-task half runs from `hooks/dispatch-retask-guard.js` (`SendMessage`) and is a DECLARATION check, not a security control: it reads only a follow-up whose first line declares a ROLE, blocks only against a recorded launch effort, and is advisory when that launch is unknown; a message to `main` is never a re-task. A `Workflow` script's `agent(prompt, {effort})` launches fire no `Task|Agent` event of their own, so the guard judges the `Workflow` call: each `agent(` call with a literal prompt and literal `effort` is held to the same table (a fault BLOCKS, naming its script line); the script is allowed only when every use of `agent` is such a direct call, so an aliased, mapped, member, escaped or reflective use, a call inside a `${…}`, an ambiguous `/`, a prompt or effort it cannot read literally, a nested `workflow()`, two script sources, or a script it cannot read also BLOCKS, fail-closed — so call `agent(...)` directly with a literal `ROLE:` first line and a literal `effort`, and pass exactly one source: an inline script or an absolute, readable `scriptPath`. The worked examples below omit the role line for brevity; a real launch carries it.
+
 ## CC delegation syntax (`Agent(subagent_type=…)`)
 
 ### Example 1 — Parallel Brief-Claim Verification (≥3-issue brief)

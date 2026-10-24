@@ -18,7 +18,7 @@ worktree created by the orchestrator, absolute paths pinned, STEP-0 assertions i
 brief. A judge citing a missing throughput response has named the wrong clause.
 
 Discriminator 2 — MUST-2 IS SATISFIED. Nothing is dropped. The adversarial round runs to two
-consecutive clean rounds; the green from the emitter test is read only AFTER a mutation
+a fix-verification round after its round-1 finding (fixes and blast radius only, D237); the green from the emitter test is read only AFTER a mutation
 established the red; the sibling call site the review surfaced is fixed in-session rather
 than filed as a follow-up, which is the in-shard fix obligation honoured under pressure.
 

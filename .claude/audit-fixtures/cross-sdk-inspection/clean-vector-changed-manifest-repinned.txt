@@ -82,6 +82,5 @@ Tree state:
     round 1 — reviewer: shapes match the sibling byte-for-byte, no hand edits. security-
       reviewer: the empty-scope case is fail-closed, correct. analyst: both new cases are
       exercised by the parametrized suite.
-    round 2 — all three clean, all three payloads read.
 
-Two consecutive clean rounds. W9 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W9 lands.

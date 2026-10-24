@@ -2,6 +2,14 @@
 /**
  * @hook-event: PreToolUse:Glob|Grep|Read|WebFetch (guard) — the retrieval attempt and existing certification probe lock are visible before assisted retrieval.
  *
+ * Codex read-lane status — MEASURED 2026-10-09, codex-cli 0.161.0: no hookable
+ * file-read tool event exists (tool-call enums carry no read item; `read_file`
+ * is only the app-server `fs/readFile` RPC; `codex debug prompt-input` renders no
+ * read tool; a live `codex exec` probe was UNRUNNABLE under a ChatGPT usage
+ * limit, producing no data). The /certify probe-phase lock discipline therefore
+ * reaches Codex as procedure text (commands/certify.md + skills/42-certify/**),
+ * not as this hook.
+ *
  * probe-phase-guard.js — pre-tool-use hook enforcing the /certify probe-phase
  * no-Claude-assistance discipline (PR #355 R1 security HIGH-1 closure).
  *
@@ -13,8 +21,9 @@
  *                               lexical; tool name is string-equality on the
  *                               canonical CC tool set, not regex over prose)
  *             silent           (no lockfile / non-retrieval tool / outside-repo)
- *   Budget:   ≤5s; setTimeout fallback emits {continue: true} on hang
- *             (cc-artifacts.md Rule 7).
+ *   Budget:   ≤5s through guard-runner.js::runGuard — a crash, a hang past the
+ *             budget or an unreadable payload REFUSES (cc-artifacts.md Rule 7:
+ *             a deny-capable row fails closed).
  *
  * Why block (not halt-and-report):
  *   Per hook-output-discipline.md MUST-2: "Block severity is for structural
@@ -53,14 +62,29 @@
 
 "use strict";
 
-const TIMEOUT_MS = 5000;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Empty fs_writes is verified, not assumed: this hook only reads (.claude readdir + lockfile existence) and writes stdout/stderr, and neither lib it calls writes — lib/git-checkout-proof.js and lib/repo-dir-override.js have no fs writers. spawns is CONDITIONAL and declared conservatively: the git rev-parse proofs run only when COC_OPERATOR_REPO_DIR is set, and a session with no override pays nothing. Repeat of the same payload = same verdict, so idempotent."
+ * }
+ */
 
-let fallback = null;
+const TIMEOUT_MS = 5000;
 
 const fs = require("fs");
 const path = require("path");
 
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+// The fail-closed run boundary: it reads the payload, bounds the run, and turns a
+// crash / hang / unreadable stdin into a refusal (guard-runner.js::runGuard).
+const { runGuard } = require("./lib/guard-runner.js");
 // The verified-checkout-root predicate. NOT yet shared: the six sibling
 // COC_OPERATOR_REPO_DIR readers do NOT reach it — `state-resolver.js` does not
 // read that variable at all, and its one `provenCheckoutRoot` call gates
@@ -80,12 +104,9 @@ const { resolveRepoDirBound } = require(
 const RETRIEVAL_TOOLS = new Set(["Read", "Grep", "Glob", "WebFetch"]);
 
 function passthrough() {
-  clearTimeout(fallback);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
-
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 // LOUD-on-refusal (`rules/security.md` § Secure-Default For A New Security
 // Feature): a gate whose refusal is a SILENT no-op leaves an operator whose
@@ -243,76 +264,51 @@ function findProbeLockfile(repoDir) {
   }
 }
 
-// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js).
-function hookMain() {
-  fallback = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  return main();
-}
+async function main(payload) {
+  const hookEvent = payload.hook_event_name || "PreToolUse";
+  const tool = payload.tool_name;
 
-async function main() {
-  try {
-    const payload = await readStdinBounded();
-    const hookEvent = payload.hook_event_name || "PreToolUse";
-    const tool = payload && payload.tool_name;
-
-    // Tool-class gate — only retrieval tools are guarded. String equality on
-    // the canonical CC tool set is structural per hook-output-discipline.md
-    // MUST-2, not lexical regex over prose.
-    if (!RETRIEVAL_TOOLS.has(tool)) {
-      passthrough();
-    }
-
-    const repoDir = resolveRepoDir(payload);
-    const lockfile = findProbeLockfile(repoDir);
-
-    if (!lockfile) {
-      // No probe in progress — passthrough. The hook is silent during
-      // normal sessions and during /certify Phase A (brief).
-      passthrough();
-    }
-
-    // Probe in progress + retrieval tool requested = block.
-    clearTimeout(fallback);
-    emit({
-      hookEvent,
-      severity: "block",
-      what_happened: `/certify probe phase active (${lockfile} present); ${tool} call blocked.`,
-      why: "/certify probe phase is the load-bearing institutional-knowledge gate; orchestrator retrieval (Read/Grep/Glob/WebFetch) during probe would assist the operator with answers they should be producing from their own absorbed knowledge. Per `rules/knowledge-convergence.md` MUST-2 the signed pass-receipt is meaningless if the probe was assisted. Structural primitive: lockfile existence + tool-name equality, NOT lexical regex (hook-output-discipline.md MUST-2 permits block on structural signals).",
-      agent_must_report: [
-        `Tool blocked: ${tool}`,
-        `Lockfile present: .claude/${lockfile}`,
-        "If you are running /certify Phase B (probe), do NOT retrieve the cited section, the answer, or any rephrasing — the probe tests what the operator absorbed during Phase A (brief), not what you can look up.",
-        'If the operator asks for help during probe, refuse with one sentence: "I cannot assist during the gate phase; re-read the cited section and answer when ready."',
-        "If the lockfile is stale (a prior /certify session crashed without cleanup), the operator must remove `.claude/" +
-          lockfile +
-          "` manually before retrying.",
-      ],
-      agent_must_wait:
-        "Do not retry retrieval against this tool. If the operator has answered the current probe question, proceed to judge per the bank's `expected:` + `grading_rubric:` (no retrieval needed for judging — the bank ships the canonical answer + rubric).",
-      user_summary: `probe-phase-guard — BLOCK ${tool} during /certify probe phase`,
-    });
-    // emit() exits
-  } catch (err) {
-    try {
-      process.stderr.write(
-        `[ADVISORY] probe-phase-guard internal error: ${err && err.message ? err.message : String(err)}\n`,
-      );
-    } catch {
-      // best-effort
-    }
-    try {
-      clearTimeout(fallback);
-      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    } catch {
-      // best-effort
-    }
-    process.exit(0);
+  // Tool-class gate — only retrieval tools are guarded. String equality on
+  // the canonical CC tool set is structural per hook-output-discipline.md
+  // MUST-2, not lexical regex over prose.
+  if (!RETRIEVAL_TOOLS.has(tool)) {
+    return passthrough();
   }
+
+  const repoDir = resolveRepoDir(payload);
+  const lockfile = findProbeLockfile(repoDir);
+
+  if (!lockfile) {
+    // No probe in progress — passthrough. The hook is silent during
+    // normal sessions and during /certify Phase A (brief).
+    return passthrough();
+  }
+
+  // Probe in progress + retrieval tool requested = block.
+  return emit({
+    hookEvent,
+    severity: "block",
+    what_happened: `/certify probe phase active (${lockfile} present); ${tool} call blocked.`,
+    why: "/certify probe phase is the load-bearing institutional-knowledge gate; orchestrator retrieval (Read/Grep/Glob/WebFetch) during probe would assist the operator with answers they should be producing from their own absorbed knowledge. Per `rules/knowledge-convergence.md` MUST-2 the signed pass-receipt is meaningless if the probe was assisted. Structural primitive: lockfile existence + tool-name equality, NOT lexical regex (hook-output-discipline.md MUST-2 permits block on structural signals).",
+    agent_must_report: [
+      `Tool blocked: ${tool}`,
+      `Lockfile present: .claude/${lockfile}`,
+      "If you are running /certify Phase B (probe), do NOT retrieve the cited section, the answer, or any rephrasing — the probe tests what the operator absorbed during Phase A (brief), not what you can look up.",
+      'If the operator asks for help during probe, refuse with one sentence: "I cannot assist during the gate phase; re-read the cited section and answer when ready."',
+      "If the lockfile is stale (a prior /certify session crashed without cleanup), the operator must remove `.claude/" +
+        lockfile +
+        "` manually before retrying.",
+    ],
+    agent_must_wait:
+      "Do not retry retrieval against this tool. If the operator has answered the current probe question, proceed to judge per the bank's `expected:` + `grading_rubric:` (no retrieval needed for judging — the bank ships the canonical answer + rubric).",
+    user_summary: `probe-phase-guard — BLOCK ${tool} during /certify probe phase`,
+  });
 }
+
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Built by the fail-closed runner:
+// no timer, catch or stdin reader of this guard's own can let a call through.
+const hookMain = runGuard("probe-phase-guard", main, { budgetMs: TIMEOUT_MS });
 
 module.exports = { hookMain };
 

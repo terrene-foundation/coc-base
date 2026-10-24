@@ -113,3 +113,8 @@ Cite the fold result as the receipt; do not say "enrolled" on a bare append.
 - Does NOT edit `coordination-log.jsonl` / `posture.json` / `violations.jsonl` directly — those
   route through the canonical helpers + `/posture` (`rules/multi-operator-coordination.md` MUST NOT).
 - Does NOT weaken or disable a boundary guard to unblock a step.
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Bash, Grep, Glob, Edit. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Bash: exec_command and write_stdin; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command; Edit: apply_patch. These are role instructions, not a native tool permission boundary. Parent policy still applies.

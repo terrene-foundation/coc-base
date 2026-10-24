@@ -56,3 +56,24 @@ Applies to **MUST-8** ONLY; canonical-8-field-compliant per `trust-posture.md` M
 The extraction record above predates 2026-09-27, when both Wiring blocks and this Origin
 moved VERBATIM out of the rule body into this file: the MUST / MUST NOT / BLOCKED clauses
 and every `**Why:**` line remain in the rule; the Wiring fields and the Origin live HERE.
+
+## `paths:` history — the load-trigger record
+
+The frontmatter comment that explained the globs moved here on 2026-10-10 (context-budget lane,
+glob narrowing; it was charged on every load). Verbatim:
+
+    # loom#678 Lever B: anchored from the unanchored `**/*` to the surfaces this rule
+    # genuinely governs. MUST-1 walks a DELIVERABLE; MUST-4 names prose deliverables
+    # (rules, commands, skills). In a workspace the deliverable is not the workspace
+    # file but the artifact it plans, so the walk fires when THAT artifact is touched.
+    # Both anchored and nested forms are listed: consumer layouts nest these roots.
+
+The same day the globs narrowed, by the same reasoning. `.claude/**` became the deliverable
+subtrees `**/.claude/{rules,agents,commands,skills,hooks,bin,variants}/**`, which drops gitignored
+run reports, guides, learning logs and registries: none of them is a deliverable. `specs/**` and
+`briefs/**` were dropped because they are planning INPUTS, and no MUST names them. The anchored
+duplicates (`.claude/**`, `todos/**`, `src/**`, `tests/**`) were dropped because a leading `**/`
+already matches zero directories. Still covered: code roots (MUST-1/7/8), `todos` (the "done"
+declaration), and `.session-notes*` (MUST-2/6 receipts). Known gap, recorded and NOT closed:
+`**/.session-notes*` does not match loom's `.session-notes.d/<op>.md` layout. Adding it would load
+this rule at every session pickup.

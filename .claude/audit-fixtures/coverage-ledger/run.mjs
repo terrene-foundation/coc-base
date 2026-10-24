@@ -27,6 +27,7 @@
  */
 
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -624,7 +625,7 @@ try {
   // file: wave 3 carries declared `spawned_at`, waves 1–2 are UNRECORDED.
   {
     const realLedger = resolve(HERE, "real-ledger.snapshot.md");
-    const rl = parseLedger(readFileSync(realLedger, "utf8"));
+    const rl = parseLedger(materializeFixtureText(readFileSync(realLedger, "utf8")));
 
     // The snapshot is the artifact we think it is — checked, not assumed.
     report(

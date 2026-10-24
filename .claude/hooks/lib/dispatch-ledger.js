@@ -107,7 +107,11 @@ const path = require("path");
 // un-hardened sink; a direct `fs.readFileSync` was a second, un-hardened SOURCE, which is exactly
 // the asymmetry CRITICAL 1 and CRITICAL 2 were. There is deliberately NO bare `fs` binding in this
 // module's scope any more, so reaching for either takes an added import rather than a free hand.
-const { appendSinkLine, readSinkFile } = require("./append-sink.js");
+const {
+  appendSinkLine,
+  readSinkFile,
+  mainCheckoutBoundaryRoots,
+} = require("./append-sink.js");
 
 /**
  * Stream version. Independent of `activation_schema_version` and deliberately NOT pinned to 0:
@@ -125,7 +129,7 @@ const LEDGER_SCHEMA_VERSION = 1;
 const MAIN_GENERATION = "(main-agent)";
 
 /** Closed record vocabulary. An unrecognized `kind` is ignored by the reader, never guessed at. */
-const RECORD_KINDS = Object.freeze(["launch", "delivery", "declared", "reconcile"]);
+const RECORD_KINDS = Object.freeze(["launch", "delivery", "declared", "reconcile", "workflow-launch"]);
 
 /** Reconcile verdict states. Three, never two — see the tri-state note in the header. */
 const RECONCILE_STATES = Object.freeze(["RESOLVED", "UNRESOLVED"]);
@@ -139,6 +143,9 @@ const RECONCILE_STATES = Object.freeze(["RESOLVED", "UNRESOLVED"]);
 const DELEGATION_TOOLS = Object.freeze(["Task", "Agent"]);
 /** The teammate-messaging tool. THE delivery signal — a lane that never calls it delivered nothing. */
 const DELIVERY_TOOLS = Object.freeze(["SendMessage"]);
+/** The Workflow tool: one `workflow-launch` row per call (its script's agents fire no PreToolUse of their
+ * own — finding ROOT-W1). Part of the producer's matcher vocabulary, like the two lists above. */
+const WORKFLOW_TOOLS = Object.freeze(["Workflow"]);
 
 /**
  * Hard cap on a ledger read. A runaway sink must not turn a shutdown hook into an OOM.
@@ -664,6 +671,38 @@ function buildLaunchRecord(a) {
   else if (_isNonEmptyString(loc.location_reason)) r.location_reason = loc.location_reason;
   else if (r.cwd !== null && r.worktree !== null && r.branch !== null) r.location_reason = null;
   else r.location_reason = "the supplied dispatch location left a key null without a reason";
+  // EFFORT ROUTING (2026-10-12): the effort the launch DECLARED and its parsed ROLE, so a later
+  // re-task (`dispatch-retask-guard.js`) and the SubagentStop check (`reconcile-dispatch-delivery.js`)
+  // know what the lane was launched with. Written WHEN THE CALLER SUPPLIES THEM — the producer
+  // always does, null when the launch carried none — so a builder call that predates the field keeps
+  // its exact key set. A level outside the vocabulary is recorded null, never coerced to a default;
+  // a reader treats null and absent alike, as UNKNOWN.
+  if (a.effort !== undefined) r.effort = EFFORT_LEVELS.includes(a.effort) ? a.effort : null;
+  if (a.role !== undefined) r.role = _isNonEmptyString(a.role) && a.role.length <= 64 ? a.role : null;
+  // Whether the routing gate passes this launch (`emit-dispatch-ledger.js::declaredEffortOf`): the
+  // producer runs BEFORE the guard, so a launch the guard blocks is recorded too, and a reader
+  // prefers the rows tagged true. Strictly boolean; anything else is recorded null (unknown).
+  if (a.effortRouted !== undefined) r.effort_routed = typeof a.effortRouted === "boolean" ? a.effortRouted : null;
+  return r;
+}
+
+/** The effort vocabulary a launch row may record — `effort-routing.js::LEVELS`, restated to keep this
+ * lib free of a require (it is loaded on every dispatch); pinned equal by the dispatch-reconcile suite. */
+const EFFORT_LEVELS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+
+/**
+ * @returns {object} a `workflow-launch` record — ONE per Workflow call (finding ROOT-W1). A Workflow's
+ * `agent(` launches fire no PreToolUse of their own, so they leave no `launch` rows; this row is the
+ * trace that they happened: how many `agent(` calls its script holds and how many of them (plus nested
+ * `workflow(` calls) the effort check could not evaluate. Both null when the script could not be read.
+ * Counts only — never the script, a prompt or a path. Not a `launch` row: no reader keys a re-task on it.
+ */
+function buildWorkflowLaunchRecord(a) {
+  const r = _base("workflow-launch", a.sessionId, a.generation, a.nowIso);
+  const count = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+  r.agents_found = count(a.agentsFound);
+  r.unresolved = count(a.unresolved);
+  r.script_source = ["script", "scriptPath", "name", "none"].includes(a.scriptSource) ? a.scriptSource : null;
   return r;
 }
 
@@ -690,6 +729,18 @@ function buildReconcileRecord(a) {
     ? v.undelivered.slice(0, MAX_REPORTED_LANES).map((l) => l.dispatch_name || l.launch_id)
     : null;
   r.parallelism = v.parallelism || null;
+  // EFFORT ROUTING: the stopping lane's effort check (`reconcile-dispatch-delivery.js::effortCheckFor`),
+  // made durable beside the delivery verdict. Written only when the caller supplies one.
+  if (a.effortCheck !== undefined) {
+    const e = a.effortCheck && typeof a.effortCheck === "object" ? a.effortCheck : null;
+    r.effort_check = e
+      ? {
+          state: _isNonEmptyString(e.state) ? e.state : "UNKNOWN",
+          reason: _isNonEmptyString(e.reason) ? e.reason.slice(0, 240) : null,
+          lane: _isNonEmptyString(e.lane) ? e.lane : null,
+        }
+      : null;
+  }
   return r;
 }
 
@@ -704,7 +755,17 @@ function appendRecord(a) {
     if (!record || typeof record !== "object" || !RECORD_KINDS.includes(record.kind))
       return { ok: false, error: "record MUST be an object with a known kind" };
     const sinkPath = _sinkPath(repoDir, record.session_id);
-    const w = appendSinkLine({ repoDir, sinkPath, line: JSON.stringify(record) });
+    // Declared even though this sink is repoDir-contained today: measured in a real
+    // worktree, containment passes either way, while OMITTING it fails closed the
+    // moment an entry point resolves the shared learning tree to the main checkout.
+    // Uniform declaration is what keeps the boundary one derivation instead of a
+    // per-caller judgement that drifted six times already.
+    const w = appendSinkLine({
+      repoDir,
+      additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+      sinkPath,
+      line: JSON.stringify(record),
+    });
     if (!w.ok) return { ok: false, error: `${w.error} — ${w.reason}` };
     return { ok: true, sinkPath };
   } catch (e) {
@@ -1124,9 +1185,11 @@ module.exports = {
   _resetAnonSessionMemo,
   MAIN_GENERATION,
   RECORD_KINDS,
+  buildWorkflowLaunchRecord,
   RECONCILE_STATES,
   DELEGATION_TOOLS,
   DELIVERY_TOOLS,
+  WORKFLOW_TOOLS,
   MAX_REPORTED_LANES,
   // EXPORTED so a fixture can drive the cap boundary without RESTATING the literal. A test that
   // hard-codes 4 MB stays green while the constant moves, and the two readers of one number then
@@ -1146,6 +1209,7 @@ module.exports = {
   LOCATION_GIT_TIMEOUT_MS,
   NO_LOCATION_REASON,
   resolveDispatchLocation,
+  EFFORT_LEVELS,
   buildLaunchRecord,
   buildDeliveryRecord,
   buildDeclaredRecord,

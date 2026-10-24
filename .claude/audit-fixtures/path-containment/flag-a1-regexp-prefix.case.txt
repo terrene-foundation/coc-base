@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R2 sec N8: a prefix test spelled as an anchored pattern.
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  return new RegExp("^" + path.resolve(root)).test(c);
+}

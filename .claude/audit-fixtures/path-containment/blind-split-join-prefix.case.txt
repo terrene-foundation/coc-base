@@ -1,0 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// B13: a segment-array prefix compare. A real A1 the detector is silent on by construction.
+export function inside(p, root) {
+  const c = fs.realpathSync(p).split(path.sep);
+  const r = path.resolve(root).split(path.sep);
+  return c.slice(0, r.length).join(path.sep) === r.join(path.sep);
+}

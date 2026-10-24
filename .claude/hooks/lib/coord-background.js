@@ -26,24 +26,24 @@
  * flag; the hook's worker branch runs the heavy body DIRECTLY (never
  * re-spawning — the flag guarantees no fork bomb).
  *
- * GPG homedir hygiene (requirement #857-3, #867): a bounded worker SIGTERM'd
- * mid-fold — OR the #866 detached, UNBUDGETED cache-rebuild fold killed by an
- * external shutdown — cannot run coc-sign's destroyVerifyHomedir `finally`, so
- * it leaks one gpg-agent + temp homedir. reapStaleGpgHomedirs() decides per
- * homedir by PID-LIVENESS, NOT by a time-window: each homedir-create site writes
- * a `<homedir>/coc-fold.pid` marker naming the owning process (pid + an immutable
- * process-start token). On reap — a homedir whose pid is ALIVE and whose start-
- * token still matches is SPARED regardless of age (a genuinely running fold: a
- * sibling operator's live fold OR this repo's own in-flight #866 detached
- * rebuild); a homedir whose pid is DEAD (ESRCH) or whose start-token no longer
- * matches (the PID was recycled to a different process) is reaped regardless of
- * age; a homedir with NO marker (a legacy pre-pidfile leak) falls back to the
- * mtime>cutoff guard. An OUTER mtime ceiling is the backstop for the rare case
- * where liveness reads "alive" but the start-token cannot be re-derived (no
- * `ps`). This replaces the former time-window-only heuristic, which could reap a
- * >5-min LIVE detached fold's homedir mid-use (#867). Isolating the homedirs
- * under a private nested TMPDIR is still NOT an option — nesting the homedir
- * deeper overflows the gpg-agent unix-socket path limit and hangs the fold.
+ * F6 cleanup policy: marker classification and age eligibility are separate.
+ * _foldHomedirLiveness preserves unreadable truth as undetermined; corrupt
+ * JSON follows the absent-marker age policy. Verified live owners are spared.
+ * See _foldHomedirLiveness (.claude/hooks/lib/coord-background.js:248-312).
+ * reapStaleGpgHomedirs bounds retention of owned unreadable/unverified homes
+ * with PID_REUSE_CEILING_MS. This age policy does not establish owner death.
+ * Unsafe marker types remain spared even after that ceiling.
+ * See reapStaleGpgHomedirs (.claude/hooks/lib/coord-background.js:699-751).
+ * Validation uses UID or actual process-created home identity, with private
+ * mode and canonical containment. Path-based sinks retain check-to-use races.
+ * See validatedTempHomedir (.claude/hooks/lib/coord-background.js:383-408),
+ * _createOwnedGpgTempHomedir (.claude/hooks/lib/coord-background.js:1151-1183)
+ * and teardownGpgHomedir (.claude/hooks/lib/coord-background.js:652-680).
+ * These witnesses do not provide descriptor-bound destructive operations.
+ * Accepted residuals: readable no-PID markers and non-EPERM probe failures still
+ * take the dead branch; this batch does not establish positive death for them.
+ * See _foldHomedirLiveness (.claude/hooks/lib/coord-background.js:284-297).
+ * Legacy/unknown token versions preserve undetermined truth for a live PID.
  */
 
 "use strict";
@@ -79,7 +79,15 @@ const COC_SIGN_TMP_PREFIXES = [
 const GPGCONF_KILL_TIMEOUT_MS = 5000;
 
 // Daemons that bind to a GPG homedir and must be gone before it is removed.
-const GPG_HOMEDIR_DAEMONS = /\b(gpg-agent|scdaemon|gpg-connect-agent)\b/;
+// The NAME SET is the identity filter (see killDaemonsBoundToHomedir): a pid is
+// signalled only when its EXECUTABLE is one of these — the same daemon name
+// appearing as a WORD in another executable's argv proves nothing (MEASURED:
+// a `node gpg-agent --homedir <h>` process matched the old substring matcher).
+const TRUSTED_GPG_DAEMONS = new Set([
+  "gpg-agent",
+  "scdaemon",
+  "gpg-connect-agent",
+]);
 
 // FALLBACK cutoff (pidfile-ABSENT homedirs only): a legacy pre-pidfile leak
 // older than this is treated as orphaned. Homedirs that DO carry a coc-fold.pid
@@ -92,6 +100,7 @@ const STALE_HOMEDIR_MS = 5 * 60 * 1000;
 // start token). Read by the reaper to decide liveness. NOT a secret — the token
 // is an OS process start timestamp.
 const FOLD_PID_FILENAME = "coc-fold.pid";
+const FOLD_PID_MAX_BYTES = 4096;
 
 // OUTER PID-reuse backstop: a homedir whose pid reads "alive" but whose start-
 // token could NOT be re-derived (e.g. `ps` unavailable) is reaped once older
@@ -175,9 +184,10 @@ function _processStartToken(pid) {
       stdio: ["ignore", "pipe", "ignore"],
       encoding: "utf8",
       timeout: 2000,
+      env: { ...process.env, TZ: "UTC", LC_ALL: "C" },
     });
     const t = (out || "").trim();
-    return t.length > 0 ? t : null;
+    return t.length > 0 ? "v2:" + t : null;
   } catch {
     return null;
   }
@@ -201,42 +211,75 @@ function _ownStartToken() {
  */
 function writeFoldPidFile(dir) {
   if (!dir || typeof dir !== "string") return;
+  let stageDir;
   try {
+    if (!validatedTempHomedir(dir)) return;
     const body = JSON.stringify({
       pid: process.pid,
       token: _ownStartToken() || null,
     });
-    fs.writeFileSync(path.join(dir, FOLD_PID_FILENAME), body, { mode: 0o600 });
+    stageDir = fs.mkdtempSync(path.join(dir, ".coc-fold-pid-"));
+    const staged = path.join(stageDir, FOLD_PID_FILENAME);
+    fs.writeFileSync(staged, body, { mode: 0o600, flag: "wx" });
+    fs.renameSync(staged, path.join(dir, FOLD_PID_FILENAME));
   } catch {
     // best-effort — pidfile absence falls the reaper back to the mtime cutoff.
+  } finally {
+    if (stageDir) {
+      try { fs.rmSync(stageDir, { recursive: true, force: true }); }
+      catch { /* best-effort publication staging cleanup */ }
+    }
   }
 }
 
 /**
  * Classify a homedir's owner from its coc-fold.pid marker:
- *   "absent"           — no marker → mtime fallback.
- *   "dead"             — pid gone (ESRCH) OR corrupt marker OR start-token no
- *                        longer matches (PID recycled) → reap regardless of age.
+ *   "absent"           — missing/corrupt marker → age fallback.
+ *   "dead"             — no PID, non-EPERM probe failure or v2 token mismatch;
+ *                        the first two remain accepted residuals in this batch.
  *   "alive-verified"   — pid alive AND start-token matches → spare regardless of age.
  *   "alive-unverified" — pid alive but token not re-derivable → spare within the
  *                        OUTER ceiling only.
- *
+ *   "undetermined"     — unreadable/unsafe marker or unverified token format.
+ * Source: _foldHomedirLiveness (.claude/hooks/lib/coord-background.js:248-312).
  * @param {string} dir
  * @returns {{state:string, reason?:string}}
  */
 function _foldHomedirLiveness(dir) {
-  let raw;
+  let raw, fd;
   try {
-    raw = fs.readFileSync(path.join(dir, FOLD_PID_FILENAME), "utf8");
-  } catch {
-    return { state: "absent" };
+    if (!(fs.constants.O_NOFOLLOW > 0 && fs.constants.O_NONBLOCK > 0)) {
+      return { state: "undetermined", reason: "unsafe-pidfile" };
+    }
+    fd = fs.openSync(path.join(dir, FOLD_PID_FILENAME),
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > FOLD_PID_MAX_BYTES) {
+      return { state: "undetermined", reason: "unsafe-pidfile" };
+    }
+    const bytes = Buffer.alloc(FOLD_PID_MAX_BYTES + 1);
+    let used = 0;
+    while (used < bytes.length) {
+      const count = fs.readSync(fd, bytes, used, bytes.length - used, used);
+      if (count === 0) break;
+      used += count;
+    }
+    if (used > FOLD_PID_MAX_BYTES) return { state: "undetermined", reason: "unsafe-pidfile" };
+    raw = bytes.toString("utf8", 0, used);
+  } catch (err) {
+    if (err && err.code === "ENOENT") return { state: "absent" };
+    if (err && err.code === "ELOOP") return { state: "undetermined", reason: "unsafe-pidfile" };
+    return { state: "undetermined", reason: "unreadable-pidfile" };
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* best-effort descriptor cleanup */ }
+    }
   }
   let parsed;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // Corrupt marker — ownership cannot be established; safe to reap.
-    return { state: "dead", reason: "corrupt-pidfile" };
+    return { state: "absent", reason: "corrupt-pidfile" };
   }
   const pid =
     parsed && Number.isInteger(parsed.pid) && parsed.pid > 0
@@ -255,6 +298,10 @@ function _foldHomedirLiveness(dir) {
   const storedToken = parsed.token || null;
   const liveToken = _processStartToken(pid);
   if (storedToken && liveToken) {
+    if (typeof storedToken !== "string" || !storedToken.startsWith("v2:") ||
+        storedToken.length <= 3 || !liveToken.startsWith("v2:")) {
+      return { state: "undetermined", reason: "unversioned-start-token" };
+    }
     return storedToken === liveToken
       ? { state: "alive-verified" }
       : { state: "dead", reason: "token-mismatch" }; // PID recycled
@@ -290,34 +337,296 @@ function writeEphemeralAgentConf(home) {
   }
 }
 
+/** The temp roots the create side can root a homedir under (`coc-sign.js::_createHomedir`). */
+function _gpgTempRoots() {
+  return [os.tmpdir(), "/tmp"];
+}
+
+function _resolvedGpgTempRoots() {
+  const roots = [];
+  for (const root of _gpgTempRoots()) {
+    try { roots.push(fs.realpathSync(root) + path.sep); }
+    catch { /* unavailable root cannot authorize a home under it */ }
+  }
+  return roots;
+}
+
+/**
+ * The ONE platform-branch decision for temp-homedir authority. With
+ * process.getuid (POSIX) the uid proves ownership and the private 0700 mode is
+ * required. Without it (win32) Node reports no meaningful mode bits (a directory
+ * reads 0o40666), so the mode is not checked, ownership is only the creating
+ * process's own witness, and a sweep — which runs in a different process from
+ * every creator — can prove nothing: reaping is UNDETERMINED and not attempted.
+ */
+function _homedirAuthority() {
+  return typeof process.getuid === "function"
+    ? { owner: "uid", checkMode: true, reap: "attempt" }
+    : { owner: "creator", checkMode: false, reap: "undetermined" };
+}
+
+const realpathOrSelf = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
+/**
+ * Requires a real directory in a resolvable temp root with the authority
+ * _homedirAuthority selects: UID ownership plus the private 0700 mode, or (no
+ * getuid) an unchanged creator witness. Unknown homes are preserved.
+ * validatedTempHomedir (.claude/hooks/lib/coord-background.js:383-408); creator:
+ * _createOwnedGpgTempHomedir (.claude/hooks/lib/coord-background.js:1151-1183).
+ */
+function validatedTempHomedir(home, identity) {
+  const authority = _homedirAuthority();
+  let validated = null;
+  try {
+    const roots = _resolvedGpgTempRoots();
+    const homeReal = fs.realpathSync(home);
+    const lst = fs.lstatSync(home);
+    const owned = _createdGpgHomedirs.get(homeReal);
+    const ownerProven = authority.owner === "uid"
+      ? lst.uid === process.getuid()
+      : owned && owned.dev === lst.dev && owned.ino === lst.ino;
+    if (roots.some((r) => homeReal.startsWith(r)) &&
+        !lst.isSymbolicLink() && lst.isDirectory() &&
+        (!authority.checkMode || (lst.mode & 0o777) === 0o700) && ownerProven &&
+        Number.isFinite(lst.dev) && Number.isFinite(lst.ino) &&
+        (!identity || (lst.dev === identity.dev && lst.ino === identity.ino))) {
+      validated = homeReal;
+    }
+  } catch {
+    // Unreadable identity remains undetermined and cannot authorize cleanup.
+  }
+  if (!validated && authority.owner !== "uid") {
+    _observeHomedirPreservation("uid-unavailable");
+  }
+  return validated;
+}
+
+/**
+ * Does this argv carry the homedir as a WHOLE `--homedir` argument? Tokens are
+ * compared by canonical realpath equality, never substring: a sibling
+ * `...-fold-A` vs `...-fold-AB` differ at the token, and a `/tmp` vs
+ * `/private/tmp` spelling must not decide whether a real daemon dies.
+ */
+function argvBindsHomedir(argv, homeReal) {
+  for (let i = 0; i < argv.length; i++) {
+    const t = argv[i];
+    if (
+      t === "--homedir" &&
+      i + 1 < argv.length &&
+      realpathOrSelf(argv[i + 1]) === homeReal
+    )
+      return true;
+    if (
+      t.startsWith("--homedir=") &&
+      realpathOrSelf(t.slice("--homedir=".length)) === homeReal
+    )
+      return true;
+  }
+  return false;
+}
+
+/**
+ * DARWIN binding proof — fd-authoritative, from lsof's machine output: a pid
+ * holding a SERVER-SIDE record whose NAME is one of THIS home's sockets.
+ *
+ * TWO measured quirks decide this function's shape. (1) lsof's path selector
+ * matches only the LITERAL spelling a socket was bound with: MEASURED on macOS
+ * 26, `-- /var/folders/.../S.gpg-agent` finds the record while the same file's
+ * canonical `-- /private/var/.../S.gpg-agent` exits 1 with NO records — so
+ * EVERY spelling the caller could have used (`home` as given + its realpath)
+ * is queried and the results unioned. Without this the whole reaper is a
+ * no-op on darwin, failing CLOSED-looking (nothing found = nothing killed).
+ * (2) the NAME lsof prints is the literal bind spelling, so both sides of the
+ * comparison are realpath-normalized. Client connections render as peer pairs
+ * (`path->peer`), which never equal the bare socket path and are excluded by
+ * construction. lsof absent, unreadable, or holding no such record ⇒ NOT
+ * bound (spare).
+ */
+function pidsHoldingHomeSockets(homeReal, spellings) {
+  const pids = new Set();
+  let names;
+  try {
+    names = fs.readdirSync(homeReal).filter((n) => n.startsWith("S."));
+  } catch {
+    return pids; // nothing readable ⇒ spare
+  }
+  for (const name of names) {
+    const sockReal = path.join(homeReal, name);
+    const seen = new Set();
+    for (const spelling of spellings) {
+      const sock = path.join(spelling, name);
+      if (seen.has(sock)) continue;
+      seen.add(sock);
+      let out = "";
+      try {
+        out =
+          spawnSync("lsof", ["-w", "-n", "-Fp", "-Fn", "--", sock], {
+            encoding: "utf8",
+            timeout: GPGCONF_KILL_TIMEOUT_MS,
+          }).stdout || "";
+      } catch {
+        continue; // lsof absent/unreadable for THIS spelling ⇒ cannot prove ⇒ spare
+      }
+      let pid = null;
+      let bound = false;
+      for (const line of out.split("\n")) {
+        if (line.startsWith("p")) {
+          if (bound && Number.isInteger(pid)) pids.add(pid);
+          pid = Number.parseInt(line.slice(1), 10);
+          bound = false;
+        } else if (line.startsWith("n")) {
+          bound = realpathOrSelf(line.slice(1)) === realpathOrSelf(sockReal);
+        }
+      }
+      if (bound && Number.isInteger(pid)) pids.add(pid);
+    }
+  }
+  return pids;
+}
+
+/**
+ * DARWIN executable identity — path-authoritative, from `lsof -d txt`'s FIRST
+ * name record (MEASURED: the executable itself; library/dyld records follow).
+ * Used instead of `ps comm`, which on darwin is a 15-char truncation of the
+ * exec path for processes that do not set a title (MEASURED: `/opt/homebrew/Ce`
+ * for node) and would therefore misread a real homebrew gpg-agent. Returns null
+ * when the path cannot be proven.
+ */
+function darwinExecPath(pid) {
+  let out = "";
+  try {
+    out =
+      spawnSync(
+        "lsof",
+        ["-w", "-n", "-a", "-p", String(pid), "-d", "txt", "-Fn"],
+        {
+          encoding: "utf8",
+          timeout: GPGCONF_KILL_TIMEOUT_MS,
+        },
+      ).stdout || "";
+  } catch {
+    return null;
+  }
+  for (const line of out.split("\n")) {
+    if (line.startsWith("n")) return line.slice(1); // first name record = the executable
+  }
+  return null;
+}
+
+/**
+ * LINUX executable identity. Attempts the authoritative realpath(/proc/<pid>/exe)
+ * FIRST — when readable it decides alone, and a readable NON-match is a positive
+ * contradiction (spare). MEASURED on the CI host (GnuPG 2.4.4): `/proc/<pid>/exe`
+ * raises EACCES for a real gpg-agent even at the SAME uid, because gnupg hardens
+ * itself with PR_SET_DUMPABLE(0) — cmdline stays readable while exe does not, and
+ * a fail-closed read there would silently never kill anything. Only under that
+ * kernel refusal is the argv[0] basename consulted: a claim any process can make,
+ * which is why it is never used WITHOUT the exact `--homedir` token check
+ * alongside it.
+ */
+function linuxExecIdentity(pid, argv) {
+  try {
+    return TRUSTED_GPG_DAEMONS.has(path.basename(fs.realpathSync(`/proc/${pid}/exe`)));
+  } catch {
+    const argv0 = argv && argv.length > 0 ? path.basename(argv[0]) : "";
+    return TRUSTED_GPG_DAEMONS.has(argv0);
+  }
+}
+
 /**
  * SIGKILL any GPG daemon still bound to THIS homedir after gpgconf has had its
  * bounded chance. Required because once an agent is wedged, NO `gpgconf --kill`
  * variant can reach it (MEASURED: `--kill gpg-agent` also times out against a
  * wedged agent — every variant needs the same Assuan greeting).
  *
- * Targeted by construction: `home` is an mkdtemp-unique path, so this can never
- * reap a concurrent operator's or a sibling session's agent.
+ * Identity-grounded — NOT substring-grounded, and NOT "the path is
+ * mkdtemp-unique": `/tmp/x` is a PREFIX of the sibling `/tmp/x-AB`, and a
+ * template string can carry `gpg-agent --homedir <home>` as a WORD inside one
+ * argv element of an unrelated executable. A pid is signalled ONLY when ALL of:
+ *   (c) the HOMEDIR itself validates (validatedTempHomedir) — else spare all;
+ *   (a) EXECUTABLE identity — Linux: realpath(/proc/<pid>/exe) in the name set,
+ *       falling back to the argv[0] basename from the same cmdline ONLY under
+ *       the kernel's EACCES (the norm for gpg's PR_SET_DUMPABLE(0) hardening);
+ *       Darwin: the first `lsof -d txt` name record's basename in the name set;
+ *   (b) BINDING — Linux: a literal `--homedir <canonical home>` argv pair in
+ *       the NUL-split /proc/<pid>/cmdline; Darwin: a SERVER-SIDE lsof record
+ *       (fd NAME equals a socket of this home, realpath-normalized) so a
+ *       connected CLIENT never matches;
+ * plus a re-validation of (a)+(b) IMMEDIATELY before each kill, so a recycled
+ * pid must re-prove membership in the moment it is signalled. The residual
+ * pid-reuse race between that proof and the SIGKILL is NAMED here rather than
+ * claimed away — it is the same window every kill-by-pid carries. Any
+ * ambiguity whatever (unreadable /proc or lsof, absent ps, a parse that does
+ * not fit) SPARES the candidate: a missed wedged daemon is reaped by the next
+ * sweep, while a wrong kill is unrecoverable.
  *
  * @param {string} home - the ephemeral homedir whose daemons must die.
  */
 function killDaemonsBoundToHomedir(home) {
   if (!home || typeof home !== "string") return;
-  let out = "";
-  try {
-    out =
-      spawnSync("ps", ["-eo", "pid=,args="], {
-        encoding: "utf8",
-        timeout: GPGCONF_KILL_TIMEOUT_MS,
-      }).stdout || "";
-  } catch {
-    return; // no `ps` (or it hung) — the caller's rmSync still proceeds
+  const homeReal = validatedTempHomedir(home);
+  if (!homeReal) return; // (c) failed — target unverifiable; spare everything
+  const darwin = process.platform !== "linux";
+  const spellings = Array.from(new Set([home, homeReal]));
+  const candidates = [];
+  if (darwin) {
+    candidates.push(...pidsHoldingHomeSockets(homeReal, spellings));
+  } else {
+    let out = "";
+    try {
+      out =
+        spawnSync("ps", ["-eo", "pid="], {
+          encoding: "utf8",
+          timeout: GPGCONF_KILL_TIMEOUT_MS,
+        }).stdout || "";
+    } catch {
+      return; // no `ps` (or it hung) — the caller's rmSync still proceeds
+    }
+    for (const line of out.split("\n")) {
+      const pid = Number.parseInt(line.trim(), 10);
+      if (!Number.isInteger(pid) || pid <= 1) continue;
+      let argv;
+      try {
+        argv = fs
+          .readFileSync(`/proc/${pid}/cmdline`, "utf8")
+          .split("\0")
+          .filter(Boolean);
+      } catch {
+        continue; // unreadable argv ⇒ ambiguous ⇒ spare
+      }
+      // (a) EXECUTABLE identity, then (b) BINDING — exact `--homedir` token
+      // equality on the NUL-split argv.
+      if (!linuxExecIdentity(pid, argv)) continue;
+      if (!argvBindsHomedir(argv, homeReal)) continue;
+      candidates.push(pid);
+    }
   }
-  for (const line of out.split("\n")) {
-    if (!line.includes(home)) continue; // unique path — never a sibling's
-    if (!GPG_HOMEDIR_DAEMONS.test(line)) continue;
-    const pid = Number.parseInt(line.trim().split(/\s+/)[0], 10);
-    if (!Number.isInteger(pid) || pid <= 1) continue;
+  for (const pid of candidates) {
+    // Re-validate (a)+(b) IMMEDIATELY before the signal — a pid recycled since
+    // the scan above must not be killed on its predecessor's proof.
+    if (darwin) {
+      if (!pidsHoldingHomeSockets(homeReal, spellings).has(pid)) continue;
+      const exe = darwinExecPath(pid);
+      if (!exe || !TRUSTED_GPG_DAEMONS.has(path.basename(exe))) continue;
+    } else {
+      let argv;
+      try {
+        argv = fs
+          .readFileSync(`/proc/${pid}/cmdline`, "utf8")
+          .split("\0")
+          .filter(Boolean);
+      } catch {
+        continue;
+      }
+      if (!linuxExecIdentity(pid, argv)) continue;
+      if (!argvBindsHomedir(argv, homeReal)) continue;
+    }
     try {
       process.kill(pid, "SIGKILL");
     } catch {
@@ -332,16 +641,23 @@ function killDaemonsBoundToHomedir(home) {
  * new call site (the failure that produced three independent unbounded call
  * sites, one of them the reaper itself).
  *
- * Three steps, and `fs.rmSync` runs on EVERY path — success, non-zero exit,
- * absent gpgconf, and the deadlock:
+ * Three steps after validatedTempHomedir accepts the identity; replacement
+ * observed at a later check spares the new directory:
  *   1. ask gpgconf to kill the bound daemons, under a bounded ceiling;
  *   2. SIGKILL anything still holding THIS homedir (the wedged-agent case);
  *   3. remove the directory.
  *
  * @param {string} home - the homedir to tear down. No-op on null/undefined.
  */
-function teardownGpgHomedir(home) {
+function teardownGpgHomedir(home, identity) {
   if (!home || typeof home !== "string") return;
+  if (!validatedTempHomedir(home, identity)) return;
+  let homeReal;
+  try {
+    homeReal = fs.realpathSync(home);
+    if (!identity) identity = fs.lstatSync(home);
+  } catch { return; }
+  if (!validatedTempHomedir(home, identity)) return;
   try {
     execFileSync("gpgconf", ["--homedir", home, "--kill", "all"], {
       stdio: "ignore",
@@ -349,66 +665,88 @@ function teardownGpgHomedir(home) {
       killSignal: "SIGKILL",
     });
   } catch {
-    // gpgconf absent, non-zero, OR timed out on the third-party deadlock.
-    // All three fall through — steps 2 and 3 are what guarantee cleanup.
+    // Failures fall through to identity-gated cleanup; see teardownGpgHomedir
+    // (.claude/hooks/lib/coord-background.js:671-680).
   }
+  if (!validatedTempHomedir(home, identity)) return;
   killDaemonsBoundToHomedir(home);
+  if (!validatedTempHomedir(home, identity)) return;
   try {
     fs.rmSync(home, { recursive: true, force: true });
+    _createdGpgHomedirs.delete(homeReal);
   } catch {
     // best-effort temp cleanup
   }
 }
 
 /**
- * Reap leaked coc-sign GPG homedirs from os.tmpdir() by PID-LIVENESS: kill the
- * bound gpg-agent (gpgconf --homedir <h> --kill all) then remove the dir. A
+ * Reap leaked coc-sign GPG homedirs from EVERY temp root the create side can
+ * choose — os.tmpdir() and /tmp (`coc-sign.js::_createHomedir`) — by
+ * PID-LIVENESS: kill the bound gpg-agent (gpgconf --homedir <h> --kill all)
+ * then remove the dir. Reading only os.tmpdir() would leave a /tmp-rooted
+ * homedir (what every host with an over-long ambient root now produces) never
+ * seen, never aged, never reaped — the #867 leak class on exactly the hosts the
+ * sun_path fix targets. A
  * homedir whose coc-fold.pid marker names a LIVE process (verified by an
  * immutable start-token) is SPARED regardless of age — safe against a concurrent
  * sibling operator's live fold AND this repo's own in-flight #866 detached
  * rebuild. A DEAD / token-mismatched marker is reaped regardless of age; a
- * marker-less legacy leak falls back to the mtime>cutoff guard; the OUTER mtime
- * ceiling backstops the token-unverifiable case. Best-effort + never throws.
+ * absent/corrupt marker uses the fallback cutoff; unreadable/unverified owned
+ * homes use the outer ceiling without claiming death. Unsafe markers are spared.
  *
  * @param {number} [maxAgeMs=STALE_HOMEDIR_MS] fallback cutoff for marker-absent homedirs.
  */
 function reapStaleGpgHomedirs(maxAgeMs) {
+  if (_homedirAuthority().reap !== "attempt") {
+    _observeHomedirPreservation("reap-undetermined-no-uid");
+    return;
+  }
   const now = Date.now();
   const cutoff =
     now - (typeof maxAgeMs === "number" ? maxAgeMs : STALE_HOMEDIR_MS);
   const ceiling = now - PID_REUSE_CEILING_MS;
-  let entries;
-  try {
-    entries = fs.readdirSync(os.tmpdir(), { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const ent of entries) {
-    if (!ent.isDirectory()) continue;
-    if (!COC_SIGN_TMP_PREFIXES.some((p) => ent.name.startsWith(p))) continue;
-    const dir = path.join(os.tmpdir(), ent.name);
-    let st;
+  // Sweep EVERY root the create side can choose (`coc-sign.js::_createHomedir`:
+  // os.tmpdir() when it fits the sun_path budget, else /tmp); dedupe when they
+  // coincide so a single-root host does not stat the same tree twice.
+  const roots = Array.from(new Set(_gpgTempRoots()));
+  for (const root of roots) {
+    let entries;
     try {
-      st = fs.statSync(dir);
+      entries = fs.readdirSync(root, { withFileTypes: true });
     } catch {
-      continue;
+      continue; // unreadable root — the other root still sweeps
     }
-    const live = _foldHomedirLiveness(dir);
-    if (live.state === "alive-verified") {
-      continue; // genuinely running fold — spare regardless of age
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      if (!COC_SIGN_TMP_PREFIXES.some((p) => ent.name.startsWith(p))) continue;
+      const dir = path.join(root, ent.name);
+      let st;
+      try {
+        st = fs.lstatSync(dir);
+      } catch {
+        continue;
+      }
+      if (!validatedTempHomedir(dir, st)) continue;
+      const live = _foldHomedirLiveness(dir);
+      if (live.state === "undetermined") {
+        if (st.mtimeMs > ceiling || live.reason === "unsafe-pidfile") continue;
+      }
+      if (live.state === "alive-verified") {
+        continue; // genuinely running fold — spare regardless of age
+      }
+      if (live.state === "alive-unverified") {
+        if (st.mtimeMs > ceiling) continue; // within the OUTER backstop — spare
+        // older than the ceiling AND unverifiable → fall through to reap.
+      } else if (live.state === "absent") {
+        if (st.mtimeMs > cutoff) continue; // too fresh, no marker — may be live; skip
+        // older than the fallback cutoff → fall through to reap.
+      }
+      // live.state === "dead", OR an unverified/absent homedir past its bound → reap.
+      // Bounded by construction: one wedged homedir can no longer halt the sweep
+      // over the rest — the failure that let 158 leaked homedirs accumulate while
+      // this very loop sat blocked on the first of them.
+      teardownGpgHomedir(dir, st);
     }
-    if (live.state === "alive-unverified") {
-      if (st.mtimeMs > ceiling) continue; // within the OUTER backstop — spare
-      // older than the ceiling AND unverifiable → fall through to reap.
-    } else if (live.state === "absent") {
-      if (st.mtimeMs > cutoff) continue; // too fresh, no marker — may be live; skip
-      // older than the fallback cutoff → fall through to reap.
-    }
-    // live.state === "dead", OR an unverified/absent homedir past its bound → reap.
-    // Bounded by construction: one wedged homedir can no longer halt the sweep
-    // over the rest — the failure that let 158 leaked homedirs accumulate while
-    // this very loop sat blocked on the first of them.
-    teardownGpgHomedir(dir);
   }
 }
 
@@ -782,6 +1120,68 @@ function spawnDetachedCacheRebuild(scriptPath, repoDir) {
   }
 }
 
+const _createdGpgHomedirs = new Map();
+
+// Called from cleanup paths (a sweep, a verify's `finally`), so it never throws:
+// the home is already preserved, which is the fail-safe outcome, and a throw here
+// would replace a verification verdict or abort the session-start worker. A row
+// that did not land is said on stderr instead, and the result says so.
+function _observeHomedirPreservation(reason) {
+  let recorded = null;
+  try {
+    const { logObservation } = require("./learning-utils.js");
+    recorded = logObservation(process.env.CLAUDE_PROJECT_DIR || process.cwd(),
+      "coordination_degradation", {
+        surface: "gpg-homedir-cleanup", degradation: "homedir-owner-undetermined",
+        reason, effect: "cleanup-skipped",
+      }, { hook: "coord-background" });
+  } catch {
+    recorded = null;
+  }
+  if (recorded) return true;
+  try {
+    process.stderr.write("coord-background: GPG_HOMEDIR_OBSERVATION_FAILED — homedir " +
+      `preserved (${reason}) but the observation was not recorded\n`);
+  } catch {
+    /* no stderr either: the preserved home is the outcome that matters */
+  }
+  return false;
+}
+
+function _createOwnedGpgTempHomedir(root, prefix) {
+  const rootReal = fs.realpathSync(root);
+  if (!COC_SIGN_TMP_PREFIXES.includes(prefix) ||
+      !_resolvedGpgTempRoots().includes(rootReal + path.sep)) {
+    throw new Error("ephemeral homedir root or prefix is not admitted");
+  }
+  const home = fs.mkdtempSync(path.join(root, prefix));
+  if (prefix.startsWith("coc-sign-gpg-")) {
+    const authority = _homedirAuthority();
+    let homeReal, lst;
+    try {
+      homeReal = fs.realpathSync(home);
+      lst = fs.lstatSync(home);
+    } catch {
+      lst = null;
+    }
+    if (!lst || !homeReal.startsWith(rootReal + path.sep) || lst.isSymbolicLink() ||
+        !lst.isDirectory() || (authority.checkMode && (lst.mode & 0o777) !== 0o700) ||
+        !Number.isFinite(lst.dev) || !Number.isFinite(lst.ino) ||
+        (authority.owner === "uid" && lst.uid !== process.getuid())) {
+      // The directory mkdtemp just made is empty; rmdir (never a recursive rm)
+      // removes it and refuses anything that is no longer an empty directory.
+      try {
+        fs.rmdirSync(home);
+      } catch {
+        /* not an empty directory any more: leave it rather than remove more */
+      }
+      throw new Error("created ephemeral homedir identity is undetermined");
+    }
+    _createdGpgHomedirs.set(homeReal, { dev: lst.dev, ino: lst.ino });
+  }
+  return home;
+}
+
 module.exports = {
   WORKER_FLAG,
   BANNER_OUT_ENV,
@@ -791,6 +1191,7 @@ module.exports = {
   runBoundedWorker,
   reapStaleGpgHomedirs,
   writeFoldPidFile,
+  _createOwnedGpgTempHomedir,
   // The ONE bounded GPG-homedir teardown path (coc-sign.js imports these rather
   // than keeping a second copy — see GPGCONF_KILL_TIMEOUT_MS for why).
   GPGCONF_KILL_TIMEOUT_MS,

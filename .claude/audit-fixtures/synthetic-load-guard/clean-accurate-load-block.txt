@@ -29,9 +29,12 @@ REPORT TO USER (do not skip any):
     it instead: force the budget, inject a clock, or stub the slow call.
   - Do not generate load another way (a different tool, a busy loop, a
     wrapper, a nested shell).
-  - Only if generating load is itself the assigned task: write a one-line
-    REASON to .claude/load-authz/synthetic-load-allow and re-issue this exact
-    call (consumed on use, reason echoed). Operator/CI: COC_ALLOW_SYNTHETIC_LOAD=1.
+  - Only if generating load is itself the assigned task: write the one-line
+    JSON receipt printed below (bound to THIS call by its digest; replace the
+    reason) to .claude/load-authz/synthetic-load-allow and re-issue this exact
+    call (expires 15 minutes after its written_at, consumed on use, the use
+    recorded, reason echoed). Operator/CI: COC_ALLOW_SYNTHETIC_LOAD=1.
+      {"digest":"<this call's 64-hex digest>","reason":"<REPLACE WITH YOUR ONE-LINE REASON>","written_at":"<this block's time>"}
 
 THEN: Do not re-issue this command or any respelling of it.
 

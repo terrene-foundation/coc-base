@@ -59,6 +59,7 @@
 const { execFileSync } = require("child_process");
 const { resolveGitBinary, gitEnvForArgs } = require("./git-subprocess-env.js");
 const seedTransport = require("./enrollment-seed-transport.js");
+const { parseCoordinationLog, recordStructureError } = require("./fold-record-limits.js");
 
 // The trust-root chain is exactly these two record types. `genesis-anchor` is
 // the enrollment root; `genesis-migration` supersedes it on a MIGRATED repo
@@ -118,6 +119,8 @@ function _defaultGit({ args, repoDir }) {
  * _defaultReadChainHead` takes on the same file. An absent log (ENOENT) is
  * `{ok:true, records:[]}` (the caller reports no-anchor); any OTHER read error
  * surfaces as a typed `{ok:false}`.
+ * Over-cap physical lines refuse the whole read because their type is unknown
+ * (`fold-record-limits.js:41-50`); they may hide a trust-root record.
  *
  * @param {string} repoDir
  * @returns {{ok: true, records: object[]} | {ok: false, reason: string}}
@@ -143,25 +146,18 @@ function readLocalChain(repoDir) {
       reason: `read ${logPath} failed: ${err && err.message ? err.message : String(err)}`,
     };
   }
-  const records = [];
-  const lines = raw.split("\n");
-  for (const line of lines) {
-    if (!line) continue;
-    let rec;
-    try {
-      rec = JSON.parse(line);
-    } catch {
-      // Skip unparseable lines — not our target records (see docstring).
-      continue;
-    }
-    if (
-      rec &&
-      typeof rec === "object" &&
-      TRUST_ROOT_TYPES.indexOf(rec.type) !== -1
-    ) {
-      records.push(rec);
-    }
+  const parsed = parseCoordinationLog(raw, {
+    malformed: "skip", objectRecordsOnly: true, maxRecords: null,
+  });
+  const overCapIndex = parsed.records.findIndex(rec =>
+    recordStructureError(rec)?.kind === "max-size");
+  if (overCapIndex !== -1) {
+    return {
+      ok: false,
+      reason: `over-cap line ${parsed.lineIndices[overCapIndex] + 1} may hide a trust-root record; refusing trust-root backfill`,
+    };
   }
+  const records = parsed.records.filter(rec => TRUST_ROOT_TYPES.indexOf(rec.type) !== -1);
   return { ok: true, records };
 }
 

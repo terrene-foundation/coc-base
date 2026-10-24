@@ -3,10 +3,10 @@ For THIS task: you EDIT files only. Do NOT git add/commit/push/stash/reset/clean
 
 ROOT-CAUSE DISPOSITION (rules/autonomous-execution.md): where a defect admits a symptom patch and a root-cause fix, implement the root-cause fix without asking. A same-class gap inside your budget: fix it, do not file it. Carry this clause into any brief you write.
 
-CONTAINMENT (worktree-isolation MUST-10): any fixture that builds a repo uses its own mkdtemp dir with an absolute `-C`/`cwd` on every git call, asserted against `git rev-parse --show-toplevel` before the first write. You make NO git writes outside a temp fixture. Never write in /Users/op/repos/loom (main checkout) or any other worktree under /Users/op/repos/.loom-wt/. Never write `journal/`, `.claude/learning/**`, `.claude/settings.json`.
+CONTAINMENT (worktree-isolation MUST-10): any fixture that builds a repo uses its own mkdtemp dir with an absolute `-C`/`cwd` on every git call, asserted against `git rev-parse --show-toplevel` before the first write. You make NO git writes outside a temp fixture. Never write in {{FIXTURE_HOME_V1:MAC}}op/repos/loom (main checkout) or any other worktree under {{FIXTURE_HOME_V1:MAC}}op/repos/.loom-wt/. Never write `journal/`, `.claude/learning/**`, `.claude/settings.json`.
 
 STEP 0 (first action):
-  cd "/Users/op/repos/.loom-wt/wip-ledger" || { echo "STOP: cannot enter"; exit 1; }
+  cd "{{FIXTURE_HOME_V1:MAC}}op/repos/.loom-wt/wip-ledger" || { echo "STOP: cannot enter"; exit 1; }
   top=$(git rev-parse --show-toplevel) || { echo "STOP: not a git repo"; exit 1; }
   [ "$top" = "$(pwd -P)" ] || { echo "STOP: not a worktree ROOT"; exit 1; }
   [ "$(git rev-parse --abbrev-ref HEAD)" = "codify/op-2026-09-12-wip-ledger" ] || { echo "STOP: wrong branch"; exit 1; }

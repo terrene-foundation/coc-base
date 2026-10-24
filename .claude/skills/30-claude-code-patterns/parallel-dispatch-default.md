@@ -14,16 +14,28 @@ The default execution mode for every actionable input is the TRIAD, each DEFAULT
    has ≥2 independent sub-parts, decompose onto ONE parallel wave.
 2. **/autonomize** — execute autonomously under the permission envelope: recommend AND take the
    optimal, root-cause, evidence-backed fix, no question-spam (`commands/autonomize.md`).
-3. **/redteam-to-convergence** — every substantive change is adversarially verified to 2
-   consecutive clean rounds before "done" (this REINFORCES, does not restate, `rules/agents.md`
-   § Quality Gates + § Holistic Post-Multi-Wave Redteam + `rules/self-referential-codify.md`
-   Rule 1).
+3. **/redteam-to-convergence** — every substantive change is adversarially verified before "done":
+   a round is **clean** when it has no CRITICAL/HIGH finding, and **Round 1 clean = review ends**
+   (the every-round evidence gate: a reviewer counts only if it genuinely ran — an errored, empty
+   or timed-out review is NO evidence, re-run it). Security-critical changes use a paired Round 1
+   — correctness + adversarial security, in parallel; not clean → fix → Round 2 reviews only the
+   fixes plus their blast radius, with the same reviewer composition as Round 1, then review ends;
+   D237 A5 (`commands/redteam.md` Criterion 3): a Round-2 finding gets its fix plus its A5
+   check(s), one per kind (security-class: a targeted security check by ONE shell-capable seat prompted to REFUTE;
+   correctness-class: a delta correctness check), on a seat distinct from the fixer, never a Round 3
+   or 4. A fix touching rule 1's class ALSO owes the security check (when unclear, the same). An errored,
+   empty or timed-out check is zero evidence: re-run it, the finding stays OPEN. Only what is still
+   CRITICAL/HIGH after the check, or raised by it, goes to the owner.
+   CHECKS: while fixing, re-run only the failed check + the checks the diff touches; the full set
+   runs ONCE, on the final version, and equals CI's required set
+   (this REINFORCES, does not restate, `rules/agents.md` § Quality Gates +
+   § Holistic Post-Multi-Wave Redteam + `rules/self-referential-codify.md` Rule 1).
 
 ```text
 # DO — actionable input with ≥2 independent sub-parts → ONE parallel wave, autonomized,
-#      then redteamed to 2 consecutive clean rounds before calling it done
+#      then redteamed: Round 1 clean = review ends (paired Round 1 for security-critical)
 # DO NOT — execute a decomposable input inline-serially, or idle while an independent
-#          shard is dispatchable, or call it "done" before the redteam converges
+#          shard is dispatchable, or call it "done" before the round's verdict is clean
 ```
 
 **Serial carve-out (keep).** Drops to SERIAL/inline ONLY for a genuinely-atomic single-item
@@ -46,7 +58,7 @@ data/build dependencies; the structural human gates (`rules/autonomous-execution
 Structural vs Execution Gates — plan-approval, release); capacity + throttle
 (`rules/autonomous-execution.md` § Per-Session Capacity Budget + `rules/worktree-isolation.md`
 Rule 4); prudence/sensitivity confirmation (`commands/autonomize.md` § Prudence +
-`rules/recommendation-quality.md` MUST-8); the clean-gate-stop (`rules/recommendation-quality.md`
+`rules/recommendation-quality-escalation.md` MUST-8); the clean-gate-stop (`rules/recommendation-quality.md`
 MUST-3). `/autonomize` is self-bounding — it already mandates confirming destructive /
 hard-to-reverse / sensitivity-elevating actions.
 
@@ -54,7 +66,7 @@ hard-to-reverse / sensitivity-elevating actions.
 atomic/factual serial carve-out prevents over-decomposing a one-liner into a workflow; the
 bounding gates ensure "always executing" never degrades into "always overriding a gate".
 
-## 2. Parallel Brief-Claim Verification When Issue Count ≥ 3 (extracted depth)
+## 2. Parallel Brief-Claim Verification At ≥3 Issues (extracted depth)
 
 The rule's MUST: when `/analyze` runs against a brief covering ≥ 3 distinct issues, the
 orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to

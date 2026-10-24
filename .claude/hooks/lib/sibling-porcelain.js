@@ -36,7 +36,7 @@
  *   callers now discriminate, and deliberately differ because one gates a
  *   write and the other annotates one: `adjacency-leasecheck.js:318-319`
  *   treats `!ok` as advisory-INDETERMINATE (stderr notice, still returns no
- *   adjacency), `signing-mutation-guard.js:249-251` turns it into
+ *   adjacency), `signing-mutation-guard.js::detectSiblingContention` turns it into
  *   `{indeterminate: true}` and halts the fence.
  *
  * Production-vs-test precedence (Rule 4 of B3a):
@@ -394,7 +394,7 @@ function _unquotePorcelain(s) {
  *
  *   Callers MUST NOT collapse the second into the first; both live ones
  *   discriminate (`adjacency-leasecheck.js:318-319`,
- *   `signing-mutation-guard.js:249-251`).
+ *   `signing-mutation-guard.js::detectSiblingContention`).
  *
  * The match predicate is EXACT (per architecture v11 §4.2: "the EXACT
  * target file uncommitted-modified on a sibling worktree"). A sibling

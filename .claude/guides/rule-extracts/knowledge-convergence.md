@@ -256,7 +256,7 @@ construction, and the MUTEX is what refused. That is why the rule body mandates 
 name the same-operator case rather than report a stranger.
 
 **Cross-reference for the Rule 3 `**Why:**`.** The concurrent-`latest.yaml` clobber is the
-concurrency-time form of the failure `rules/artifact-flow.md` § "Append, Never Overwrite
+concurrency-time form of the failure `rules/artifact-flow-gates.md` § "Append, Never Overwrite
 Unprocessed Proposals" calls out.
 
 **Sec-MED-3 (release misroute).** `releaseCodifyLease` derives `leasePath` from `repoDir`

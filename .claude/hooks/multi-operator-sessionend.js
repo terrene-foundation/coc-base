@@ -10,6 +10,10 @@
  * Event: Stop (also wires SessionEnd).
  * Severity: NEVER blocks. {continue:true} on every path.
  * Budget: 5s wall-clock.
+ * Observation-sink residual (EP1 candidate): failed observation delivery is
+ * UNKNOWN; the typed failure has no durable fallback channel. See
+ * recordReleaseLeaseObservation / runWorker / runParent in this file:
+ * .claude/hooks/multi-operator-sessionend.js:457-474,1129-1195.
  *
  * @stdin: none — deliberate, per #857. This hook derives ALL state from
  *   CLAUDE_PROJECT_DIR (see PROJECT_DIR below) and has NO payload-dependent
@@ -50,6 +54,32 @@
  */
 
 "use strict";
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/coordination-log.jsonl",
+ *       ".claude/learning/.coordination-log.emit.lock",
+ *       ".claude/learning/.session-end-cache",
+ *       ".claude/learning/observations.jsonl",
+ *       ".claude/learning/observations.archive/",
+ *       ".claude/learning/sessionend-release-lease-<verified_id-fingerprint>.json",
+ *       ".claude/learning/.tmp-sereleaselease-<pid>-<hex>",
+ *       ".claude/learning/sessionend-release-lease-<verified_id-fingerprint>.json.reap-<pid>-<hex>",
+ *       ".session-notes.d/<display_id>.md",
+ *       ".session-notes.shared.md",
+ *       "<os.tmpdir()>/coc-sign-<mkdtemp-suffix>"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","gpgconf","node","ps","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "Every repo target resolves against the MAIN checkout (lib/state-resolver.js folds a linked worktree onto <main>/.claude/learning; the state dir is CLAUDE_TRUST_STATE_DIR-overridable). Release/checkpoint rows are signed then appended via lib/coc-emit.js + lib/append-sink.js; the lease family (staging sibling + reap tombstone) is lib/sessionend-release-lease.js; the .session-notes writes go through lib/session-notes-layout.js, which lands them via .<name>.tmp.<pid>.<hex> + rename. spawns: the #857 detached teardown worker (lib/coord-background.js) plus ssh-keygen/gpg signing and git probes under lib/coc-sign.js / lib/state-resolver.js / lib/operator-id.js. Ephemeral signing homedirs are created under the OS tmp root and removed."
+ * }
+ */
 
 const TIMEOUT_MS = 5000;
 // Armed by hookMain(), not at load: require() of this file has no side effects,
@@ -127,7 +157,13 @@ function resolveIdentitySafely(repoDir) {
     const { resolveIdentity } = require(
       path.join(__dirname, "lib", "operator-id.js"),
     );
-    return resolveIdentity(repoDir, {});
+    // Align the STAMP with the SIGNER (round-1 security F4 companion): this
+    // writer signs with COC_OPERATOR_KEY_PATH; resolving identity from the
+    // git-config key alone could stamp a different verified_id, which the
+    // emission bind now refuses. Resolve against the same key we sign with.
+    return resolveIdentity(repoDir, {
+      signingKeyPath: process.env.COC_OPERATOR_KEY_PATH || undefined,
+    });
   } catch {
     return null;
   }
@@ -155,14 +191,10 @@ function readFoldedLog(repoDir) {
       };
     }
     const raw = fs.readFileSync(logPath, "utf8");
-    const records = [];
-    for (const line of raw.split("\n")) {
-      if (!line) continue;
-      try {
-        const obj = JSON.parse(line);
-        if (obj && typeof obj === "object") records.push(obj);
-      } catch {}
-    }
+    const { parseCoordinationLog } = require(path.join(__dirname, "lib", "fold-record-limits.js"));
+    const { records } = parseCoordinationLog(raw, {
+      malformed: "skip", objectRecordsOnly: true, maxRecords: null,
+    });
     const roster = loadRoster(repoDir);
     const result = foldLog(records, roster, {});
     return {
@@ -419,6 +451,46 @@ function computeOwnChainHead(folded, ownVerifiedId) {
   return ssot(folded, ownVerifiedId);
 }
 
+function recordReleaseLeaseObservation(repoDir, identity, data) {
+  let recorded = null;
+  try {
+    const { logObservation } = require(
+      path.join(__dirname, "lib", "learning-utils.js"),
+    );
+    recorded = logObservation(repoDir, "coordination_degradation", data, {
+      hook: "multi-operator-sessionend", verified_id: identity.verified_id,
+    });
+  } catch {
+    recorded = null;
+  }
+  if (!recorded) {
+    const err = new Error("sessionend release-lease observation was not recorded");
+    err.code = "SESSIONEND_LEASE_OBSERVATION_FAILED";
+    throw err;
+  }
+}
+
+// The degraded-lease breadcrumb is telemetry about a lease this worker HOLDS, so
+// at-most-one-releaser still holds and the releases go out whether or not the
+// row lands (the base behaviour). Only the not-recorded failure is absorbed, and
+// it is said on stderr; an undetermined or held lease is different — there the
+// releases are deferred and the failure propagates to performTeardown.
+function recordDegradedLease(repoDir, identity, row) {
+  try {
+    recordReleaseLeaseObservation(repoDir, identity, row);
+  } catch (err) {
+    if (!err || err.code !== "SESSIONEND_LEASE_OBSERVATION_FAILED") throw err;
+    try {
+      process.stderr.write(
+        "[sessionend] degraded release-lease observation was not recorded; " +
+          "emitting releases under the held lease\n",
+      );
+    } catch {
+      /* stderr unavailable; the releases below are the outcome that matters */
+    }
+  }
+}
+
 function releaseOwnClaims(repoDir, identity, claims) {
   // Cache the release intent for next-session reconciliation.
   cacheReleaseIntent(repoDir, claims);
@@ -500,11 +572,36 @@ function releaseOwnClaims(repoDir, identity, claims) {
   });
   if (!lease.ok) {
     if (lease.reason === "contended") {
-      // LOSER degrades safely: a live same-emitter releaser is already in
-      // flight, so DEFER — do not emit; the claims linger to their TTL (the
-      // SAME degradation Option A already accepts, but now WITHOUT the fork).
-      // The winning worker emits every release; the release intent is already
-      // cached at cacheReleaseIntent above.
+      if (lease.liveness && (lease.liveness.state === "undetermined" ||
+        lease.liveness.tombstoneHeld === true)) {
+        const data = {
+          surface: "sessionend-release-lease",
+          degradation: lease.liveness.state === "undetermined"
+            ? "release-lease-undetermined" : "release-lease-held-tombstone",
+          reason: [
+            "corrupt-lease", "unreadable-lease", "token-format-unverified",
+            "unsafe-lease", "unbound-lease", "custody-unobservable",
+          ].includes(lease.liveness.reason)
+            ? lease.liveness.reason : "unknown",
+          effect: "releases-deferred-until-lease-resolved",
+        };
+        for (const key of ["age_ms", "floor_ms"]) {
+          const value = lease.liveness[key];
+          if (Number.isFinite(value) && value >= 0) data[key] = value;
+        }
+        if (typeof lease.liveness.tombstoneHeld === "boolean") {
+          data.tombstoneHeld = lease.liveness.tombstoneHeld;
+        }
+        if ([
+          "restored", "newborn-present", "restore-link-failed",
+          "restore-unlink-failed", "reap-unlink-failed", "restored-by-copy",
+          "restore-copy-failed", "restore-copy-unavailable", "custody-held",
+          "tombstone-cleared",
+        ].includes(lease.liveness.restore_reason)) {
+          data.restore_reason = lease.liveness.restore_reason;
+        }
+        recordReleaseLeaseObservation(repoDir, identity, data);
+      }
       try {
         process.stderr.write(
           `[sessionend] release-lease contended for emitter ` +
@@ -555,36 +652,22 @@ function releaseOwnClaims(repoDir, identity, claims) {
   // process-scoped and each SessionEnd is a fresh process, so a latch here would
   // buy nothing; and the condition is a persistent property of the filesystem, so
   // one row per occurrence is the honest telemetry shape rather than noise.
-  if (lease.ok && lease.degraded) {
-    try {
-      const { logObservation } = require(
-        path.join(__dirname, "lib", "learning-utils.js"),
-      );
-      logObservation(
-        repoDir,
-        "coordination_degradation",
-        {
-          surface: "sessionend-release-lease",
-          degradation: lease.degraded,
-          effect:
-            "at-most-one-releaser still holds, but the lease is briefly observable " +
-            "ZERO-BYTE between create and write; a concurrent acquirer sampling that " +
-            "window classifies it corrupt => dead => reap-eligible, so both releasers " +
-            "can hold it and the per-emitter chain can fork",
-          remedy:
-            "put the trust state dir (CLAUDE_TRUST_STATE_DIR / the main checkout's " +
-            ".claude/learning/) on a filesystem with hard links",
-          refs: "loom#874, loom#1544",
-        },
-        { hook: "multi-operator-sessionend", verified_id: identity.verified_id },
-      );
-    } catch {
-      // Best-effort: a breadcrumb failure must never block sessionend teardown
-      // (header contract). The residual is stated at the lib's `_warnDegradedOnce`.
-    }
-  }
-
   try {
+    if (lease.ok && lease.degraded) {
+      recordDegradedLease(repoDir, identity, {
+        surface: "sessionend-release-lease",
+        degradation: lease.degraded,
+        // _classifyLeaseLiveness / acquireReleaseLease age-and-witness policy:
+        // .claude/hooks/lib/sessionend-release-lease.js:480-500,882-935.
+        effect:
+          "a zero-byte lease in the create/write birth window is undetermined " +
+          "and releases are deferred; only an unchanged lease beyond the birth-window " +
+          "age floor is reap-eligible after the tombstone witness recheck, " +
+          "not proof of PID death",
+        remedy: "put the trust state dir on a filesystem with hard links",
+        refs: "loom#874, loom#1544",
+      });
+    }
     for (let i = 0; i < claims.length; i++) {
       const result = emitSignedRecord(
         Object.assign(
@@ -995,7 +1078,19 @@ function performTeardown(mainCheckout, identity) {
   // former branches were byte-identical; the env var only decides WHETHER the
   // parent runs teardown inline, in runParent, not WHAT the teardown does).
   if (ownClaims.length > 0) {
-    releaseOwnClaims(mainCheckout, identity, ownClaims);
+    try {
+      releaseOwnClaims(mainCheckout, identity, ownClaims);
+    } catch (err) {
+      if (!err || err.code !== "SESSIONEND_LEASE_OBSERVATION_FAILED") throw err;
+      try {
+        process.stderr.write(
+          "[sessionend] release observation failed; releases remain deferred; " +
+          "continuing checkpoints and session notes\n",
+        );
+      } catch {
+        /* stderr unavailable; observation delivery remains unknown */
+      }
+    }
   }
 
   // 2. Emit checkpoint when size/age trigger met + eligibility OK.

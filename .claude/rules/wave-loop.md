@@ -2,10 +2,12 @@
 priority: 10
 scope: path-scoped
 paths:
-  - "**/workspaces/**"
   - "**/todos/**"
-  - "**/.claude/commands/**"
   - "**/02-plans/**"
+  - "**/workspaces/*/corpus-ledger.json"
+  - "**/.wave-tracker*"
+  - "**/.wave-tracker.d/**"
+  - "**/.claude/commands/{todos,implement,redteam,wrapup,sweep}.md"
 ---
 
 # Wave-Loop — Verify-And-Feed-Forward Between Milestone-Groups
@@ -15,10 +17,9 @@ measured narratives and Origin depth — every `extract §` pointer below resolv
 
 Verification **deferred to the end** — one terminal `/redteam` after `/implement` drains
 `todos/active/` — lets a defect injected at any handoff compound until fixing it re-touches
-many already-"completed" todos. The wave-loop inserts a **verify-and-feed-forward gate between
-milestone-groups**: it adds NO new phase and makes the existing `redteam → codify →
-(re-)todos → implement` loop **re-entrant per milestone-group**.
-Framing in full, and what the gate REUSES unchanged rather than restating: extract § "Preamble — the terminal-verification design".
+many already-"completed" todos. The wave-loop inserts a **verify-and-feed-forward gate at each
+milestone-group boundary**, adding NO new phase and making that loop **re-entrant**.
+Framing in full: extract § "Preamble — the terminal-verification design".
 
 ## MUST Rules
 
@@ -50,18 +51,18 @@ rule forbids.
 
 **Declaration is compulsory — it is the gate's on-ramp (the rule is inert without it).**
 Every `/todos` plan MUST declare an EXPLICIT wave sequence (Wave 1…N, N≥1). The serial
-carve-out is a one-wave declaration WITH its stated one-milestone/one-convergence-surface
-justification — NEVER the silent absence of a declaration. A multi-shard plan that declares
-no wave sequence, OR that collapses ≥2 value-distinct milestone-groups (or a shard-union
+carve-out is a one-wave declaration WITH its stated justification — NEVER the silent absence of a
+declaration. A multi-shard plan declaring no wave sequence, OR collapsing ≥2 value-distinct
+milestone-groups (or a shard-union
 exceeding bound-B) into one wave WITHOUT a stated justification, is BLOCKED.
 
 Worked examples, BLOCKED corpus + the bound-B / declaration rationale: extract § MUST-1.
 
 **Why:** The shard gate bounds IMPLEMENTATION attention; the wave gate bounds VERIFICATION
 attention — the same budget (`rules/autonomous-execution.md` MUST-1 "context window is not
-attention"), one phase up. The value axis alone lets a value-coherent high-invariant wave
-overflow invisibly; the invariant axis alone lets a low-invariant whole-project wave defer to
-the end. Both bounds required.
+attention"), one phase up. Value alone lets a value-coherent high-invariant wave overflow
+invisibly; invariants alone let a low-invariant whole-project wave defer to the end. Both bounds
+required.
 
 ### 2. The Inter-Wave Gate Fires At Every Boundary Except After The Final Wave
 
@@ -71,13 +72,14 @@ machinery. Launching wave N+1 before G1–G4 complete clean is
 BLOCKED.
 
 - **G1 — redteam to convergence** — `/redteam` scoped to THIS wave's shards, to full Convergence
-  Criteria, posture-invariant; convergence is on **BUG + INVEST-NOW findings only**.
+  Criteria (`commands/redteam.md`), posture-invariant, run under D237's stop rule (Criterion 3):
+  Round 1 clean = review ends; else fix, then Round 2 over the fixes + blast radius, then ends.
 - **G2 — capture the learning (LIGHTWEIGHT)** — Journal the CLAIMED-vs-FOUND delta as a
   `DISCOVERY`/`GAP` + spec update + a `.session-notes` refresh that MUST update the wave-tracker
   file. **Full `/codify` is RESERVED for cross-project learnings — NOT run every wave**.
   _Reuses:_ `commands/journal.md`; `commands/wrapup.md`.
 - **G3 — update specs + remaining todos** — First-instance spec update + sibling re-derivation
-  sweep; amend UNSTARTED later-wave todos for drift the wave caused.
+  sweep; amend UNSTARTED later-wave todos for wave drift.
 - **G4 — re-value-rank** — Re-rank the remaining waves and re-validate every deferred
   value-anchor. _Reuses:_ `rules/value-prioritization.md` MUST-1 + MUST-3.
 - **G5 — launch next wave** — Only after G1–G4 are clean; decompose onto the parallel primitive
@@ -88,20 +90,31 @@ Full cells + worked examples + BLOCKED corpus: extract § MUST-2 gate table / §
 **Why:** The whole defect-compounding failure mode is verification deferred past the
 boundary where the learning is cheapest to apply.
 
-### 3. The Wave-Gate Redteam Runs To Convergence (Per-Wave Instantiation Of 4a)
+### 3. The Wave-Gate Redteam Runs To Convergence (Per-Wave Instantiation)
 
-G1 runs `/redteam` to full convergence per `commands/redteam.md` § Convergence Criteria,
-scoped to the wave, posture-invariant. Shipping a wave before its redteam reaches 2
-consecutive clean rounds **on BUG + INVEST-NOW findings** (`commands/redteam.md` § Category-Based
-Finding Triage / `rules/product-completion-first.md`; INCREMENTAL findings accrete to the
-deferred-quality backlog carried to the terminal `/sweep` and do NOT reset the wave's clean-round
-counter) is BLOCKED — the terminal-redteam obligation, fired per wave. **G1 MUST honor the errored-reviewer evidence gate
-(criterion 3 of the § Convergence Criteria G1 binds, per `rules/agents.md` § "Redteam Reviewer
-Dispatch — Errored/Empty Is Zero Evidence" + `rules/evidence-first-claims.md` MUST-3): a G1
-"clean round" counts ONLY when EVERY dispatched reviewer genuinely ran. On the
+G1 runs `/redteam` per `commands/redteam.md` § Convergence Criteria, scoped to the wave,
+posture-invariant, under D237's stop rule (Criterion 3 — the category triage it applies is
+`rules/product-completion-first.md`): **Round 1 is a full review** — a security-critical wave uses
+a **paired round 1** (correctness + adversarial security, in parallel; when unclear, treat it as
+security-critical) — and **Round 1 clean = review ends**; not clean → fix, then **Round 2** over
+the fixes plus their blast radius **(callers of changed code, same-class sibling sites)**, with the **SAME reviewer composition as Round 1**. A Round-2 finding gets its fix plus
+its A5 check(s), then review ends; no Round 3 or 4. **WHEN REVIEW ENDS, at any round,
+every remaining finding of ANY severity goes into the durable work LEDGER and none is dropped** —
+a NO-residual finding is ledgered as deferred, with its reason; a small KNOWN RISK on a shipped
+path that is NOT security-critical **(Criterion 3 rule 1's class, including ANY trust boundary)** and NOT HIGH/CRITICAL may be PROVISIONALLY accepted so the wave
+can land — ledgered as OPEN, risk stated plainly, and it STAYS OPEN until a human accepts it (named
+acceptor) or asks for the fix. A security-critical or HIGH/CRITICAL residual is NEVER provisionally
+accepted: it follows the owner-acceptance path and needs the owner's acceptance BEFORE landing; any
+other residual risk on a shipped path is fixed, or goes to the owner as an accepted risk with a named
+acceptor; the deferred ledger carries to the terminal `/sweep`. Shipping a wave before its G1 has run to review end is BLOCKED — the
+terminal-redteam obligation, fired per wave. **G1 MUST honor the errored-reviewer evidence gate
+(`rules/agents.md` § "Redteam Reviewer
+Dispatch — Errored Is Never A Clean Round" + `rules/evidence-first-claims.md` MUST-3): a reviewer
+counts only if it genuinely ran; an errored / empty / timed-out review is NO
+evidence, MUST be re-run, and MUST NOT count as clean. On the
 `rules/worktree-isolation.md`
 Rule 4 synchronized-throttle signal, back off dispatch concurrency and re-run the throttled
-reviewers before claiming G1 convergence.**
+reviewers before claiming G1 clean.**
 
 Depth — the binding rationale — lives in `.claude/guides/rule-extracts/wave-loop.md` § "MUST-3 — the binding note".
 
@@ -131,7 +144,7 @@ data/build dependencies; the structural human gates (`rules/autonomous-execution
 Structural vs Execution Gates); capacity + throttle
 (`rules/autonomous-execution.md` § Per-Session Capacity Budget + this rule's MUST-1 bound-B +
 `rules/worktree-isolation.md` Rule 4); prudence/sensitivity confirmation
-(`rules/recommendation-quality.md` MUST-8 + `commands/autonomize.md` § Prudence); and the
+(`rules/recommendation-quality-escalation.md` MUST-8 + `commands/autonomize.md` § Prudence); and the
 **clean-gate-stop** (`rules/recommendation-quality.md` MUST-3 — a converged hand-to-human stop
 IS complete; manufacturing work to avoid stopping is BLOCKED).
 
@@ -150,8 +163,8 @@ ground truth: (a) grep/read the on-disk target surface the item names, (b) `gh i
 Implementing on the backlog's say-so WITHOUT reconciling is BLOCKED.
 
 **(b) MUST read BOTH halves, and no single flag does.** `--json body,comments` returns both; two
-explicit invocations are an acceptable alternative. A single partial flag is not. Why a partial
-read makes the item look SHORTER than it is, and the measurement of both partial poles on `gh` 2.x
+explicit invocations are an acceptable alternative; a single partial flag is not. How a partial
+read makes the item look SHORTER, and the measurement of both poles
 (which flag truncates which half, and why prescribing `--comments` alone installs the mirror-image
 defect): extract § "MUST-7(b) — the measured both-halves poles".
 
@@ -179,11 +192,9 @@ the violation. Detector: `.claude/bin/check-wave-corpus-ledger.mjs`.
 Worked example + BLOCKED corpus: extract § MUST-8.
 
 **Why:** The wave model assumes all surfaces land together, so when they cannot the only
-lever left is a manual global freeze — the widest instrument for a per-surface problem,
-with a blast radius covering every operator who was never party to the wave. A
-machine-readable per-surface SHA converts divergence into a reported state, and a lease with an
-author, a release condition and a calendar backstop turns "the freeze lifts when someone
-remembers" into a finding. Incident, schema, and the four lease fields:
+lever left is a manual global freeze — the widest instrument for a per-surface problem, whose
+blast radius covers every operator never party to the wave. Incident, schema, and the four lease
+fields:
 extract § MUST-8.
 
 ### 9. A Wave Lands As ONE Integration PR, Not One PR Per Shard — Converge Before Opening
@@ -217,9 +228,9 @@ Applies to **MUST-9** ONLY; ships canonical-8-field-compliant per `trust-posture
 - **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + cc-architect at `/codify` confirm a wave landed through ONE integration PR, and that each shard branch was converged and CI-parity-clean before its first push); `advisory` at any hook layer per `hook-output-discipline.md` MUST-2.
 - **Grace period:** 7 days from clause landing (2026-08-19 → 2026-08-26).
 - **Cumulative posture impact:** same-class violations (a wave landed as one PR per shard; a shard branch pushed before convergence and then re-pushed to fix gate failures) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
-- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause key. Named deviation from the key-per-clause shape, recorded here per `trust-posture.md` Rule 8 (a bounded CI-spend overrun does not warrant an instant-drop key; reasoning in the extract § "MUST-9 wiring — probe-registration depth"). Same disposition MUST-6/7 and MUST-8 took.
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause key; deviation recorded per Rule 8 (a bounded CI-spend overrun does not warrant an instant-drop key; reasoning: extract § "MUST-9 wiring — probe-registration depth"). Same disposition MUST-6/7 and MUST-8 took.
 - **Receipt requirement:** SessionStart soft-gate `[ack: wave-loop]` IFF `posture.json::pending_verification` includes the `wave-loop` rule_id (shared rule_id; one ack covers every clause in this file).
-- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer inspects any session that landed a multi-shard wave and confirms (a) exactly ONE PR carried the wave to the default branch, from a `chore/<wave-id>-integration[-<letter>]` head, and (b) each shard branch's first push followed a local CI-parity run. **NO structural detector is claimed and none is deferred** per `hook-output-discipline.md` MUST-5(b): wave membership is not derivable from any tool-call-time signal, so detection is PERMANENTLY REVIEW-LAYER. Scanner: none (semantic). Probes: the `MUST-9-firing` bipolar pair in `.claude/test-harness/probes/wave-loop.probes.json`, dispatched at gate-review via `/test-harness-probe`.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms (a) exactly ONE PR carried the wave to the default branch, from a `chore/<wave-id>-integration[-<letter>]` head, and (b) each shard branch's first push followed a local CI-parity run. **NO structural detector is claimed and none is deferred** per `hook-output-discipline.md` MUST-5(b): wave membership is not derivable from any tool-call-time signal, so detection is PERMANENTLY REVIEW-LAYER. Scanner: none (semantic). Probes: the `MUST-9-firing` pair in `.claude/test-harness/probes/wave-loop.probes.json`, dispatched at gate-review.
 
 Depth — the MUST-9 probe-registration narrative — lives in `.claude/guides/rule-extracts/wave-loop.md` § "MUST-9 wiring — probe-registration depth".
 
@@ -254,8 +265,8 @@ Structural vs Execution Gates); the structural human gates remain `/todos` plan-
 ## Trust Posture Wiring
 
 - **Severity:** `halt-and-report` at `/codify` gate-review (cc-architect / reviewer greps
-  the workspace journal for a per-wave-boundary convergence receipt + a re-value-rank
-  receipt). No `block` — the signal is a review-layer judgment, not a structural tool-call
+  the journal for a per-wave convergence receipt + a re-value-rank receipt). No `block` — the
+  signal is a review-layer judgment, not a structural tool-call
   primitive (`rules/hook-output-discipline.md` MUST-2).
 - **Grace period:** 7 days from rule landing.
 - **Cumulative posture impact:** same-class violations (a wave launched without its gate; a
@@ -268,16 +279,16 @@ Structural vs Execution Gates); the structural human gates remain `/todos` plan-
 - **Receipt requirement:** SessionStart MUST require `[ack: wave-loop]` in the agent's first
   response IF `posture.json::pending_verification` includes this rule_id. Soft-gate.
 - **Detection mechanism:** Phase 1 — cc-architect / reviewer mechanical sweep at `/todos` +
-  `/codify` + `/redteam`, in five checks: **(0) the declaration check (the on-ramp) — an
+  `/codify` + `/redteam`: **(0) the declaration check (the on-ramp) — an
   undeclared or under-declared `/todos` plan per MUST-1 IS the violation**; then, for any multi-wave
-  workspace, the four receipt checks — per-boundary convergence receipt (MUST-5), re-value-rank
-  receipt (G4), bound-B compliance, and a genuine ran-signal from EVERY dispatched reviewer per
-  the MUST-3 evidence-gate. Full checklist (a)–(d), with what each check discriminates: extract
+  workspace, four receipt checks — per-boundary convergence receipt (MUST-5), re-value-rank
+  receipt (G4), bound-B compliance, and a genuine ran-signal from EVERY dispatched reviewer
+  (MUST-3). Full checklist (a)–(d), with what each check discriminates: extract
   § "Trust Posture Wiring — the MUST-1/2/3/5 sweep checklist".
   **Probes: REGISTERED — `.claude/test-harness/probes/wave-loop.probes.json`**, 22 rows in 11
   bipolar `pair_id` pairs — one firing pair per derived clause (the ten
   `check-clause-coverage.mjs::deriveClauses` returns, MUST-1…MUST-9 and MUST-NOT) plus
-  a meta-compliance pair, candidates at `.claude/audit-fixtures/wave-loop/`. Registered in
+  a meta-compliance pair. Registered in
   `eval-manifest.json` (probe-only), pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`;
   no workflow invokes `coc-probe-dispatch.mjs`, and `.claude/test-harness/**` is never-synced.
   The MUST-5 pair is the load-bearing one.
@@ -285,7 +296,7 @@ Structural vs Execution Gates); the structural human gates remain `/todos` plan-
   `rules/trust-posture.md` § Two-Phase Rollout, after ≥3 real wave-loop projects): a
   `.claude/hooks/lib/violation-patterns.js` Stop-event detector (advisory) + audit fixtures at
   `.claude/audit-fixtures/wave-loop/` per `rules/cc-artifacts.md` Rule 9. **NARROWED 2026-09-11 to
-  check (0), the declaration check — the only half a detector can decide.** The four RECEIPT checks
+  check (0) — the only half a detector can decide.** The four RECEIPT checks
   are retired in place: a receipt PRESENT but FALSE is the failure mode MUST-5 exists for, and
   receipt CONTENT is semantic adequacy `hook-output-discipline.md` MUST-2 caps below `block` and
   `rule-authoring.md` MUST NOT names. Rationale: `phase2-deferrals.json` key
@@ -316,8 +327,8 @@ the pre-existing MUST 1/2/3/5 wiring above is unchanged.
 - **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the
   GENERIC `regression_within_grace` emergency trigger per `rules/trust-posture.md` MUST-4 (1× = drop 1
   posture) — NO dedicated per-clause trigger key (a session-history judgment property does not warrant
-  an instant-drop key; MUST-6/7 do NOT reuse MUST 1/2/3's `wave_gate_skipped` key). Named deviation
-  from the canonical key-per-clause shape, recorded here per `rules/trust-posture.md` Rule 8.
+  an instant-drop key; MUST-6/7 do NOT reuse MUST 1/2/3's `wave_gate_skipped` key). Deviation per
+  `rules/trust-posture.md` Rule 8.
 - **Receipt requirement:** SessionStart soft-gate `[ack: wave-loop]` IFF
   `posture.json::pending_verification` includes this rule_id (shared with the MUST 1/2/3/5 wiring).
 - **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect / reviewer inspect the session
@@ -328,8 +339,8 @@ the pre-existing MUST 1/2/3/5 wiring above is unchanged.
   `.claude/hooks/fleet-drain-guard.js` (`Stop`) over `.claude/hooks/lib/fleet-drain.js`,
   fixtures `.claude/audit-fixtures/fleet-drain/`, registered in `ci-audit-fixtures.json`; it
   reconciles the `Stop` payload's `background_tasks` array and the per-session dispatch ledger
-  against dispatchable `## Outstanding ledger (forest)` rows, and emits `halt-and-report`. It is
-  BOUNDED and does not over-claim what is armed: it
+  against dispatchable `## Outstanding ledger (forest)` rows, emitting `halt-and-report`; BOUNDED
+  and over-claiming nothing about what is armed — it
   detects the COUNT, not MUST-6's independence judgment. THREE BOUNDS in full + the MEASURED
   severity justification:
   extract § "MUST-6/7 wiring — the fleet-drain detector, measured". MUST-7 keeps its Phase-1
@@ -349,8 +360,8 @@ Applies to **MUST-8** and its paired MUST NOT bullet ONLY; ships canonical-8-fie
 per `rules/trust-posture.md` MUST-8. The MUST 1/2/3/5 and MUST-6/7 blocks above are unchanged.
 
 - **Severity:** `halt-and-report` at `/codify` + `/redteam` gate-review (cc-architect /
-  reviewer confirm a multi-surface wave carried a ledger, that every surface row is pinned to
-  a full SHA, that any divergence names a human acceptor, and that any freeze was a recorded
+  reviewer confirm a multi-surface wave carried a ledger, every surface row pinned to a full SHA,
+  any divergence naming a human acceptor, and any freeze a recorded
   lease); `advisory` at the hook layer per `rules/hook-output-discipline.md` MUST-2.
 - **Grace period:** 7 days from clause landing (2026-08-16 → 2026-08-23).
 - **Cumulative posture impact:** same-class violations (a multi-surface wave with no ledger; an
@@ -361,25 +372,23 @@ per `rules/trust-posture.md` MUST-8. The MUST 1/2/3/5 and MUST-6/7 blocks above 
   the GENERIC `regression_within_grace` emergency trigger per `rules/trust-posture.md` MUST-4
   (1× = drop 1 posture) — NO dedicated per-clause trigger key, and it does NOT reuse MUST
   1/2/3's `wave_gate_skipped` key (that fires on a skipped inter-wave gate, a different
-  shape). Named deviation from the canonical key-per-clause form, recorded here per
-  `rules/trust-posture.md` Rule 8, on the same reasoning MUST-6/7 recorded.
+  shape). Deviation per `rules/trust-posture.md` Rule 8, on the reasoning MUST-6/7 recorded.
 - **Receipt requirement:** SessionStart soft-gate `[ack: wave-loop]` IFF
   `posture.json::pending_verification` includes this rule_id (shared across every clause).
 - **Detection mechanism:** structural, SHIPPED WITH THE CLAUSE — no phase is deferred.
   Scanner `.claude/bin/check-wave-corpus-ledger.mjs` reads every
   `workspaces/*/corpus-ledger.json` and reds on any pin, state/`merged_sha`, divergence-
-  acceptance or freeze-lease violation; it exits 3 (UNRUN, explicitly NOT a pass) when no
-  ledger exists, so a silent no-op cannot read as clean. Bipolar fixtures at
+  acceptance or freeze-lease violation; it exits 3 (UNRUN, NOT a pass) when no ledger exists, so a
+  silent no-op cannot read as clean. Bipolar fixtures at
   `.claude/audit-fixtures/wave-corpus-ledger/`, registered `mode: run` in
   `.claude/test-harness/ci-audit-fixtures.json` and executed by `.claude/bin/run-audit-fixtures.mjs`.
   Per-arm red conditions + fixture poles: extract §
   "MUST-8 wiring — the scanner's per-arm red conditions". Gate-review then covers what the scanner is
   NOT scoped to answer (`rules/instrument-discipline.md` MUST-4): whether the ledger enumerates
   every surface the wave actually touched, and whether a freeze was WARRANTED. Probes: the
-  `MUST-8-firing` bipolar pair in `.claude/test-harness/probes/wave-loop.probes.json`, candidates
-  at `.claude/audit-fixtures/wave-loop/`; the superseded "no probe suite ships for this clause"
-  reading is corrected in place, because a Wiring row asserting an absent tier is the
-  absence-reads-as-clean shape this rule's own MUST-5 governs.
+  `MUST-8-firing` pair in `.claude/test-harness/probes/wave-loop.probes.json`; the superseded "no
+  probe suite ships for this clause" reading is corrected in place, because a Wiring row asserting
+  an absent tier is the absence-reads-as-clean shape MUST-5 governs.
 - **Violation scope:** MUST-8 + its paired MUST NOT bullet ONLY (clause-scoped). Every
   `violations.jsonl` row names the wave, the surface, and which arm fired.
 - **Origin:** See § Origin (the nine-surface Gate-2 wave cut at loom `959a2524`).
@@ -389,15 +398,14 @@ per `rules/trust-posture.md` MUST-8. The MUST 1/2/3/5 and MUST-6/7 blocks above 
 - **Distinct from:** `rules/sweep-completeness.md` blocks substituting a cheaper proxy for a
   mandated step; this rule blocks deferring verification past the wave boundary.
 - **Composes with (does not restate)** the rules and commands each MUST clause cites inline. The
-  roster, and the per-clause map naming WHICH section of each is reused where: extract §
+  roster and the per-clause map naming WHICH section of each is reused: extract §
   "Composes with — the per-clause cross-reference map".
 
 ## Origin
 
 2026-06-06 — co-owner-directed origination (`rules/artifact-flow.md` § Co-Owner-Directed
-Origination); receipt-first journal `journal/0226`. Amended 2026-07-18 —
-co-owner-directed origination (`journal/0543`) added MUST-6 + MUST-7 + the G2 wave-tracker
-refresh line + their clause-scoped 8-field wiring.
+Origination); receipt-first `journal/0226`. Amended 2026-07-18 (`journal/0543`) — added
+MUST-6 + MUST-7 + the G2 wave-tracker refresh line + their clause-scoped 8-field wiring.
 Amended 2026-08-16 — MUST-8, from the nine-surface Gate-2 wave cut at loom `959a2524`.
 Amended 2026-08-19 — MUST-9. Design provenance + the full MUST-8 incident and root cause: extract § "Origin —
 design provenance and the amendment records" and § MUST-8.
@@ -406,13 +414,12 @@ design provenance and the amendment records" and § MUST-8.
 taken to hold this rule's path-scoped injection budget (`.claude/bin/check-rule-injection-budget.mjs`):
 the preamble framing, MUST-1's bound-B and declaration rationale, MUST-7(b)'s measured `gh`-flag
 poles, the MUST-6/7 fleet-drain measurement, the MUST-1/2/3/5 sweep checklist, the MUST-8 scanner
-arms, the probe-registration narratives, the composes-with map, the design provenance and the
-length-rationale enumeration moved VERBATIM to `.claude/guides/rule-extracts/wave-loop.md`; every
+arms, the probe-registration narratives, the composes-with map and the design provenance moved
+VERBATIM to `.claude/guides/rule-extracts/wave-loop.md`; every
 MUST, MUST NOT, BLOCKED entry, DO/DO-NOT block and `**Why:**` line stayed here.
-**`rule-authoring.md` Rule 10 / Rule 11 do NOT fire:** Rule 10 § "Trigger scope" limits it to
-`priority: 0` + `scope: baseline` rules and this rule is `scope: path-scoped`, so these are
-STRUCTURAL-CLEANUP extractions, NOT Rule-10 paired extractions and NOT Rule-11 recurrence input
-(the disposition `journal/0148` recorded).
+**`rule-authoring.md` Rule 10 / Rule 11 do NOT fire:** this rule is `scope: path-scoped`, outside
+their `priority: 0` + `scope: baseline` § "Trigger scope"; these are STRUCTURAL-CLEANUP
+extractions, NOT paired extractions (the disposition `journal/0148` recorded).
 
 **Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** Over the 200-line
 guidance. Named rationale: the body is already minimized — MUST-3/4/5 collapsed to

@@ -149,8 +149,8 @@ pytest --cov=app --cov-report=html  # Coverage
 ## Related Skills
 
 - **[17-gold-standards](../../../.claude/skills/17-gold-standards/SKILL.md)** - Testing best practices
-- **[02-dataflow](../../../.claude/skills/02-dataflow/SKILL.md)** - DataFlow testing
-- **[03-nexus](../../../.claude/skills/03-nexus/SKILL.md)** - API testing
+- **[02-dataflow](../02-dataflow/SKILL.md)** - DataFlow testing
+- **[03-nexus](../03-nexus/SKILL.md)** - API testing
 
 ## Support
 

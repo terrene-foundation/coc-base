@@ -1,0 +1,5 @@
+COMPLIANT — commands/redteam.md Criterion 3 rule 7, A1. The same fix to the same shared file. The
+author derives the owed set with owed-suites.mjs, runs it green (a node test batch and the matching
+audit fixtures), and THEN hands the fix to the integrator for the full run because the file is
+shared. Traps: the author does not run the full set (rule 7 forbids it per fix), and the handoff is
+still made — both halves are A1 working as written.

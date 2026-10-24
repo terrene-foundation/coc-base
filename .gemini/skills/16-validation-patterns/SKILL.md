@@ -135,9 +135,9 @@ Session 2026-04-23 kailash-ml 1.0.0 M1 W33b shard — regression test caught the
 ## Related Skills
 
 - **[17-gold-standards](../../../.claude/skills/17-gold-standards/SKILL.md)** - Compliance standards
-- **[31-error-troubleshooting](../../../.claude/skills/31-error-troubleshooting/SKILL.md)** - Error troubleshooting
-- **[01-core-sdk](../../../.claude/skills/01-core-sdk/SKILL.md)** - Core patterns
-- **[02-dataflow](../../../.claude/skills/02-dataflow/SKILL.md)** - DataFlow patterns
+- **[31-error-troubleshooting](../31-error-troubleshooting/SKILL.md)** - Error troubleshooting
+- **[01-core-sdk](../01-core-sdk/SKILL.md)** - Core patterns
+- **[02-dataflow](../02-dataflow/SKILL.md)** - DataFlow patterns
 
 ## Support
 

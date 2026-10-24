@@ -25,6 +25,7 @@
  *   HOOK=/abs/path/to/mutant.js node .../run.mjs     # red it against a mutant
  */
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { createRequire } from "module";
 import { fileURLToPath } from "url";
@@ -214,9 +215,42 @@ runDispositionSuite({ suiteDir: HERE, hook: HOOK, fixtures: FIXTURES, setups: SE
 // Neither shape is excluded by the fixture set alone. Each control flips EXACTLY
 // ONE element and requires the disposition to MOVE.
 console.log("\n=== T4: paired controls — flip one setup element, require the verdict to move ===");
+// The verdict signal asserted below is the DISPOSITION TAG, never `refused`. The
+// shared runner defines `refused` as a TRUE DENIAL only (exit 2 / continue:false /
+// deny — hook-fixture-runner.mjs § driveHook), and this guard's slot findings are
+// halt-and-report: exit 0, continue:true, the tool RUNS (fixtures 02/04's
+// expected.txt: severity halt-and-report, stderr_tag [HALT-AND-REPORT]). A
+// `refused === true` assertion on these arms would demand a fence the guard's
+// design does not carry — and did pass only while the runner's old predicate
+// counted any [HALT-AND-REPORT] output as a refusal.
+
+function nativeDenied(r) {
+  const h = r.json?.hookSpecificOutput;
+  return r.code === 2 && h?.hookEventName === "PreToolUse" &&
+    h.permissionDecision === "deny" && typeof h.permissionDecisionReason === "string" &&
+    h.permissionDecisionReason.trim().length > 0 &&
+    typeof r.stderr === "string" && r.stderr.includes(h.permissionDecisionReason);
+}
+
+{
+  const reason = "STOP — Tool call blocked. Full refusal body.";
+  const h = { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason };
+  const good = { code: 2, json: { hookSpecificOutput: h }, stderr: reason };
+  for (const [name, result, expected] of [
+    ["exit 2 with full stderr", good, true],
+    ["exit 0 with native JSON", { ...good, code: 0 }, false],
+    ["exit 2 without stderr", { ...good, stderr: "" }, false],
+    ["exit 2 with unrelated stderr", { ...good, stderr: "another refusal" }, false],
+  ]) check(`native denial contract: ${name}`, nativeDenied(result) === expected,
+    `expected=${expected}`, "native denial accepted a missing transport signal or rejected the full refusal");
+}
+
 
 function drive(w, payload) {
-  return driveHook(HOOK, { stdinRaw: JSON.stringify(payload), cwd: w.repoDir, env: envFor(w) });
+  const r = driveHook(HOOK, { stdinRaw: JSON.stringify(payload), cwd: w.repoDir, env: envFor(w) });
+  let json = null;
+  try { json = JSON.parse((r.stdout || "").trim()); } catch { /* malformed transport remains a failed verdict */ }
+  return { ...r, json };
 }
 
 // A frontmatter block that SATISFIES the canonical shape contract, with
@@ -271,7 +305,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const theirs = drive(w, payload);
   check(
     "C1: same slot with a covering reservation — signed by SELF ⇒ passthrough / by SIBLING ⇒ REFUSED",
-    mine.code === 0 && mine.tag === "(none)" && theirs.refused === true,
+    mine.code === 0 && !nativeDenied(mine) && mine.tag === "(none)" && theirs.tag === "[HALT-AND-REPORT]",
     `self-signed: exit=${mine.code} tag=${mine.tag} | sibling-signed: exit=${theirs.code} tag=${theirs.tag}`,
     "identical dispositions = the reservation.verified_id === selfVerifiedId discriminator is dead. Passing on BOTH means one operator can write over a slot another operator reserved (the silent clobber MUST-NOT-3 exists to prevent); refusing on BOTH means an operator cannot write their OWN reserved slot.",
   );
@@ -288,7 +322,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const present = drive(w, payload);
   check(
     "C2: reserved-by-self throughout — file ABSENT ⇒ passthrough / file PRESENT ⇒ BLOCK",
-    absent.code === 0 && absent.tag === "(none)" && present.code === 2 && present.tag === "[BLOCK]",
+    absent.code === 0 && !nativeDenied(absent) && absent.tag === "(none)" && nativeDenied(present) && present.tag === "[BLOCK]",
     `absent: exit=${absent.code} tag=${absent.tag} | present: exit=${present.code} tag=${present.tag}`,
     "identical dispositions = the append-only fence is not keyed on file existence. A pass on the PRESENT arm overwrites a journal entry in place and destroys the audit trail rules/journal.md exists to keep; a block on the ABSENT arm makes writing any new entry impossible.",
   );
@@ -305,7 +339,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const write = drive(w, { ...base, tool_name: "Write", tool_input: { file_path: target, content: SHAPE_CLEAN_FM + "x\n" } });
   check(
     "C3: same unreserved journal path — Read ⇒ passthrough / Write ⇒ REFUSED",
-    read.code === 0 && read.tag === "(none)" && write.refused === true,
+    read.code === 0 && !nativeDenied(read) && read.tag === "(none)" && write.tag === "[HALT-AND-REPORT]",
     `Read: exit=${read.code} tag=${read.tag} | Write: exit=${write.code} tag=${write.tag}`,
     "identical dispositions = isWatchedTool is not gating. Both refusing halts every Read of a journal entry; both passing removes the slot fence from the mutation tools it exists for.",
   );
@@ -325,7 +359,7 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const inside = drive(w, writePayload(w, "journal/0001-DECISION-inside.md"));
   check(
     "C4: same Write — /tmp/... ⇒ passthrough / <repo>/journal/... ⇒ REFUSED",
-    outside.code === 0 && outside.tag === "(none)" && inside.refused === true,
+    outside.code === 0 && !nativeDenied(outside) && outside.tag === "(none)" && inside.tag === "[HALT-AND-REPORT]",
     `outside: exit=${outside.code} tag=${outside.tag} | inside: exit=${inside.code} tag=${inside.tag}`,
     "identical dispositions = isWatchedPath is not scoping. Refusing on the OUTSIDE arm taxes every unrelated Write on the machine; passing on the INSIDE arm removes the slot fence from the repo it guards.",
   );
@@ -350,9 +384,9 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   check(
     "C5: UNENROLLED (governance OFF) — unreserved slot ⇒ SILENT passthrough / existing file ⇒ still BLOCK",
     mode.governance === "not-enrolled" &&
-      unreserved.code === 0 &&
+      unreserved.code === 0 && !nativeDenied(unreserved) &&
       unreserved.tag === "(none)" &&
-      existing.code === 2 &&
+      nativeDenied(existing) &&
       existing.tag === "[BLOCK]",
     `modes: ${mode.coordination}/${mode.governance} | unreserved: ${verdict(unreserved)} | existing: ${verdict(existing)}`,
     "a halt on the UNRESERVED arm = the gate stopped gating and an unenrolled repo, where reserve emits no record, can no longer write its journal receipt (issue #76); a pass on the EXISTING arm = the gate was placed ABOVE the append-only block and a solo repo can now silently overwrite its own journal history.",
@@ -377,9 +411,9 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
     "C6: ENROLLED-SOLO (coordination OFF, governance ON) — unreserved ⇒ REFUSED UNRESERVED / self-reserved ⇒ passthrough",
     mode.coordination === "implicit-solo-single-operator" &&
       mode.governance === "enrolled-solo" &&
-      unreserved.refused === true &&
+      unreserved.tag === "[HALT-AND-REPORT]" &&
       unreserved.combined.includes("UNRESERVED") &&
-      reserved.code === 0 &&
+      reserved.code === 0 && !nativeDenied(reserved) &&
       reserved.tag === "(none)",
     `modes: ${mode.coordination}/${mode.governance} | unreserved: ${verdict(unreserved)} | self-reserved: ${verdict(reserved)}`,
     "a pass on the UNRESERVED arm = the gate is keyed on coordination again, and an enrolled single-human repo writes unreserved slots its other lanes can collide with; a refusal on the RESERVED arm = the governance-only fold (skipSignatureVerify) is not admitting the reservation reserve allocated from, which is the deadlock the re-key must not introduce.",
@@ -448,9 +482,9 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
     "C7: ENROLLED-SOLO end to end — reserveJournalSlotSigned lands its record ⇒ writing THAT slot passes / the next, unreserved slot ⇒ REFUSED",
     contained &&
       landed &&
-      reservedWrite.code === 0 &&
+      reservedWrite.code === 0 && !nativeDenied(reservedWrite) &&
       reservedWrite.tag === "(none)" &&
-      unreservedWrite.refused === true &&
+      unreservedWrite.tag === "[HALT-AND-REPORT]" &&
       unreservedWrite.combined.includes("UNRESERVED"),
     `contained=${contained} (${logTarget}) | reserve: ok=${r && r.ok} slot=${slot} record=${!!(r && r.record)} step=${r && r.step} | log reservations=${logged.length} landed=${landed} | write ${filename}: ${verdict(reservedWrite)} | write ${next}: ${verdict(unreservedWrite)}`,
     "landed=false = the supply emitted no record on a governed repo, and every governed journal write halts; a refusal on the reserved write = supply and demand disagree about the key or the fold, the deadlock; a pass on the unreserved write = the demand is not armed here at all.",
@@ -490,9 +524,9 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
       offMode.governance === "enrolled-solo" &&
       onMode.coordination === "local-override" &&
       record.sig !== reservationRecord(w, { slot: "0031", dir: "journal", by: "self" }).sig &&
-      off.code === 0 &&
+      off.code === 0 && !nativeDenied(off) &&
       off.tag === "(none)" &&
-      on.refused === true &&
+      on.tag === "[HALT-AND-REPORT]" &&
       on.combined.includes("UNRESERVED"),
     `off modes: ${offMode.coordination}/${offMode.governance} → ${verdict(off)} | on modes: ${onMode.coordination}/${onMode.governance} → ${verdict(on)}`,
     "a refusal on the OFF arm = the governance-only fold verifies signatures, paying loom#1890's per-record subprocess on every governed journal write and disagreeing with the allocator's acceptance set; a pass on the ON arm = coordination-ON repos lost signature verification, i.e. a sibling can forge a reservation that reads as yours.",
@@ -594,11 +628,11 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
       expectB &&
       expectC &&
       preBlind &&
-      a.code === 0 &&
+      a.code === 0 && !nativeDenied(a) &&
       a.tag === "(none)" &&
-      b.refused === true &&
+      b.tag === "[HALT-AND-REPORT]" &&
       b.combined.includes("UNRESERVED") &&
-      c.refused === true &&
+      c.tag === "[HALT-AND-REPORT]" &&
       c.combined.includes("UNRESERVED"),
     `modes: ${mode.coordination}/${mode.governance} | full fold: ${full.accepted.length} accepted, ${full.rejected.length} rejected (${full.rejected.map((e) => e.rule).join(",")}) in ${foldMs}ms | pre-filtered fold holds 0120: ${!preBlind} | 0120: ${verdict(a)} (${aMs}ms) | 0121: ${verdict(b)} | 0150: ${verdict(c)}`,
     "a refusal on 0120 = the guard no longer folds the emitter's whole chain (a record-type pre-filter, or any reading that drops the codify-lease / gate-op-receipt records a reservation chains through) and every real reservation reads UNRESERVED; a pass on 0150 = chain integrity is no longer consulted and a hand-appended off-chain record reserves a slot the allocator never counted; a pass on 0121 = the lookup is not keyed on the slot.",
@@ -606,11 +640,15 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
 }
 
 {
-  // C10 — A CHECK THAT DID NOT FINISH IS NOT A PASS. The fallback timer used to
-  // write a bare `{continue:true}`, byte-identical to "checked, and clean". The
-  // tighten-only budget knob drives the not-completed arm deterministically: at 1ms
-  // the reservation check's own deadline has passed before the log is read, on any
-  // machine, at any load. Four arms; only the knob and the target move.
+  // C10 — A CHECK THAT DID NOT FINISH IS NOT A PASS — AND NOT A CLEARED WRITE. The
+  // fallback timer used to write a bare `{continue:true}`, byte-identical to
+  // "checked, and clean"; its successor rendered halt-and-report, which is still
+  // continue:true, so the write landed on an unverified slot. The not-completed arm
+  // is now a BUDGET REFUSAL (exit 2, native deny, the runner's verbatim budget
+  // sentence; fail-closed completeness lane, shard C2). The tighten-only budget knob
+  // drives it deterministically: at 1ms the reservation check's own deadline has
+  // passed before the log is read, on any machine, at any load. Four arms; only the
+  // knob and the target move.
   const w = makeSoloWorld("c10");
   writeLog(w.repoDir, [reservationRecord(w, { slot: "0012", dir: "journal", by: "self" })]);
   const payload = writePayload(w, "journal/0012-DECISION-budget.md");
@@ -637,27 +675,28 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const ctx =
     starved.json &&
     starved.json.hookSpecificOutput &&
-    typeof starved.json.hookSpecificOutput.additionalContext === "string"
-      ? starved.json.hookSpecificOutput.additionalContext
+    typeof starved.json.hookSpecificOutput.permissionDecisionReason === "string"
+      ? starved.json.hookSpecificOutput.permissionDecisionReason
       : "";
   check(
-    "C10: self-reserved slot — default budget ⇒ passthrough / budget exhausted ⇒ HALT-AND-REPORT 'did not complete … slot unverified', never bare continue; the exhausted budget taxes neither a non-journal Write nor an unenrolled repo",
-    completed.code === 0 &&
+    "C10: self-reserved slot — default budget ⇒ passthrough / budget exhausted ⇒ BUDGET REFUSAL 'did not complete … slot unverified' (exit 2, native deny), never a continue; the exhausted budget taxes neither a non-journal Write nor an unenrolled repo",
+    completed.code === 0 && !nativeDenied(completed) &&
       completed.tag === "(none)" &&
-      starved.code === 0 &&
-      starved.tag === "[HALT-AND-REPORT]" &&
+      starved.code === 2 && nativeDenied(starved) &&
+      starved.tag === "[BLOCK]" &&
       !!starved.json &&
-      starved.json.continue === true &&
-      ctx.includes("did not complete within the hook budget") &&
+      starved.json.continue !== true &&
+      ctx.includes("within its budget") &&
       ctx.includes("slot unverified") &&
+      ctx.includes("a guard time-out under load is a budget refusal, not a deny") &&
       ctx.includes("0012") &&
       !starved.combined.includes("UNRESERVED") &&
-      offJurisdiction.code === 0 &&
+      offJurisdiction.code === 0 && !nativeDenied(offJurisdiction) &&
       offJurisdiction.tag === "(none)" &&
-      unenrolled.code === 0 &&
+      unenrolled.code === 0 && !nativeDenied(unenrolled) &&
       unenrolled.tag === "(none)",
     `completed: ${verdict(completed)} | starved: ${verdict(starved)} json=${JSON.stringify(starved.json).slice(0, 90)} | notes/ under starve: ${verdict(offJurisdiction)} | unenrolled under starve: ${verdict(unenrolled)}`,
-    "a bare {continue:true} or tag (none) on the STARVED arm = a check that never finished reads as a clean pass again; UNRESERVED there = an unfinished check is reported as a completed negative; a refusal on the COMPLETED arm = the budget trips on an ordinary check; a refusal on either off arm = the budget taxes writes the reservation check has no jurisdiction over.",
+    "a continue:true, exit 0 or tag (none) on the STARVED arm = a check that never finished clears the write again (halt-and-report is continue:true: the write LANDS); UNRESERVED there = an unfinished check is reported as a completed negative; a refusal on the COMPLETED arm = the budget trips on an ordinary check; a refusal on either off arm = the budget taxes writes the reservation check has no jurisdiction over.",
   );
 }
 
@@ -731,21 +770,21 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const saysUnreserved = (r) => r.combined.includes("is not reserved in the coordination log");
   check(
     "C11: identical self-reservation throughout — healthy roster ⇒ passthrough / corrupt ⇒ BLOCK / unreadable ⇒ BLOCK / erased-but-valid ⇒ BLOCK, each naming the ROSTER; restoring it ⇒ passthrough again",
-    ok.code === 0 &&
+    ok.code === 0 && !nativeDenied(ok) &&
       ok.tag === "(none)" &&
-      corrupt.code === 2 &&
+      nativeDenied(corrupt) &&
       corrupt.tag === "[BLOCK]" &&
       namesRoster(corrupt) &&
-      unreadable.code === 2 &&
+      nativeDenied(unreadable) &&
       unreadable.tag === "[BLOCK]" &&
       namesRoster(unreadable) &&
-      erased.code === 2 &&
+      nativeDenied(erased) &&
       erased.tag === "[BLOCK]" &&
       namesRoster(erased) &&
       !saysUnreserved(corrupt) &&
       !saysUnreserved(unreadable) &&
       !saysUnreserved(erased) &&
-      restored.code === 0 &&
+      restored.code === 0 && !nativeDenied(restored) &&
       restored.tag === "(none)" &&
       forged.tag === "[HALT-AND-REPORT]" &&
       saysUnreserved(forged),
@@ -787,13 +826,13 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const carriesAuthor = (r) => r.combined.includes("author") && r.combined.includes("human");
   check(
     "C12: identical `author: human` content, unbacked — UNRESERVED slot ⇒ refusal carrying BOTH the slot and the author finding / SIBLING slot ⇒ likewise / SELF-reserved slot ⇒ refusal on the author finding alone",
-    unreserved.refused === true &&
+    unreserved.tag === "[HALT-AND-REPORT]" &&
       unreserved.combined.includes("UNRESERVED") &&
       carriesAuthor(unreserved) &&
-      sibling.refused === true &&
+      sibling.tag === "[HALT-AND-REPORT]" &&
       sibling.combined.includes(SIB.display_id) &&
       carriesAuthor(sibling) &&
-      selfSlot.refused === true &&
+      selfSlot.tag === "[HALT-AND-REPORT]" &&
       carriesAuthor(selfSlot) &&
       !selfSlot.combined.includes("UNRESERVED"),
     `unreserved: ${verdict(unreserved)} carriesAuthor=${carriesAuthor(unreserved)} | sibling: ${verdict(sibling)} carriesAuthor=${carriesAuthor(sibling)} | self: ${verdict(selfSlot)} carriesAuthor=${carriesAuthor(selfSlot)}`,
@@ -832,14 +871,14 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
   const bodyOnly = fire("---\ntype: DECISION\n---\n\nauthor: human\n");
   check(
     "C13: same self-reserved slot — `author: human` written plain / quoted-key / spaced-key ⇒ all REFUSED; unterminated and duplicated frontmatter ⇒ REFUSED as unparseable; `author: agent`, no frontmatter, and a BODY-only `author:` line ⇒ passthrough",
-    plain.refused === true &&
-      quotedKey.refused === true &&
-      spacedKey.refused === true &&
-      unterminated.refused === true &&
+    plain.tag === "[HALT-AND-REPORT]" &&
+      quotedKey.tag === "[HALT-AND-REPORT]" &&
+      spacedKey.tag === "[HALT-AND-REPORT]" &&
+      unterminated.tag === "[HALT-AND-REPORT]" &&
       unterminated.combined.includes("UNPARSEABLE") &&
-      duplicate.refused === true &&
+      duplicate.tag === "[HALT-AND-REPORT]" &&
       duplicate.combined.includes("UNPARSEABLE") &&
-      agent.code === 0 &&
+      agent.code === 0 && !nativeDenied(agent) &&
       agent.tag === "(none)" &&
       // These two arms CANNOT be made shape-clean without destroying what they
       // test: `noFrontmatter` has no frontmatter BY DEFINITION, and `bodyOnly`
@@ -850,9 +889,9 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
       // shape layer to fire here, so switching that layer off REDS this case.
       // What is unchanged is the authorship verdict both arms exist for —
       // `code === 0`, i.e. no refusal, because neither made an authorship claim.
-      noFrontmatter.code === 0 &&
+      noFrontmatter.code === 0 && !nativeDenied(noFrontmatter) &&
       noFrontmatter.tag === "[ADVISORY]" &&
-      bodyOnly.code === 0 &&
+      bodyOnly.code === 0 && !nativeDenied(bodyOnly) &&
       bodyOnly.tag === "[ADVISORY]",
     `plain: ${verdict(plain)} | "author": ${verdict(quotedKey)} | author : ${verdict(spacedKey)} | unterminated: ${verdict(unterminated)} | duplicate: ${verdict(duplicate)} | agent: ${verdict(agent)} | no-frontmatter: ${verdict(noFrontmatter)} | body-only: ${verdict(bodyOnly)}`,
     "a pass on the quoted- or spaced-key arm = the SAME false `author: human` claim ships unchecked by writing it differently; a pass on the unterminated/duplicate arms = a frontmatter the checker could not read is reported as a clean check that ran; a refusal on the agent/no-frontmatter/body-only arms = the layer fires where no human-authorship claim was made, and every agent-surfaced entry halts.",
@@ -860,11 +899,13 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
 }
 
 {
-  // C14 — AN ERRORED CHECK IS NOT A CLEAN CHECK. The internal-error branch wrote
-  // a bare `{continue:true}` — byte-identical to "I folded the log and your slot
-  // is fine" — so any exception in this guard read downstream as a pass, and
-  // nothing could drive it to notice. Same world, same self-reserved slot, same
-  // payload; only the injected fault moves.
+  // C14 — AN ERRORED CHECK IS NOT A CLEAN CHECK — AND IT DOES NOT CLEAR THE WRITE.
+  // The internal-error branch wrote a bare `{continue:true}` — byte-identical to "I
+  // folded the log and your slot is fine" — and its successor a halt-and-report,
+  // still continue:true. The guard now runs on guard-runner.js::runGuard, so the
+  // exception REFUSES there: exit 2, a native deny, and the runner's stderr line
+  // naming the guard and the fault (fail-closed completeness lane, shard C2). Same
+  // world, same self-reserved slot, same payload; only the injected fault moves.
   const w = makeSoloWorld("c14");
   writeLog(w.repoDir, [reservationRecord(w, { slot: "0012", dir: "journal", by: "self" })]);
   const payload = writePayload(w, "journal/0012-DECISION-fault.md");
@@ -874,24 +915,19 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
     cwd: w.repoDir,
     env: { ...envFor(w), COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR: "1" },
   });
-  const ctx =
-    faulted.json && faulted.json.hookSpecificOutput && typeof faulted.json.hookSpecificOutput.additionalContext === "string"
-      ? faulted.json.hookSpecificOutput.additionalContext
-      : "";
+  const h14 = faulted.json && faulted.json.hookSpecificOutput;
   check(
-    "C14: self-reserved slot — no fault ⇒ passthrough / injected internal error ⇒ HALT-AND-REPORT 'reservation check errored — slot unverified' naming the slot, never a bare continue",
-    clean.code === 0 &&
+    "C14: self-reserved slot — no fault ⇒ passthrough / injected internal error ⇒ the runner's CRASH REFUSAL naming journal-write-guard and the fault (exit 2, native deny), never a continue",
+    clean.code === 0 && !nativeDenied(clean) &&
       clean.tag === "(none)" &&
-      faulted.code === 0 &&
-      faulted.tag === "[HALT-AND-REPORT]" &&
-      !!faulted.json &&
-      faulted.json.continue === true &&
-      ctx.includes("reservation check errored") &&
-      ctx.includes("slot unverified") &&
-      ctx.includes("0012") &&
+      faulted.code === 2 &&
+      !!h14 && h14.permissionDecision === "deny" &&
+      faulted.json.continue !== true &&
+      faulted.combined.includes("[guard-runner] DENY journal-write-guard:") &&
+      faulted.combined.includes("COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR injected fault") &&
       !faulted.combined.includes("UNRESERVED"),
     `clean: ${verdict(clean)} | faulted: ${verdict(faulted)} json=${JSON.stringify(faulted.json).slice(0, 90)}`,
-    "tag (none) or a bare {continue:true} on the FAULTED arm = a guard that threw still reports as a completed clean check; UNRESERVED there = an errored check is reported as a completed negative; a refusal on the CLEAN arm = the injected fault is not the thing being measured.",
+    "exit 0 or a continue:true on the FAULTED arm = a guard that threw still clears the write; UNRESERVED there = an errored check is reported as a completed negative; a refusal on the CLEAN arm = the injected fault is not the thing being measured.",
   );
 }
 
@@ -923,11 +959,87 @@ const verdict = (r) => `exit=${r.code} tag=${r.tag}`;
     "C15: both injection keys exported AMBIENTLY in the runner — a self-reserved write still passes, so GUARD_ENV_KEYS strips them",
     GUARD_ENV_KEYS.includes("COC_JOURNAL_GUARD_BUDGET_MS") &&
       GUARD_ENV_KEYS.includes("COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR") &&
-      ambient.code === 0 &&
+      ambient.code === 0 && !nativeDenied(ambient) &&
       ambient.tag === "(none)",
     `ambient: ${verdict(ambient)} | listed: budget=${GUARD_ENV_KEYS.includes("COC_JOURNAL_GUARD_BUDGET_MS")} fault=${GUARD_ENV_KEYS.includes("COC_TEST_JOURNAL_GUARD_INTERNAL_ERROR")}`,
     "a refusal here = an ambient value reaches the guard, and every disposition this suite pins can be satisfied on the not-completed or errored branch instead of the branch it names.",
   );
+}
+
+{
+  // C16 — THE CHECK DEADLINE IS DERIVED FROM THE RUN BUDGET (ctx.budgetMs), ONE SOURCE.
+  // journal-write-guard.js::checkBudgetOf: the check deadline is ctx.budgetMs less a
+  // fixed reserve, never a constant of its own (the former 4000 ms constant sat against
+  // the row's 20 s timeout). Driven IN THE ENGINE (hook-engine.js::runCli, the selftest
+  // path), where the runner arms no timer of its own — so a tiny run budget changes the
+  // check deadline and nothing else, with no race against the runner's budget.
+  //   A  pristine copy                         → the check completes: passthrough
+  //   B  BUDGET_MS = 1001 (derived check 1 ms) → BUDGET REFUSAL naming "budget 1ms"
+  //   C  B + the derivation replaced by a separate constant → completes again: proof
+  //      that B's refusal comes from the derivation, not from the copy being broken.
+  // Then the guard's wall time over 5 standalone runs of the completed arm, against
+  // the derived check budget — the margin this deadline actually has.
+  const w = makeSoloWorld("c16");
+  writeLog(w.repoDir, [reservationRecord(w, { slot: "0012", dir: "journal", by: "self" })]);
+  const payload = writePayload(w, "journal/0012-DECISION-derived.md");
+  const sbRoot = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "jwg-c16-"));
+  try {
+    const sbHooks = path.join(sbRoot, ".claude", "hooks");
+    fs.cpSync(path.join(REPO, ".claude", "hooks", "lib"), path.join(sbHooks, "lib"), { recursive: true });
+    const src = fs.readFileSync(HOOK, "utf8");
+    const BUDGET_ANCHOR = "const BUDGET_MS = 16000;";
+    const DERIVE_ANCHOR = "checkState.budgetMs = checkBudgetOf(ctx.budgetMs);";
+    const anchored = src.split(BUDGET_ANCHOR).length === 2 && src.split(DERIVE_ANCHOR).length === 2;
+    const tight = src.replace(BUDGET_ANCHOR, "const BUDGET_MS = 1001;");
+    const constant = tight.replace(DERIVE_ANCHOR, "checkState.budgetMs = checkBudgetOf(5000);");
+    const copies = { pristine: src, tight, constant };
+    const files = {};
+    for (const [k, text] of Object.entries(copies)) {
+      files[k] = path.join(sbHooks, `journal-write-guard.c16-${k}.js`);
+      fs.writeFileSync(files[k], text);
+    }
+    const reached = fs.readFileSync(files.tight, "utf8").includes("const BUDGET_MS = 1001;") &&
+      fs.readFileSync(files.constant, "utf8").includes("checkBudgetOf(5000)");
+    const inEngine = (file) => {
+      const r = driveHook(file, { stdinRaw: JSON.stringify(payload), cwd: w.repoDir, env: { ...envFor(w), COC_HOOK_ENGINE_SELFTEST: "1" } });
+      let json = null;
+      try { json = JSON.parse((r.stdout || "").trim()); } catch { /* a failed transport stays a failed verdict */ }
+      return { ...r, json };
+    };
+    const a = inEngine(files.pristine);
+    const b = inEngine(files.tight);
+    const c = inEngine(files.constant);
+    const bReason = b.json?.hookSpecificOutput?.permissionDecisionReason || "";
+    check(
+      "C16: the check deadline is DERIVED from ctx.budgetMs — a 1001 ms run budget starves the check (budget refusal naming 'budget 1ms'); the same copy with a separate deadline constant completes; the pristine copy completes",
+      anchored && reached &&
+        a.code === 0 && !nativeDenied(a) &&
+        b.code === 2 && nativeDenied(b) && bReason.includes("within its budget") && bReason.includes("budget 1ms") &&
+        bReason.includes("a guard time-out under load is a budget refusal, not a deny") &&
+        c.code === 0 && !nativeDenied(c),
+      `anchored=${anchored} reached=${reached} | pristine: ${verdict(a)} | 1001ms: ${verdict(b)} | 1001ms+constant: ${verdict(c)}`,
+      "a pass on B = the check deadline does not follow the run budget (a separate constant again); a refusal on C = the B refusal is the broken copy, not the derivation; a refusal on A = the derived deadline trips on an ordinary check.",
+    );
+    const walls = [];
+    for (let i = 0; i < 5; i++) {
+      const t0 = Date.now();
+      const r = drive(w, payload);
+      walls.push({ ms: Date.now() - t0, ok: r.code === 0 && !nativeDenied(r) });
+    }
+    const ms = walls.map((x) => x.ms).sort((x, y) => x - y);
+    const p50 = ms[2];
+    const max = ms[4];
+    const derived = 16000 - 1000;
+    console.log(`C16 TIMING journal-write-guard standalone completed arm, 5 runs: wall ms ${JSON.stringify(walls.map((x) => x.ms))} p50=${p50} max=${max}; derived check budget ${derived} ms (margin ${derived - max} ms at max); registry row 20000 ms; platform=${process.platform}`);
+    check(
+      "C16b: 5 standalone runs of the completed arm all pass, and the slowest leaves margin under the derived check budget",
+      walls.every((x) => x.ok) && max < derived,
+      `walls=${JSON.stringify(walls)} p50=${p50} max=${max} derived=${derived}`,
+      "a refusal here = the derived deadline trips on an ordinary check; max at or past the derived budget = no margin left.",
+    );
+  } finally {
+    fs.rmSync(sbRoot, { recursive: true, force: true });
+  }
 }
 
 cleanup();

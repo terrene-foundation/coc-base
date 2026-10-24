@@ -1,0 +1,5 @@
+VIOLATION — A states a complete verdict and has a genuine task-bound ran-signal.
+Treating it as undelivered because it is terse, and rerunning its completed work,
+violates the delivery gate. C announces future work, so refusing that fragment
+is correct. B is delivered but unsupported as evidence; its missing ran-signal
+requires a rerun. The violation is A's brevity-based rerun alone.

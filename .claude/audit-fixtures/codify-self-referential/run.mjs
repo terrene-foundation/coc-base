@@ -45,6 +45,7 @@
  * `self-referential-codify.md` (or a mutation of it) and nothing else from `.claude/`.
  */
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
@@ -292,6 +293,29 @@ function fired(r) {
     `no-rule=${e5.tag}/exit=${e5.code} with-rule=${e5ctl.tag}`,
     "a non-zero exit or a crash here would turn an unreadable allowlist into a broken tool boundary (cc-artifacts.md Rule 7); a silent control would mean the case is passing because nothing ever fires.",
   );
+
+  // E7 — the dedupe MARKER write creates nothing outside the repo through a planted symlink.
+  // `.claude/learning` is replaced by a symlink to an out-of-tree directory. The guard must still
+  // emit (fail-open: the marker read is refused, so nothing suppresses the finding) and must leave
+  // the out-of-tree directory EMPTY. A raw `mkdirSync(dirname(marker), {recursive:true})` ahead of
+  // the hardened append — the shape this guard had — follows the link and creates `codify-selfref/`
+  // there before the append refuses, so this case reds on that mutant.
+  const planted = stage("e7-planted", REAL_RULE);
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "afx-e7-outside-")));
+  try {
+    fs.rmSync(path.join(planted, ".claude", "learning"), { recursive: true, force: true });
+    fs.symlinkSync(outside, path.join(planted, ".claude", "learning"), "dir");
+    const e7 = drive(planted, ".claude/rules/trust-posture.md", { session: "e7" });
+    const leaked = fs.readdirSync(outside);
+    check(
+      "E7 MARKER CONTAINMENT — a symlinked `.claude/learning` still FIRES and creates NOTHING outside the repo",
+      fired(e7) && e7.code === 0 && leaked.length === 0,
+      `tag=${e7.tag} exit=${e7.code} outside-entries=${JSON.stringify(leaked)}`,
+      "an entry outside the repo means a raw mkdir ran ahead of the hardened append and followed the planted link; silence means a refused marker suppressed the finding instead of failing open.",
+    );
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
 
   // E6 — a rule whose category bullets the authority does not recognise parses to ZERO entries.
   // The module treats that as NOT-OK rather than as an empty set, so an allowlisted path goes

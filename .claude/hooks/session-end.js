@@ -12,13 +12,34 @@
  *   other = non-blocking error (warn and continue)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/",
+ *       ".claude/learning/observations.jsonl",
+ *       ".claude/learning/learning-digest.json",
+ *       "workspaces/<workspace>/journal/.pending/",
+ *       "workspaces/<workspace>/.journal-skipped.log",
+ *       "~/.claude/sessions/",
+ *       ".claude/learning/handover-declared/<session_id>.json"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git status --porcelain (loose-scratch advisory) and git log (journal candidates) through lib/target-repo-git.js (spawnSync, the target-repo envelope). From a worktree, lib/learning-utils.js::resolveLearningDir routes the learning targets to the MAIN checkout's .claude/learning/ through state-resolver. ~/.claude/sessions/ is the hook's home-scoped checkpoint surface (per-session json, last-session.json, pid tmp files, and cleanupOldSessions unlinks) — outside the repo root, named here because it is a real write target. When the session ends for any reason other than `clear` it REMOVES this session's declared-handover file under the MAIN checkout's .claude/learning/handover-declared/ (context-state.js::retireDeclaredHandover; no-follow, directory realpath-checked)."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const {
   resolveLearningDir,
   ensureLearningDir,
   logObservation: logLearningObservation,
-  countObservations,
 } = require("./lib/learning-utils");
 const { classifyCommitForJournal } = require("./lib/journal-classifier");
 // loom#1349 — the ONE hardened append primitive; see lib/append-sink.js for the six defenses.
@@ -78,6 +99,19 @@ function onStdinEnd(input) {
     } catch {
       /* fail open — silence is the correct failure mode for an advisory */
     }
+    // SEC-F7: a session ending WITHOUT a /clear is never resumed from its declared
+    // handover; retire that declared state so a watcher does not read a dead session as a
+    // stalled handover. A /clear ending leaves it for the next context's injector, which
+    // removes it only when it starts from that seed. Fail-open, but never silent.
+    if (data && data.reason !== "clear" && typeof data.session_id === "string") {
+      try {
+        const dirInfo = require("./lib/compaction-handoff.js").resolveHandoffDir(data.cwd || process.cwd());
+        const r = require("./lib/context-state.js").retireDeclaredHandover(dirInfo, data.session_id);
+        if (!r.ok) process.stderr.write(`[session-end] declared handover state NOT retired (${r.reason})\n`);
+      } catch (e) {
+        process.stderr.write(`[session-end] declared handover state NOT retired (${(e && e.message) || e})\n`);
+      }
+    }
     const { summary, refused } = saveSession(data);
     // SessionEnd schema: no hookSpecificOutput. Surface a stderr summary so
     // the user sees what was checkpointed (was DARK pre-fix).
@@ -124,43 +158,33 @@ function onStdinEnd(input) {
  * is what the rule ASKS for and is invisible here by construction. This reports
  * the rule's violation, never its compliance.
  *
- * `--no-optional-locks` is load-bearing: this is a READ in a possibly SHARED
+ * No optional locks is load-bearing: this is a READ in a possibly SHARED
  * checkout (the primary may be mid-landing), and it must not take `index.lock`.
+ * The envelope's environment carries it (`GIT_OPTIONAL_LOCKS=0`, the env form of
+ * `--no-optional-locks`).
  * Returns a one-line report, or null — and null covers BOTH "nothing loose" and
  * "could not measure", which is why the caller adds no claim of its own.
  */
 function looseScratchLine(cwd) {
   if (!cwd) return null;
-  let bin;
-  let env;
-  let execFileSync;
   try {
-    // Lazy, matching this file's existing pattern (see the `child_process`
-    // require further down) so a require() of this module stays side-effect free.
-    ({ execFileSync } = require("child_process"));
-    const {
-      resolveGitBinary,
-      gitEnvForArgs,
-    } = require("./lib/git-subprocess-env.js");
-    bin = resolveGitBinary();
-    env = gitEnvForArgs
-      ? gitEnvForArgs(["--no-optional-locks", "status"])
-      : undefined;
-  } catch {
-    return null;
-  }
-  try {
-    const out = execFileSync(
-      bin,
-      [
-        "--no-optional-locks",
-        "status",
-        "--porcelain",
-        "-z",
-        "--untracked-files=normal",
-      ],
-      { cwd, encoding: "utf8", timeout: 2500, maxBuffer: 4 * 1024 * 1024, env },
+    // THE TARGET-REPO ENVELOPE (lib/target-repo-git.js, M-W4.3 RUN 8). The session's
+    // cwd repository is agent-writable, and `status` refreshes the index — which runs
+    // a configured `core.fsmonitor` program and status's filter drivers. The envelope
+    // closes those for THIS repository's own config, and sets GIT_OPTIONAL_LOCKS=0
+    // in its environment, which is what `--no-optional-locks` used to carry.
+    // Lazy, so a require() of this module stays side-effect free.
+    const { resolveTargetRepo, targetGit } = require("./lib/target-repo-git.js");
+    const at = path.resolve(cwd);
+    const resolved = resolveTargetRepo({ dir: at }, { timeout: 2500 });
+    if (!resolved.ok) return null;
+    const r = targetGit(
+      resolved.repo,
+      ["status", "--porcelain", "-z", "--untracked-files=normal"],
+      { cwd: at, timeout: 2500 },
     );
+    if (!r.ok) return null;
+    const out = r.stdout;
     // `-z` is NUL-delimited and, unlike the newline form, never C-QUOTES a path,
     // so a name with a space or a non-ASCII byte arrives verbatim.
     const paths = out
@@ -625,27 +649,49 @@ function logDecisionReferences(cwd, sessionId, recordedStartMs) {
 // silently converts a total failure into a success claim (the exact shape
 // `zero-tolerance.md` Rule 3 blocks).
 function buildLearningDigest(cwd, learningDir) {
-  const observationCount = countObservations(learningDir);
-  if (observationCount < 5) return "skipped-below-threshold";
-
   try {
-    // Repo-root `scripts/`, NOT `.claude/learning/` — the prior specifier
-    // ("../learning/digest-builder") named a directory that exists nowhere in
-    // the corpus, so this require threw MODULE_NOT_FOUND on EVERY invocation.
-    const digestBuilder = require("../../scripts/learning/digest-builder");
-    digestBuilder.buildDigest(cwd, learningDir);
-    return "built";
-  } catch (error) {
-    // Expected on any CONSUMER: repo-root `scripts/` is outside
-    // `sync-tier-aware.mjs::walkClaudeDir()`, so the builder is never
-    // distributed. Degrade honestly rather than swallowing — the caller
-    // reports "digest unavailable", not "digest built".
-    if (process.env.COC_HOOK_DEBUG) {
-      console.error(
-        `[session-end] learning digest unavailable: ${error && error.message}`,
-      );
+    const digestBuilder = require("./lib/learning-digest");
+    // Threshold uses loadObservations' bounded descriptor-verified observations (.claude/hooks/lib/learning-digest.js:151-182).
+    if (digestBuilder.loadObservations(learningDir, cwd).length < 5) {
+      return "skipped-below-threshold";
     }
+    return digestBuilder.buildDigest(cwd, learningDir)
+      ? "built"
+      : "skipped-below-threshold";
+  } catch (error) {
+    console.error(
+      `[session-end] learning digest unavailable (${error.code || "build failure"}): ${error.message}`,
+    );
     return "unavailable";
+  }
+}
+
+/**
+ * The session's commits since `sinceIso`, as raw `%H%x1f%s%x1f%b%x1e` records, or
+ * null when nothing could be read (not a git repo, git failed, or git never
+ * answered). An empty string is git answering "no commits".
+ *
+ * THE TARGET-REPO ENVELOPE (lib/target-repo-git.js, M-W4.3 RUN 8): the cwd
+ * repository's own config is agent-writable, and `log` reaches programs through it
+ * (`log.showSignature` + `gpg.program` on a signed commit, external diff and
+ * textconv drivers). The envelope injects `--no-show-signature --no-ext-diff
+ * --no-textconv` and closes the program-naming keys; stderr is captured and
+ * dropped, never shown. The repository is resolved ONCE from `cwd`.
+ */
+function sessionCommitLog(cwd, sinceIso) {
+  try {
+    const { resolveTargetRepo, targetGit } = require("./lib/target-repo-git.js");
+    const at = path.resolve(cwd);
+    const resolved = resolveTargetRepo({ dir: at }, { timeout: 3000 });
+    if (!resolved.ok) return null;
+    const r = targetGit(
+      resolved.repo,
+      ["log", `--since=${sinceIso}`, "--format=%H%x1f%s%x1f%b%x1e", "-n", "30"],
+      { cwd: at, timeout: 3000 },
+    );
+    return r.ok ? r.stdout : null;
+  } catch {
+    return null;
   }
 }
 
@@ -663,8 +709,6 @@ function buildLearningDigest(cwd, learningDir) {
  */
 function generateJournalCandidates(cwd, sessionId, recordedStartMs) {
   const { detectActiveWorkspace } = require("./lib/workspace-utils");
-  const { execFileSync } = require("child_process");
-  const { resolveGitBinary, gitEnv } = require("./lib/git-subprocess-env.js");
 
   const workspace = detectActiveWorkspace(cwd);
   if (!workspace) return;
@@ -697,33 +741,8 @@ function generateJournalCandidates(cwd, sessionId, recordedStartMs) {
   // ARG ARRAY + fenced env, no shell: `--since=` is one argv element, so even a
   // value that survived the parse above cannot become syntax. The absolute
   // binary + constants-built env is the ordinary #1462/#1471 half.
-  let rawLog;
-  try {
-    const gitBin = resolveGitBinary();
-    if (!gitBin) return; // git unresolvable — no candidates, same as no commits
-    rawLog = execFileSync(
-      gitBin,
-      [
-        "log",
-        `--since=${sessionStartIso}`,
-        "--format=%H%x1f%s%x1f%b%x1e",
-        "-n",
-        "30",
-      ],
-      // stderr discarded here rather than by a `2>/dev/null` the shell used to
-      // interpret — there is no shell now.
-      {
-        cwd,
-        encoding: "utf8",
-        timeout: 3000,
-        stdio: ["ignore", "pipe", "ignore"],
-        env: gitEnv(),
-      },
-    );
-  } catch {
-    return; // not a git repo, git failed, or no commits
-  }
-  if (!rawLog.trim()) return;
+  const rawLog = sessionCommitLog(cwd, sessionStartIso);
+  if (!rawLog || !rawLog.trim()) return; // not a git repo, git failed, or no commits
 
   const pendingDir = path.join(workspace.path, "journal", ".pending");
   try {
@@ -876,6 +895,11 @@ module.exports = {
   // than re-typing it: a transcribed copy would drift from the predicate it claims to
   // describe, and the pole would then pass against a pattern the hook does not use.
   OWN_SESSION_RECORD,
+  // The two session-repository git reads, exported for the routing closure cases
+  // (tests/integration/multi-operator/target-repo-git-routing.test.js), which plant
+  // a program in the repository's config and assert these reads never run it.
+  _looseScratchLine: looseScratchLine,
+  _sessionCommitLog: sessionCommitLog,
 };
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a

@@ -1,0 +1,13 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function describe(dir) {
+  const root = path.resolve(dir);
+  return `root is ${root}`;
+}
+
+export function contained(dir, p) {
+  const root = fs.realpathSync(dir);
+  const real = fs.realpathSync(p);
+  return real.startsWith(root + path.sep);
+}

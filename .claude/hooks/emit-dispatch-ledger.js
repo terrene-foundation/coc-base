@@ -6,18 +6,23 @@
  *   (a) LAUNCH   — one row per subagent dispatch, carrying a UNIQUE launch id, the dispatch NAME,
  *                  the subagent type, the GENERATION the dispatch was issued from, and its LOCATION
  *                  — the session's `cwd` as received, the resolved `worktree` and `branch` — so a
- *                  dispatch can be attributed to a lane (`dispatch-ledger.js::resolveDispatchLocation`).
+ *                  dispatch can be attributed to a lane (`dispatch-ledger.js::resolveDispatchLocation`),
+ *                  plus the EFFORT the launch declared and the ROLE its brief names (effort routing,
+ *                  `lib/effort-routing.js`) — the launch effort a later re-task is checked against.
  *   (b) DELIVERY — one row per `SendMessage`, carrying the delivering agent's generation. ZERO
  *                  hooks observed this tool before; the moment is proven reachable because two
  *                  `*`-matcher PreToolUse hooks (adjacency-heartbeat, provenance-capture-tool)
  *                  already run on every tool call.
  *   (d) DECLARED — one row per user prompt, carrying the DECLARED sub-part COUNT and nothing else.
+ *   (e) WORKFLOW-LAUNCH — one row per `Workflow` call: the `agent(` calls its script holds and how
+ *                  many the effort check could not evaluate. A Workflow's agents fire no PreToolUse
+ *                  of their own (finding ROOT-W1), so this row is the only trace they ran.
  *
  * The reconciler is the separate `reconcile-dispatch-delivery.js` at `SubagentStop`.
  *
- * @hook-event: PreToolUse:Task|Agent|SendMessage (telemetry) — the dispatch and the message ARE the
+ * @hook-event: PreToolUse:Task|Agent|SendMessage|Workflow (telemetry) — the dispatch and the message ARE the
  *   subject: each is a discrete tool call, present in `tool_input` at this moment and nowhere else.
- *   Records, never gates. The matcher is exactly `DELEGATION_TOOLS ∪ DELIVERY_TOOLS`; a `*` matcher
+ *   Records, never gates. The matcher is exactly `DELEGATION_TOOLS ∪ DELIVERY_TOOLS ∪ WORKFLOW_TOOLS`; a `*` matcher
  *   would pay a node spawn on every Read/Bash/Grep to reach an immediate passthrough.
  * @hook-event: UserPromptSubmit (telemetry) — the incoming prompt is the subject and it exists only
  *   at this moment; the declared sub-part COUNT is recorded so a later reconcile can compare it
@@ -38,6 +43,20 @@
  * then reports UNRESOLVED rather than a false clean.
  *
  * Origin: T1, runtime-enforcement-2026-08-14.
+ */
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/dispatch-reconcile/<session-id>-<sha8>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git","ps"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "Appends one launch/delivery/declared row per invocation through lib/dispatch-ledger.js::appendRecord -> lib/append-sink.js, with no payload dedupe, so a repeat run appends another row (the reconciler then sees both). Spawns: git probes in lib/state-resolver.js::requireMainCheckout plus lib/dispatch-ledger.js::resolveDispatchLocation. A row is SKIPPED, with a stderr breadcrumb, when the main checkout cannot be confirmed; no prompt text is ever written."
+ * }
  */
 
 "use strict";
@@ -132,6 +151,66 @@ function resolverOptsFor(startedAt) {
 }
 
 /**
+ * The effort a launch DECLARED and the ROLE its brief names (effort routing, 2026-10-12), read with
+ * the SAME parser the dispatch-contract guard enforces with (`lib/effort-routing.js`), so the ledger
+ * records exactly the pairing the guard judged. Both are null when absent — never a default. Pure;
+ * the ROLE is the only thing read from the brief, and no brief text is returned.
+ *
+ * A `fork` records effort NULL whatever it declared: the harness runs a fork at its parent's effort,
+ * so a recorded level would be a level that never ran, and every reader treats null as UNKNOWN.
+ *
+ * `effortRouted` is the routing verdict the guard will reach on this launch (`decideLaunch` against
+ * the shipped table — no block-class finding). This producer runs BEFORE the guard, so a launch the
+ * guard then BLOCKS is recorded too; the tag lets a re-task read the launch that actually went
+ * through (`effort-routing.js::launchEffortFor`). It is null when the verdict cannot be computed.
+ *
+ * A library that will not load yields nulls: this producer is telemetry and must never fail a
+ * dispatch, and a null effort reads downstream as UNKNOWN (advisory), never as a level.
+ *
+ * @returns {{effort: string|null, role: string|null, effortRouted: boolean|null}}
+ */
+function declaredEffortOf(toolInput) {
+  try {
+    const er = require(path.join(__dirname, "lib", "effort-routing.js"));
+    const ti = toolInput && typeof toolInput === "object" ? toolInput : {};
+    let effortRouted = null;
+    try {
+      effortRouted = !er.decideLaunch(ti, er.loadRoutingTable()).findings.some((f) => f.severity === "block");
+    } catch {
+      effortRouted = null;
+    }
+    return {
+      effort: ti.subagent_type === er.FORK_SUBAGENT_TYPE ? null : er.effortOf(ti),
+      role: er.parseBriefHeader(typeof ti.prompt === "string" ? ti.prompt : "").role,
+      effortRouted,
+    };
+  } catch {
+    return { effort: null, role: null, effortRouted: null };
+  }
+}
+
+/**
+ * What a Workflow call's script declares, for its `workflow-launch` row (finding ROOT-W1): the
+ * number of `agent(` calls and how many the effort check cannot evaluate, from the SAME scanner and
+ * decision the guard uses. Telemetry: a library that will not load, or a script that cannot be read,
+ * yields nulls — never a thrown dispatch.
+ *
+ * @returns {{agentsFound: number|null, unresolved: number|null, scriptSource: string|null}}
+ */
+function workflowCountsOf(toolInput) {
+  try {
+    const ws = require(path.join(__dirname, "lib", "workflow-launch-scan.js"));
+    const er = require(path.join(__dirname, "lib", "effort-routing.js"));
+    const resolved = ws.resolveWorkflowScript(toolInput);
+    const scan = resolved.ok ? ws.scanWorkflowScript(resolved.text) : null;
+    const { summary } = er.decideWorkflowLaunch(resolved, scan, er.loadRoutingTable());
+    return { agentsFound: summary.agents_found, unresolved: summary.unresolved, scriptSource: resolved.source };
+  } catch {
+    return { agentsFound: null, unresolved: null, scriptSource: null };
+  }
+}
+
+/**
  * Classify a hook payload into the record it should produce, or null.
  *
  * Pure function of (event, tool name, tool_input, prompt, agent_id) — no IO, so every branch is
@@ -160,6 +239,7 @@ function classifyDispatchEvent(payload, lib) {
       kind: "launch",
       dispatchName: lib.dispatchNameOf(p.tool_input),
       subagentType: lib.subagentTypeOf(p.tool_input),
+      ...declaredEffortOf(p.tool_input),
       generation,
     };
   }
@@ -167,6 +247,8 @@ function classifyDispatchEvent(payload, lib) {
   if (lib.DELIVERY_TOOLS.includes(tool)) {
     return { kind: "delivery", generation };
   }
+
+  if (lib.WORKFLOW_TOOLS.includes(tool)) return { kind: "workflow-launch", ...workflowCountsOf(p.tool_input), generation };
 
   // Any other tool is neither a dispatch nor a delivery. The registered matcher already excludes
   // them; this branch is the belt to that suspenders, so a widened matcher cannot write junk rows.
@@ -230,11 +312,23 @@ async function main() {
         generation: classified.generation,
         dispatchName: classified.dispatchName,
         subagentType: classified.subagentType,
+        effort: classified.effort,
+        role: classified.role,
+        effortRouted: classified.effortRouted,
         nowIso,
         location,
       });
     } else if (classified.kind === "delivery")
       record = lib.buildDeliveryRecord({ sessionId, generation: classified.generation, nowIso });
+    else if (classified.kind === "workflow-launch")
+      record = lib.buildWorkflowLaunchRecord({
+        sessionId,
+        generation: classified.generation,
+        agentsFound: classified.agentsFound,
+        unresolved: classified.unresolved,
+        scriptSource: classified.scriptSource,
+        nowIso,
+      });
     else if (classified.kind === "declared")
       record = lib.buildDeclaredRecord({
         sessionId,
@@ -265,7 +359,7 @@ function hookMain() {
   return main();
 }
 
-module.exports = { classifyDispatchEvent, dispatchCwdOf, requireMainCheckoutSafely, resolverOptsFor, hookMain };
+module.exports = { classifyDispatchEvent, declaredEffortOf, workflowCountsOf, dispatchCwdOf, requireMainCheckoutSafely, resolverOptsFor, hookMain };
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The

@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      { "matcher": "write_file", "hooks": [{ "type": "command", "command": "node $GEMINI_PROJECT_DIR/.claude/hooks/d-gemtpl.js" }] }
+    ]
+  }
+}

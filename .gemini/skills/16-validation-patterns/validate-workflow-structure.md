@@ -11,7 +11,7 @@ Quick validation checklist for Kailash workflow patterns to ensure compliance wi
 > Category: `cross-cutting` (validation)
 > Priority: `HIGH`
 > SDK Version: `0.9.25+`
-> Related Skills: [`workflow-quickstart`](../../../.claude/skills/01-core-sdk/workflow-quickstart.md), [`error-missing-build`](../../../.claude/skills/31-error-troubleshooting/error-missing-build.md), [`gold-parameter-passing`](../../../.claude/skills/17-gold-standards/gold-parameter-passing.md)
+> Related Skills: [`workflow-quickstart`](../01-core-sdk/workflow-quickstart.md), [`error-missing-build`](../31-error-troubleshooting/error-missing-build.md), [`gold-parameter-passing`](../../../.claude/skills/17-gold-standards/gold-parameter-passing.md)
 > Related Subagents: `gold-standards-validator` (comprehensive validation), `pattern-expert` (complex pattern debugging)
 
 ## Quick Validation Checklist
@@ -259,10 +259,10 @@ When updating old code to new patterns:
 
 ## Related Patterns
 
-- **Workflow basics**: [`workflow-quickstart`](../../../.claude/skills/01-core-sdk/workflow-quickstart.md)
-- **Error fixes**: [`error-missing-build`](../../../.claude/skills/31-error-troubleshooting/error-missing-build.md), [`error-connection-params`](../../../.claude/skills/31-error-troubleshooting/error-connection-params.md)
+- **Workflow basics**: [`workflow-quickstart`](../01-core-sdk/workflow-quickstart.md)
+- **Error fixes**: [`error-missing-build`](../31-error-troubleshooting/error-missing-build.md), [`error-connection-params`](../31-error-troubleshooting/error-connection-params.md)
 - **Gold standards**: [`gold-parameter-passing`](../../../.claude/skills/17-gold-standards/gold-parameter-passing.md), [`gold-absolute-imports`](../../../.claude/skills/17-gold-standards/gold-absolute-imports.md)
-- **Common mistakes**: [`common-mistakes-catalog`](../../../.claude/skills/06-cheatsheets/common-mistakes-catalog.md)
+- **Common mistakes**: [`common-mistakes-catalog`](../06-cheatsheets/common-mistakes-catalog.md)
 
 ## When to Escalate to Subagent
 
@@ -286,7 +286,7 @@ Use `pattern-expert` subagent when:
 
 ### Related Documentation
 
-- **Pattern Expert**: [`.gemini/agents/pattern-expert.md`](../../../.claude/agents/implementation/pattern-expert.md)
+- **Pattern Expert**: [`.gemini/agents/pattern-expert.md`](../../agents/implementation/pattern-expert.md)
 - **Essential Pattern**: [`CLAUDE.md`](../../../CLAUDE.md)
 
 ## Quick Tips

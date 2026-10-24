@@ -1,0 +1,5 @@
+{
+  "hooks": [
+    { "event": "PreToolUse", "matcher": "Edit|Write|NotebookEdit", "file": ".claude/hooks/d-claude.js", "on_incomplete": "deny" }
+  ]
+}

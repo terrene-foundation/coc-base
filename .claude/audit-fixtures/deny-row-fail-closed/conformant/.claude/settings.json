@@ -1,0 +1,9 @@
+{
+  "_fixture": "check-deny-row-fail-closed.mjs CONFORMANT host surface: the dispatcher is a registrar; direct-guard.js is DIRECT and declares standalone: true",
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PreToolUse --registry-sha256=0000" }] },
+      { "matcher": "Edit|Write|NotebookEdit", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/direct-guard.js\"", "timeout": 20 }] }
+    ]
+  }
+}

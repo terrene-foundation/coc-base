@@ -63,6 +63,12 @@
  *       changes. M0 predicates (fold-genesis-anchor.js, fold-rule-10.js)
  *       are pre-registered at module load.
  *
+ * Fold rule 10 is the one predicate whose verdict depends on records AFTER
+ * the one being dispatched, so it runs twice: per record in the loop (the
+ * prefix), then over the complete accepted stream in a post-pass
+ * (`_contestRevocationsOverFullStream`) that stamps the final
+ * `rule10_contested` verdict on every accepted revocation.
+ *
  * Style: CommonJS, zero-dep, matches sibling .claude/hooks/lib/*.js. Pure
  * function over an INJECTED peerHighWaterFor callback; no fs, no
  * network, no clock (caller supplies opts.now where time matters).
@@ -98,7 +104,9 @@
 
 const crypto = require("crypto");
 const cocSign = require("./coc-sign.js");
+const { recordStructureError, escapeDiagnosticText } = require("./fold-record-limits.js");
 const { foldGenesisAnchor } = require("./fold-genesis-anchor.js");
+const { FLEET_RECORD_TYPES } = require("./fleet-fold.js");
 const {
   foldRevocation,
   LIVENESS_TTL_MS: REV_TTL,
@@ -194,6 +202,13 @@ const foldVerificationCheckpoint = require("./fold-verification-checkpoint.js");
 // (see the invariant assert after the default engine is built). actuation-types
 // is a leaf module (requires only fs/path); this import cannot close a cycle.
 const { ACTUATION_RECORD_TYPES } = require("./actuation-types.js");
+// L-REVOKE root fix (2026-10-10): the ONE list of fold-derived field names. A
+// record whose own body carries one is rejected in _foldLog before any rule
+// reads it; operator-gate.js consumes the same list. Leaf module, no cycle.
+const {
+  DERIVED_FIELD_REJECTION,
+  derivedFieldsIn,
+} = require("./fold-derived-fields.js");
 
 /**
  * LIVENESS_TTL_MS — 20 minutes per architecture §4.4. Same constant as
@@ -387,13 +402,114 @@ function createEngine(opts) {
  */
 function _genesisAnchorPredicate(record, ctx) {
   const state = ctx.foldState || { trustRoot: null };
-  const result = foldGenesisAnchor(record, state, ctx.roster, cocSign.verify);
+  // Reuse the fold's shared GPG verify-homedir when one exists, so the
+  // trust-root re-verify does not build (and tear down) an ephemeral one of its
+  // own — see the stamping site in _foldLog for the measurement. The identity
+  // binding travels with it: `expectedFpr` is pinned to the key this record's
+  // `verified_id` resolved to, which is what keeps a multi-key shared ring from
+  // accepting any rostered signer (fold-genesis-anchor passes it through).
+  const verifyOpts =
+    ctx.opts && ctx.opts.gpgHome ? { gpgHome: ctx.opts.gpgHome } : {};
+  const result = foldGenesisAnchor(
+    record,
+    state,
+    ctx.roster,
+    cocSign.verify,
+    verifyOpts,
+  );
   return {
     accepted: result.accepted,
     foldState: result.foldState,
     reason: result.reason,
     fork: result.fork,
     forging_signer: result.forging_signer,
+  };
+}
+
+/**
+ * Clock-skew tolerance for the future-`ts` refusal below — the same 5-minute
+ * band `gate-approval.js` allows on a signed `ts`, so the two surfaces cannot
+ * disagree about what "now" means within ordinary skew.
+ */
+const REVOCATION_FUTURE_TS_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * DERIVE the rule-10 contest window from the CLONE'S OWN observations.
+ *
+ * WHY THIS EXISTS (2026-10-09, security review F1; MEASURED bypass): the window
+ * used to be read from the RECORD's `content.evidence_window` — three numbers
+ * the revoker supplies. A revoker who set `opens_at` far in the future and
+ * `victim_chain_high_water_seq` huge made every observed victim record look
+ * "strictly prior", so fold rule 10 could never contest: an owner could revoke
+ * an ACTIVE partner (whose every later record was silently discounted), drop
+ * derived-N to 1, and take the self-service owner-departure removal. The
+ * attacker controlled the instrument that was supposed to catch them.
+ *
+ * WHAT IS DERIVED, and from what:
+ *   opens_at / closes_at            := the revocation's OWN `ts` — the moment
+ *                                      the revoker asserts the departure. Any
+ *                                      victim record at or after it is a
+ *                                      CONTRADICTION, by the clone's own read.
+ *   victim_chain_high_water_seq     := the highest seq among the victim records
+ *                                      THIS CLONE has already accepted. Not the
+ *                                      revoker's claim, and therefore not
+ *                                      something a revoker can inflate.
+ * The record's claimed window is NOT read for this decision — it remains on the
+ * record as audit material only. The `_entryStrictlyPrior` seq half then
+ * reduces to "observed by this clone", and the ts half carries the contest.
+ *
+ * A `ts` in the FUTURE (beyond REVOCATION_FUTURE_TS_TOLERANCE_MS of the folding
+ * clone's clock) is REFUSED rather than contested: it is the one stamp that
+ * would make every observed victim record strictly prior again, and a departure
+ * cannot have been observed at a time that has not happened. Refusal is
+ * fail-closed (the record never enters `accepted`, so it cannot move derived-N).
+ *
+ * @param {object} record  the revocation (ts + content are read; the window is NOT)
+ * @param {Array<object>} entries  victim-signed records the clone has accepted
+ * @param {number} nowMs   the folding clone's wall clock
+ * @returns {{ok:true, window:object, observedHighWaterSeq:number,
+ *            lastObservedTsMs:number|null} | {ok:false, reason:string}}
+ */
+function _deriveContestWindow(record, entries, nowMs) {
+  const revTsMs = Date.parse(record && record.ts);
+  if (!Number.isFinite(revTsMs)) {
+    return {
+      ok: false,
+      reason:
+        "rule 10: revocation.ts is not a parseable timestamp, so a contest window cannot be derived and the contradiction check cannot run — refusing rather than admitting on an absent instrument",
+    };
+  }
+  if (Number.isFinite(nowMs) && revTsMs > nowMs + REVOCATION_FUTURE_TS_TOLERANCE_MS) {
+    return {
+      ok: false,
+      reason: `rule 10: revocation.ts (${record.ts}) is in the FUTURE relative to the folding clone's clock (>${REVOCATION_FUTURE_TS_TOLERANCE_MS}ms ahead) — a future stamp is exactly what makes every observed victim record look 'strictly prior', so the record is refused rather than contested`,
+    };
+  }
+  let observedHighWaterSeq = 0;
+  let lastObservedTsMs = -Infinity;
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (!e || typeof e !== "object") continue;
+    if (
+      typeof e.seq === "number" &&
+      Number.isFinite(e.seq) &&
+      e.seq > observedHighWaterSeq
+    ) {
+      observedHighWaterSeq = e.seq;
+    }
+    const t = Date.parse(e.ts);
+    if (Number.isFinite(t) && t > lastObservedTsMs) lastObservedTsMs = t;
+  }
+  return {
+    ok: true,
+    observedHighWaterSeq,
+    lastObservedTsMs: Number.isFinite(lastObservedTsMs) ? lastObservedTsMs : null,
+    window: {
+      opens_at: record.ts,
+      closes_at: record.ts,
+      victim_chain_high_water_seq: observedHighWaterSeq,
+      derived_from:
+        "clone-observed victim chain + revocation.ts; the record's own evidence_window is NOT read for this decision",
+    },
   };
 }
 
@@ -422,9 +538,32 @@ function _revocationPredicate(record, ctx) {
       reason: `rule 10: ${victimChain.indeterminate}`,
     };
   }
-  const result = foldRevocation(record, {
+  // DERIVED CONTEST WINDOW (2026-10-09, F1) — the record's own
+  // `content.evidence_window` is NOT read for this decision; see
+  // _deriveContestWindow for the measured bypass it used to carry. The override
+  // is a COPY: signed content remains audit data; the adapter returns the
+  // derived window for the post-pass stamp (.claude/hooks/lib/coordination-log.js:568-582).
+  const derived = _deriveContestWindow(
+    record,
+    victimChain.entries,
+    ctx.opts && typeof ctx.opts.now === "number" ? ctx.opts.now : Date.now(),
+  );
+  if (!derived.ok) {
+    return {
+      accepted: false,
+      foldState: ctx.foldState,
+      reason: derived.reason,
+    };
+  }
+  const contestRecord = Object.assign({}, record, {
+    content: Object.assign({}, record.content, {
+      evidence_window: derived.window,
+    }),
+  });
+  const result = foldRevocation(contestRecord, {
     victimChainEntries: victimChain.entries,
     state: ctx.foldState,
+    windowIsDerived: true,
   });
   if (result.contested) {
     return {
@@ -434,12 +573,14 @@ function _revocationPredicate(record, ctx) {
       contested_by_record: result.contested_by_record,
       reason: result.reason,
       foldState: ctx.foldState,
+      derivedWindow: Object.freeze({ ...derived.window }),
     };
   }
   return {
     accepted: result.accepted,
     foldState: ctx.foldState,
     reason: result.reason,
+    derivedWindow: Object.freeze({ ...derived.window }),
   };
 }
 
@@ -546,10 +687,113 @@ function _collectVictimChainEntries(revocationRecord, roster, acceptedSoFar) {
 }
 
 /**
+ * Fold rule 10 over the COMPLETE stream — the post-pass `_foldLog` runs after
+ * the record loop and before derived-N.
+ *
+ * The record loop evaluates each revocation against `acceptedSoFar`, the
+ * records BEFORE it. Rule 10 is not a property of that prefix: a revocation
+ * naming X is contested by ANY accepted X-signed record that is not strictly
+ * prior to its evidence window, wherever that record sits in the stream
+ * (fold-rule-10.js header, invariant 3). X activity that reached this clone
+ * AFTER the revocation — X kept working, or X's records simply synced later —
+ * was invisible to the loop, so the revocation folded uncontested, derive-n
+ * honoured it, and `fold-rule-10.js::isSettled` aged it into "settled".
+ *
+ * This pass re-runs fold rule 10's adapter (`_revocationPredicate`, the
+ * predicate `_registerM0Defaults` registers for this type, so the one the loop
+ * dispatched on the default engine) for every accepted revocation, over every
+ * OTHER accepted record: the prefix the loop used plus everything after it. It
+ * calls the adapter directly rather than through the registry, so a sandbox
+ * engine that registered a different revocation predicate still gets rule 10
+ * here — the fail-closed direction. The revocation itself is left out because
+ * the loop never had it in its own `acceptedSoFar` either, so the only input
+ * that changes is the suffix.
+ * Records that failed any gate are not in `accepted` and cannot contest, so a
+ * forged "X record" appended later cannot veto a departure.
+ *
+ * The contest is MONOTONE in the stream (it asks whether ANY entry
+ * contradicts), so a revocation the loop already contested stays contested and
+ * is not reported twice; only a revocation uncontested at its prefix can flip.
+ * One that flips is reported in `contestedRevocations` exactly as the loop
+ * reports one, naming the revoker as the forging signer.
+ *
+ * Every accepted revocation leaves this pass carrying `rule10_contested:
+ * true|false` on a copy. The field is fold-DERIVED and never trusted from
+ * input: the upstream derived-field gate rejects record-supplied values;
+ * this overwrite is defense in depth on accepted copies, never an admission
+ * path (.claude/hooks/lib/coordination-log.js:2744-2754).
+ * So `false` reads "the fold evaluated the complete stream and nothing
+ * contests this revocation", and an ABSENT field reads "this is not fold
+ * output" — never "uncontested".
+ *
+ * Replaces entries of `accepted` with copies (the caller's records are never
+ * mutated) and appends to `contestedRevocations`.
+ */
+function _contestRevocationsOverFullStream(
+  accepted,
+  roster,
+  foldState,
+  contestedAtPrefix,
+  contestedRevocations,
+  opts,
+) {
+  for (let j = 0; j < accepted.length; j += 1) {
+    const rev = accepted[j];
+    if (!rev || rev.type !== "collaborator-distinctness-revocation") continue;
+    const verdict = _revocationPredicate(rev, {
+      roster,
+      acceptedSoFar: accepted.filter((_, k) => k !== j),
+      foldState,
+      opts,
+    });
+    if (verdict.contested === true) {
+      if (!contestedAtPrefix.has(j)) {
+        contestedRevocations.push({
+          record: rev,
+          forging_signer: verdict.forging_signer,
+          contested_by_record: verdict.contested_by_record,
+          reason: verdict.reason,
+        });
+      }
+      accepted[j] = Object.assign({}, rev, {
+        rule10_contested: true,
+        rule10_window: verdict.derivedWindow,
+      });
+    } else if (verdict.accepted === true) {
+      accepted[j] = Object.assign({}, rev, {
+        rule10_contested: false,
+        rule10_window: verdict.derivedWindow,
+      });
+    } else {
+      // Unreachable by construction, and asserted rather than defaulted. The
+      // loop ACCEPTED this record, and the adapter's only other outcomes — an
+      // invalid revocation shape, or a victim the roster cannot resolve — are
+      // functions of (record, roster) alone, neither of which has changed
+      // since. Folding on would report "uncontested" for "could not evaluate"
+      // (rules/instrument-discipline.md MUST-1), so the fold throws instead of
+      // returning a verdict it did not compute.
+      const err = new Error(
+        `rule 10: the full-stream contest could not be evaluated for an ` +
+          `accepted revocation (${rev.verified_id} seq ${rev.seq}): ` +
+          `${verdict.reason || "no verdict"}`,
+      );
+      err.code = "FOLD_RULE10_FULL_STREAM_INVARIANT";
+      throw err;
+    }
+  }
+}
+
+/**
  * Register the M0 predicates against an engine registry. Called at
  * createEngine time when inheritDefaults is true.
  */
 function _registerM0Defaults(registry) {
+  for (const type of FLEET_RECORD_TYPES) {
+    registry.set(type, {
+      fn: (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+      meta: { checkpoint_exempt: true, authoritative_for_record: false, authoritative_for_aggregate: false },
+    });
+  }
   // genesis-anchor — authoritative for record (R9-A-03 owner-bind),
   // exempt-by-default per rule 6.
   registry.set("genesis-anchor", {
@@ -692,7 +936,7 @@ function _registerM0Defaults(registry) {
   });
 
   // #47 (backlog-actionable-7): gate-op-receipt — the exact-tracking
-  // receipt `artifact-flow.md` § "Exact Gate-1 / Gate-2 Tracking" MUST-2
+  // receipt `artifact-flow-gates.md` § "Exact Gate-1 / Gate-2 Tracking" MUST-2
   // mandates for every Gate-1 ingest AND Gate-2 distribution (emitted by
   // `sync-gate2-worktree.mjs` via coc-emit.js::emitSignedRecord). A signed
   // accountability/witness record — NOT an actuation (absent from
@@ -739,7 +983,7 @@ function _registerM0Defaults(registry) {
   // a non-exempt actuation's presence nonce can be archived while still fresh and
   // replay as PROVEN across a checkpoint (F5). Same single-signer no-op-accept
   // shape as gate-op-receipt; the governance-record CONTENT schema (target,
-  // decision, etc.) is off-loom loom-command's and gains a richer predicate when
+  // decision, etc.) is the off-loom enterprise product's and gains a richer predicate when
   // it lands — this registration unblocks the end-to-end #583 emit path today
   // without presuming that schema.
   for (const t of [
@@ -1152,7 +1396,49 @@ function _coSignedStubPredicate(record, ctx) {
       reason: `${record.type}: primary signer ${record.verified_id} not in roster`,
     };
   }
-  distinctSigners.add(primary.person_id, primary.person);
+  // The PRIMARY is a signer too, and for gate-approval it must clear the same
+  // eligibility floor the co-signers clear. Before this, eligibility was
+  // applied to co-signers ONLY, so a `host_role: ci` or below-floor primary
+  // could carry an otherwise-valid record: R5-S-04 says a CI host is "NEVER
+  // eligible to co-sign any owner-quorum, distinctness, gate-approval, …"
+  // (eligibility.js), and the emitter of the approval is a signer of it. The
+  // documented flow agrees — the SECOND operator signs AND appends the record
+  // (commands/release.md § Submission flow), so the primary is the approver.
+  if (record.type === "gate-approval") {
+    const primaryElig = isEligibleSigner(primary.person, "gate-approval");
+    if (!primaryElig.eligible) {
+      return {
+        accepted: false,
+        foldState: state,
+        reason: `${record.type}: primary signer ${record.verified_id} ineligible: ${primaryElig.reason}`,
+      };
+    }
+  }
+  // 4-eyes: the REQUESTER'S principal keys are seeded BEFORE any signer is
+  // admitted, so a co-signer resolving to the requester collides (see
+  // _gateApprovalPredicate § 4-eyes). Seeding first also means the requester
+  // occupies one principal slot, so the `size() < 2` floor below still demands
+  // a genuinely distinct co-signer.
+  const excluded = ctx && ctx.excludedPrincipal;
+  if (excluded && excluded.person) {
+    distinctSigners.add(excluded.person_id, excluded.person);
+  }
+  // A primary that IS the excluded requester is not a collision — it is the
+  // ordinary "requester emits their own pending approval" shape, and the quorum
+  // still has to come from the co-signer. Any OTHER collision on the primary is
+  // the real refusal (it cannot happen here, since nothing else is seeded yet,
+  // but the disposition is stated rather than assumed).
+  const primaryAdmitted = distinctSigners.add(primary.person_id, primary.person);
+  if (
+    !primaryAdmitted.ok &&
+    !(excluded && excluded.person_id === primary.person_id)
+  ) {
+    return {
+      accepted: false,
+      foldState: state,
+      reason: `${record.type}: primary signer ${record.verified_id} ${describeCollision(primaryAdmitted.collidingKey)}`,
+    };
+  }
   const coSignedBytes = _coSignedBytes(record);
   for (const co of c.co_signers) {
     if (!co || typeof co !== "object") {
@@ -1299,6 +1585,11 @@ const _GATE_APPROVAL_TARGET_TOOL_ALLOWLIST = new Set([
   "posture-override",
   "roster-edit-add-contributor",
   "new-rule-codify",
+  // 2026-10-09 (hold-security round-2 R-1): mirror of gate-approval.js's
+  // TARGET_TOOL_ALLOWLIST — the two lists MUST stay EQUAL (gate-matrix.test.js
+  // asserts it, plus this row's presence). Both lists agreeing while both were
+  // WRONG is exactly how the owner-departure co-signer route was dead.
+  "owner-departure-roster-removal",
 ]);
 
 function _gateApprovalPredicate(record, ctx) {
@@ -1363,8 +1654,28 @@ function _gateApprovalPredicate(record, ctx) {
     };
   }
 
-  // ---- delegate to the stub for 2-of-N cosig + cryptographic verify -----
-  return _coSignedStubPredicate(record, ctx);
+  // ---- 4-eyes: the REQUESTER never counts toward the quorum --------------
+  // The requester half was resolved above and then DISCARDED, so the delegate
+  // seeded its distinct-signer set with the record's primary signer only — and
+  // `content.requester_verified_id` was never a signer identity the quorum
+  // excluded. A record could therefore be co-signed by the requester
+  // themselves: the fold answered "are these two signatures from different
+  // principals?" (yes) while the question the gate exists to answer is "is the
+  // APPROVER a different person from the REQUESTER?" (no). The two coincide
+  // only because the emitter usually is the requester — not by construction.
+  // Passing the resolved requester down seeds the SAME principal-keys
+  // accumulator (`signer-distinctness.js::principalKeysFor`) that every other
+  // quorum predicate uses, so a co-signer sharing the requester's person_id,
+  // bound login, or Entra principal is refused as the same human.
+  return _coSignedStubPredicate(
+    record,
+    Object.assign({}, ctx, {
+      excludedPrincipal: {
+        person_id: resolved.person_id,
+        person: resolved.person,
+      },
+    }),
+  );
 }
 
 /**
@@ -1381,19 +1692,168 @@ function _validateRecordShape(record) {
   if (typeof record.person_id !== "string" || !record.person_id) {
     return "person_id missing";
   }
-  if (
-    typeof record.seq !== "number" ||
-    !Number.isInteger(record.seq) ||
-    record.seq < 0
-  ) {
-    return "seq must be non-negative integer";
-  }
+  // Its VALUE is checked with every other number, by `_numericFieldError`.
+  if (typeof record.seq !== "number") return "seq missing or not a number";
   if (typeof record.sig !== "string" || !record.sig) return "sig missing";
   if (record.prev_hash !== null && typeof record.prev_hash !== "string") {
     return "prev_hash must be null or string";
   }
   if (record.content === undefined || record.content === null) {
     return "content missing";
+  }
+  return null;
+}
+
+// ---- numbers: ONE strict validator --------------------------------------------
+
+/**
+ * The declared range of every number the fold compares, keyed by the field's
+ * path in the record. Other payload numbers need only be finite.
+ *
+ *   seq — the record's position in its emitter's chain (rule 2); the first is 0.
+ *   content.evidence_window.victim_chain_high_water_seq — the victim seq the
+ *     revoker observed (rule 10); -1 when it observed none, which is how
+ *     owner-depart-ceremony.js builds it.
+ *
+ * Every declared range lies inside the safe-integer range (asserted below), so a
+ * number that passes `_numberViolation` is a safe integer.
+ */
+const SAFE_INTEGER_RANGE = Object.freeze([
+  Number.MIN_SAFE_INTEGER,
+  Number.MAX_SAFE_INTEGER,
+]);
+// Control-field consumers: reap pin (fold-rule-reap.js:204-260), generation
+// (fold-rule-9b.js:438-438; fold-rule-9c.js:518-535;
+// fold-member-registry.js:250-252,646-672), checkpoint coverage
+// (fold-verification-checkpoint.js:484-522). Paths are relative to this lib dir.
+const INTEGER_FIELDS_BY_TYPE = new Map([
+  ["reap", new Set(["content.pinned_victim_heartbeat.seq"])],
+  ["generation-rotation", new Set(["content.to_generation"])],
+  ["genesis-migration", new Set(["content.from_genesis_generation", "content.to_genesis_generation"])],
+  ["registry-genesis-anchor", new Set(["content.genesis_generation"])],
+  ["registry-generation-rotation", new Set(["content.from_generation", "content.to_generation"])],
+  ["fold-verification-checkpoint", new Set(["content.covered_count"])],
+]);
+const NUMERIC_FIELD_RANGES = Object.freeze(
+  Object.assign(Object.create(null), {
+    seq: Object.freeze([0, Number.MAX_SAFE_INTEGER]),
+    "content.evidence_window.victim_chain_high_water_seq": Object.freeze([
+      -1,
+      Number.MAX_SAFE_INTEGER,
+    ]),
+  }),
+);
+for (const [field, [min, max]] of Object.entries(NUMERIC_FIELD_RANGES)) {
+  if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min > max) {
+    throw new Error(
+      `coordination-log: the declared range of ${field} [${min}, ${max}] is not a safe-integer range`,
+    );
+  }
+}
+// The deepest declared path, in segments: a number below it has no declaration.
+const NUMERIC_FIELD_MAX_DEPTH = Math.max(
+  ...Object.keys(NUMERIC_FIELD_RANGES).map((field) => field.split(".").length),
+);
+const INTEGER_PATHS_BY_TYPE = new Map(
+  Array.from(INTEGER_FIELDS_BY_TYPE, ([type, fields]) =>
+    [type, Array.from(fields, (field) => field.split("."))]),
+);
+
+function _numericNodeMatches(node, segments) {
+  if (node.onNumericWork) node.onNumericWork("path-comparison", 1);
+  if (node.depth !== segments.length) return false;
+  let current = node;
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    if (node.onNumericWork) node.onNumericWork("segment-comparison", 1);
+    if (current.key !== segments[i]) return false;
+    current = current.parent;
+  }
+  return current.parent === null;
+}
+
+/**
+ * The one check every number passes, in order: finite, an integer, inside
+ * `range`. Returns the kind of the first property it fails, or null.
+ */
+function _numberViolation(value, range) {
+  if (!Number.isFinite(value)) return "non-finite";
+  if (!Number.isInteger(value)) return "not-integer";
+  if (value < range[0] || value > range[1]) return "out-of-range";
+  return null;
+}
+
+function _numericNodePath(node) {
+  const keys = [];
+  for (let n = node; n.parent !== null; n = n.parent) keys.push(n.key);
+  keys.reverse();
+  const path = keys
+    .map((k, i) => (typeof k === "number" ? `[${k}]` : i === 0 ? k : `.${k}`))
+    .join("");
+  if (node.onNumericWork) node.onNumericWork("path-materialization", path.length);
+  return path;
+}
+
+/**
+ * Reject non-finite numbers globally, with integer/range checks only for
+ * consumed control fields. Returns the first failure as
+ * {kind, path, text}, or null.
+ *
+ * The fold runs this before rule 3, because rule 3 canonicalises the record
+ * before rule 1 verifies it: canonicalSerialize throws on NaN and Infinity, and
+ * JSON.parse turns the five bytes `1e999` into Infinity, so one shape-valid log
+ * line carrying that token in any number position threw the WHOLE fold, with no
+ * signature or roster membership needed. Finite is not enough either: a
+ * fractional or out-of-range value in a field the fold compares (seq, the
+ * rule-10 high-water) changes what it decides. Such a record is rejected per
+ * record with this typed reason, as rule 1 rejects one it cannot verify.
+ *
+ * Iterative, and a path is built only for the failure it reports: a record
+ * nested 100000 deep must not exhaust the
+ * stack, or this check would become the throw it exists to prevent.
+ */
+function _numericFieldError(record, onNumericWork) {
+  const stack = [{ value: record, parent: null, key: null, depth: 0, onNumericWork }];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    const value = node.value;
+    if (typeof value === "number") {
+      let declared = _numericNodeMatches(node, ["seq"]) ? NUMERIC_FIELD_RANGES.seq : undefined;
+      if (record.type === "collaborator-distinctness-revocation" &&
+          _numericNodeMatches(node, ["content", "evidence_window", "victim_chain_high_water_seq"])) {
+        declared = NUMERIC_FIELD_RANGES["content.evidence_window.victim_chain_high_water_seq"];
+      }
+      const typePaths = INTEGER_PATHS_BY_TYPE.get(record.type);
+      if (node.depth <= NUMERIC_FIELD_MAX_DEPTH && typePaths &&
+          typePaths.some((segments) => _numericNodeMatches(node, segments))) declared = SAFE_INTEGER_RANGE;
+      if (record.type === "fold-verification-checkpoint" && node.parent &&
+          node.parent.key === "rule1_failed_indices" && node.parent.parent &&
+          node.parent.parent.key === "content") declared = NUMERIC_FIELD_RANGES.seq;
+      const range = declared;
+      const kind = !Number.isFinite(value) ? "non-finite"
+        : declared ? _numberViolation(value, range) : null;
+      if (kind === null) continue;
+      const path = escapeDiagnosticText(_numericNodePath(node));
+      const shown = String(value);
+      const text =
+        kind === "non-finite"
+          ? `${path} is not a finite number (${shown})`
+          : kind === "not-integer"
+            ? `${path} is not an integer (${shown})`
+            : `${path} is outside its declared range [${range[0]}, ${range[1]}] (${shown})`;
+      return { kind, path, text };
+    }
+    if (value === null || typeof value !== "object") continue;
+    const depth = node.depth + 1;
+    if (Array.isArray(value)) {
+      for (let i = value.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: value[i], parent: node, key: i, depth, onNumericWork });
+      }
+    } else {
+      const keys = Object.keys(value);
+      for (let i = keys.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: value[keys[i]], parent: node, key: keys[i], depth, onNumericWork });
+      }
+    }
   }
   return null;
 }
@@ -2095,8 +2555,25 @@ function _collectRosterGpgPubkeys(roster) {
   return out;
 }
 
+function _renderRejectedDiagnostics(rejected) {
+  for (const entry of rejected) {
+    if (typeof entry.reason === "string") {
+      entry.reason = entry.reason.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, escapeDiagnosticText);
+    }
+  }
+  return rejected;
+}
+
 function _foldLog(records, roster, opts, registry) {
-  const optsResolved = opts || {};
+  // SHALLOW COPY, not the caller's object. The fold stamps `gpgHome` onto this
+  // below (the shared verify-homedir, handed to predicates through `ctx.opts`),
+  // and mutating the caller's options would leak a temp-dir path into an object
+  // it still owns. Every other read of the opts here is unchanged.
+  const optsResolved = Object.assign({}, opts || {});
+  if (optsResolved.onNumericWork !== undefined && typeof optsResolved.onNumericWork !== "function") {
+    throw new TypeError("coordination-log: onNumericWork must be a function when supplied");
+  }
+  if (typeof optsResolved.now !== "number") optsResolved.now = Date.now();
   const peerHighWaterFor =
     typeof optsResolved.peerHighWaterFor === "function"
       ? optsResolved.peerHighWaterFor
@@ -2107,6 +2584,9 @@ function _foldLog(records, roster, opts, registry) {
   const forks = [];
   const advisories = [];
   const contestedRevocations = [];
+  // Indices into `accepted` of records the loop pushed down the contested
+  // path, so the rule-10 full-stream post-pass does not report them twice.
+  const contestedAtPrefix = new Set();
 
   // Per-emitter chain state: verified_id → {lastSeq, lastContentHash}.
   // Seeded from opts.perEmitterStateSeed for post-checkpoint replay.
@@ -2134,7 +2614,7 @@ function _foldLog(records, roster, opts, registry) {
     return {
       foldState,
       accepted,
-      rejected,
+      rejected: _renderRejectedDiagnostics(rejected),
       forks,
       advisories,
       contestedRevocations,
@@ -2171,6 +2651,24 @@ function _foldLog(records, roster, opts, registry) {
       if (_h.ok) _sharedGpgHome = _h.home;
     }
   }
+  // Hand the shared homedir to the PREDICATES too, which read `ctx.opts`.
+  //
+  // `fold-genesis-anchor` re-verifies the trust-root record's signature on every
+  // fold (defense in depth, by design). Until now it built an EPHEMERAL homedir
+  // of its own for that one verify — a second gpg import plus its gpgconf
+  // lifecycle, on every fold, alongside the shared one. MEASURED on loom's
+  // 1070-record log (2026-10-08, guard run under `NODE_OPTIONS=--require` spawn
+  // ledger): 3 `gpg --homedir` spawns totalling ~780 ms — the genesis
+  // predicate's ephemeral verify (homedir `/var/folders/…/coc-sign-gpg-vfy-*`,
+  // confirmed by stack: `_verifyGpg` ← `verify` ← `foldGenesisAnchor`) plus the
+  // fold's shared import — and 2 `gpgconf --homedir` calls totalling ~1.5 s.
+  // Two agents' worth of lifecycle for one fold's worth of work.
+  //
+  // A consumer of this field MUST pass `expectedFpr` (see `_verifyRule1`): the
+  // shared keyring holds EVERY roster key, so an unbound verify would accept a
+  // signature made by any rostered key while attributing it to the key it
+  // looked up. The adapter for fold-genesis-anchor does exactly that.
+  optsResolved.gpgHome = _sharedGpgHome || undefined;
 
   // ---- OPT-IN FOLD DEADLINE (loom s49 P5) ---------------------------------
   //
@@ -2241,18 +2739,37 @@ function _foldLog(records, roster, opts, registry) {
   let _cpCoverage = {
     coveredCount: 0,
     rule1FailedIndices: new Set(),
-    reason: "",
+    reason: optsResolved.skipSignatureVerify
+      ? "signature verification explicitly skipped"
+      : "full verification explicitly requested",
   };
+  // Bound untrusted structures before checkpoint coverage can hash candidates;
+  // retain original indices for digest-bound coverage.
+  const structureErrors = records.map(recordStructureError);
+  const firstInvalidIndex = structureErrors.findIndex(Boolean);
+  const excludedCheckpoints = [];
+  const coverageRecords = firstInvalidIndex === -1 ? records : records.map((record, index) => {
+    if (!record || record.type !== foldVerificationCheckpoint.CHECKPOINT_TYPE) return record;
+    const count = record.content && record.content.covered_count;
+    const invalidIndex = structureErrors[index] ? index
+      : Number.isSafeInteger(count) && firstInvalidIndex < count ? firstInvalidIndex : -1;
+    if (invalidIndex === -1) return record;
+    excludedCheckpoints.push(`@${index}: structure invalid at @${invalidIndex} (${structureErrors[invalidIndex].kind})`);
+    return null;
+  });
   if (
     !optsResolved.skipSignatureVerify &&
     process.env.COC_FOLD_FULL_VERIFY !== "1"
   ) {
     try {
       _cpCoverage = foldVerificationCheckpoint.resolveCheckpointCoverage(
-        records,
+        coverageRecords,
         roster,
         { gpgHome: _sharedGpgHome || undefined },
       );
+      if (_cpCoverage.coveredCount === 0 && excludedCheckpoints.length) {
+        _cpCoverage.reason += `; excluded checkpoints: ${excludedCheckpoints.join("; ")}`;
+      }
     } catch (err) {
       // A throw here is an unknown; unknowns rank tightest → verify everything.
       _cpCoverage = {
@@ -2285,6 +2802,18 @@ function _foldLog(records, roster, opts, registry) {
       }
       recordsSeen += 1;
 
+      const structureErr = structureErrors[_i];
+      if (structureErr) {
+        rejected.push({
+          record,
+          reason: `shape invalid: ${structureErr.text}`,
+          rule: "shape",
+          kind: structureErr.kind,
+          path: structureErr.path,
+        });
+        continue;
+      }
+
       // --- Universal shape check ---
       const shapeErr = _validateRecordShape(record);
       if (shapeErr) {
@@ -2292,6 +2821,39 @@ function _foldLog(records, roster, opts, registry) {
           record,
           reason: `shape invalid: ${shapeErr}`,
           rule: "shape",
+        });
+        continue;
+      }
+
+      // --- Derived fields are the fold's alone (fold-derived-fields.js) ---
+      // A record whose OWN body carries a fold-computed name (the rule-10
+      // verdict, a tamper flag, the presence attribution, settlement, derived-N)
+      // is its producer asserting the fold's verdict on itself. Reject it here,
+      // before rule 3, rule 1 or any predicate reads the record, so no value of
+      // that name ever reaches accepted[] from a producer. This runs ahead of
+      // _stampPresenceAttribution, whose own incoming-attribution strip is now
+      // defense in depth.
+      const derivedNames = derivedFieldsIn(record);
+      if (derivedNames.length > 0) {
+        rejected.push({
+          record,
+          reason: `${DERIVED_FIELD_REJECTION}: ${derivedNames.join(", ")}`,
+          rule: "derived-field",
+        });
+        continue;
+      }
+
+      // --- Numbers — ONE strict validator, before rule 3 hashes the record.
+      // A number the fold cannot use rejects this record, typed by `kind` and
+      // `path`; it never throws the fold (`_numericFieldError`). ---
+      const numericErr = _numericFieldError(record, optsResolved.onNumericWork);
+      if (numericErr) {
+        rejected.push({
+          record,
+          reason: `numeric: ${numericErr.text}`,
+          rule: "numeric",
+          kind: numericErr.kind,
+          path: numericErr.path,
         });
         continue;
       }
@@ -2335,9 +2897,21 @@ function _foldLog(records, roster, opts, registry) {
       // checkpoint keeps failing, with its original reason, rather than being
       // silently promoted to accepted.
       let r1;
+      // The CHECKPOINT RECORD ITSELF skips the crypto here for the same reason
+      // the covered prefix does: `resolveCheckpointCoverage` already verified
+      // its signature — over these same bytes, under the same roster key, bound
+      // by the same `expectedFpr` — which is the one subprocess coverage
+      // resolution pays. It sits at index `checkpointIndex`, i.e. OUTSIDE its
+      // own covered prefix (`covered_count` stops before it), so without this it
+      // was verified a SECOND time on every fold: one spawn, ~10 ms idle and
+      // ~900 ms measured under load, for an identical check. The roster-
+      // MEMBERSHIP half still runs, exactly as on the covered path.
+      // `checkpointIndex` is null when coverage is 0, so the comparison is
+      // false for every numeric index on the full-verification arm.
       if (
-        _i < _cpCoverage.coveredCount &&
-        !_cpCoverage.rule1FailedIndices.has(_i)
+        (_i < _cpCoverage.coveredCount &&
+          !_cpCoverage.rule1FailedIndices.has(_i)) ||
+        _i === _cpCoverage.checkpointIndex
       ) {
         r1 = _verifyRule1(
           record,
@@ -2458,6 +3032,10 @@ function _foldLog(records, roster, opts, registry) {
         // to exclude. The contested record is also surfaced separately in
         // contestedRevocations[] so consumer hooks can emit block-grade
         // integrity advisories naming the forger.
+        // This is the PREFIX half of the contest only: a revocation that is
+        // uncontested here can still be contested by a record later in the
+        // stream, which `_contestRevocationsOverFullStream` evaluates after
+        // the loop.
         const flagged = Object.assign({}, record, { rule10_contested: true });
         // #583 Shard 3b (L7): stamp attribution on this accept path too — a
         // no-op for a non-actuation revocation record, but uniform so a future
@@ -2470,6 +3048,7 @@ function _foldLog(records, roster, opts, registry) {
             rp.coSignerStatuses,
           ),
         );
+        contestedAtPrefix.add(accepted.length - 1);
         // #583 Shard 2: a flagged-accepted record still LANDS in accepted[], so
         // if it carries a valid presence proof its nonce MUST be consumed too —
         // the single-use ledger invariant "every accepted proof-bearing record
@@ -2568,6 +3147,17 @@ function _foldLog(records, roster, opts, registry) {
       );
     }
 
+    // --- Rule 10 — contest over the COMPLETE stream (post-pass) ---
+    // Before derived-N, which reads the verdict this writes.
+    _contestRevocationsOverFullStream(
+      accepted,
+      roster,
+      foldState,
+      contestedAtPrefix,
+      contestedRevocations,
+      optsResolved,
+    );
+
     // --- Rule 8 — partial-push gap advisory (post-pass) ---
     const r8 = _detectPartialPushGaps(perEmitterStats, peerHighWaterFor);
     for (const a of r8) advisories.push(a);
@@ -2592,7 +3182,7 @@ function _foldLog(records, roster, opts, registry) {
     return {
       foldState,
       accepted,
-      rejected,
+      rejected: _renderRejectedDiagnostics(rejected),
       forks,
       advisories,
       contestedRevocations,
@@ -2680,17 +3270,18 @@ function computeOwnChainHead(folded, ownVerifiedId) {
     // at fold-time: rule-3 fork-check hashes content-without-sig).
     //
     // ALSO strip engine-annotation flags (FSUB R2 hardening, 2026-06-11):
-    // the fold pushes FLAGGED COPIES into accepted[] for contested
-    // revocations (`rule10_contested`, the rule-10 path) and tampered
-    // body anchors (`body_anchor_tampered`, the FSUB R1 LOW-2 path).
-    // Those flags exist ONLY on the in-memory accepted copies — never on
-    // the disk record the signature covers — so hashing them here would
-    // diverge this chain head from the fold's own perEmitterState (which
-    // advances with the ORIGINAL record's hash), and the emitter's NEXT
-    // record would be rule-2-rejected on every fold. Latent today (no
-    // production caller folds with the flag-activating ctx before
-    // computing a chain head) but structural: any future repoDir-folding
-    // caller would trip it.
+    // the fold pushes FLAGGED COPIES into accepted[] for revocations
+    // (`rule10_contested`, the rule-10 path) and tampered body anchors
+    // (`body_anchor_tampered`, the FSUB R1 LOW-2 path). Those flags are
+    // fold-derived and live on the in-memory accepted copies, not in the
+    // bytes an honest emitter signs, so hashing them here would diverge this
+    // chain head from the fold's own perEmitterState (which advances with the
+    // ORIGINAL record's hash), and the emitter's NEXT record would be
+    // rule-2-rejected on every fold. `rule10_contested` is NOT latent: the
+    // rule-10 full-stream post-pass stamps it (true OR false) on EVERY
+    // accepted revocation, so any revoker whose highest-seq record is a
+    // revocation reaches this strip on its next emit. `body_anchor_tampered`
+    // still needs the repoDir-folding ctx that activates the tamper branch.
     //
     // #583 Shard 3b R2 (HIGH): `_presence_attribution` is the SAME class —
     // a fold-DERIVED top-level annotation `_stampPresenceAttribution` stamps
@@ -2704,6 +3295,7 @@ function computeOwnChainHead(folded, ownVerifiedId) {
     const {
       sig: _s,
       rule10_contested: _r10,
+      rule10_window: _r10w,
       body_anchor_tampered: _bat,
       _presence_attribution: _pa,
       ...core
@@ -2902,6 +3494,15 @@ function rosterResolvesRecord(roster, record) {
 module.exports = {
   // Constants
   LIVENESS_TTL_MS,
+
+  // The fold-side gate-approval target_tool allowlist, exported as a FROZEN
+  // COPY so the mirror-equality pin (gate-matrix.test.js) can assert it equals
+  // gate-approval.js::TARGET_TOOL_ALLOWLIST without exposing the live Set — a
+  // Set cannot be frozen in place, and round-2b review proved a mutable export
+  // lets a future in-process consumer widen/narrow fold admission (R-1's exact
+  // class, one layer out). A silent divergence between the two lists is how an
+  // unverifiable co-signer route shipped once already (R-1).
+  GATE_APPROVAL_TARGET_TOOL_ALLOWLIST: Object.freeze([..._GATE_APPROVAL_TARGET_TOOL_ALLOWLIST]),
 
   // Shared fold INPUT loading (#84) — one reader, one typed disposition, so
   // the allocator and the read-time guard cannot disagree about a roster.

@@ -62,6 +62,23 @@
  * that RAN and did not finish is not silent: it names what it did not measure.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".git/landed-map-cache.json",
+ *       "<os.tmpdir()>/landed-hermetic-<mkdtemp-suffix>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "This file reads only, but two lib helpers write. lib/landed-map.js::buildLandedMap runs with its default useCache=true, so it writes a keyed cache at <git-common-dir>/landed-map-cache.json (plus a <pid>.tmp sibling renamed onto it), and its hermeticEnv builds a throwaway git dir under the OS tmp root. The cache is keyed on the (tip, cutover) pair, so a repeat is a HIT that lands no new state and returns the same verdict — that keying is why idempotent is true. spawns: the git reads (execFileSync, routed through lib/git-subprocess-env.js) plus lib/wip-lanes.js for-each-ref scans. No network."
+ * }
+ */
+
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require(
@@ -85,7 +102,7 @@ const TIMEOUT_MS = 5000;
 let _timeout = null;
 
 // THE BUDGET. The hook is registered with `"timeout": 5` seconds
-// (`.claude/hooks/dispatch-registry.json:264-265`). DECISION_BUDGET_MS is the wall-clock share
+// (`.claude/hooks/dispatch-registry.json:326-327`). DECISION_BUDGET_MS is the wall-clock share
 // the local cherry loop and the remote scan draw from, in that order, each
 // capped below; every git spawn gets at most the time it has left. A pass that
 // runs out does NOT go silent — `coverageLines` names each branch or ref it did
@@ -498,6 +515,7 @@ function onStdinEnd(input) {
     );
     clearTimeout(_timeout);
     emit({
+      escalate: "destructive",
       hookEvent: "PostToolUse",
       severity: "halt-and-report",
       what_happened: summary

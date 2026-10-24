@@ -4,6 +4,19 @@
  *
  * @hook-event: PreToolUse:Edit|NotebookEdit|Write (guard) — the subject is the CONTENT ABOUT TO BE WRITTEN to a declared register, and PreToolUse is the only event that can refuse it before the wrong row exists; the incoming content is reconstructible here because the subject is ONE declared JSON file.
  *
+ * @coc-codex-edit-gate — declared-register retraction gate. The policy
+ *   extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). Its subject — the RESULTING
+ *   register document — is computable on a Codex edit event: the native
+ *   bridge projects each patch section into the CC Write/Edit vocabulary this
+ *   guard already consumes (`hooks/lib/codex-native-policy.js::projectPayloads`
+ *   sets `content` for an Add section and `old_string`/`new_string` for a
+ *   change section), and the guard's existing Edit branch applies that one
+ *   deterministic replacement to the on-disk file in memory before judging.
+ *   On the compatibility-wrapper path, which projects only the target path,
+ *   the guard's existing unreconstructible-edit arm (fail-open, surfaced as
+ *   UNKNOWN) is unchanged.
+ *
  * WHY PreToolUse, when the sibling `burndown-quote-write-guard.js` deliberately
  * chose PostToolUse. That guard scans FREE PROSE on any durable surface, where the
  * written artefact is the only honest subject — an `Edit` result is a merge and
@@ -26,32 +39,56 @@
  * rebuttal SAYS (A-1) it is lexical, and it is capped at `halt-and-report`. So are
  * B-0/B-1/B-2. Do not "tidy" these onto one severity: the split is the finding.
  *
- * FAILS OPEN ON EVERY UNKNOWN per `cc-artifacts.md` Rule 7 — no manifest, a path
- * that is not a declared register, no HEAD blob, unparseable JSON on either side,
- * an unreconstructible edit, a spawn failure, a timeout. A repo with no burndown
- * manifest pays one `existsSync` and sees nothing. An UNKNOWN is SURFACED as
- * UNKNOWN and never rendered as clean.
+ * PASSES ON EVERY UNKNOWN THE CHECK CAN NAME — no manifest, a path that is not a
+ * declared register, no HEAD blob, unparseable JSON on either side, an
+ * unreconstructible edit, a spawn failure. A repo with no burndown manifest pays one
+ * `existsSync` and sees nothing. An UNKNOWN is SURFACED as UNKNOWN and never rendered
+ * as clean.
+ *
+ * FAILS CLOSED ON A RUN THAT CANNOT FINISH. This row is deny-capable (A-2 blocks), so
+ * a crash — the predicate library failing to load, the check throwing, the emit
+ * throwing — a hang past the budget, or an unreadable payload REFUSES the write:
+ * `guard-runner.js::runGuard` owns the payload read and the run's ending
+ * (`cc-artifacts.md` Rule 7, deny-capable rows). A guard that could not grade the
+ * write cannot clear it.
  */
 
 "use strict";
 
-const TIMEOUT_MS = 4000;
-let fallback = null;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: `git show HEAD:<register>` through lib/register-regression.js; every path is read-only (manifest/HEAD-blob reads) with findings emitted to stdout only — no durable write anywhere."
+ * }
+ */
+
+// Raised 4000 -> 20000 (2026-10-08) with the registered budget (5s -> 20s): internal
+// and harness bind must move together or the guard self-kills mid-scan under load.
+// Now the runner's budget outside the engine (guard-runner.js::runGuard): a hang
+// past it is a budget REFUSAL, never a pass.
+const TIMEOUT_MS = 20000;
 
 const fs = require("node:fs");
 const path = require("node:path");
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
+const { runGuard } = require("./lib/guard-runner.js");
 
 function passthrough(context) {
-  if (fallback) clearTimeout(fallback);
-  try {
-    const out = { continue: true };
-    if (context) {
-      out.hookSpecificOutput = { hookEventName: "PreToolUse", additionalContext: context };
-    }
-    process.stdout.write(JSON.stringify(out) + "\n");
-  } catch {}
+  const out = { continue: true };
+  if (context) {
+    out.hookSpecificOutput = {
+      hookEventName: "PreToolUse",
+      additionalContext: context,
+    };
+  }
+  process.stdout.write(JSON.stringify(out) + "\n");
   process.exit(0);
 }
 
@@ -87,18 +124,13 @@ function incomingContent(toolName, input, abs) {
   return cur.slice(0, first) + newS + cur.slice(first + oldS.length);
 }
 
-async function main() {
-  let payload;
-  try {
-    payload = await readStdinBounded();
-  } catch {
-    return passthrough(null);
-  }
-  const p = payload && typeof payload === "object" ? payload : {};
+async function main(payload) {
+  const p = payload;
   const toolName = p.tool_name;
   if (toolName !== "Edit" && toolName !== "Write") return passthrough(null);
 
-  const input = (p.tool_input && typeof p.tool_input === "object" && p.tool_input) || {};
+  const input =
+    (p.tool_input && typeof p.tool_input === "object" && p.tool_input) || {};
   const filePath = input.file_path;
   if (typeof filePath !== "string" || !filePath) return passthrough(null);
 
@@ -107,29 +139,27 @@ async function main() {
   // every edit in the repo before any file is opened.
   if (!/\.json$/i.test(filePath)) return passthrough(null);
 
-  const rel = (path.isAbsolute(filePath) ? path.relative(PROJECT_DIR, filePath) : filePath).replace(/\\/g, "/");
+  const rel = (
+    path.isAbsolute(filePath) ? path.relative(PROJECT_DIR, filePath) : filePath
+  ).replace(/\\/g, "/");
   if (rel.startsWith("..")) return passthrough(null); // outside the project — not ours
 
-  let lib;
-  try {
-    lib = require(path.join(__dirname, "lib", "register-regression.js"));
-  } catch (e) {
-    // Past this point every bail is on a path we have NOT yet shown to be
-    // unrelated, so a bare passthrough would be indistinguishable from
-    // "checked, clean" — the exact non-discriminating result
-    // `instrument-discipline.md` MUST-1 forbids reading as a verdict.
-    return passthrough(
-      `register-regression: UNKNOWN, not clean — the predicate library failed to load (${e && e.code}). ` +
-        `Delivery-claim retractions and owed-row checks did NOT run for this write.`,
-    );
-  }
+  // Past this point every bail is on a path we have NOT yet shown to be
+  // unrelated, so a pass would be indistinguishable from "checked, clean" — the
+  // exact non-discriminating result `instrument-discipline.md` MUST-1 forbids
+  // reading as a verdict. A library that fails to load therefore THROWS to the
+  // runner, which refuses the write (it was once an advisory pass).
+  const lib = require(path.join(__dirname, "lib", "register-regression.js"));
 
   const manifest = lib.findManifest(PROJECT_DIR);
   if (!manifest) return passthrough(null); // no tracker-source convention to key on
-  if (!lib.isDeclaredRegister(manifest, rel, PROJECT_DIR)) return passthrough(null);
+  if (!lib.isDeclaredRegister(manifest, rel, PROJECT_DIR))
+    return passthrough(null);
 
   // FROM HERE the file IS a declared register, so silence is never neutral.
-  const abs = path.isAbsolute(filePath) ? filePath : path.join(PROJECT_DIR, filePath);
+  const abs = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(PROJECT_DIR, filePath);
   const next = incomingContent(toolName, input, abs);
   if (next === null) {
     return passthrough(
@@ -139,15 +169,9 @@ async function main() {
     );
   }
 
-  let res;
-  try {
-    res = lib.evaluate(PROJECT_DIR, rel, next);
-  } catch (e) {
-    return passthrough(
-      `register-regression: UNKNOWN, not clean — the check threw on '${rel}' (${e && e.message}). ` +
-        `Delivery-claim retractions and owed-row checks did NOT run for this write.`,
-    );
-  }
+  // A check that THROWS on a declared register did not grade the write, so it
+  // cannot clear it: the throw reaches the runner, which refuses.
+  const res = lib.evaluate(PROJECT_DIR, rel, next);
 
   // "could not check" and "checked, clean" are OPPOSITE facts. Surfacing the
   // first as advisory context keeps them distinguishable without blocking.
@@ -173,42 +197,38 @@ async function main() {
   const lead = blocking.length ? blocking : res.findings;
   const body = lib.renderFindings(res.findings, rel);
 
-  if (fallback) clearTimeout(fallback);
-  try {
-    // `instructAndWait` RETURNS `{json, exitCode}` and does NOT write stdout.
-    // Returning it without emitting computes the whole finding and then discards
-    // it, and every surface reports success — the result-not-delivered class the
-    // sibling guard shipped once before its fixtures caught it.
-    const { instructAndWait } = require("./lib/instruct-and-wait.js");
-    const emitted = instructAndWait({
-      hookEvent: "PreToolUse",
-      severity,
-      rule_id: blocking.length ? "state-regression-integrity/MUST-1" : "state-regression-integrity",
-      what_happened:
-        `This write to the declared burndown register '${rel}' carries ${res.findings.length} ` +
-        `state-regression finding(s) against the COMMITTED record at HEAD.`,
-      why: body,
-      agent_must_report: [
-        `Register: ${rel}`,
-        ...lead.slice(0, 5).map((f) => `[${f.guard}] ${f.id}: ${f.reason}`),
-        "Do NOT demote a delivered row because THIS session did not verify it.",
-      ],
-    });
-    process.stdout.write(JSON.stringify(emitted.json) + "\n");
-    process.exit(emitted.exitCode);
-  } catch {
-    return passthrough(body); // even the emit path fails open
-  }
+  // `instructAndWait` RETURNS `{json, exitCode}` and does NOT write stdout.
+  // Returning it without emitting computes the whole finding and then discards
+  // it, and every surface reports success — the result-not-delivered class the
+  // sibling guard shipped once before its fixtures caught it. An emit that THROWS
+  // reaches the runner and refuses (it once fell back to an advisory pass, which
+  // turned a failed BLOCK into an allow).
+  const { instructAndWait } = require("./lib/instruct-and-wait.js");
+  const emitted = instructAndWait({
+    hookEvent: "PreToolUse",
+    severity,
+    rule_id: blocking.length
+      ? "state-regression-integrity/MUST-1"
+      : "state-regression-integrity",
+    what_happened:
+      `This write to the declared burndown register '${rel}' carries ${res.findings.length} ` +
+      `state-regression finding(s) against the COMMITTED record at HEAD.`,
+    why: body,
+    agent_must_report: [
+      `Register: ${rel}`,
+      ...lead.slice(0, 5).map((f) => `[${f.guard}] ${f.id}: ${f.reason}`),
+      "Do NOT demote a delivered row because THIS session did not verify it.",
+    ],
+  });
+  process.stdout.write(JSON.stringify(emitted.json) + "\n");
+  return process.exit(emitted.exitCode);
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
-// did at load time happens here instead, so a require() has no side effects.
-function hookMain() {
-  fallback = setTimeout(() => passthrough(null), TIMEOUT_MS);
-  if (typeof fallback.unref === "function") fallback.unref();
-  return main().catch(() => passthrough(null));
-}
+// in-process by lib/hook-engine.js (dispatch.js). Built by the fail-closed runner:
+// it reads the payload, bounds the run and refuses on a crash, a hang or an
+// unreadable payload, so a require() still has no side effects.
+const hookMain = runGuard("register-regression-guard", main, { budgetMs: TIMEOUT_MS });
 
 module.exports = { hookMain };
 
@@ -216,6 +236,7 @@ module.exports = { hookMain };
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The
 // selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
   else hookMain();
 }

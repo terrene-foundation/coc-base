@@ -6,6 +6,17 @@
  * @hook-event: UserPromptSubmit (lifecycle) — the submitted prompt exists at the turn boundary for regression and acknowledgment signals.
  * @hook-event: Stop (lifecycle) — the completed assistant response is available at the turn boundary for report-discipline signals.
  *
+ * Codex read-lane status — MEASURED 2026-10-09, codex-cli 0.161.0: NO hookable
+ * file-read tool event exists to bind the Read matcher. The tool-call enums carry
+ * exec_command / apply_patch / view_image / web / image_generation / collab /
+ * sleep and no read item; `read_file` appears only as the app-server `fs/readFile`
+ * RPC (FsReadFileParams) and the exec-server remote-FS RPCs; `codex debug
+ * prompt-input` renders no read tool; a live `codex exec` probe was UNRUNNABLE
+ * (ChatGPT usage limit, no data). Reads execute inside `functions.exec` via the
+ * shell lane (mirrored where a hookable command runs). The Read-matcher arm has
+ * no Codex surface to bind to; the CC arms remain the enforcement surface and
+ * the rule-layer discipline reaches Codex via the rules-reference skill channel.
+ *
  * detect-violations — POC hook for the trust-posture system.
  *
  * Wired to multiple events; reads tool_event from stdin payload's hookEventName field.
@@ -14,13 +25,31 @@
  *   Stop                      → pre-existing-no-SHA, sweep-substitution, self-confession
  *   UserPromptSubmit          → regression signal from user prompt
  *
- * Mitigates cc-artifacts.md Rule 7 (timeout fallback).
+ * Runs on guard-runner.js::runGuard (cc-artifacts.md Rule 7, deny-capable rows): the
+ * runner reads the payload and bounds the run, and a crash, a hang past the budget or
+ * an unreadable payload REFUSES — this row's PostToolUse(Edit|Write) worktree-drift
+ * arm blocks, so a run that cannot finish cannot read as a clean pass.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/violations.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "One violations.jsonl row is appended per finding, per event, with no payload dedupe (only the Stop ack arm consults existing rows), so a repeat appends again. The sink routes through lib/state-io.js::appendViolation or lib/coc-append.js::appendStamped; lib/state-resolver.js::ensureStateDir mkdirs `.claude/learning/` (or $CLAUDE_TRUST_STATE_DIR / a per-process quarantine) first. Spawns: git probes in lib/state-resolver.js and lib/state-io.js, plus git/ssh-keygen in lib/operator-id.js."
+ * }
+ */
+
+// The run budget outside the engine (the registry row's own timeout bounds it inside).
 const TIMEOUT_MS = 5000;
-let fallback = null;
 
 const path = require("path");
+const { runGuard } = require(path.join(__dirname, "lib", "guard-runner.js"));
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 const {
   appendViolation,
@@ -60,28 +89,11 @@ const { isMutationTool } = require(
 // The rationale for every guard in that reader (the single-resolution open, the
 // O_NOFOLLOW/O_NONBLOCK pair, the fail-soft-but-never-silent WARN, and the
 // measurements the two constants come from) moved WITH the code.
-const { readFinalAssistantText, warnTranscriptRecovery } = require(
+const { readAssistantTextFromPayload, warnTranscriptRecovery } = require(
   path.join(__dirname, "lib", "transcript-read.js"),
 );
 
-function readStdin() {
-  return new Promise((resolve) => {
-    let data = "";
-    if (process.stdin.isTTY) return resolve({});
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (c) => (data += c));
-    process.stdin.on("end", () => {
-      try {
-        resolve(JSON.parse(data));
-      } catch {
-        resolve({});
-      }
-    });
-  });
-}
-
 function passthrough() {
-  clearTimeout(fallback);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
@@ -280,12 +292,24 @@ function logAllAndEmit(payload, event, entries) {
     severity = "halt-and-report";
   }
 
-  clearTimeout(fallback);
-  emit({
+  // THE FAILURE CARRIES ITS OWN RULE ID, AND IT LEADS `why` (R2b MED-A). The
+  // dispatcher reads a row's arm from the id `instruct-and-wait.js` reports —
+  // `hook-findings.js::ruleIdOf(why)`, the text before the first "; " — and on a
+  // SHADOW row it neutralizes any refusal whose id is not a data-loss arm, blanking
+  // its stdout AND stderr (`lib/dispatch-main.js::makeShadowGate`). Keyed on the
+  // winning finding, a `block` that also dropped its ledger row was shadowed whole,
+  // and state-io's "DROPPED …" stderr line went with it: the one place the missing
+  // row was announced. `detect-violations/ledger-write-failed` is a data-loss arm
+  // (`lib/dispatch-registry.js::NEVER_SHADOW_ARMS`), so that verdict is delivered.
+  // The literal is inline because the shadow suite derives every frozen arm id
+  // from a `why:` its hook's source actually emits.
+  return emit({
     hookEvent: event,
     severity,
     what_happened,
-    why: ruleIds,
+    ...(ledgerFailures.length
+      ? { why: `detect-violations/ledger-write-failed; ${ruleIds}` }
+      : { why: ruleIds }),
     agent_must_report: [
       "Quote the exact text/command that triggered the detection",
       "State which rule was violated and its origin evidence date",
@@ -311,19 +335,41 @@ function logAllAndEmit(payload, event, entries) {
   });
 }
 
-// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
-// did at load time happens here instead, so a require() has no side effects.
-function hookMain() {
-  fallback = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  return main();
+/**
+ * The PreToolUse(Read) stale-record banner's rule list, or null when no banner is
+ * owed. A stat or posture read that FAILS is "no banner" (the banner is advisory
+ * context, never a refusal) — the catch decides only that, and emits nothing.
+ */
+function staleRecordRules(payload, fp) {
+  try {
+    const fs = require("fs");
+    const stat = fs.statSync(fp);
+    const posture = readPosture(payload.cwd);
+    // loom#875 — DELIBERATELY NOT grace-filtered. This is the STALE-RECORD
+    // file-provenance surface: a session-notes / observations / journal
+    // file that pre-dates ANY authored rule still holds "tests pass" /
+    // "verified" claims that are unverified under that rule — grace
+    // expiry does NOT restore their validity (a grace-expired-but-still-
+    // enforced rule still invalidates a record older than it). Adding
+    // isPendingWithinGrace() here in a future "consistency" pass would
+    // wrongly stop flagging stale records once grace lapses. The
+    // grace-filter belongs ONLY on the three ack/banner/count surfaces.
+    const pending = (posture.pending_verification || []).filter(
+      (e) => e && e.rule_id && e.since,
+    );
+    if (!pending.length) return null;
+    const newest = pending
+      .map((e) => new Date(e.since).getTime())
+      .sort((a, b) => b - a)[0];
+    if (stat.mtime.getTime() >= newest) return null;
+    return pending.map((e) => e.rule_id).join(", ");
+  } catch {
+    // file stat failed or no posture — no banner
+    return null;
+  }
 }
 
-async function main() {
-  const payload = await readStdin();
+async function main(payload) {
   const event = payload.hook_event_name || payload.hookEventName || "Unknown";
 
   // PreToolUse(Read): stale-record banner if reading session-notes /
@@ -339,45 +385,18 @@ async function main() {
         /\.session-notes(?:$|\/)/.test(fp) ||
         /observations\.jsonl/.test(fp) ||
         /\/journal\//.test(fp);
-      if (isStaleCandidate) {
-        try {
-          const fs = require("fs");
-          const stat = fs.statSync(fp);
-          const posture = readPosture(payload.cwd);
-          // loom#875 — DELIBERATELY NOT grace-filtered. This is the STALE-RECORD
-          // file-provenance surface: a session-notes / observations / journal
-          // file that pre-dates ANY authored rule still holds "tests pass" /
-          // "verified" claims that are unverified under that rule — grace
-          // expiry does NOT restore their validity (a grace-expired-but-still-
-          // enforced rule still invalidates a record older than it). Adding
-          // isPendingWithinGrace() here in a future "consistency" pass would
-          // wrongly stop flagging stale records once grace lapses. The
-          // grace-filter belongs ONLY on the three ack/banner/count surfaces.
-          const pending = (posture.pending_verification || []).filter(
-            (e) => e && e.rule_id && e.since,
-          );
-          if (pending.length) {
-            const newest = pending
-              .map((e) => new Date(e.since).getTime())
-              .sort((a, b) => b - a)[0];
-            if (stat.mtime.getTime() < newest) {
-              const ruleList = pending.map((e) => e.rule_id).join(", ");
-              clearTimeout(fallback);
-              process.stdout.write(
-                JSON.stringify({
-                  continue: true,
-                  hookSpecificOutput: {
-                    hookEventName: "PreToolUse",
-                    additionalContext: `⚠️ STALE RECORD — ${fp} pre-dates rule(s) ${ruleList}. Any "tests pass" / "complete" / "verified" claim within is UNVERIFIED under the new rule(s). Do not inherit conclusions; re-verify per rule before declaring readiness.`,
-                  },
-                }) + "\n",
-              );
-              process.exit(0);
-            }
-          }
-        } catch {
-          // file stat failed or no posture — fall through to passthrough
-        }
+      const ruleList = isStaleCandidate ? staleRecordRules(payload, fp) : null;
+      if (ruleList) {
+        process.stdout.write(
+          JSON.stringify({
+            continue: true,
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              additionalContext: `⚠️ STALE RECORD — ${fp} pre-dates rule(s) ${ruleList}. Any "tests pass" / "complete" / "verified" claim within is UNVERIFIED under the new rule(s). Do not inherit conclusions; re-verify per rule before declaring readiness.`,
+            },
+          }) + "\n",
+        );
+        return process.exit(0);
       }
     }
 
@@ -424,7 +443,15 @@ async function main() {
         // adequate for this class because the harm is not the command running
         // but the agent BANKING its status in the following turn, which this
         // still precedes.
-        { finding: P.detectExitCodeLaundering(cmd), what },
+        // `background` is the one banking mode the command string cannot show: a
+        // backgrounded call's completion notification reports the compound's final
+        // status, so the laundered status IS read even with no `$?` in the command.
+        {
+          finding: P.detectExitCodeLaundering(cmd, {
+            background: input.run_in_background === true,
+          }),
+          what,
+        },
       ];
       if (bashEntries.some((e) => e.finding))
         return logAllAndEmit(payload, event, bashEntries);
@@ -500,23 +527,9 @@ async function main() {
   }
 
   if (event === "Stop") {
-    // Prefer the payload's inline text when present; otherwise recover it from
-    // the transcript. This ordering is correct under BOTH payload shapes, so it
-    // needs no knowledge of which one the CLI actually emits.
-    let finalText =
-      (typeof payload.last_assistant_text === "string" &&
-        payload.last_assistant_text) ||
-      "";
-    if (!finalText) {
-      const recovered = readFinalAssistantText(payload.transcript_path);
-      finalText = recovered.text;
-      // Only warn when a transcript was actually OFFERED and yielded nothing —
-      // a Stop payload carrying neither shape is the ordinary no-op, not a
-      // detector blind spot.
-      if (!recovered.text && recovered.reason) {
-        warnTranscriptRecovery(recovered.reason);
-      }
-    }
+    const recovered = readAssistantTextFromPayload(payload);
+    const finalText = recovered.text;
+    if (recovered.reason) warnTranscriptRecovery(recovered.reason);
 
     // Receipt token validation (Phase 2): if pending_verification non-empty
     // AND finalText lacks [ack: <rule_id>] for each pending rule
@@ -654,8 +667,7 @@ async function main() {
       }
     }
 
-    clearTimeout(fallback);
-    emit({
+    return emit({
       hookEvent: "Stop",
       severity: "post-mortem",
       what_happened: `${findings.length} violation pattern(s) detected in final report`,
@@ -675,14 +687,12 @@ async function main() {
       agent_must_wait: "Forensic record only — surfaced at next SessionStart.",
       user_summary: `${findings.length} post-mortem violation(s) recorded`,
     });
-    return;
   }
 
   if (event === "UserPromptSubmit") {
     const prompt = payload.prompt || "";
     if (/\bwhy.*(broken|regress|still failing)/i.test(prompt)) {
       // Inject regression-signal context — does NOT log a violation, just primes the agent
-      clearTimeout(fallback);
       process.stdout.write(
         JSON.stringify({
           continue: true,
@@ -693,7 +703,7 @@ async function main() {
           },
         }) + "\n",
       );
-      process.exit(0);
+      return process.exit(0);
     }
     // time-pressure-discipline/MUST-1: framing detection in user input.
     // PRIME-only (no violation log) per the rule's two-mode design — framing
@@ -703,7 +713,6 @@ async function main() {
       mode: "input",
     });
     if (pressureFinding) {
-      clearTimeout(fallback);
       process.stdout.write(
         JSON.stringify({
           continue: true,
@@ -714,13 +723,19 @@ async function main() {
           },
         }) + "\n",
       );
-      process.exit(0);
+      return process.exit(0);
     }
     return passthrough();
   }
 
   return passthrough();
 }
+
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Built by the fail-closed runner:
+// it reads the payload, bounds the run and refuses on a crash, a hang or an
+// unreadable payload, so a require() still has no side effects.
+const hookMain = runGuard("detect-violations", main, { budgetMs: TIMEOUT_MS });
 
 module.exports = { hookMain };
 

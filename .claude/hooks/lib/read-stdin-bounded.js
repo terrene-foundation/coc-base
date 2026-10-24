@@ -37,6 +37,12 @@ const MAX_STDIN_BYTES = 10 * 1024 * 1024;
  * a fail-closed-when-declared guard) pass `{ fallback: null }`: `null` then
  * signals "no usable payload" distinctly from a real `{}` the caller parsed.
  *
+ * `timeoutFallback` separates ONE of those paths: the open-no-EOF timer expiry.
+ * That is INCOMPLETE input — the payload never finished arriving — not an
+ * unreadable one, and a guard whose registry row declares `on_incomplete: deny`
+ * must refuse it rather than pass it (`dispatch-contract-guard.js`, launch scope).
+ * Unset, the timer resolves `fallback` exactly as before.
+ *
  * `onRawText` (loom#1588 round 2) hands back the bytes that DID arrive, on every
  * settle path including the failed ones. WHY IT EXISTS: distinguishing a failed
  * read is only half of what a GATE needs. `fallback` answers "could I parse
@@ -54,6 +60,8 @@ const MAX_STDIN_BYTES = 10 * 1024 * 1024;
  *   accumulated buffer; past it the promise resolves `fallback` (overridable
  *   only to make the backstop testable — production uses the default).
  * @param {*} [opts.fallback={}] value resolved on any non-happy path.
+ * @param {*} [opts.timeoutFallback] value resolved on the open-no-EOF timer
+ *   expiry ONLY; defaults to `fallback`.
  * @param {(rawText: string) => void} [opts.onRawText] invoked once, at settle,
  *   with the raw accumulated stdin text (`""` if nothing arrived) — including on
  *   the timeout / over-ceiling / parse-error paths where the buffer is otherwise
@@ -73,6 +81,9 @@ function readStdinBounded(opts = {}) {
   const fallback = Object.prototype.hasOwnProperty.call(opts, "fallback")
     ? opts.fallback
     : {};
+  const timeoutFallback = Object.prototype.hasOwnProperty.call(opts, "timeoutFallback")
+    ? opts.timeoutFallback
+    : fallback;
   const onRawText =
     typeof opts.onRawText === "function" ? opts.onRawText : null;
 
@@ -148,9 +159,10 @@ function readStdinBounded(opts = {}) {
     }
 
     // Bounded-timer for the open-no-EOF case: resolve the passthrough default
-    // so the event loop is never held on a stream that never closes. Left REF'd
-    // so it is guaranteed to fire even if the stdin handle drops its own ref.
-    timer = setTimeout(() => done(fallback), timeoutMs);
+    // (or the caller's `timeoutFallback`) so the event loop is never held on a
+    // stream that never closes. Left REF'd so it is guaranteed to fire even if
+    // the stdin handle drops its own ref.
+    timer = setTimeout(() => done(timeoutFallback), timeoutMs);
   });
 }
 

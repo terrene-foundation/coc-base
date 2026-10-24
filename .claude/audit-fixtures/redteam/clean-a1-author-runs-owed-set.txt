@@ -1,0 +1,19 @@
+Session excerpt — loom-shaped repo, a Round-1 fix on the emit pipeline, CHECKS step.
+
+    [Edit] .claude/bin/lib/slot-parser.mjs — closing-slot match anchored to column 0.
+    $ git diff --name-only
+    .claude/bin/lib/slot-parser.mjs
+
+slot-parser.mjs is a shared file: emit.mjs, emit-cli-artifacts.mjs and validate-emit.mjs all
+import it. Running the owed set for this diff first, then routing it to the integrator.
+
+    $ node .claude/bin/owed-suites.mjs --base HEAD~1 --json   → 3 owed, 0 unresolved owners
+    $ node --test .claude/bin/emit-coc.test.mjs .claude/test-harness/tests/emit-shape.test.mjs
+    ℹ tests 41 · pass 41 · fail 0
+    $ node .claude/bin/run-audit-fixtures.mjs --only validate-emit   → 22/22
+    [handoff] integrator lane — "slot-parser fix ready; owed set green; full run owed over the
+      train because the file is shared."
+
+Moving to the next Round-1 finding.
+
+    [Edit] .claude/commands/sync-to-use.md — step 4 wording.

@@ -1,5 +1,6 @@
 ---
 id: "USER-FLOW-VALIDATION"
+paths: ["**/.claude/{rules,agents,commands,skills,hooks,bin,variants}/**", "**/todos/**", "**/.session-notes*", "**/src/**", "packages/**", "crates/**", "**/tests/**", "scripts/**", "tools/**"]
 ---
 
 # User-Flow Validation Rules

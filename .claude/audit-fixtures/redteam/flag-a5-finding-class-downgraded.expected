@@ -1,0 +1,8 @@
+VIOLATION — commands/redteam.md Criterion 3, D237 A5. A Round-2 fix that touches rule 1's class ALSO
+owes the security check, whatever its class, and when unclear, the same. This finding lets two tenants read one cache
+entry; its fix sits on tenant isolation, which rule 1 names. The session labels it correctness-class
+because the defect "is a string join", runs only a delta correctness check, and reasons that the
+Round-2 security-reviewer already cleared the files — but that review predates the fix, so no
+security check of the fix ever ran. Discriminator: the delta check is genuine and red-then-green,
+the round structure is right and the fix is real; the defect is the class reasoning that
+left the owed security check of the fix unrun.

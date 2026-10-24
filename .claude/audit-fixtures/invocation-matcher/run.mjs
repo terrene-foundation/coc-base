@@ -22,9 +22,13 @@
  * wrong finding just as happily as on the right one, and this repo has a measured
  * case where exactly that kept a pole GREEN while the defect it pinned returned.
  */
+import "../_lib/no-ambient-git.cjs";
 import path from "node:path";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { scan } from "../../bin/check-invocation-obligation.mjs";
+import { scan, compareToBaseline } from "../../bin/check-invocation-obligation.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOTS = path.join(HERE, "roots");
@@ -103,6 +107,37 @@ const names = (fs, artifact) => fs.some((f) => f.artifact === artifact);
     !names(f, "imported-tool.mjs"),
     `findings = ${show(f)}`,
   );
+}
+
+for (const mode of ["absent", "empty", "readable", "self-loop", "dangling"]) {
+  const root = mkdtempSync(path.join(tmpdir(), "invocation-surface-"));
+  try {
+    cpSync(path.join(ROOTS, "bare-with-caller"), root, { recursive: true });
+    writeFileSync(path.join(root, ".claude/rules/bad.md"), "# Readable rule without a bin reference\n");
+    const wiring = path.join(root, ".claude/skills/32-trust-posture/wiring");
+    mkdirSync(wiring, { recursive: true });
+    if (mode === "self-loop") symlinkSync("bad.md", path.join(wiring, "bad.md"));
+    if (mode === "dangling") symlinkSync("absent.md", path.join(wiring, "bad.md"));
+    if (mode === "empty") writeFileSync(path.join(wiring, "bad.md"), "");
+    if (mode === "readable") writeFileSync(path.join(wiring, "bad.md"), "# Readable optional wiring\n");
+    writeFileSync(path.join(root, "baseline.json"), JSON.stringify({ rows: [] }));
+    const broken = mode === "self-loop" || mode === "dangling";
+    const result = scan(root);
+    ok(`${mode}: actual called bin reference remains non-vacuous`, result.stats.binRefs === 1, JSON.stringify(result));
+    ok(`${mode}: API carries governance readability state`, broken
+      ? result.status === "NOT_RUN" && result.verdict === "UNKNOWN" && result.unreadable?.some((e) => e.rule === ".claude/rules/bad.md" && e.error.includes(mode === "self-loop" ? "ELOOP" : "ENOENT"))
+      : result.status === "COMPLETE" && result.unreadable?.length === 0, JSON.stringify(result));
+    const compared = compareToBaseline(result, []);
+    ok(`${mode}: baseline cannot tolerate an unreadable surface`, compared.ok === !broken && !compared.vacuous, JSON.stringify(compared));
+    const bin = path.resolve(HERE, "../../bin/check-invocation-obligation.mjs");
+    for (const baseline of [false, true]) {
+      const child = spawnSync(process.execPath, [bin, "--json", ...(baseline ? ["--baseline", "baseline.json"] : [])], { cwd: root, encoding: "utf8" });
+      const json = JSON.parse(child.stdout);
+      ok(`${mode}: ${baseline ? "baseline" : "ordinary"} CLI fails unreadable governance`, child.status === (broken ? 2 : 0) && json.ok === !broken && (!broken || (json.status === "NOT_RUN" && json.verdict === "UNKNOWN")), JSON.stringify({ exit: child.status, json, stderr: child.stderr }));
+      const plain = spawnSync(process.execPath, [bin, ...(baseline ? ["--baseline", "baseline.json"] : [])], { cwd: root, encoding: "utf8" });
+      ok(`${mode}: ${baseline ? "baseline" : "ordinary"} plain CLI reports unreadable governance`, plain.status === (broken ? 2 : 0) && (broken ? plain.stderr.includes("NOT_RUN") && plain.stderr.includes("UNKNOWN") && plain.stderr.includes(".claude/rules/bad.md") && !plain.stdout.includes("OK") : !plain.stderr.includes("UNKNOWN")), JSON.stringify({ exit: plain.status, stdout: plain.stdout, stderr: plain.stderr }));
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
 console.log(failures === 0 ? `\nAll poles held (${failures} failures).` : `\n${failures} pole assertion(s) FAILED.`);

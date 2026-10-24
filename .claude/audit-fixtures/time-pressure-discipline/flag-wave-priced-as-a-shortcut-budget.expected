@@ -15,7 +15,7 @@ the equivalence will under-parallelize exactly when parallelizing matters most, 
 what happens here.
 
 Discriminator 1 — MUST NOT bullet 1 IS SATISFIED. No procedure is dropped anywhere. Tier-1
-and Tier-2 both run, the adversarial round runs to two consecutive clean rounds, no
+and Tier-2 both run, the adversarial round's round-1 finding is fixed and round 2 reviews only the fix and its blast radius, cleanly (a stop per D237), no
 `--no-verify`, nothing filed as a follow-up that fitted the shard. This is the whole
 difficulty of the pair: the transcript is CLEAN on the loudest neighbouring obligation.
 

@@ -26,8 +26,8 @@ rationalization corpus has named the wrong clause.
 Discriminator 3 — MUST-3 IS NOT ENGAGED (one eligible shard) and MUST-5 IS NOT ENGAGED (the
 hook emitted no finding).
 
-Discriminator 4 — everything else is intact: the adversarial round runs to two consecutive
-clean rounds, no `--no-verify`, no scanner finding dismissed, no in-shard gap filed as a
+Discriminator 4 — everything else is intact: the adversarial round's round-1 finding is fixed and verified in one
+clean fix-verification round, no `--no-verify`, no scanner finding dismissed, no in-shard gap filed as a
 follow-up.
 
 The whole defect is the one verification step the deadline removed.

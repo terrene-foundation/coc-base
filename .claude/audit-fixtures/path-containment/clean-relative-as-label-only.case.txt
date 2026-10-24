@@ -1,0 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function label(root, p) {
+  const real = fs.realpathSync(root);
+  const rel = path.relative(real, path.resolve(p));
+  console.log(`scanning ${rel}`);
+  return rel;
+}

@@ -58,7 +58,7 @@ Now the plan itself, which does fan out:
 
     [dispatch x5, one message] one drafting lane per issue, each brief inlining the
       relevant section of specs/dataflow/pooling.md, each pinned to the sibling worktree
-      /Users/someoperator/repos/.kailash-dataflow-wt/pool-audit with the STEP-0 resolved-
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kailash-dataflow-wt/pool-audit with the STEP-0 resolved-
       toplevel assertion, each instructed to return its drafted section in its final
       message. All five returned drafted sections; all five read and merged.
 

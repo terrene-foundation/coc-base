@@ -29,7 +29,7 @@ clause.
 Discriminator 3 — MUST-3 IS NOT ENGAGED (one eligible shard) and MUST-4 IS SATISFIED (none
 of the twelve listed phrases appears anywhere).
 
-Discriminator 4 — the adversarial round runs to two consecutive clean rounds and its round-1
+Discriminator 4 — the adversarial round's round-1 finding is fixed and round 2, scoped to the fix and its blast radius, comes back clean and stops there (D237); its round-1
 finding, that a moved pointer left an obligation uncarried on the lane, is fixed rather than
 filed.
 

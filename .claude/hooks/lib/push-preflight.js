@@ -93,8 +93,8 @@
  * `no-parity-authority` and `transcript-unreadable` are each distinct from
  * `parity-ran-this-session`.
  *
- * PURE. Nothing here touches the filesystem, the network, the clock or a
- * subprocess. Every input arrives as text or a plain object, so
+ * Inputs arrive as text or plain objects. Incomplete history emits an UNKNOWN
+ * diagnostic (`.claude/hooks/lib/push-preflight.js:586-587`), so
  * `.claude/audit-fixtures/push-preflight/run.mjs` drives these directly with no
  * live repo.
  */
@@ -499,16 +499,17 @@ function isParityInvocation(command, signatures) {
  *
  * The transcript is JSONL; each assistant row carries `message.content` blocks,
  * and a dispatched Bash call appears as `{type:"tool_use", name:"Bash",
- * input:{command}}`. A malformed or half-line row (the tail read slices
- * mid-line) is SKIPPED, never thrown on.
+ * input:{command}}`. Incomplete history is a separate assessment reason
+ * (`.claude/hooks/lib/push-preflight.js:585-588`).
  *
- * @returns {{commands: string[], rows: number, parsed: number}}
+ * @returns {{commands: string[], rows: number, parsed: number, complete: boolean, unknownReasons: string[]}}
  */
 function transcriptBashCommands(text) {
   const out = [];
   let rows = 0;
   let parsed = 0;
-  if (typeof text !== "string" || !text) return { commands: out, rows, parsed };
+  const unknownReasons = [];
+  if (typeof text !== "string" || !text) return { commands: out, rows, parsed, complete: false, unknownReasons: ["transcript-unavailable"] };
   for (const line of text.split("\n")) {
     if (!line) continue;
     rows++;
@@ -516,22 +517,29 @@ function transcriptBashCommands(text) {
     try {
       entry = JSON.parse(line);
     } catch {
+      unknownReasons.push("malformed-transcript-row");
       continue;
     }
     parsed++;
-    const blocks =
-      entry && entry.message && Array.isArray(entry.message.content)
-        ? entry.message.content
-        : [];
+    let blocks;
+    let history;
+    try {
+      history = require("./transcript-tool-history");
+      blocks = history.transcriptToolCalls(entry);
+    } catch (error) {
+      if (history && error instanceof history.IncompleteTranscriptProjectionError) {
+        unknownReasons.push(...error.unknownReasons);
+        blocks = error.observedCalls;
+      } else { unknownReasons.push(error.message); continue; }
+    }
     for (const b of blocks) {
-      if (!b || b.type !== "tool_use") continue;
       const name = String(b.name || "");
       if (name !== "Bash") continue;
       const c = b.input && b.input.command;
       if (typeof c === "string" && c) out.push(c);
     }
   }
-  return { commands: out, rows, parsed };
+  return { commands: out, rows, parsed, complete: unknownReasons.length === 0, unknownReasons };
 }
 
 // ── The assessment ──────────────────────────────────────────────────────────
@@ -573,7 +581,11 @@ function assessPushPreflight(o) {
   if (!text) {
     return { verdict: "silent", detail: { why: "transcript-unreadable" } };
   }
-  const { commands } = transcriptBashCommands(text);
+  const { commands, complete, unknownReasons } = transcriptBashCommands(text);
+  if (!complete) {
+    process.stderr.write(`[push-preflight] transcript history UNKNOWN: ${unknownReasons.join("; ")}\n`);
+    return { verdict: "silent", detail: { why: "transcript-history-unknown", branch: cls.branch, unknownReasons } };
+  }
   if (commands.length === 0) {
     return { verdict: "silent", detail: { why: "transcript-unreadable" } };
   }

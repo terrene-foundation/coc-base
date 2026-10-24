@@ -43,6 +43,7 @@
  *       UNKNOWN into a FAILURE, which is the `instrument-discipline.md` MUST-1
  *       violation in the direction that looks responsible.
  */
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,7 +84,7 @@ for (const name of cases) {
   let descriptor;
   let expect;
   try {
-    descriptor = JSON.parse(readFileSync(join(HERE, `${name}.json`), "utf8"));
+    descriptor = JSON.parse(materializeFixtureText(readFileSync(join(HERE, `${name}.json`), "utf8")));
   } catch (err) {
     red.push({ name, expect: "<readable input>", got: `unparseable input: ${err.message}` });
     console.log(`FAIL ${name} — input is not parseable JSON: ${err.message}`);
@@ -92,7 +93,7 @@ for (const name of cases) {
   try {
     // A missing sidecar is a FAIL, never a skip: an absent answer key and a
     // satisfied one are otherwise indistinguishable.
-    expect = readFileSync(join(HERE, `${name}.expected`), "utf8")
+    expect = materializeFixtureText(readFileSync(join(HERE, `${name}.expected`), "utf8"))
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l !== "" && !l.startsWith("#"))

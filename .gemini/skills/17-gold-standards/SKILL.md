@@ -74,9 +74,9 @@ All workflow patterns follow the **canonical 4-parameter pattern** from `/01-cor
 ## Related Skills
 
 - **[16-validation-patterns](../../../.claude/skills/16-validation-patterns/SKILL.md)** - Validation tools
-- **[31-error-troubleshooting](../../../.claude/skills/31-error-troubleshooting/SKILL.md)** - Error patterns
+- **[31-error-troubleshooting](../31-error-troubleshooting/SKILL.md)** - Error patterns
 - **[12-testing-strategies](../../../.claude/skills/12-testing-strategies/SKILL.md)** - Testing strategies
-- **[01-core-sdk](../../../.claude/skills/01-core-sdk/SKILL.md)** - Core patterns
+- **[01-core-sdk](../01-core-sdk/SKILL.md)** - Core patterns
 
 ## Support
 

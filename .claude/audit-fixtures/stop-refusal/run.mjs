@@ -45,6 +45,7 @@
  *  11  refusal at an UNMEASURED event throws rather than guessing
  *  12  the REAL hook boundary — stdin in, `decision:"block"` out, exit 0
  *  13  isolation — nothing is written under the real `.claude/learning/`
+ *  13c AT HOME — a cwd that IS home has no repo root; every writer writes nothing, typed (32..32e)
  *
  * ESTABLISHED RED (`instrument-discipline.md` MUST-2). Every mutation below was RUN against this
  * file before it landed — MEASURED, not predicted — and each was confirmed to REACH the code under
@@ -60,9 +61,18 @@
  *   M-g  a torn ledger row is skipped rather than failing the read            → 23
  *   M-h  the refusal head reuses the `isUnblockableBlock` head                → 09
  *   M-i  `budgetKey` regex widened to `.+`                                    → 24i, 24j
+ *   M-j  the HOME bound removed from `_repoRootOf` (HOME a repo root again)  → 31, 31b, 30b, and
+ *        20 firing-pole cases (06..29d) that then share ONE ledger at the scratch HOME — 23 FAIL
+ *        measured 2026-10-14; before 09/23c were hardened it CRASHED the runner at 09 instead
+ *   M-k  the at-HOME null removed from `_repoRootOf` (HOME → itself again)   → 32, 32b, 32c, 32d, 30b —
+ *        5 FAIL (61/66) measured 2026-10-14; 32c shows the old code REFUSING at HOME
+ *        (verdict=refused) off a ledger it wrote into the scratch HOME's own .claude/
+ *   M-l  `session-once.js::statePath` loses its null-root guard              → 32d — 1 FAIL (65/66) measured
+ *        2026-10-14, the `path.join(null)` TypeError reported as a FAIL, never a runner crash
  *
- * HERMETIC: temp trees under `os.tmpdir()` via `mkdtempSync`; no network; no git; no LLM. Case 30
- * asserts the isolation rather than assuming it.
+ * HERMETIC: temp trees via `mkdtempSync` under a runner-owned scratch HOME (see the HERMETIC HOME
+ * block below) — never under the operator's real HOME, whatever the host's tmpdir is; no network;
+ * no git; no LLM. Cases 30 and 30b assert the isolation rather than assuming it.
  */
 
 import "../_lib/no-ambient-git.cjs";
@@ -81,6 +91,37 @@ const LIB = path.join(HOOKS, "lib", "instruct-and-wait.js");
 
 const { instructAndWait, assertRefusalShape } = require_(LIB);
 const SR = require_(path.join(HOOKS, "lib", "stop-refusal.js"));
+
+/*
+ * HERMETIC HOME AND TMP — every path this runner creates lies under ONE runner-owned root, and
+ * this process's HOME is a scratch directory ABOVE all of them carrying a PLANTED
+ * `.claude/settings.json`, exactly as a real home does.
+ *
+ * WHY. `stop-refusal.js::_repoRootOf` walks UP from a fixture directory looking for a repo marker.
+ * On a host whose `os.tmpdir()` lies under the real HOME (measured 2026-10-14: a trestle remote
+ * whose TMPDIR is `<HOME>/trestle-remote-run/.tmp/<id>`), that walk reached the operator's own
+ * `~/.claude/settings.json`, the refusal budget was read from and written to the REAL
+ * `~/.claude/learning/stop-refusal/`, no fixture refused, and this runner died in case 09 with
+ * `TypeError … reading 'startsWith'`. Under a scratch HOME no walk from any fixture can reach a
+ * directory this runner did not create. The plant reproduces the hazard on EVERY host, so a
+ * regression of the HOME bound reds cases 31/31b/30b anywhere — and still writes only in here.
+ *
+ * Children (cases 29*) inherit the redirect through `process.env`.
+ */
+const RUN_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "stop-refusal-run-"));
+const H_HOME = path.join(RUN_ROOT, "home");
+const H_TMP = path.join(H_HOME, "tmp");
+fs.mkdirSync(path.join(H_HOME, ".claude"), { recursive: true });
+fs.mkdirSync(H_TMP);
+fs.writeFileSync(path.join(H_HOME, ".claude", "settings.json"), "{}\n");
+for (const k of ["HOME", "USERPROFILE"]) process.env[k] = H_HOME;
+for (const k of ["TMPDIR", "TMP", "TEMP"]) process.env[k] = H_TMP;
+// Removed on ANY exit, so a runner that throws mid-way still leaves no scratch behind.
+process.on("exit", () => {
+  try {
+    fs.rmSync(RUN_ROOT, { recursive: true, force: true });
+  } catch {}
+});
 
 /*
  * ISOLATION BASELINE — snapshot taken BEFORE any case runs (case 30 reads it).
@@ -226,7 +267,12 @@ check(
 // ── 3. the MEASURED refusal shape ─────────────────────────────────────────────────────────────
 
 {
-  const out = instructAndWait(args({ refuseHandback: req(freshRepo()) }));
+  const repo10 = freshRepo();
+  const out = instructAndWait(args({ refuseHandback: req(repo10) }));
+  // Model only the internal receipt strip at the native handoff; every other key stays subject
+  // to the exact shape assertion (.claude/hooks/lib/instruct-and-wait.js::emit, which deletes
+  // `__coc_findings_delivery` before the write).
+  delete out.json.__coc_findings_delivery;
   check(
     "08",
     "SHAPE: exactly {decision:'block', reason} at exit 0 — the arm the probe measured",
@@ -241,20 +287,55 @@ check(
     !("continue" in out.json) && !("systemMessage" in out.json),
     "an unmeasured key must not ride along on a measured payload",
   );
+  // A refusal that did NOT fire has no `reason`. Read it as "" so 09/10 RED with a finding instead
+  // of throwing a TypeError that kills the runner before every later case (measured: a HOME-bound
+  // regression crashed here and hid cases 29..31 behind the crash).
+  const reason09 = typeof out.json.reason === "string" ? out.json.reason : "";
   check(
     "09",
     "HEAD: a firing refusal states the TRUE fate and its own bound, not 'this event cannot block'",
-    out.json.reason.startsWith("HAND-BACK REFUSED —") &&
-      out.json.reason.includes("(Refusal 1/3 this session;") &&
-      !out.json.reason.includes("this event cannot block"),
-    out.json.reason.slice(0, 90),
+    reason09.startsWith("HAND-BACK REFUSED —") &&
+      reason09.includes("(Refusal 1/3 this session;") &&
+      !reason09.includes("this event cannot block"),
+    reason09 ? reason09.slice(0, 90) : `no reason — keys=${Object.keys(out.json).join(",")}`,
     "M-h: reuse the isUnblockableBlock head",
   );
+  // journal/0661 compact render: the refusal reason is ONE line — rule, summary, and a pointer to
+  // the full rendered body on disk. The finding survives: the summary rides the reason, the body
+  // rides the record the reason names.
+  const rec10 = (() => {
+    try {
+      return fs.readFileSync(path.join(repo10, ".claude", "learning", "hook-findings", "sess-1.md"), "utf8");
+    } catch {
+      return "";
+    }
+  })();
   check(
     "10",
-    "BODY: the finding itself survives into the refusal — reason IS the rendered body",
-    out.json.reason.includes("WHAT HAPPENED: the condition holds") && out.json.reason.includes("WHY: a rule"),
+    "BODY: the finding itself survives into the refusal — reason carries the summary and names the record holding the full body",
+    reason09.includes("[a rule] the condition holds") &&
+      reason09.includes("(detail: .claude/learning/hook-findings/sess-1.md#F1)") &&
+      rec10.includes("WHAT HAPPENED: the condition holds") &&
+      rec10.includes("WHY: a rule"),
     "the refusal is a delivery channel, not a replacement for the report",
+  );
+  // Kill-switch pole: with the compact render OFF the reason IS the full rendered body again.
+  const prev = process.env.COC_HOOK_FINDINGS_COMPACT;
+  process.env.COC_HOOK_FINDINGS_COMPACT = "0";
+  let legacy;
+  try {
+    legacy = instructAndWait(args({ refuseHandback: req(freshRepo()) }));
+  } finally {
+    if (prev === undefined) delete process.env.COC_HOOK_FINDINGS_COMPACT;
+    else process.env.COC_HOOK_FINDINGS_COMPACT = prev;
+  }
+  check(
+    "10b",
+    "BODY kill switch: COC_HOOK_FINDINGS_COMPACT=0 restores the full rendered body as the reason",
+    refused(legacy) &&
+      legacy.json.reason.includes("WHAT HAPPENED: the condition holds") &&
+      legacy.json.reason.includes("WHY: a rule"),
+    "legacy render reachable",
   );
 }
 
@@ -293,8 +374,11 @@ check(
   );
   check(
     "27",
-    "WEDGE: the finding is NOT lost on the suppressed refire — it rides systemMessage",
-    typeof second.json.systemMessage === "string" && second.json.systemMessage.includes("WHAT HAPPENED: the condition holds"),
+    // journal/0661: a Stop systemMessage reaches ONLY the human, so "rides systemMessage" never
+    // delivered anything to the agent. The finding reaches the agent as fire 1's refusal reason; the
+    // refire is the same finding (a recorded repeat) and is never parked on the human channel.
+    "WEDGE: the finding is NOT lost on the suppressed refire — fire 1 delivered it to the agent, the refire does not park it on the human-only systemMessage",
+    typeof first.json.reason === "string" && first.json.reason.includes("the condition holds") && !("systemMessage" in second.json),
     "suppressing the refusal must not suppress the report",
     "M-b",
   );
@@ -315,10 +399,14 @@ check(
   );
   check(
     "18",
-    "BUDGET: exhaustion is NAMED, and the finding still reaches the agent",
+    "BUDGET: exhaustion is NAMED, and a CHANGED finding past the budget still reaches the agent (queued for its next prompt)",
     SR.refusalVerdict("Stop", req(repo)).reason === "budget-exhausted" &&
-      instructAndWait(args({ refuseHandback: req(repo) })).json.systemMessage.includes("WHAT HAPPENED:"),
-    "reason=budget-exhausted; systemMessage intact",
+      (() => {
+        const o = instructAndWait(args({ what_happened: "a NEW condition holds", refuseHandback: req(repo) }));
+        const q = require_(path.join(HOOKS, "lib", "hook-findings.js")).drainForAgent({ session_id: "sess-1", cwd: repo });
+        return !("decision" in o.json) && q.some((l) => l.includes("a NEW condition holds"));
+      })(),
+    "reason=budget-exhausted; finding queued for the agent",
     "M-c",
   );
 }
@@ -458,7 +546,14 @@ check(
   "FAIL-OPEN: a DIRECTORY where the ledger belongs is unreadable, not an empty count",
   (() => {
     const repo = freshRepo();
-    fs.mkdirSync(SR._ledgerPath(repo, "sess-1"), { recursive: true });
+    try {
+      fs.mkdirSync(SR._ledgerPath(repo, "sess-1"), { recursive: true });
+    } catch {
+      // EEXIST here means this fresh fixture's ledger path is ANOTHER case's file — two fixtures
+      // resolved to one shared root (measured under a HOME-bound regression). RED, not a crash
+      // that hides every later case.
+      return false;
+    }
     return SR.countRefusals(repo, "sess-1", "fixture-guard").ok === false;
   })(),
   "a non-file at the ledger path must not read as zero refusals",
@@ -598,8 +693,162 @@ for (const ev of ["SessionEnd", "PreCompact", "PostToolUse", "PreToolUse"]) {
       e4.code === 0 &&
       !("decision" in e4.json) &&
       e4.json.continue === true &&
-      /WHAT HAPPENED: condition holds/.test(e4.json.systemMessage || ""),
+      // journal/0661: a non-refusing Stop finding is QUEUED for the agent's next prompt (systemMessage
+      // at Stop reaches only the human), and its full body is recorded on disk.
+      require_(path.join(HOOKS, "lib", "hook-findings.js"))
+        .drainForAgent({ session_id: "e2e-3", cwd: proj })
+        .some((l) => l.includes("condition holds")) &&
+      (() => {
+        try {
+          return fs
+            .readFileSync(path.join(proj, ".claude", "learning", "hook-findings", "e2e-3.md"), "utf8")
+            .includes("WHAT HAPPENED: condition holds");
+        } catch {
+          return false;
+        }
+      })(),
     `exit=${e4.code} keys=${e4.json ? Object.keys(e4.json).join(",") : "PARSE FAILED"}`,
+  );
+}
+
+// ── 13b. the HOME bound, and HOME-level isolation ─────────────────────────────────────────────
+
+{
+  // FALSIFYING RESULT, named: `bare` sits inside no repo but UNDER a HOME carrying the user-scope
+  // `.claude/settings.json`; it resolving to H_HOME is the measured defect. The precondition is
+  // part of the case, so a green cannot come from the marker being absent.
+  const bare = mktmp("stop-refusal-bare-");
+  const precondition =
+    os.homedir() === H_HOME &&
+    fs.existsSync(path.join(H_HOME, ".claude", "settings.json")) &&
+    bare.startsWith(H_HOME + path.sep);
+  const got = SR._repoRootOf(bare);
+  check(
+    "31",
+    "HOME BOUND: a dir inside no repo, under a HOME carrying ~/.claude/settings.json, resolves to ITSELF — never to HOME",
+    precondition && got === bare,
+    precondition ? `resolved=${got === bare ? "<self>" : got === H_HOME ? "<HOME>" : got}` : "precondition failed: not under the planted scratch HOME",
+    "M-j",
+  );
+  const out = instructAndWait(args({ refuseHandback: req(freshRepo()) }));
+  check(
+    "31b",
+    "HOME BOUND, through the public API: a fresh fixture under HOME refuses on its FIRST fire (no shared HOME ledger)",
+    refused(out) && out.json.reason.includes("(Refusal 1/3 this session;"),
+    refused(out) ? out.json.reason.slice(0, 60) : `keys=${Object.keys(out.json).join(",")}`,
+    "M-j",
+  );
+}
+
+// ── 13c. AT HOME ITSELF — no repo root, nothing written, a typed answer ──────────────────────
+
+{
+  // FALSIFYING RESULT, named: a cwd that IS home resolving to a root (the measured defect handed
+  // back HOME through the dir fallback), or any writer at HOME answering ok / untyped, or any
+  // entry appearing in H_HOME/.claude/ (case 30b reads that after every case has run).
+  const HF = require_(path.join(HOOKS, "lib", "hook-findings.js"));
+  const ONCE = require_(path.join(HOOKS, "lib", "session-once.js"));
+  const RCPT = require_(path.join(HOOKS, "lib", "stop-receipt.js"));
+  const spellings = [H_HOME, H_HOME + path.sep, fs.realpathSync(H_HOME)];
+  const roots = spellings.map((h) => SR._repoRootOf(h));
+  check(
+    "32",
+    "AT HOME: a cwd that IS home (every spelling) has NO repo root, and no ledger path is derived",
+    os.homedir() === H_HOME && roots.every((r) => r === null) && spellings.every((h) => SR._ledgerPath(h, "home-s") === null),
+    `roots=[${roots.map((r) => (r === null ? "null" : r === H_HOME ? "<HOME>" : r)).join(", ")}]`,
+    "M-k",
+  );
+  const typed = (r, verb) =>
+    r && r.ok === false && r.code === SR.NO_REPO_ROOT &&
+    r.reason === `no repo root: the cwd is the home directory, which is never a repo root; nothing was ${verb}`;
+  const rr = SR.recordRefusal(H_HOME, "home-s", "home-guard");
+  const rc = SR.recordHandbackCleared(H_HOME, "home-s", "home-guard");
+  const cr = SR.countRefusals(H_HOME, "home-s", "home-guard");
+  check(
+    "32b",
+    "AT HOME: recordRefusal / recordHandbackCleared write nothing and countRefusals reads nothing — each a typed no-repo-root result",
+    typed(rr, "written") && typed(rc, "written") && typed(cr, "read"),
+    `record=${JSON.stringify(rr)} cleared=${rc && rc.code} count=${cr && cr.code}`,
+    "M-k",
+  );
+  const out = instructAndWait(args({ refuseHandback: req(H_HOME, { payload: { session_id: "home-iaw" } }) }));
+  const v = SR.refusalVerdict("Stop", req(H_HOME, { payload: { session_id: "home-v" } }));
+  check(
+    "32c",
+    "AT HOME: the budget is UNREADABLE, so nothing refuses (fail-open on enforcement) and the finding is kept",
+    !refused(out) && out.json.continue === true && String(out.json.systemMessage || "").includes("the condition holds") &&
+      v.refuse === false && v.reason.startsWith("budget-unreadable: no repo root"),
+    `keys=${Object.keys(out.json).join(",")} verdict=${v.reason}`,
+    "M-k",
+  );
+  const hp = { session_id: "home-hf", cwd: H_HOME };
+  // A throw is a FAIL with its message, never a runner crash that hides the cases after it.
+  let snap = {}, sv = {}, led = {}, d32 = false, err32 = "";
+  try {
+    snap = HF.queueSnapshot(hp);
+    sv = ONCE.shouldEmit({ repoDir: H_HOME, sessionId: "home-once", channel: "ch", text: "t", mode: "once" });
+    led = RCPT.readLedger(H_HOME);
+    d32 =
+      HF.resolveContext({ payload: hp }) === null && snap.state === HF.NO_REPO_ROOT && snap.pending === null &&
+      HF.recordFinding({ sessionId: "home-hf", agentId: null, repoDir: H_HOME, root: null }, { why: "x", body: "x" }) === null &&
+      ONCE.statePath(H_HOME, "home-once") === null && sv.emit === true && sv.reason === ONCE.NO_REPO_ROOT &&
+      ONCE.recordEmission({ repoDir: H_HOME, sessionId: "home-once", channel: "ch", sig: sv.sig }) === false &&
+      led.state === "unreadable" && led.code === RCPT.NO_REPO_ROOT && RCPT.queueAtAttempt(hp).state === RCPT.NO_REPO_ROOT;
+  } catch (e) {
+    err32 = ` threw=${(e && e.message) || e}`;
+  }
+  check(
+    "32d",
+    "AT HOME: hook-findings, session-once and stop-receipt each resolve no root, write nothing and answer typed",
+    d32,
+    `snapshot=${snap.state} once=${sv.reason} ledger=${led.state}/${led.code}${err32}`,
+    "M-k, M-l",
+  );
+  // CONTROLS — the fix must not pass by writing nothing anywhere.
+  const tmp = mktmp("stop-refusal-homectl-");
+  const repo = path.join(tmp, "repo");
+  const nested = path.join(repo, "x", "y");
+  fs.mkdirSync(nested, { recursive: true });
+  fs.mkdirSync(path.join(repo, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(repo, ".claude", "settings.json"), "{}\n");
+  const bare = path.join(tmp, "bare");
+  fs.mkdirSync(bare);
+  const okRepo =
+    SR._repoRootOf(nested) === repo &&
+    SR.recordRefusal(repo, "ctl-s", "ctl-guard").ok === true &&
+    fs.existsSync(path.join(repo, ".claude", "learning", "stop-refusal", "ctl-s.jsonl")) &&
+    ONCE.recordEmission({ repoDir: nested, sessionId: "ctl-once", channel: "ch", sig: "s" }) === true &&
+    fs.existsSync(path.join(repo, ".claude", "learning", "hook-findings", "ctl-once.once.jsonl")) &&
+    (HF.resolveContext({ payload: { session_id: "ctl-hf", cwd: nested } }) || {}).root === repo;
+  const okBare =
+    SR._repoRootOf(bare) === bare &&
+    SR.recordRefusal(bare, "ctl-bare", "ctl-guard").ok === true &&
+    fs.existsSync(path.join(bare, ".claude", "learning", "stop-refusal", "ctl-bare.jsonl"));
+  check(
+    "32e",
+    "AT HOME controls: a repo under HOME still writes at its root, and a non-repo dir under HOME still falls back to itself",
+    okRepo && okBare,
+    `repo=${okRepo} bare=${okBare}`,
+  );
+}
+
+{
+  // Every case above has run. A walk that treated HOME as a repo would have left its ledger,
+  // findings record or latch in H_HOME/.claude/ — the real-state write this block exists to stop.
+  const entries = (() => {
+    try {
+      return fs.readdirSync(path.join(H_HOME, ".claude")).sort();
+    } catch (e) {
+      return [`<unreadable: ${e.code || e.message}>`];
+    }
+  })();
+  const contained = os.homedir() === H_HOME && TMPS.every((d) => d.startsWith(H_HOME + path.sep));
+  check(
+    "30b",
+    "HOME ISOLATION: every fixture lay under the scratch HOME, and nothing was written into HOME's own .claude/",
+    contained && entries.length === 1 && entries[0] === "settings.json",
+    `contained=${contained} HOME/.claude=[${entries.join(", ")}]`,
+    "M-j",
   );
 }
 
@@ -616,7 +865,7 @@ for (const ev of ["SessionEnd", "PreCompact", "PostToolUse", "PreToolUse"]) {
   );
 }
 
-for (const d of TMPS) {
+for (const d of [...TMPS, RUN_ROOT]) {
   try {
     fs.rmSync(d, { recursive: true, force: true });
   } catch {}

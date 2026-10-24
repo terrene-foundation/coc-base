@@ -30,7 +30,9 @@
  *   - `.claude/bin/clean-instantiate.mjs:778-778` — inside `neutralizeWholeTree`, the
  *     ONLY consumer passing `{ includeDotJs: false }` (see the next paragraph).
  *   - `.claude/bin/edition-emit.mjs:578-578` — inside `buildClientTemplateTree`.
- *   - `scripts/publish-to-public.mjs:452-452` — inside `runIdentityTokenGate`.
+ *   - `scripts/publish-to-public.mjs`'s `runIdentityTokenGate` — the `relIsTestFixture` binding.
+ *     ANCHORED TO THE SYMBOL: this line cited `:452-452`, which had already drifted onto an
+ *     unrelated comment before the 2026-10-10 private-repo-name gate moved it further.
  *
  * `includeDotJs` IS A DELIBERATE ASYMMETRY, NOT AN OVERSIGHT. Three of the four
  * consumers accept `*.test.mjs` AND `*.test.js`; `clean-instantiate.mjs` accepts

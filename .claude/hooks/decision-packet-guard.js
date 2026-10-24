@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * decision-packet-guard.js — the Phase-2 detector for `recommendation-quality.md`
+ * decision-packet-guard.js — the Phase-2 detector for `recommendation-quality-packets.md`
  * MUST-6 § "'The Human Decides' Means Ratify A Recommendation — Not Fill A Blank".
  *
  * @hook-event: PostToolUse:Write (guard) — THE WRITTEN PACKET IS THE SUBJECT, and
@@ -76,6 +76,20 @@
  * `phase2-deferrals.json::deferrals["recommendation-quality.md#must6-decision-packets"]`,
  * whose registered graduation condition was "Delete this entry when the
  * decision-packet PostToolUse(Write) scanner ships with fixtures."
+ */
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "WRITES NOTHING, READS NOTHING FROM DISK — the content arrives in the payload and lib/decision-packet.js is pure; the only I/O is the bounded stdin read."
+ * }
  */
 
 "use strict";

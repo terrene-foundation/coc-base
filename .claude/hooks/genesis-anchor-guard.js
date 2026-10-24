@@ -24,10 +24,12 @@
  *      away (e.g., ... pre-commit exit code non-zero; `git status --porcelain`
  *      non-empty before `--hard`)."
  *
- *   ≤5s execution budget per `cc-artifacts.md` Rule 7 (setTimeout fallback
- *   returns {continue: true} on timeout, fail-OPEN on hook-internal hang —
- *   the fail-CLOSED behavior applies to the cryptographic check, not the
- *   timeout safety net).
+ *   The run is owned by `lib/guard-runner.js::runGuard` (`cc-artifacts.md`
+ *   Rule 7, deny rows): a hook-internal throw, a hang past the budget, or an
+ *   unreadable payload REFUSES the call. The fail-CLOSED behavior therefore
+ *   covers the guard's own pathologies too, not only the cryptographic check —
+ *   the old setTimeout fallback and catch-all both returned {continue: true},
+ *   which made any input that crashed or stalled the guard a bypass of it.
  *
  * ENV OVERRIDES (test injection only):
  *   COC_GENESIS_GUARD_LOG_PATH    — path to coordination-log.jsonl
@@ -41,27 +43,32 @@
 
 "use strict";
 
-const TIMEOUT_MS = 5000;
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<os.tmpdir()>/coc-sign-ssh-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-vfy-<rand>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: ssh-keygen / gpg signature verification plus git probes, reached through lib/coc-sign.js, lib/state-resolver.js, lib/coordination-mode.js and lib/repo-dir-override.js (lib/log-ref-name.js contributes only the static DEFAULT_LOG_REF_NAME constant). The only writes are the per-call verify homedirs (payload / sig / allowed_signers) that lib/coc-sign.js mkdtemps under the OS temp root and rmSyncs before returning — no repo-relative or durable write. Roster / coordination-log / enrollment marker are reads; every finding renders to stdout via lib/instruct-and-wait.js."
+ * }
+ */
 
-// setTimeout fallback per cc-artifacts.md Rule 7. The timeout path emits
-// {continue: true} — a hook-internal hang MUST NOT block the agent forever.
-// The fail-CLOSED behavior of THIS hook is a deliberate exit 2 below; the
-// timeout is the safety net for that path's pathology.
-// `fallback` arms ONLY when the guard runs as the process entry point
-// (`require.main === module`, wired at the bottom). On a test-time `require()`
-// it stays null so importing the module for unit tests does NOT start a dangling
-// 5s exit-timer; `clearTimeout(null)` in passthrough() is a safe no-op. The
-// timing when run as a hook is unchanged (armed immediately before main()).
-let fallback = null;
-function armFallback() {
-  fallback = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-}
+// The out-of-engine run budget handed to runGuard (inside the dispatcher the row's own
+// registered 30s is the bound and this value is unused). A run past it is REFUSED.
+// Was a 5s fail-OPEN timer; the row was raised 5s -> 30s (ruling-B, 2026-10-07) after the
+// guard overran 5s under load, so the budget sits below that 30s registration.
+const TIMEOUT_MS = 26000;
 
 const fs = require("fs");
 const path = require("path");
+const { runGuard } = require("./lib/guard-runner.js");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 const { foldGenesisAnchor } = require(
   path.join(__dirname, "lib", "fold-genesis-anchor.js"),
@@ -91,7 +98,7 @@ const { DEFAULT_LOG_REF_NAME } = require(
 // resolveMainCheckout routes a worktree session's cwd to the MAIN
 // checkout so the local override / roster / ecosystem.json are read from the
 // same place the sibling guards read them (trust-posture.md MUST-1 +
-// integrity-guard.js:362 / signing-mutation-guard.js:331).
+// integrity-guard.js:362 / signing-mutation-guard.js::main's `requireMainCheckout` call).
 const { isGovernanceEnabled } = require(
   path.join(__dirname, "lib", "coordination-mode.js"),
 );
@@ -100,6 +107,10 @@ const { requireMainCheckout } = require(
 );
 const { resolveRepoDirBound } = require(
   path.join(__dirname, "lib", "repo-dir-override.js"),
+);
+// The shared non-blocking, fd-checked reader — see `checkEnrollmentInProgress`.
+const { readRegularFileBounded } = require(
+  path.join(__dirname, "lib", "landing-window-read.js"),
 );
 
 // Session-cwd → repo root resolution, mirroring integrity-guard.js:103 +
@@ -111,12 +122,9 @@ function resolveRepoDir(payload) {
 }
 
 function passthrough() {
-  clearTimeout(fallback);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
-
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 // Resolve the log + roster paths. Production code path uses
 // state-resolver.js to find the main checkout; for shard A0b-2a we keep
@@ -211,12 +219,13 @@ function checkEnrollmentInProgress(roster) {
   const markerPath = process.env.COC_GENESIS_GUARD_ENROLLMENT_MARKER;
   if (!markerPath || !fs.existsSync(markerPath)) return false;
 
-  let raw;
-  try {
-    raw = fs.readFileSync(markerPath, "utf8");
-  } catch {
-    return false;
-  }
+  // Non-blocking, decided on the opened fd: the marker path comes from the
+  // environment, and a FIFO there (or swapped in after the existsSync above) was a
+  // blocking `readFileSync` that parked this PreToolUse guard. Any refusal is the
+  // existing fail-CLOSED answer, `false` (no enrollment in progress).
+  const got = readRegularFileBounded(markerPath);
+  if (!got.ok) return false;
+  const raw = got.text;
   let marker;
   try {
     marker = JSON.parse(raw);
@@ -318,21 +327,10 @@ function loadLogRecords(logPath) {
   } catch {
     return [];
   }
-  const lines = text.split("\n").filter((l) => l.trim());
-  const records = [];
-  for (const line of lines) {
-    if (records.length >= MAX_LOG_RECORDS) break; // bound the fold's verify cost
-    try {
-      const rec = JSON.parse(line);
-      records.push(rec);
-    } catch {
-      // Skip malformed lines — they cannot be folded. A malformed line is
-      // a structural-NULL: we have insufficient information to verify
-      // anything, so it contributes neither to the trust root nor to the
-      // peer high-water.
-    }
-  }
-  return records;
+  const { parseCoordinationLog } = require("./lib/fold-record-limits.js");
+  return parseCoordinationLog(text, {
+    malformed: "skip", objectRecordsOnly: false, maxRecords: MAX_LOG_RECORDS,
+  }).records;
 }
 
 // Verify a record's signature against a roster pubkey, using the same
@@ -460,363 +458,354 @@ function foldChain(records, roster) {
 
 // ---- main -------------------------------------------------------------------
 
-async function main() {
-  try {
-    const payload = await readStdinBounded();
-    // PreToolUse event names: CC uses "PreToolUse". Codex/Gemini variants
-    // would map their pre-tool events; this hook is registered per-CLI
-    // by sync-manifest.yaml at land time.
-    const hookEvent = payload.hook_event_name || "PreToolUse";
+// main — the decision over the PARSED payload. guard-runner.js reads and parses stdin
+// (an empty, unparseable or non-object payload REFUSES there and never reaches here)
+// and owns the budget. Nothing below catches a throw: a run that cannot finish is
+// refused by the runner (or, in the engine, by the dispatcher's on_incomplete:"deny").
+async function main(payload) {
+  // PreToolUse event names: CC uses "PreToolUse". Codex/Gemini variants
+  // would map their pre-tool events; this hook is registered per-CLI
+  // by sync-manifest.yaml at land time.
+  const hookEvent = payload.hook_event_name || "PreToolUse";
 
-    if (!isWatchedTool(payload)) {
-      passthrough();
-    }
+  if (!isWatchedTool(payload)) {
+    passthrough();
+  }
 
-    // MO-OPT W1 opt-in gate (loom#1166) — the lone omission among the
-    // coordination guards. FIRST consult the ONE shared predicate; when
-    // coordination is OFF (a solo / un-enrolled repo, OR a consumer that wrote
-    // the tier-2 local override `.claude/learning/coordination-mode.json`
-    // {enabled:false}), the ENTIRE guard is a passthrough — no fresh-substrate-
-    // adopter enrollment advisory, no /whoami nag, per rules/multi-operator-
-    // coordination.md ("a solo / un-enrolled repo pays nothing and gets no
-    // /whoami nag"). This mirrors integrity-guard.js:386 / signing-mutation-
-    // guard.js:331 / adjacency-leasecheck.js:390 (all early-return here). When
-    // coordination is ENABLED, everything below is byte-unchanged — the
-    // fail-CLOSED enrollment BLOCK (no verifying anchor, coordination ON) still
-    // fires, because an enrolled repo (roster + anchored genesis) resolves ON
-    // via coordination-mode.js tier-4 implicit, AND a tier-2 {enabled:false}
-    // is REFUSED on an enrolled repo (asymmetric precedence, G1 R1 security
-    // HIGH). isCoordinationEnabled is synchronous and never throws into a guard
-    // (zero-tolerance.md Rule 3). resolveMainCheckout so a worktree session
-    // reads the same override/roster/ecosystem.json the main checkout holds.
-    const sessionCwd = resolveRepoDir(payload);
-    // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
-    // The former `resolveMainCheckout(...) || sessionCwd` could not fire (the
-    // legacy accessor returns `startCwd`, never falsy), so an unidentifiable
-    // root reached `isCoordinationEnabled` against a directory with no roster
-    // and no genesis → false → `passthrough()`, silently disabling the
-    // fail-CLOSED enrollment BLOCK this guard exists to enforce.
-    const mainRes = requireMainCheckout(sessionCwd);
-    if (!mainRes.ok) {
-      clearTimeout(fallback);
+  // MO-OPT W1 opt-in gate (loom#1166) — the lone omission among the
+  // coordination guards. FIRST consult the ONE shared predicate; when
+  // coordination is OFF (a solo / un-enrolled repo, OR a consumer that wrote
+  // the tier-2 local override `.claude/learning/coordination-mode.json`
+  // {enabled:false}), the ENTIRE guard is a passthrough — no fresh-substrate-
+  // adopter enrollment advisory, no /whoami nag, per rules/multi-operator-
+  // coordination.md ("a solo / un-enrolled repo pays nothing and gets no
+  // /whoami nag"). This mirrors integrity-guard.js:386 / signing-mutation-
+  // guard.js:331 / adjacency-leasecheck.js:390 (all early-return here). When
+  // coordination is ENABLED, everything below is byte-unchanged — the
+  // fail-CLOSED enrollment BLOCK (no verifying anchor, coordination ON) still
+  // fires, because an enrolled repo (roster + anchored genesis) resolves ON
+  // via coordination-mode.js tier-4 implicit, AND a tier-2 {enabled:false}
+  // is REFUSED on an enrolled repo (asymmetric precedence, G1 R1 security
+  // HIGH). isCoordinationEnabled is synchronous and never throws into a guard
+  // (zero-tolerance.md Rule 3). resolveMainCheckout so a worktree session
+  // reads the same override/roster/ecosystem.json the main checkout holds.
+  const sessionCwd = resolveRepoDir(payload);
+  // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
+  // The former `resolveMainCheckout(...) || sessionCwd` could not fire (the
+  // legacy accessor returns `startCwd`, never falsy), so an unidentifiable
+  // root reached `isCoordinationEnabled` against a directory with no roster
+  // and no genesis → false → `passthrough()`, silently disabling the
+  // fail-CLOSED enrollment BLOCK this guard exists to enforce.
+  const mainRes = requireMainCheckout(sessionCwd);
+  if (!mainRes.ok) {
+    emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: `Genesis-anchor verification could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
+      why: "multi-operator-coc/genesis-anchor-guard — the roster, the coordination log and ecosystem.json are all read RELATIVE to the main checkout. Unidentified, the coordination-enabled read returns false and its branch is `passthrough()`, so the enrollment fence would disable itself precisely when it cannot tell which repository it is guarding. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity).",
+      agent_must_report: [
+        `Session cwd: ${sessionCwd}`,
+        `Resolver reason: ${mainRes.reason}`,
+        "Genesis-anchor verification did NOT run — its result is UNKNOWN, not clean.",
+        "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
+      ],
+      agent_must_wait:
+        "Do not retry until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+      user_summary:
+        "genesis-anchor-guard — main checkout unidentifiable; refused rather than passed through",
+    });
+    // emit() exits
+  }
+  const repoDir = mainRes.repoDir;
+  if (!isGovernanceEnabled(repoDir)) {
+    passthrough();
+  }
+
+  const { logPath, rosterPath } = resolvePaths();
+
+  // Load the coordination-log records up-front: they are the substrate-native
+  // "has this repo ever enrolled?" signal. Enrollment (/whoami --enroll-genesis)
+  // ALWAYS writes a signed `genesis-anchor` record into this log (operators.
+  // roster.README.md § "Why the live file ships with PLACEHOLDER" step 3), so an
+  // empty/absent log ⟺ never-enrolled. `loadLogRecords` returns [] when the log
+  // file is absent.
+  const records = loadLogRecords(logPath);
+
+  // The roster is REQUIRED context for an ENROLLED repo: without it we cannot
+  // identify the owner-bound key, so we cannot verify any anchor.
+  const roster = loadRoster(rosterPath);
+  if (!roster) {
+    // F72 (issue #379) — fresh-consumer vs enrolled-then-deleted discrimination.
+    // Mirrors trust-posture.md MUST-2 (fresh repo vs corrupt state) and the
+    // scaffold-roster advisory branch below: distinguish a USE-template consumer
+    // that received the substrate hooks but NEVER enrolled (no roster AND empty
+    // coordination log) from an enrolled repo whose roster was deleted (roster
+    // gone BUT the log still carries enrollment records).
+    if (records.length === 0) {
+      // Fresh-substrate adopter: no roster + no coordination-log records =
+      // never enrolled. Advisory pass-through so the consumer can land its
+      // first commits (this is exactly what the enrollment ceremony itself
+      // requires). Once enrollment writes the first genesis-anchor record into
+      // the log, the enrolled-then-deleted fail-CLOSED branch below takes over.
+      // The coordination LOG is the correct signal here — NOT `.initialized`,
+      // which the posture hook writes on a fresh consumer's FIRST session even
+      // when no enrollment has occurred (using `.initialized` would wrongly
+      // hard-block a never-enrolled consumer that merely ran one session).
       emit({
+        escalate: "security",
         hookEvent,
-        severity: "block",
-        what_happened: `Genesis-anchor verification could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
-        why: "multi-operator-coc/genesis-anchor-guard — the roster, the coordination log and ecosystem.json are all read RELATIVE to the main checkout. Unidentified, the coordination-enabled read returns false and its branch is `passthrough()`, so the enrollment fence would disable itself precisely when it cannot tell which repository it is guarding. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity).",
-        agent_must_report: [
-          `Session cwd: ${sessionCwd}`,
-          `Resolver reason: ${mainRes.reason}`,
-          "Genesis-anchor verification did NOT run — its result is UNKNOWN, not clean.",
-          "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
-        ],
-        agent_must_wait:
-          "Do not retry until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
-        user_summary:
-          "genesis-anchor-guard — main checkout unidentifiable; refused rather than passed through",
-      });
-      // emit() exits
-    }
-    const repoDir = mainRes.repoDir;
-    if (!isGovernanceEnabled(repoDir)) {
-      passthrough();
-    }
-
-    const { logPath, rosterPath } = resolvePaths();
-
-    // Load the coordination-log records up-front: they are the substrate-native
-    // "has this repo ever enrolled?" signal. Enrollment (/whoami --enroll-genesis)
-    // ALWAYS writes a signed `genesis-anchor` record into this log (operators.
-    // roster.README.md § "Why the live file ships with PLACEHOLDER" step 3), so an
-    // empty/absent log ⟺ never-enrolled. `loadLogRecords` returns [] when the log
-    // file is absent.
-    const records = loadLogRecords(logPath);
-
-    // The roster is REQUIRED context for an ENROLLED repo: without it we cannot
-    // identify the owner-bound key, so we cannot verify any anchor.
-    const roster = loadRoster(rosterPath);
-    if (!roster) {
-      // F72 (issue #379) — fresh-consumer vs enrolled-then-deleted discrimination.
-      // Mirrors trust-posture.md MUST-2 (fresh repo vs corrupt state) and the
-      // scaffold-roster advisory branch below: distinguish a USE-template consumer
-      // that received the substrate hooks but NEVER enrolled (no roster AND empty
-      // coordination log) from an enrolled repo whose roster was deleted (roster
-      // gone BUT the log still carries enrollment records).
-      if (records.length === 0) {
-        // Fresh-substrate adopter: no roster + no coordination-log records =
-        // never enrolled. Advisory pass-through so the consumer can land its
-        // first commits (this is exactly what the enrollment ceremony itself
-        // requires). Once enrollment writes the first genesis-anchor record into
-        // the log, the enrolled-then-deleted fail-CLOSED branch below takes over.
-        // The coordination LOG is the correct signal here — NOT `.initialized`,
-        // which the posture hook writes on a fresh consumer's FIRST session even
-        // when no enrollment has occurred (using `.initialized` would wrongly
-        // hard-block a never-enrolled consumer that merely ran one session).
-        emit({
-          hookEvent,
-          severity: "advisory",
-          what_happened:
-            "Sign/commit/push attempted on a fresh-substrate-adopter repo (no operators roster; coordination log empty/absent = never enrolled).",
-          why: "multi-operator-coc/genesis-anchor-guard — fresh-substrate-adopter branch (F72 / issue #379): no roster + empty coordination log = never-enrolled; advisory pass-through mirrors trust-posture.md MUST-2 fresh-repo semantics + the scaffold-roster branch. Once an enrollment record lands in the log, fail-CLOSED takes over.",
-          agent_must_report: [
-            "State that the repo is in fresh-substrate-adopter state (no roster, empty coordination log)",
-            "Schedule the enrollment ceremony (/whoami --enroll-genesis) as the M9.x follow-up before the next /release",
-          ],
-          agent_must_wait:
-            "Continue; enrollment is the M9.x follow-up. No block.",
-          user_summary:
-            "genesis-anchor-guard — fresh-substrate adopter advisory; enrollment outstanding",
-        });
-        // emit() exits 0 here (severity:advisory → continue:true); control does not return.
-      }
-
-      // Enrolled-then-deleted: the coordination log carries enrollment records but
-      // the roster is gone. This is the guard-escape-by-roster-deletion attack
-      // (HIGH-2, M0 security review): without a roster we cannot resolve any
-      // candidate signer's pubkey, so the signed-marker bypass is unreachable.
-      // Fail-CLOSED. (operators.roster.json is a tracked, committed file — the
-      // correct recovery is `git checkout` it, not re-enrollment.)
-      emit({
-        hookEvent,
-        severity: "block",
+        severity: "advisory",
         what_happened:
-          "Sign/commit/push/roster-edit attempted but operators roster is missing or unreadable while the coordination log carries prior enrollment records — this repo WAS enrolled.",
-        why: "multi-operator-coc/genesis-anchor-guard — fail-CLOSED: roster missing while the coordination log carries enrollment records = enrolled-then-deleted; no verifiable trust root (architecture §2.3 + §4.3, journal/0117)",
+          "Sign/commit/push attempted on a fresh-substrate-adopter repo (no operators roster; coordination log empty/absent = never enrolled).",
+        why: "multi-operator-coc/genesis-anchor-guard — fresh-substrate-adopter branch (F72 / issue #379): no roster + empty coordination log = never-enrolled; advisory pass-through mirrors trust-posture.md MUST-2 fresh-repo semantics + the scaffold-roster branch. Once an enrollment record lands in the log, fail-CLOSED takes over.",
         agent_must_report: [
-          "Quote the exact tool call that was attempted",
-          "State that the operators.roster.json is missing or unreadable while the coordination log carries prior enrollment records",
-          "Recommend restoring operators.roster.json from version control (it is a tracked, committed file) rather than re-enrolling",
+          "State that the repo is in fresh-substrate-adopter state (no roster, empty coordination log)",
+          "Schedule the enrollment ceremony (/whoami --enroll-genesis) as the M9.x follow-up before the next /release",
         ],
         agent_must_wait:
-          "Do not retry the sign/commit/push until the roster is restored.",
+          "Continue; enrollment is the M9.x follow-up. No block.",
         user_summary:
-          "genesis-anchor-guard — roster missing on a previously-enrolled repo; restore from version control",
+          "genesis-anchor-guard — fresh-substrate adopter advisory; enrollment outstanding",
       });
-      // emit() exits; we never return here
+      // emit() exits 0 here (severity:advisory → continue:true); control does not return.
     }
 
-    const { trustRoot, peerHighWater } = foldChain(records, roster);
+    // Enrolled-then-deleted: the coordination log carries enrollment records but
+    // the roster is gone. This is the guard-escape-by-roster-deletion attack
+    // (HIGH-2, M0 security review): without a roster we cannot resolve any
+    // candidate signer's pubkey, so the signed-marker bypass is unreachable.
+    // Fail-CLOSED. (operators.roster.json is a tracked, committed file — the
+    // correct recovery is `git checkout` it, not re-enrollment.)
+    emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened:
+        "Sign/commit/push/roster-edit attempted but operators roster is missing or unreadable while the coordination log carries prior enrollment records — this repo WAS enrolled.",
+      why: "multi-operator-coc/genesis-anchor-guard — fail-CLOSED: roster missing while the coordination log carries enrollment records = enrolled-then-deleted; no verifiable trust root (architecture §2.3 + §4.3, journal/0117)",
+      agent_must_report: [
+        "Quote the exact tool call that was attempted",
+        "State that the operators.roster.json is missing or unreadable while the coordination log carries prior enrollment records",
+        "Recommend restoring operators.roster.json from version control (it is a tracked, committed file) rather than re-enrolling",
+      ],
+      agent_must_wait:
+        "Do not retry the sign/commit/push until the roster is restored.",
+      user_summary:
+        "genesis-anchor-guard — roster missing on a previously-enrolled repo; restore from version control",
+    });
+    // emit() exits; we never return here
+  }
 
-    if (trustRoot === null) {
-      // M9.1 R1 Bootstrap-1 — scaffolded-but-not-enrolled fresh-repo branch.
-      // Mirrors trust-posture.md MUST-2 (fresh repo vs corrupt state). When
-      // the roster is structurally a SCAFFOLD (genesis.repo_owner carries
-      // the documented PLACEHOLDER-* prefix convention from the schema
-      // template) AND the coordination log is ABSENT, the repo has never
-      // been enrolled — this is the fresh-substrate-adopter case, not an
-      // attack surface. The guard emits `advisory` (not `block`) so the
-      // repo can land its first commits, which is what the enrollment
-      // ceremony itself requires.
-      //
-      // M9.1 R3 Sec-R3-S-03 — use the shared `isUnenrolled(personId)`
-      // predicate from `roster-schema-validate.js:261` (which matches the
-      // documented `PLACEHOLDER-*` prefix convention per
-      // `operators.roster.schema.json:27`), NOT a literal-string match.
-      // The prior literal sentinel `PLACEHOLDER-replace-at-enrollment` was
-      // narrower than the documented convention and would fail-CLOSED
-      // every commit for downstream adopters whose scaffold uses a
-      // conformant variant like `PLACEHOLDER-acme-foundation`.
-      //
-      // Detection uses two structural primitives both rooted in the schema
-      // template (operators.roster.schema.json): (a) the shared
-      // PLACEHOLDER-* prefix predicate is process-local deterministic per
-      // hook-output-discipline.md MUST-2; (b) `fs.existsSync(logPath)` is
-      // likewise a structural file-system check. Once enrollment writes a
-      // real repo_owner + persons + first signed `genesis-anchor` into the
-      // log, the guard's fail-CLOSED branch (below) takes over normally.
-      const isScaffoldRoster =
-        roster.genesis && isUnenrolled(roster.genesis.repo_owner);
-      const logAbsent = !require("fs").existsSync(logPath);
-      if (isScaffoldRoster && logAbsent) {
-        // Fresh substrate adopter: roster is a scaffold, log has never been
-        // initialized. Surface advisory so the operator knows enrollment is
-        // outstanding, but allow the commit through.
+  const { trustRoot, peerHighWater } = foldChain(records, roster);
+
+  if (trustRoot === null) {
+    // M9.1 R1 Bootstrap-1 — scaffolded-but-not-enrolled fresh-repo branch.
+    // Mirrors trust-posture.md MUST-2 (fresh repo vs corrupt state). When
+    // the roster is structurally a SCAFFOLD (genesis.repo_owner carries
+    // the documented PLACEHOLDER-* prefix convention from the schema
+    // template) AND the coordination log is ABSENT, the repo has never
+    // been enrolled — this is the fresh-substrate-adopter case, not an
+    // attack surface. The guard emits `advisory` (not `block`) so the
+    // repo can land its first commits, which is what the enrollment
+    // ceremony itself requires.
+    //
+    // M9.1 R3 Sec-R3-S-03 — use the shared `isUnenrolled(personId)`
+    // predicate from `roster-schema-validate.js:261` (which matches the
+    // documented `PLACEHOLDER-*` prefix convention per
+    // `operators.roster.schema.json:27`), NOT a literal-string match.
+    // The prior literal sentinel `PLACEHOLDER-replace-at-enrollment` was
+    // narrower than the documented convention and would fail-CLOSED
+    // every commit for downstream adopters whose scaffold uses a
+    // conformant variant like `PLACEHOLDER-acme-foundation`.
+    //
+    // Detection uses two structural primitives both rooted in the schema
+    // template (operators.roster.schema.json): (a) the shared
+    // PLACEHOLDER-* prefix predicate is process-local deterministic per
+    // hook-output-discipline.md MUST-2; (b) `fs.existsSync(logPath)` is
+    // likewise a structural file-system check. Once enrollment writes a
+    // real repo_owner + persons + first signed `genesis-anchor` into the
+    // log, the guard's fail-CLOSED branch (below) takes over normally.
+    const isScaffoldRoster =
+      roster.genesis && isUnenrolled(roster.genesis.repo_owner);
+    const logAbsent = !require("fs").existsSync(logPath);
+    if (isScaffoldRoster && logAbsent) {
+      // Fresh substrate adopter: roster is a scaffold, log has never been
+      // initialized. Surface advisory so the operator knows enrollment is
+      // outstanding, but allow the commit through.
+      emit({
+        escalate: "security",
+        hookEvent,
+        severity: "advisory",
+        what_happened:
+          "Sign/commit/push attempted on a fresh-substrate-adopter repo (roster is scaffold; coordination log absent).",
+        why: "multi-operator-coc/genesis-anchor-guard — fresh-substrate-adopter branch (M9.1 Bootstrap-1): scaffold roster + absent log = never-enrolled; advisory pass-through mirrors trust-posture.md MUST-2 fresh-repo semantics. Once enrollment lands, fail-CLOSED takes over.",
+        agent_must_report: [
+          "State that the repo is in fresh-substrate-adopter state (scaffold roster + absent log)",
+          "Schedule the enrollment ceremony as M9.x follow-up before the next /release",
+        ],
+        agent_must_wait:
+          "Continue; enrollment is the M9.x follow-up. No block.",
+        user_summary:
+          "genesis-anchor-guard — fresh-substrate adopter advisory; enrollment outstanding",
+      });
+      // emit() exits 0 here (severity:advisory → continue:true); control does not return.
+    }
+
+    // No verifying owner-bound anchor in the log.
+    // HIGH-2: enrollment-in-progress bypass requires a SIGNED marker
+    // whose signature verifies under a candidate signer's pubkey in the
+    // roster. Unsigned / tampered / wrong-key markers fall through to
+    // the fail-CLOSED emit below.
+    if (checkEnrollmentInProgress(roster)) {
+      // Enrollment in progress — pass through to allow the ceremony itself
+      // to complete (it MUST write the genesis-anchor as part of its flow).
+      passthrough();
+    }
+
+    // GENMAT (loom#879) — enrolled-repo remediation discrimination.
+    //
+    // A roster whose genesis.repo_owner is a REAL (non-PLACEHOLDER) owner means
+    // enrollment HAS occurred: the genesis ceremony writes the roster AND the
+    // owner-bound genesis-anchor together, so the trust root EXISTS somewhere.
+    // Reaching here with trustRoot === null on such a roster is NOT a
+    // "never-enrolled → run /whoami --enroll-genesis" situation — advising
+    // enroll-genesis on an already-enrolled repo ORIGINATES a NEW genesis-anchor
+    // (a redundant trust-root record, and a trust-root FORK if any pinned fact —
+    // repo_owner / root_commit / admin-capture — resolves differently on this
+    // clone; fold-genesis-anchor.js invariant 4). The correct action is to
+    // MATERIALIZE / RESTORE the EXISTING trust root. Fail-CLOSED remains correct
+    // (this clone cannot verify the root locally), but the remediation MUST point
+    // to materialization, not re-enrollment. Two enrolled sub-cases:
+    //
+    //   (a) enrolled-but-UNMATERIALIZED — no genesis-anchor record present in the
+    //       local cache at all: the canonical fresh-clone case (new operator, new
+    //       machine, CI/headless checkout). `.claude/learning/coordination-log.jsonl`
+    //       is a gitignored per-clone cache, empty on a fresh clone. Architecture
+    //       §2.3 fresh-clone recovery = fetch-then-fold.
+    //   (b) enrolled-but-ANCHOR-UNVERIFIABLE — a genesis-anchor IS present locally
+    //       but does not fold to a trust root (tamper / corruption / roster⊥anchor
+    //       mismatch). The local cache is present-but-broken; restore + investigate.
+    //
+    // The scaffold / never-enrolled case (PLACEHOLDER owner) is NOT caught here and
+    // falls through to the generic block below, whose /whoami --enroll-genesis
+    // remediation IS correct for that case.
+    const rosterHasRealOwner =
+      roster.genesis &&
+      typeof roster.genesis.repo_owner === "string" &&
+      roster.genesis.repo_owner &&
+      !isUnenrolled(roster.genesis.repo_owner);
+    if (rosterHasRealOwner) {
+      // `records` has already dropped unparseable lines (loadLogRecords skips
+      // malformed JSON), so a repo whose ONLY anchor line is corrupt/truncated
+      // routes to (a) rather than (b). That disposition is safe: (a) and (b) are
+      // BOTH fail-CLOSED exit-2 blocks that both say "do NOT re-enroll", and (a)'s
+      // remediation already covers the "obtain/re-seed a good log" action a corrupt
+      // line needs (reviewer/security R1 LOW).
+      const hasLocalAnchorRecord = records.some(
+        (r) => r && r.type === "genesis-anchor",
+      );
+      if (!hasLocalAnchorRecord) {
+        // (a) enrolled-but-UNMATERIALIZED — fresh clone of an enrolled repo.
         emit({
-          hookEvent,
-          severity: "advisory",
-          what_happened:
-            "Sign/commit/push attempted on a fresh-substrate-adopter repo (roster is scaffold; coordination log absent).",
-          why: "multi-operator-coc/genesis-anchor-guard — fresh-substrate-adopter branch (M9.1 Bootstrap-1): scaffold roster + absent log = never-enrolled; advisory pass-through mirrors trust-posture.md MUST-2 fresh-repo semantics. Once enrollment lands, fail-CLOSED takes over.",
-          agent_must_report: [
-            "State that the repo is in fresh-substrate-adopter state (scaffold roster + absent log)",
-            "Schedule the enrollment ceremony as M9.x follow-up before the next /release",
-          ],
-          agent_must_wait:
-            "Continue; enrollment is the M9.x follow-up. No block.",
-          user_summary:
-            "genesis-anchor-guard — fresh-substrate adopter advisory; enrollment outstanding",
-        });
-        // emit() exits 0 here (severity:advisory → continue:true); control does not return.
-      }
-
-      // No verifying owner-bound anchor in the log.
-      // HIGH-2: enrollment-in-progress bypass requires a SIGNED marker
-      // whose signature verifies under a candidate signer's pubkey in the
-      // roster. Unsigned / tampered / wrong-key markers fall through to
-      // the fail-CLOSED emit below.
-      if (checkEnrollmentInProgress(roster)) {
-        // Enrollment in progress — pass through to allow the ceremony itself
-        // to complete (it MUST write the genesis-anchor as part of its flow).
-        passthrough();
-      }
-
-      // GENMAT (loom#879) — enrolled-repo remediation discrimination.
-      //
-      // A roster whose genesis.repo_owner is a REAL (non-PLACEHOLDER) owner means
-      // enrollment HAS occurred: the genesis ceremony writes the roster AND the
-      // owner-bound genesis-anchor together, so the trust root EXISTS somewhere.
-      // Reaching here with trustRoot === null on such a roster is NOT a
-      // "never-enrolled → run /whoami --enroll-genesis" situation — advising
-      // enroll-genesis on an already-enrolled repo ORIGINATES a NEW genesis-anchor
-      // (a redundant trust-root record, and a trust-root FORK if any pinned fact —
-      // repo_owner / root_commit / admin-capture — resolves differently on this
-      // clone; fold-genesis-anchor.js invariant 4). The correct action is to
-      // MATERIALIZE / RESTORE the EXISTING trust root. Fail-CLOSED remains correct
-      // (this clone cannot verify the root locally), but the remediation MUST point
-      // to materialization, not re-enrollment. Two enrolled sub-cases:
-      //
-      //   (a) enrolled-but-UNMATERIALIZED — no genesis-anchor record present in the
-      //       local cache at all: the canonical fresh-clone case (new operator, new
-      //       machine, CI/headless checkout). `.claude/learning/coordination-log.jsonl`
-      //       is a gitignored per-clone cache, empty on a fresh clone. Architecture
-      //       §2.3 fresh-clone recovery = fetch-then-fold.
-      //   (b) enrolled-but-ANCHOR-UNVERIFIABLE — a genesis-anchor IS present locally
-      //       but does not fold to a trust root (tamper / corruption / roster⊥anchor
-      //       mismatch). The local cache is present-but-broken; restore + investigate.
-      //
-      // The scaffold / never-enrolled case (PLACEHOLDER owner) is NOT caught here and
-      // falls through to the generic block below, whose /whoami --enroll-genesis
-      // remediation IS correct for that case.
-      const rosterHasRealOwner =
-        roster.genesis &&
-        typeof roster.genesis.repo_owner === "string" &&
-        roster.genesis.repo_owner &&
-        !isUnenrolled(roster.genesis.repo_owner);
-      if (rosterHasRealOwner) {
-        // `records` has already dropped unparseable lines (loadLogRecords skips
-        // malformed JSON), so a repo whose ONLY anchor line is corrupt/truncated
-        // routes to (a) rather than (b). That disposition is safe: (a) and (b) are
-        // BOTH fail-CLOSED exit-2 blocks that both say "do NOT re-enroll", and (a)'s
-        // remediation already covers the "obtain/re-seed a good log" action a corrupt
-        // line needs (reviewer/security R1 LOW).
-        const hasLocalAnchorRecord = records.some(
-          (r) => r && r.type === "genesis-anchor",
-        );
-        if (!hasLocalAnchorRecord) {
-          // (a) enrolled-but-UNMATERIALIZED — fresh clone of an enrolled repo.
-          emit({
-            hookEvent,
-            severity: "block",
-            what_happened:
-              "Sign/commit/push/roster-edit attempted on a fresh clone of an ENROLLED repo: the roster names a real owner (enrollment has occurred) but this clone's local coordination-log cache carries no genesis-anchor to verify the trust root.",
-            why: "multi-operator-coc/genesis-anchor-guard — enrolled-but-unmaterialized (loom#879): .claude/learning/coordination-log.jsonl is a gitignored per-clone cache, empty on a fresh clone; the trust root exists (the enrolling operator created the owner-bound genesis-anchor) but is not materialized in THIS clone. Fail-CLOSED per architecture §4.3; fresh-clone recovery is fetch-then-fold (§2.3).",
-            agent_must_report: [
-              "Quote the exact tool call that was attempted",
-              "State that this is a fresh clone of an already-enrolled repo (the roster names a real owner) whose local coordination-log carries no genesis-anchor yet",
-              `MATERIALIZE the existing trust root — do NOT run /whoami --enroll-genesis (it ORIGINATES a new genesis-anchor, duplicating the trust root and risking a trust-root fork). PRIMARY path: run 'node .claude/hooks/lib/genesis-materializer.js --materialize' to fetch-then-fold the WHOLE chain (anchor + any genesis-migration) from the canonical log ref (${DEFAULT_LOG_REF_NAME} on an un-rotated repo; a later generation resolves via 'git ls-remote origin refs/coc/coordination-gen*') into this clone's local coordination-log; it fails CLOSED (never originates) if the ref carries no verifying trust root, in which case the owner re-seeds the trust root to that ref. LAST RESORT (trusted source only): copy .claude/learning/coordination-log.jsonl from an already-materialized clone — the guard re-verifies every anchor against the roster owner's key, so a tampered/forged log simply re-blocks and cannot mint a false trust root`,
-            ],
-            agent_must_wait:
-              "Do not retry the sign/commit/push until the EXISTING trust root is materialized into this clone's local coordination-log. Do NOT re-enroll.",
-            user_summary:
-              "genesis-anchor-guard — fresh clone of an enrolled repo; materialize the existing trust root (do NOT re-enroll)",
-          });
-        } else {
-          // (b) enrolled-but-ANCHOR-UNVERIFIABLE — anchor present locally, not folding.
-          emit({
-            hookEvent,
-            severity: "block",
-            what_happened:
-              "Sign/commit/push/roster-edit attempted on an ENROLLED repo whose local coordination-log carries a genesis-anchor that does NOT verify against the roster owner (tamper, corruption, or roster⊥anchor mismatch).",
-            why: "multi-operator-coc/genesis-anchor-guard — enrolled-but-anchor-unverifiable (loom#879): the roster names a real owner and a genesis-anchor IS present locally, but it does not fold to a trust root. Fail-CLOSED per architecture §4.3 + journal/0117 (the §4.5 genesis residual is bounded BY this guard).",
-            agent_must_report: [
-              "Quote the exact tool call that was attempted",
-              "State that a genesis-anchor IS present in the local coordination-log but does not signature-verify / owner-bind against the roster (tamper, corruption, or roster⊥anchor mismatch)",
-              "RESTORE the coordination-log and/or operators.roster.json from a trusted source and investigate the mismatch — do NOT run /whoami --enroll-genesis (it ORIGINATES a new genesis-anchor rather than recovering the existing trust root, and risks a trust-root fork)",
-            ],
-            agent_must_wait:
-              "Do not retry the sign/commit/push until the local genesis-anchor verifies against the roster owner. Do NOT re-enroll.",
-            user_summary:
-              "genesis-anchor-guard — enrolled repo with an unverifiable local genesis-anchor; restore + investigate (do NOT re-enroll)",
-          });
-        }
-        // Both branches emit() → exit 2 (fail-CLOSED); control does not return.
-      } else {
-        // GENMAT hardening (loom#879 redteam R1 cc-architect LOW): the generic
-        // fail-CLOSED enroll-genesis block lives in the `else` arm, so a
-        // real-owner roster STRUCTURALLY takes the (a)/(b) block instead of
-        // this generic re-enrollment remediation — the two arms are mutually
-        // exclusive independent of whether emit() is process-terminal (this is
-        // what closes the no-double-emit / conflicting-remediation risk
-        // LOCALLY). Block-level fail-closure under a hypothetical non-terminal
-        // emit() is NOT provided by the `else` alone — it is held, as for every
-        // emit() site in this block, by emit() calling process.exit. Reached
-        // ONLY when the roster is a scaffold / never-enrolled (PLACEHOLDER
-        // owner) or carries a missing/empty/non-string repo_owner — the
-        // enroll-genesis remediation IS correct for those cases.
-        emit({
+          escalate: "security",
           hookEvent,
           severity: "block",
           what_happened:
-            "Sign/commit/push/roster-edit attempted with no verifying owner-bound genesis-anchor in the coordination log.",
-          why: "multi-operator-coc/genesis-anchor-guard — fail-CLOSED per architecture §4.3 + §2.3 + journal/0117 (the §4.5 genesis residual is bounded BY this guard)",
+            "Sign/commit/push/roster-edit attempted on a fresh clone of an ENROLLED repo: the roster names a real owner (enrollment has occurred) but this clone's local coordination-log cache carries no genesis-anchor to verify the trust root.",
+          why: "multi-operator-coc/genesis-anchor-guard — enrolled-but-unmaterialized (loom#879): .claude/learning/coordination-log.jsonl is a gitignored per-clone cache, empty on a fresh clone; the trust root exists (the enrolling operator created the owner-bound genesis-anchor) but is not materialized in THIS clone. Fail-CLOSED per architecture §4.3; fresh-clone recovery is fetch-then-fold (§2.3).",
           agent_must_report: [
             "Quote the exact tool call that was attempted",
-            "State that no signature-verifying owner-bound genesis-anchor is present in the coordination log",
-            "Run /whoami --enroll-genesis to establish the trust root, OR confirm an enrollment ceremony is already in progress via the COC_GENESIS_GUARD_ENROLLMENT_MARKER env var",
+            "State that this is a fresh clone of an already-enrolled repo (the roster names a real owner) whose local coordination-log carries no genesis-anchor yet",
+            `MATERIALIZE the existing trust root — do NOT run /whoami --enroll-genesis (it ORIGINATES a new genesis-anchor, duplicating the trust root and risking a trust-root fork). PRIMARY path: run 'node .claude/hooks/lib/genesis-materializer.js --materialize' to fetch-then-fold the WHOLE chain (anchor + any genesis-migration) from the canonical log ref (${DEFAULT_LOG_REF_NAME} on an un-rotated repo; a later generation resolves via 'git ls-remote origin refs/coc/coordination-gen*') into this clone's local coordination-log; it fails CLOSED (never originates) if the ref carries no verifying trust root, in which case the owner re-seeds the trust root to that ref. LAST RESORT (trusted source only): copy .claude/learning/coordination-log.jsonl from an already-materialized clone — the guard re-verifies every anchor against the roster owner's key, so a tampered/forged log simply re-blocks and cannot mint a false trust root`,
           ],
           agent_must_wait:
-            "Do not retry the sign/commit/push until the trust root is established by the enrollment ceremony.",
+            "Do not retry the sign/commit/push until the EXISTING trust root is materialized into this clone's local coordination-log. Do NOT re-enroll.",
           user_summary:
-            "genesis-anchor-guard — no trust root; enrollment ceremony required",
+            "genesis-anchor-guard — fresh clone of an enrolled repo; materialize the existing trust root (do NOT re-enroll)",
+        });
+      } else {
+        // (b) enrolled-but-ANCHOR-UNVERIFIABLE — anchor present locally, not folding.
+        emit({
+          escalate: "security",
+          hookEvent,
+          severity: "block",
+          what_happened:
+            "Sign/commit/push/roster-edit attempted on an ENROLLED repo whose local coordination-log carries a genesis-anchor that does NOT verify against the roster owner (tamper, corruption, or roster⊥anchor mismatch).",
+          why: "multi-operator-coc/genesis-anchor-guard — enrolled-but-anchor-unverifiable (loom#879): the roster names a real owner and a genesis-anchor IS present locally, but it does not fold to a trust root. Fail-CLOSED per architecture §4.3 + journal/0117 (the §4.5 genesis residual is bounded BY this guard).",
+          agent_must_report: [
+            "Quote the exact tool call that was attempted",
+            "State that a genesis-anchor IS present in the local coordination-log but does not signature-verify / owner-bind against the roster (tamper, corruption, or roster⊥anchor mismatch)",
+            "RESTORE the coordination-log and/or operators.roster.json from a trusted source and investigate the mismatch — do NOT run /whoami --enroll-genesis (it ORIGINATES a new genesis-anchor rather than recovering the existing trust root, and risks a trust-root fork)",
+          ],
+          agent_must_wait:
+            "Do not retry the sign/commit/push until the local genesis-anchor verifies against the roster owner. Do NOT re-enroll.",
+          user_summary:
+            "genesis-anchor-guard — enrolled repo with an unverifiable local genesis-anchor; restore + investigate (do NOT re-enroll)",
         });
       }
-    }
-
-    // Trust root present + verifying. Check genesis-generation partition.
-    const localGen = (roster.genesis && roster.genesis.genesis_generation) || 0;
-    if (peerHighWater > localGen) {
-      // Degraded to halt-and-report per architecture §4.3.
+      // Both branches emit() → exit 2 (fail-CLOSED); control does not return.
+    } else {
+      // GENMAT hardening (loom#879 redteam R1 cc-architect LOW): the generic
+      // fail-CLOSED enroll-genesis block lives in the `else` arm, so a
+      // real-owner roster STRUCTURALLY takes the (a)/(b) block instead of
+      // this generic re-enrollment remediation — the two arms are mutually
+      // exclusive independent of whether emit() is process-terminal (this is
+      // what closes the no-double-emit / conflicting-remediation risk
+      // LOCALLY). Block-level fail-closure under a hypothetical non-terminal
+      // emit() is NOT provided by the `else` alone — it is held, as for every
+      // emit() site in this block, by emit() calling process.exit. Reached
+      // ONLY when the roster is a scaffold / never-enrolled (PLACEHOLDER
+      // owner) or carries a missing/empty/non-string repo_owner — the
+      // enroll-genesis remediation IS correct for those cases.
       emit({
+        escalate: "security",
         hookEvent,
-        severity: "halt-and-report",
-        what_happened: `Local genesis_generation (${localGen}) is below peer-observed high-water (${peerHighWater}) per signature-verified genesis-migration record(s) in the log.`,
-        why: "multi-operator-coc/genesis-anchor-guard — post-migration partition (architecture §4.3 + §2.2 fold rule 9d + R7-A-02/R8-S-04)",
+        severity: "block",
+        what_happened:
+          "Sign/commit/push/roster-edit attempted with no verifying owner-bound genesis-anchor in the coordination log.",
+        why: "multi-operator-coc/genesis-anchor-guard — fail-CLOSED per architecture §4.3 + §2.3 + journal/0117 (the §4.5 genesis residual is bounded BY this guard)",
         agent_must_report: [
           "Quote the exact tool call that was attempted",
-          `State that the local roster's genesis_generation is ${localGen} but a signature-verifying genesis-migration record at generation ${peerHighWater} is folded in the log`,
-          "Fetch the latest refs/coc/coordination-genN to converge before proceeding",
+          "State that no signature-verifying owner-bound genesis-anchor is present in the coordination log",
+          "Run /whoami --enroll-genesis to establish the trust root, OR confirm an enrollment ceremony is already in progress via the COC_GENESIS_GUARD_ENROLLMENT_MARKER env var",
         ],
         agent_must_wait:
-          "Do not retry until the local genesis_generation is at or above the peer high-water.",
-        user_summary: `genesis-anchor-guard — stale-root advisory (local gen ${localGen} < peer high-water ${peerHighWater})`,
+          "Do not retry the sign/commit/push until the trust root is established by the enrollment ceremony.",
+        user_summary:
+          "genesis-anchor-guard — no trust root; enrollment ceremony required",
       });
     }
-
-    // All checks passed.
-    passthrough();
-  } catch (err) {
-    // Defense-in-depth. Any unexpected exception during the guard's own
-    // logic MUST NOT block the agent — the timeout-fallback semantics
-    // apply: pass through with a {continue: true}. Crypto-check failures
-    // are NOT exceptions; they take the structured-emit path above.
-    try {
-      process.stderr.write(
-        `[ADVISORY] genesis-anchor-guard internal error: ${err && err.message ? err.message : String(err)}\n`,
-      );
-    } catch {
-      // ignored — stderr write failure is best-effort
-    }
-    passthrough();
   }
+
+  // Trust root present + verifying. Check genesis-generation partition.
+  const localGen = (roster.genesis && roster.genesis.genesis_generation) || 0;
+  if (peerHighWater > localGen) {
+    // Degraded to halt-and-report per architecture §4.3.
+    emit({
+      escalate: "security",
+      hookEvent,
+      severity: "halt-and-report",
+      what_happened: `Local genesis_generation (${localGen}) is below peer-observed high-water (${peerHighWater}) per signature-verified genesis-migration record(s) in the log.`,
+      why: "multi-operator-coc/genesis-anchor-guard — post-migration partition (architecture §4.3 + §2.2 fold rule 9d + R7-A-02/R8-S-04)",
+      agent_must_report: [
+        "Quote the exact tool call that was attempted",
+        `State that the local roster's genesis_generation is ${localGen} but a signature-verifying genesis-migration record at generation ${peerHighWater} is folded in the log`,
+        "Fetch the latest refs/coc/coordination-genN to converge before proceeding",
+      ],
+      agent_must_wait:
+        "Do not retry until the local genesis_generation is at or above the peer high-water.",
+      user_summary: `genesis-anchor-guard — stale-root advisory (local gen ${localGen} < peer high-water ${peerHighWater})`,
+    });
+  }
+
+  // All checks passed.
+  passthrough();
 }
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). It is exactly what the CLI
-// guard used to do, and returns main()'s promise so the engine can await it.
-function hookMain() {
-  armFallback();
-  return main();
-}
+// in-process by lib/hook-engine.js (dispatch.js). A require() has no side effects.
+const hookMain = runGuard("genesis-anchor-guard", main, { budgetMs: TIMEOUT_MS });
 
 module.exports = {
   loadLogRecords,
@@ -826,7 +815,7 @@ module.exports = {
   // `Object.prototype`-shadowing person_id made the bare roster lookup
   // resolve truthy, then threw inside `main()`'s catch-all → passthrough →
   // fail-OPEN) is only testable at this seam.
-  _internal: { verifyRecord },
+  _internal: { verifyRecord, checkEnrollmentInProgress },
   hookMain,
 };
 

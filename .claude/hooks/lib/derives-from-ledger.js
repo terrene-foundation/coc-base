@@ -53,7 +53,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 const {
   buildDerivesFromEdge,
@@ -224,6 +224,7 @@ function _validateOnly(a) {
 function _appendToSink(root, edge) {
   const w = appendSinkLine({
     repoDir: root,
+    additionalRoots: mainCheckoutBoundaryRoots(root),
     sinkPath: _sinkPath(root, edge.session_id),
     line: JSON.stringify(edge),
   });

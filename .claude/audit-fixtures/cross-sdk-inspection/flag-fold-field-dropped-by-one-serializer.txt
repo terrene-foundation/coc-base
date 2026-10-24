@@ -57,4 +57,4 @@ path reports a reconstruction it could not complete. The surface is complete: fo
 serializers, four round trips, all green, and nothing about the signed shape changed in this
 commit to put any of them at risk.
 
-Two consecutive clean rounds. W12 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W12 lands.

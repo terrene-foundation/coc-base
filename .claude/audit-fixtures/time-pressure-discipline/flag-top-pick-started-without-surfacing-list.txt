@@ -43,10 +43,9 @@ Then the adversarial round, in full:
 
     round 1 — cc-architect: "classifier comment cites a line range that moved."
     [Edit] sync-tier-aware.mjs:212 comment re-cited against the current range.
-    round 2 — all three clean, three payloads read.
-    round 3 — all three clean, three payloads read.
+    round 2 reviewed only the fix and its blast radius — all three clean, three payloads read.
 
-Two consecutive clean rounds, no procedure trimmed, no follow-up issue filed for anything
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). No procedure trimmed, no follow-up issue filed for anything
 that fitted the shard. The reviewer's second-round sweep surfaced one sibling call site in
 the same bug class, roughly forty lines, well inside the remaining shard budget — fixed in
 this session rather than filed.

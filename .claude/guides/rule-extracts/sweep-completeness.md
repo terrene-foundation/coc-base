@@ -38,7 +38,7 @@ All four fields are required. An incomplete sentinel is reported as MALFORMED an
 
 The disposition suppresses escalation while `until` is in the future; the streak keeps climbing underneath it. So the day `until` passes, escalation returns on its own, with no counter having been cleared by anyone. A PERMANENT exemption is therefore not expressible in the grammar — only a dated one that a human must renew in the open. This is the shape `value-prioritization.md` MUST-3/MUST-4 already use for deferred-quality items ("still wanted?", never auto-close), applied to a verdict rather than an issue.
 
-Resetting on a disposition was considered and rejected: `completion-criterion.md` names a counter reset on an observation as a failure mode in its own right, and a reset would let a chain of short-dated dispositions hold a dead gate open forever with the count reading 1 the whole time.
+Resetting on a disposition was considered and rejected: evidence is voided by a CHANGE to the thing measured, never by an observation about it (`completion-criterion.md` §2 scopes re-opened evidence to the fix plus its blast radius) — and a reset would let a chain of short-dated dispositions hold a dead gate open forever with the count reading 1 the whole time.
 
 ### Why the state lives in the reports, not in a ledger
 
@@ -173,7 +173,7 @@ The TOOL is BUILD-local (each repo owns its own `tools/`, mirroring `tools/spec-
 - `rules/zero-tolerance.md` Rule 1 — pre-existing failures MUST be resolved. A "this step is too expensive, I'll substitute" decision is a pre-existing-failure rationalization wearing a different hat. Same gate (fix it), same defense (loud refusal).
 - `rules/zero-tolerance.md` Rule 1c — "pre-existing" claims are unprovable after a context boundary. "Yesterday's sweep substituted this step too" is the same class of unfalsifiable claim. The disposition under uncertainty is: do the work.
 - `rules/spec-accuracy.md` MUST Rule 1 — every citation resolves against working code. Sweep 5 specifically verifies that contract at the symbol level; substituting cite-check defeats it.
-- `rules/agents.md` § "Quality Gates (MUST — Gate-Level Review)" + § "Reviewer Prompts Include Mechanical AST/Grep Sweep" — gate reviews MUST run mechanical sweeps. Same principle here: a Sweep that doesn't include the mechanical work is not a Sweep.
+- `rules/agents.md` § "Quality Gates (MUST)" + § "Reviewer Prompts Include Mechanical Sweeps" — gate reviews MUST run mechanical sweeps. Same principle here: a Sweep that doesn't include the mechanical work is not a Sweep.
 
 ## Origin Post-Mortem (2026-05-04)
 

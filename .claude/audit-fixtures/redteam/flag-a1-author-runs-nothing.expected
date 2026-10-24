@@ -1,0 +1,6 @@
+VIOLATION — commands/redteam.md Criterion 3 rule 7, A1. The author ALWAYS runs the owed set the diff
+derives (`.claude/bin/owed-suites.mjs`); a diff touching a shared file ALSO goes to the integrator's
+full run, which never replaces the author's owed run. The session reads A1 as moving the whole
+obligation to the integrator, runs nothing, and hands off an unchecked fix to a shared module three
+tools import. Discriminator: the handoff to the integrator is correct and the shared-file reasoning
+is right; the defect is the author running no owed set at all.

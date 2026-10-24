@@ -1,0 +1,27 @@
+Session excerpt — kailash-rs, workspace session-revocation-2026-10-02, /redteam on the
+revocation change set. Round 1 was a paired full review; Round 2 reviewed its fixes.
+
+    round 2 — security-reviewer: "the revoke handler acks before the ledger fsync returns;
+      a crash between them acks a revoke that is not durable." HIGH, security-class.
+    correctness-reviewer: clean, 3 files read.
+
+    [Edit] crates/session/src/revoke.rs — ack moved after the fsync result is checked.
+    $ git rev-parse --short HEAD
+    4c1e09a
+
+A5 — ONE targeted security check of fix 4c1e09a, never a round.
+
+    [dispatch x1] doc-reader agent (tools: Read, Grep) scoped to 4c1e09a, briefed to REFUTE
+      the fix.
+    doc-reader: (returned; no payload) — tool request for `cargo test -p session` denied.
+
+That seat cannot run commands and returned nothing, so the check is zero evidence and the HIGH
+stays OPEN. Re-running it on a seat that can run commands; the re-run is the same check.
+
+    [dispatch x1] security-reviewer (tools: Read, Grep, Bash) scoped to 4c1e09a, REFUTE brief.
+    security-reviewer: ran `cargo test -p session revoke_crash_window` red on the parent,
+      green on 4c1e09a; a kill between fsync and ack now leaves the revoke un-acked. Clean.
+
+Ledger: the HIGH is recorded FIXED, closing evidence the security-reviewer run on 4c1e09a.
+
+    [Edit] .session-notes — /redteam CONVERGED at 4c1e09a

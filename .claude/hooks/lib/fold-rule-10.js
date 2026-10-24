@@ -19,6 +19,9 @@
  *       REJECTED, derived-N reverts to counting X (via derive-n.js's
  *       R10-A-03 contested-exclusion), and a block-grade integrity
  *       advisory NAMES the revocation's signer (owner-accountability).
+ *       The one X record that never contests is the window's own BOUNDARY:
+ *       the observation the ceremony built the window from, recognised by
+ *       its seq and ts identity (`_isWindowBoundary`), never by a ts order.
  *
  *   (4) Settlement via LIVENESS_TTL-bounded X-quiescence (R10-A-01):
  *       the quiescence interval is measured by the FOLDING CLONE'S
@@ -36,6 +39,14 @@
  *       construction NOT fetched X's current chain high-water, so
  *       cannot reach "settled" and cannot unlock the §6.4
  *       settled-revocation gate (the removal-only roster edit).
+ *
+ *   Settlement also requires the revocation to be UNCONTESTED OVER THE
+ *   COMPLETE STREAM, not merely at the point it was folded: X activity
+ *   appended after the revocation contests it exactly as earlier activity
+ *   does. The fold evaluates that over every accepted record and stamps
+ *   `rule10_contested` (coordination-log.js::_contestRevocationsOverFullStream);
+ *   `isSettled` honours that verdict and re-contests what its own inputs
+ *   show at gate time.
  *
  * Style: CommonJS, zero-dep, pure functions. No I/O, no fs. `Date.parse`
  * is used to compare ISO-8601 timestamp strings; the wall-clock `now`
@@ -59,7 +70,7 @@ const LIVENESS_TTL_MS = 20 * 60 * 1000;
  * predicate trusts the upstream cryptographic verification and focuses
  * on the rule-10 semantic contract.
  */
-function _validateRevocationShape(record) {
+function _validateRevocationShape(record, requireRecordWindow = true) {
   if (!record || typeof record !== "object") return "record not an object";
   if (record.type !== "collaborator-distinctness-revocation") {
     return `record.type != 'collaborator-distinctness-revocation' (got: ${record.type})`;
@@ -83,6 +94,7 @@ function _validateRevocationShape(record) {
   if (typeof c[idField] !== "string" || !c[idField]) {
     return `content.${idField} missing`;
   }
+  if (!requireRecordWindow) return null;
   if (!c.evidence_window || typeof c.evidence_window !== "object") {
     return "content.evidence_window missing (R10-A-02)";
   }
@@ -135,6 +147,47 @@ function _entryStrictlyPrior(entry, evidenceWindow) {
 }
 
 /**
+ * Is `entry` the BOUNDARY record of the evidence window — the most recent
+ * victim record the revoker had folded, from which the window was built?
+ *
+ * owner-depart-ceremony.js copies that record's ts into `opens_at` and its seq
+ * into `victim_chain_high_water_seq`, on both the GitHub and the Azure DevOps
+ * paths. It is therefore never STRICTLY prior to the window it opened, so the
+ * strict ts test in `_entryStrictlyPrior` contested every honest revocation by
+ * its own boundary. It is recognised here by IDENTITY — both coordinates the
+ * window pins must match, the seq exactly and the ts as the same instant — not
+ * by an ordering on ts.
+ *
+ * Both coordinates, not the seq alone: a revoker can name the victim's NEXT seq
+ * as the high-water, but cannot know the ts that record will carry, so a record
+ * at the high-water seq with any other ts is victim activity and still
+ * contests. Every other record is judged by `_entryStrictlyPrior` exactly as
+ * before, and a window without an integer high-water has no boundary (MED-1).
+ */
+function _isWindowBoundary(entry, evidenceWindow, windowIsDerived = false) {
+  if (windowIsDerived) return false;
+  if (!entry || typeof entry !== "object") return false;
+  const hi = evidenceWindow.victim_chain_high_water_seq;
+  if (!Number.isInteger(hi) || entry.seq !== hi) return false;
+  if (typeof entry.ts !== "string") return false;
+  const opensMs = Date.parse(evidenceWindow.opens_at);
+  return !Number.isNaN(opensMs) && Date.parse(entry.ts) === opensMs;
+}
+
+/**
+ * Does victim record `entry` contest a revocation with this evidence window?
+ * Every one does except the window's own boundary record and the records
+ * strictly prior to the window. The fold's contest and `isSettled`'s
+ * lastXActivity arm both decide through this one predicate.
+ */
+function _entryContests(entry, evidenceWindow, windowIsDerived = false) {
+  return (
+    !_isWindowBoundary(entry, evidenceWindow, windowIsDerived) &&
+    !_entryStrictlyPrior(entry, evidenceWindow)
+  );
+}
+
+/**
  * Fold a collaborator-distinctness-revocation. Returns either:
  *   - {accepted: true, ...} — no contradicting X-activity observed
  *   - {accepted: false, contested: true, forging_signer, contested_by_record,
@@ -174,11 +227,13 @@ function foldRevocation(record, ctx) {
   // Find ANY X-signed entry that is NOT strictly prior to the evidence
   // window. The architecture says: "the moment the folding clone observes
   // ANY X-signed record that X emitted at an seq/ts not strictly prior
-  // to the revocation's evidence window" → contest.
+  // to the revocation's evidence window" → contest. The window's own
+  // boundary record — the observation it was built from — is not such a
+  // record (`_isWindowBoundary`).
   let contradicting = null;
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
-    if (_entryStrictlyPrior(entry, window)) continue;
+    if (!_entryContests(entry, window, ctx.windowIsDerived === true)) continue;
     contradicting = entry;
     break;
   }
@@ -205,7 +260,7 @@ function foldRevocation(record, ctx) {
 /**
  * isSettled — the settlement predicate for the §6.4 settled-revocation
  * gate (the removal-only roster edit fence). A revocation is settled
- * only when BOTH:
+ * only when ALL of:
  *
  *   (a) Wall-clock quiescence (R10-A-01): the most recent observed
  *       X-activity is older than LIVENESS_TTL_MS by the folding clone's
@@ -220,7 +275,25 @@ function foldRevocation(record, ctx) {
  *       fold view will, by construction, never have peer-high-water
  *       known, so it cannot reach settled.
  *
- * @param {object} revocation
+ *   (c) Uncontested over the COMPLETE stream (rule 10). (a) ages X's
+ *       activity; it never asks whether that activity CONTESTS the
+ *       revocation, and a contested revocation never settles however long
+ *       the clone waits. Three arms, in order:
+ *         - the fold's verdict: `revocation.rule10_contested` must be
+ *           exactly `false`. coordination-log.js stamps it on every accepted
+ *           revocation, over every accepted record, so `true` is a contest
+ *           and an ABSENT or non-boolean value means the revocation is not
+ *           fold output and was never evaluated: both refuse;
+ *         - X's folded high-water against the fold-derived `rule10_window`;
+ *         - `lastXActivity` against that same derived window, without a
+ *           record-window boundary exemption. Record-authored audit windows
+ *           are not settlement authority (.claude/hooks/lib/fold-rule-10.js:407-435).
+ *       The last two re-contest at gate time from inputs this predicate
+ *       already requires, so a verdict folded before X's records were
+ *       appended cannot settle on its own.
+ *
+ * @param {object} revocation - the entry from `foldLog().accepted`, which
+ *   carries the fold's `rule10_contested`; anything else is refused.
  * @param {object} ctx
  * @param {number} ctx.foldedHighWaterSeq - the clone's own locally-folded
  *   seq high-water for X's per-emitter chain.
@@ -236,7 +309,7 @@ function foldRevocation(record, ctx) {
  * @returns {{settled: boolean, reason: string}}
  */
 function isSettled(revocation, ctx) {
-  const shapeErr = _validateRevocationShape(revocation);
+  const shapeErr = _validateRevocationShape(revocation, false);
   if (shapeErr) {
     return { settled: false, reason: `revocation shape invalid: ${shapeErr}` };
   }
@@ -317,10 +390,68 @@ function isSettled(revocation, ctx) {
     };
   }
 
-  // BOTH halves satisfied.
+  // Rule 10 over the COMPLETE stream — see (c) in the doc comment.
+  if (revocation.rule10_contested === true) {
+    return {
+      settled: false,
+      reason:
+        "rule 10: revocation is contested over the full stream (fold verdict rule10_contested:true); a contested revocation never settles",
+    };
+  }
+  if (revocation.rule10_contested !== false) {
+    return {
+      settled: false,
+      reason:
+        "rule 10: this revocation carries no fold verdict, so it was never evaluated over the complete stream; pass the entry from foldLog().accepted",
+    };
+  }
+  const evidenceWindow = Object.prototype.hasOwnProperty.call(revocation, "rule10_window")
+    ? revocation.rule10_window : null;
+  if (!evidenceWindow || typeof evidenceWindow !== "object" || Array.isArray(evidenceWindow) ||
+      !Number.isFinite(Date.parse(evidenceWindow.opens_at)) ||
+      !Number.isFinite(Date.parse(evidenceWindow.closes_at))) {
+    return { settled: false, reason: "rule 10: missing or invalid fold-derived contest window; pass the entry from foldLog().accepted" };
+  }
+  const victimHi = evidenceWindow.victim_chain_high_water_seq;
+  if (!Number.isSafeInteger(victimHi) || victimHi < 0) {
+    return {
+      settled: false,
+      reason:
+        "rule 10: evidence window carries no victim_chain_high_water_seq, so the revocation cannot be shown uncontested (MED-1)",
+    };
+  }
+  const auditWindow = revocation.content.evidence_window;
+  const auditHi = auditWindow && typeof auditWindow === "object" && !Array.isArray(auditWindow)
+    ? auditWindow.victim_chain_high_water_seq : undefined;
+  if (!Number.isSafeInteger(auditHi) || auditHi < -1) {
+    return {
+      settled: false,
+      reason:
+        "rule 10: invalid audit evidence window: victim_chain_high_water_seq must be a safe integer >= -1; settlement cannot establish the revoker's observed high-water",
+    };
+  }
+  const settlementHi = Math.min(victimHi, auditHi);
+  if (ctx.foldedHighWaterSeq > settlementHi) {
+    return {
+      settled: false,
+      reason: `rule 10: contested — X's folded high-water seq ${ctx.foldedHighWaterSeq} is past the revocation's observed victim high-water ${settlementHi}, so X was active after the revoker looked`,
+    };
+  }
+  if (
+    ctx.lastXActivity !== null &&
+    ctx.lastXActivity !== undefined &&
+    _entryContests(ctx.lastXActivity, evidenceWindow, true)
+  ) {
+    return {
+      settled: false,
+      reason: `rule 10: contested — lastXActivity (seq ${ctx.lastXActivity.seq} / ts ${ctx.lastXActivity.ts}) is not strictly prior to the evidence window [${evidenceWindow.opens_at}..${evidenceWindow.closes_at}]`,
+    };
+  }
+
+  // All three satisfied.
   return {
     settled: true,
-    reason: `settled: ${elapsed}ms >= LIVENESS_TTL (R10-A-01) AND local seq ${ctx.foldedHighWaterSeq} >= peer high-water ${peerHi} (R10-S-01)`,
+    reason: `settled: ${elapsed}ms >= LIVENESS_TTL (R10-A-01) AND local seq ${ctx.foldedHighWaterSeq} >= peer high-water ${peerHi} (R10-S-01) AND uncontested over the full stream (rule 10)`,
   };
 }
 
@@ -331,6 +462,8 @@ module.exports = {
   // exposed for tests + downstream tools
   _internal: {
     _entryStrictlyPrior,
+    _isWindowBoundary,
+    _entryContests,
     _validateRevocationShape,
   },
 };

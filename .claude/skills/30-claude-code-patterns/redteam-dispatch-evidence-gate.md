@@ -1,10 +1,10 @@
 # Redteam Reviewer Dispatch — Evidence Gate + Concurrency Back-Off + Concurrency Safety
 
-Depth file for `rules/agents.md` § "MUST: Redteam Reviewer Dispatch — Errored/Empty Is Zero Evidence, Never A Clean Round". The rule body carries the load-bearing MUST (the evidence gate + the back-off principle); this file carries the DO/DO-NOT block, the BLOCKED-rationalization corpus, the throttle-signal contract, the concurrency-safety axis (Axis 3, below), and the Trust Posture Wiring. Axis 3 does NOT introduce a new standalone MUST — it is the redteam-dispatch INSTANTIATION of two existing rule-body MUSTs (`rules/agents.md` § "MUST: Worktree Orchestration" concurrent-readers-read-committed-HEAD + `rules/evidence-first-claims.md` MUST-2, a security/anomaly finding is verified against ground truth before it is characterized — generalizing the MUST-3 errored-is-zero-evidence family to an uncommitted-transient observation), collected here because both bite at once on a `/redteam` wave.
+Depth file for `rules/agents.md` § "MUST: Redteam Reviewer Dispatch — Errored Is Never A Clean Round". The rule body carries the load-bearing MUST (the evidence gate + the back-off principle); this file carries the DO/DO-NOT block, the BLOCKED-rationalization corpus, the throttle-signal contract, the concurrency-safety axis (Axis 3, below), and the Trust Posture Wiring. Axis 3 does NOT introduce a new standalone MUST — it is the redteam-dispatch INSTANTIATION of two existing rule-body MUSTs (`rules/agents.md` § "MUST: Worktree Orchestration" concurrent-readers-read-committed-HEAD + `rules/evidence-first-claims.md` MUST-2, a security/anomaly finding is verified against ground truth before it is characterized — generalizing the MUST-3 errored-is-zero-evidence family to an uncommitted-transient observation), collected here because both bite at once on a `/redteam` wave.
 
 ## The failure mode
 
-A `/redteam` round dispatches N reviewers (reviewer + security-reviewer + closure-parity verifier, often run in one parallel wave per `rules/agents.md` § Parallel Execution + § Holistic Post-Multi-Wave Redteam). The orchestrator then tallies findings across the wave. The trap: provider rate-limiting can throttle the fan-out so one or more agents return **errored / empty / timed-out** — and an errored agent's "no findings returned" is indistinguishable, in a naive tally, from a genuinely-clean agent's "0 findings". The round is declared converged on a partial wave; the throttled reviewer's shard ships UN-reviewed under the converged banner.
+A `/redteam` round dispatches N reviewers (reviewer + security-reviewer + closure-parity verifier, often run in one parallel wave per `rules/agents.md` § Parallel Execution + § Holistic Post-Multi-Wave Redteam). The orchestrator then tallies findings across the wave. The trap: provider rate-limiting can throttle the fan-out so one or more agents return **errored / empty / timed-out** — and an errored agent's "no findings returned" is indistinguishable, in a naive tally, from a genuinely-clean agent's "0 findings". The round is declared clean on a partial wave; the throttled reviewer's shard ships UN-reviewed under the clean banner.
 
 This is the `rules/evidence-first-claims.md` MUST-3 failure ("an errored or empty command is zero evidence, never confirmation") applied to the redteam-dispatch layer: an errored REVIEWER is not an all-clear.
 
@@ -12,7 +12,7 @@ This is the `rules/evidence-first-claims.md` MUST-3 failure ("an errored or empt
 
 ### Axis 1 — EVIDENCE GATE (per `evidence-first-claims.md` MUST-3)
 
-Every dispatched reviewer MUST return a ran/evidence signal — a verbatim finding list, an explicit "ran clean, 0 findings, here is what I checked", or a tool-output receipt. An errored / empty / timed-out return is ZERO evidence: it MUST be re-run and MUST NOT count as a clean reviewer. Convergence (per `skills/32-trust-posture/redteam-integration.md` — 2 consecutive clean rounds) is claimable ONLY when EVERY agent in the round genuinely ran.
+Every dispatched reviewer MUST return a ran/evidence signal — a verbatim finding list, an explicit "ran clean, 0 findings, here is what I checked", or a tool-output receipt. An errored / empty / timed-out return is ZERO evidence: it MUST be re-run and MUST NOT count as a clean reviewer. The gate applies EVERY round (D237 rule 2), so a round is **clean** only when it has no CRITICAL/HIGH finding AND every counted reviewer genuinely ran (per `skills/32-trust-posture/redteam-integration.md`).
 
 ```text
 # DO — gate each reviewer on a ran/evidence signal before tallying
@@ -20,7 +20,7 @@ wave = dispatch([reviewer, security-reviewer, closure-parity])   # parallel
 for r in wave:
   if r.errored or r.empty or r.timed_out:
     re-run r   # ZERO evidence — NOT a clean reviewer
-# convergence claimable ONLY when all three returned a genuine ran-signal
+# a clean round is claimable ONLY when all three returned a genuine ran-signal
 
 # DO NOT — tally "0 findings" across a wave where one agent errored
 wave = dispatch([reviewer, security-reviewer, closure-parity])

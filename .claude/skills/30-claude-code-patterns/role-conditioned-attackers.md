@@ -126,20 +126,23 @@ suite that already ran this round — read its results and run only the new test
 ## How the coverage conditions compose with the pre-existing criteria
 
 `commands/redteam.md` § Convergence Criteria carries ten numbered criteria. Criteria 1–7 are the
-pre-existing gating contract (severity floors, the evidence-gated clean-round counter, spec
-compliance, new-code-has-new-tests, zero mock data, eval-harness green). Criteria 8–10 are the
-coverage half this method adds. They COMPOSE — none replaces another:
+pre-existing gating contract (severity floors, the round mechanism — Round 1 clean = review ends
+plus the every-round evidence gate, spec compliance, new-code-has-new-tests, zero mock data,
+eval-harness green).
+Criteria 8–10 are the coverage half this method adds. They COMPOSE — none replaces another:
 
-- Criterion 3 is the YIELD condition. On its own it is exactly the false-convergence signal
-  `adversarial-coverage.md` MUST-2 was written against; it gates only in conjunction with 8 and 9.
-- Criterion 8 (coverage closed, every closure warranted) is the derivation's proof obligation, and it
+- Criterion 3 (the round mechanism — Round 1 clean = review ends, with the every-round evidence
+  gate; the yield stop applies to the BUDGETED half only) is the YIELD condition. On its own it is
+  exactly the false-convergence signal `adversarial-coverage.md` MUST-2 was written against; it
+  gates only in conjunction with 8 and 9.
+- Criterion 8 (coverage closed, every closure cited) is the derivation's proof obligation, and it
   carries Criterion 4's anti-attestation floor: a cell warranted only by its own table row is OPEN.
-- Criterion 10 (incentive register closed) is what makes a PREFERENCE verdict consequential — without
-  it the most valuable attacker's output is published and gates nothing.
+- Criterion 10 (incentive register closed) is what makes a PREFERENCE verdict consequential —
+  without it the most valuable attacker's output is published and gates nothing.
 - Criterion 9 (questions stable) catches falling yield under an EXPANDING question set — the shape
   where old questions are exhausted while new ones are still producing on first pass.
 
-A round reports all ten and names which failed. "Two clean rounds" alone is never a convergence
+A round reports all ten and names which failed. A **clean** round alone is never a convergence
 claim (MUST NOT-1: no convergence claim without a published coverage table).
 
 ## Ordering with /vet

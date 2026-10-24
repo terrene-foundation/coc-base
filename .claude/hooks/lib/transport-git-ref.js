@@ -91,11 +91,13 @@ const { execFileSync } = require("child_process");
 // the SAME name — the single-source invariant that closes the redteam F1
 // silent-no-op class.
 const { DEFAULT_LOG_REF_NAME } = require("./log-ref-name.js");
+const { MAX_RECORD_UTF8_BYTES, parseCoordinationLog, assertRecordSize } = require("./fold-record-limits.js");
 const { resolveGitBinary, gitEnv, gitNetEnv } = require("./git-subprocess-env.js");
 
 const DEFAULT_MAX_RETRY = 5;
 const DEFAULT_REMOTE = "origin";
 const LOG_BLOB_FILENAME = "log.jsonl";
+const MAX_GIT_CAPTURE_BYTES = 4 * MAX_RECORD_UTF8_BYTES + 4;
 
 /**
  * @typedef {Object} GitRefTransportOpts
@@ -146,6 +148,11 @@ function createGitRefTransport(opts) {
     );
   }
   const remote = opts.remote || DEFAULT_REMOTE;
+  const boundPeerUrl = opts.boundPeerUrl;
+  const canonicalPeerUrl = boundPeerUrl === undefined ? undefined : require("./signed-peer-binding.js").canonicalPeerUrl;
+  if (boundPeerUrl !== undefined && !canonicalPeerUrl(boundPeerUrl)) {
+    throw new TypeError("transport-git-ref: invalid signed peer endpoint");
+  }
   const maxRetry =
     typeof opts.maxRetry === "number" && opts.maxRetry > 0
       ? opts.maxRetry
@@ -193,27 +200,44 @@ function createGitRefTransport(opts) {
       // call does not harden it, it breaks it.
       //
       // WHY THIS IS AVAILABILITY AND NOT A SILENT-STATE BUG, unlike
-      // `template-resolver`: the fetch handler swallows only three specific
-      // stderr patterns (`couldn't find remote ref`, `does not appear to be a
-      // git repository`, `reference is not a tree`) and treats everything else
-      // as fatal. `Could not resolve proxy` and `SSL certificate problem` match
-      // none of them, so a proxy failure SURFACES rather than being read as an
-      // empty log. That narrow swallow-list is what keeps this fail-closed.
+      // `template-resolver`: the fetch handler used to swallow three stderr
+      // patterns and treat everything else as fatal, and this note claimed that
+      // narrow swallow-list was what kept it fail-closed. THAT CLAIM WAS WRONG,
+      // and the round-2 security review measured the consequence: TWO of the
+      // three (`does not appear to be a git repository`, `reference is not a
+      // tree`) are COULD-NOT-ANSWER cases, and swallowing them let a peer that
+      // could not be reached be read as an empty log — with a stale local ref
+      // left in place from an earlier fetch, the settlement predicate then saw a
+      // matching high-water. As of 2026-10-09 `_fetchRefFromRemote` returns a
+      // TYPED answer: `refreshed` or `absent` (the peer ANSWERED, it has no such
+      // ref), and every other failure — including those two patterns and proxy /
+      // TLS failures — THROWS. A fetch failure is now an absent instrument at
+      // every consumer, never an empty log.
       return execFileSync(gitBin, ["-C", repoDir, ...args], {
         encoding: "utf8",
         stdio: o.stdio || ["pipe", "pipe", "pipe"],
         input: o.input,
         env: o.net ? gitNetEnv() : gitEnv(),
+        maxBuffer: MAX_GIT_CAPTURE_BYTES,
       });
     } catch (err) {
+      if (err && err.code === "ENOBUFS") {
+        const e = new Error(
+          `transport-git-ref: git output exceeds ${MAX_GIT_CAPTURE_BYTES} UTF-8 bytes; coordination log read is indeterminate`,
+        );
+        e.code = "ECOCRECORDSIZE";
+        throw e;
+      }
       // Surface stderr for diagnostic clarity.
       const stderr = err.stderr ? err.stderr.toString() : "";
-      const stdout = err.stdout ? err.stdout.toString() : "";
-      const message = `git ${args.join(" ")} failed (status ${err.status}): ${stderr || stdout || err.message}`;
+      // The module name leads the message: every failure this runner raises is
+      // now a COULD-NOT-ANSWER that callers must not mistake for an empty
+      // answer, and naming the module makes that origin visible at the call
+      // site (and in any consumer's `assert.throws(..., /transport-git-ref/)`).
+      const message = `transport-git-ref: git ${args.join(" ")} failed (status ${err.status}): ${stderr || err.message}`;
       const e = new Error(message);
       e.code = err.status;
       e.stderr = stderr;
-      e.stdout = stdout;
       throw e;
     }
   }
@@ -274,7 +298,7 @@ function createGitRefTransport(opts) {
    */
   function _gitOrAbsent(args, isAbsent) {
     try {
-      return git(args, { stdio: ["pipe", "pipe", "pipe"] }).trim();
+      return git(args, { stdio: ["pipe", "pipe", "pipe"] });
     } catch (err) {
       if (isAbsent(err)) return ABSENT;
       throw err;
@@ -301,29 +325,111 @@ function createGitRefTransport(opts) {
   }
 
   /**
-   * Fetch the current state of `refName` from the remote. Best-effort —
-   * if the remote does not yet have the ref, fetch is a no-op.
+   * Fetch the current state of `refName` from the remote, returning a TYPED
+   * answer so a caller can never mistake "could not ask" for "asked, nothing".
+   *
+   *   {status: "refreshed"} — the peer answered and the local ref now holds its
+   *                           current tip (which may be a valid empty log).
+   *   {status: "absent"}    — the peer ANSWERED and has no such ref. This is
+   *                           the legitimate empty-log state, and the answer is
+   *                           DEFINITIVE: git does not delete a stale LOCAL
+   *                           copy when the remote ref is missing, so callers
+   *                           MUST NOT fall back to the local ref — that view
+   *                           is stale by construction, not the peer's answer.
+   *
+   * EVERYTHING ELSE THROWS, and that is the point of this function:
+   *
+   *   An unreachable remote (`does not appear to be a git repository`), a ref
+   *   that points at something unreadable (`reference is not a tree`), an auth
+   *   failure, a timeout — all of these mean THE PEER COULD NOT ANSWER.
+   *   MEASURED (2026-10-09, round-2 security review): they used to be swallowed
+   *   together with the legitimate empty state, so a peer that could not be
+   *   reached left the previous fetch's LOCAL ref in place and the transport
+   *   reported that stale view as the peer's high-water — which made an
+   *   UNANSWERABLE peer satisfy R10-S-01 and an unsettled owner-departure
+   *   revocation read as SETTLED (the hook ALLOWED a removal). A failed fetch is
+   *   not an empty log; it is an absent instrument (`instrument-discipline.md`
+   *   MUST-5: could-not-answer is not answered-nothing, and the two must stay
+   *   discriminable through every consumer).
    */
+  function assertBoundPeerSync() {
+    if (boundPeerUrl === undefined) throw new Error("transport-git-ref: signed peer endpoint missing");
+    let configured;
+    try { configured = git(["config", "--get-all", `remote.${remote}.url`]); }
+    catch { throw new Error("transport-git-ref: configured peer binding missing or unreadable"); }
+    const urls = configured.trim().split("\n").filter(Boolean);
+    if (urls.length !== 1 || canonicalPeerUrl(urls[0]) !== canonicalPeerUrl(boundPeerUrl)) {
+      throw new Error("transport-git-ref: configured peer mismatches signed endpoint");
+    }
+    let routes;
+    try {
+      routes = git(["config", "--includes", "--get-regexp",
+        "(^[uU][rR][lL]\\..*\\.([iI][nN][sS][tT][eE][aA][dD][oO][fF]|[pP][uU][sS][hH][iI][nN][sS][tT][eE][aA][dD][oO][fF])$|^[iI][nN][cC][lL][uU][dD][eE].*\\.[pP][aA][tT][hH]$|^[hH][tT][tT][pP].*\\.[sS][sS][lL][vV][eE][rR][iI][fF][yY]$)"]);
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      routes = "";
+    }
+    if (routes.trim()) throw new Error("transport-git-ref: mutable peer URL rewrite/include/TLS routing is refused");
+    return true;
+  }
+
+  function resolveBoundLogRefSync() {
+    assertBoundPeerSync();
+    const output = git(["-c", "http.followRedirects=false", "ls-remote", boundPeerUrl, "refs/coc/coordination-gen*"], { net: true });
+    const { parseHighestLogGen, logRefNameForGen } = require("./log-ref-name.js");
+    const generation = parseHighestLogGen(output);
+    return { refName: generation === null ? DEFAULT_LOG_REF_NAME : logRefNameForGen(generation),
+      gen: generation === null ? 0 : generation, source: generation === null ? "default-no-log-ref" : "ls-remote" };
+  }
+
+
   function _fetchRefFromRemote() {
+    if (boundPeerUrl !== undefined) assertBoundPeerSync();
+    // THREE DISPOSITIONS, and the FIRST one is why this probe exists: `git
+    // fetch <remote>` reports "does not appear to be a git repository" BOTH when
+    // no such remote is CONFIGURED and when a configured remote's URL is
+    // unreachable, so the fetch error alone cannot tell "there is no peer" from
+    // "the peer did not answer". The remote's configuration can.
+    if (!_remoteConfigured()) return { status: "no-remote" };
     try {
       // NETWORK call — see the `o.net` note in the runner above.
-      git(["fetch", remote, "--quiet", `+${refName}:${refName}`], {
+      git([...(boundPeerUrl ? ["-c", "http.followRedirects=false"] : []), "fetch", boundPeerUrl || remote, "--quiet", `+${refName}:${refName}`], {
         stdio: ["pipe", "pipe", "pipe"],
         net: true,
       });
+      return { status: "refreshed" };
     } catch (err) {
-      // Common failure: the ref doesn't exist on the remote yet. That is
-      // the legitimate empty-log state; we swallow and let the caller
-      // observe `headHashSync() === null`.
-      if (
-        /couldn't find remote ref|does not appear to be a git repository|reference is not a tree/i.test(
-          err.stderr || "",
-        )
-      ) {
-        return;
+      const stderr = String((err && err.stderr) || "");
+      // The peer answered: it has no such ref. Definitive, and local-stale-free
+      // by the caller's construction (see readAllRecordsSync).
+      if (/couldn't find remote ref/i.test(stderr)) {
+        return { status: "absent" };
       }
-      // Any other error is fatal — surface it.
+      // Could not answer. Surface it — never collapse it into "absent".
       throw err;
+    }
+  }
+
+  /**
+   * Is a coordination PEER configured for this checkout at all?
+   *
+   * `git config --get remote.<remote>.url` is the structural question, and it is
+   * asked SEPARATELY from the fetch because the fetch's failure text cannot
+   * distinguish "no such remote" from "that remote is unreachable". Exit 1 (key
+   * unset) is git ANSWERING "not configured"; anything else — a non-repo, an
+   * unreadable config — answers false as well, and false only routes a caller
+   * back to the LOCAL ref, where the very next read has to answer for itself
+   * (headHashSync throws on a repo git cannot open).
+   */
+  function _remoteConfigured() {
+    if (boundPeerUrl !== undefined) return true;
+    try {
+      const url = git(["config", "--get", `remote.${remote}.url`], {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      return typeof url === "string" && url.trim().length > 0;
+    } catch {
+      return false;
     }
   }
 
@@ -333,11 +439,12 @@ function createGitRefTransport(opts) {
    * "no log yet", and nothing else. THROWS when git could not answer.
    */
   function headHashSync() {
-    const sha = _gitOrAbsent(
+    const answer = _gitOrAbsent(
       ["rev-parse", "--verify", "--quiet", refName],
       _isRefAbsent,
     );
-    if (sha === ABSENT) return null;
+    if (answer === ABSENT) return null;
+    const sha = answer.trim();
     if (!/^[0-9a-f]{40}$/.test(sha)) {
       // `--verify` exited 0, so git believes it answered — but the answer is
       // not a SHA. A broken answer is not an absent ref; the prior code
@@ -373,23 +480,16 @@ function createGitRefTransport(opts) {
    * meaningfully fold over corrupted JSON; loud failure is correct).
    */
   function _parseJsonl(blob) {
-    if (!blob) return [];
-    const records = [];
-    const lines = blob.split("\n");
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
-      if (!line) continue;
-      let rec;
-      try {
-        rec = JSON.parse(line);
-      } catch (err) {
-        throw new Error(
-          `transport-git-ref: malformed JSON at log line ${i + 1}: ${err && err.message ? err.message : String(err)}`,
-        );
+    try {
+      return parseCoordinationLog(blob, {
+        malformed: "throw", objectRecordsOnly: false, maxRecords: null,
+      }).records;
+    } catch (error) {
+      if (error && error.code === "ECOCLOGJSON") {
+        throw new Error("transport-git-ref: " + error.message);
       }
-      records.push(rec);
+      throw error;
     }
-    return records;
   }
 
   /**
@@ -406,7 +506,12 @@ function createGitRefTransport(opts) {
    * @throws {Error} when the ref or blob could not be read (INDETERMINATE)
    */
   function readAllRecordsSync() {
-    _fetchRefFromRemote();
+    const fetched = _fetchRefFromRemote();
+    // ANSWERED-ABSENT SHORT-CIRCUITS BEFORE ANY LOCAL READ. A stale local ref
+    // left by an earlier fetch is not the peer's answer, and reading it is how a
+    // peer that had lost the ref was measured settling a revocation (round-2
+    // security review). "The peer has no such ref" is a definitive empty log.
+    if (fetched.status === "absent") return [];
     const tip = headHashSync();
     if (!tip) return [];
     const blob = _readLogBlobAt(tip);
@@ -435,6 +540,58 @@ function createGitRefTransport(opts) {
     let high = null;
     for (const r of records) {
       if (r && r.verified_id === verifiedId && typeof r.seq === "number") {
+        if (high === null || r.seq > high) high = r.seq;
+      }
+    }
+    return high;
+  }
+
+  /**
+   * The PEER-OBSERVED high-water — the same question as
+   * `peerHighWaterForSync`, asked in the form R10-S-01 actually requires, and
+   * the ONE a settlement decision may consume.
+   *
+   * WHY A SECOND ACCESSOR. `peerHighWaterForSync` deliberately falls back to the
+   * LOCAL ref when no peer is configured, because that is the correct reading
+   * for a local-only checkout materializing its own log. Settlement is the
+   * opposite question: "has this clone fetched X's peer-observed high-water?"
+   * A local read is not a peer observation, and the local ref can be STALE
+   * relative to the peer — so treating it as one makes every unanswerable peer
+   * look like a matching high-water (meadow-measured: the round-2 bypass).
+   *
+   * Dispositions, and NONE of them can be read as a number unless the peer
+   * really reported one:
+   *   configured + refreshed  → the peer's high-water, or `null` when the peer
+   *                             genuinely holds no record for that chain
+   *                             (answered-absent = "not in the log").
+   *   configured + absent     → `null` (the peer answered: no such ref).
+   *   configured + unreachable / unreadable → THROWS.
+   *   NOT configured          → THROWS: there is no peer to observe, so the
+   *                             question this accessor exists to answer has no
+   *                             answer — fail closed rather than self-observe.
+   */
+  function peerObservedHighWaterSync(verifiedId) {
+    const fetched = _fetchRefFromRemote();
+    if (fetched.status === "no-remote") {
+      throw new Error(
+        "transport-git-ref: no coordination peer is configured for this checkout " +
+          `(remote '${remote}' has no url), so a peer-observed high-water cannot be ` +
+          "established — a LOCAL read is not a peer observation (R10-S-01)",
+      );
+    }
+    if (fetched.status === "absent") return null;
+    if (typeof verifiedId !== "string" || !verifiedId) return null;
+    const tip = headHashSync();
+    if (!tip) return null;
+    const records = _parseJsonl(_readLogBlobAt(tip));
+    let high = null;
+    for (const r of records) {
+      if (r && r.verified_id === verifiedId) {
+        if (!Number.isSafeInteger(r.seq) || r.seq < 0) {
+          const error = new TypeError("transport-git-ref: invalid peer chain sequence; observation is unknown");
+          error.code = "invalid-peer-chain-sequence";
+          throw error;
+        }
         if (high === null || r.seq > high) high = r.seq;
       }
     }
@@ -619,12 +776,17 @@ function createGitRefTransport(opts) {
     if (!record || typeof record !== "object") {
       return { ok: false, error: "record must be an object" };
     }
+    const newLine = _serializeRecord(record);
+    assertRecordSize(Buffer.byteLength(newLine, "utf8"));
     let lastReason = "no attempts";
     for (let attempt = 1; attempt <= maxRetry; attempt += 1) {
-      _fetchRefFromRemote();
-      const priorTip = headHashSync();
+      const fetched = _fetchRefFromRemote();
+      // Same rule on the write path: "the peer has no such ref" means the chain
+      // starts here, NOT that a stale local ref should be extended. A
+      // could-not-answer THROWS out of this function (unchanged: the caller's
+      // retry/exhaust path already reports it as a failure, never as success).
+      const priorTip = fetched.status === "absent" ? null : headHashSync();
       const priorJsonl = priorTip ? _readLogBlobAt(priorTip) : "";
-      const newLine = _serializeRecord(record);
       const newJsonl =
         priorJsonl && !priorJsonl.endsWith("\n")
           ? `${priorJsonl}\n${newLine}\n`
@@ -658,6 +820,13 @@ function createGitRefTransport(opts) {
     readAllRecordsSync,
     headHashSync,
     peerHighWaterForSync,
+    // The STRICT peer-observed accessor (2026-10-09, round-2): throws when no
+    // peer is configured, throws when the peer cannot be reached or read, and
+    // answers a number/null ONLY when the peer really answered. Settlement
+    // consumers MUST use this one.
+    peerObservedHighWaterSync,
+    assertBoundPeerSync,
+    resolveBoundLogRefSync,
     // Promise-returning aliases matching the engine's typedef shape.
     // `Promise.resolve(f())` evaluates `f()` EAGERLY, so once the sync methods
     // started throwing on INDETERMINATE (shard 7) that throw escaped
@@ -670,6 +839,8 @@ function createGitRefTransport(opts) {
     headHash: () => new Promise((resolve) => resolve(headHashSync())),
     peerHighWaterFor: (id) =>
       new Promise((resolve) => resolve(peerHighWaterForSync(id))),
+    peerObservedHighWater: (id) =>
+      new Promise((resolve) => resolve(peerObservedHighWaterSync(id))),
     // Diagnostics — exposed for testing/observability, not part of the
     // engine's Transport contract.
     _internal: {

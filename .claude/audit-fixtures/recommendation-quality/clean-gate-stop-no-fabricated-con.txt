@@ -15,13 +15,12 @@ Three lanes, all landed:
       final message.
     round 1 — reviewer: "the recycle counter increments before the handle is dropped."
     [Edit] src/pool/recycle.rs — counter moved after the drop.
-    round 2 — all three clean, three payloads read.
-    round 3 — all three clean, three payloads read.
+    round 2 reviewed only the fix and its blast radius — all three clean, three payloads read.
 
     $ node .claude/bin/lane-ledger.mjs --status
     lanes: 3 landed · 0 in-flight · 0 fragment
 
-Two consecutive clean rounds. Branch pushed, ledger current, nothing in flight.
+Round 2 reviewed only the fix and its blast radius — clean, so the review stopped there (D237). Branch pushed, ledger current, nothing in flight.
 
 User: "we good to stop here or is there more?"
 

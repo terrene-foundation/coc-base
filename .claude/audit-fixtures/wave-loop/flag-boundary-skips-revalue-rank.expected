@@ -12,8 +12,9 @@ G4 exists to re-validate exactly that deferred value-anchor.
 
 Discriminator 1 — MUST-3 IS SATISFIED, and visibly. Five reviewers dispatched in one message,
 every one returns a real payload in every round, three BUG findings fixed, the INCREMENTAL
-correctly accreted to the deferred-quality backlog without resetting the counter, two
-consecutive clean rounds on BUG + INVEST-NOW. No errored or empty return is counted as clean.
+correctly accreted to the deferred-quality backlog, the round-1 BUGs fixed and round 2
+scoped to the fixes and their blast radius — clean on BUG + INVEST-NOW and a stop (D237).
+No errored or empty return is counted as clean.
 G1 is the one gate step that ran to the letter.
 
 Discriminator 2 — MUST-5 IS SATISFIED. The boundary claims carry durable external receipts: a

@@ -14,7 +14,9 @@ locative surface (including the **unlanded-shard** class and the **worktree-recl
 output**, (7) the **chained `/sweep` gate** — why the sweep runs as its own step and is then gated
 (2026-09-12, superseding the receipt-only refusal), its honest limit, and the measurement that fixed
 its instrument — (8) the **emitted scaffold** and the **paste-able handoff socket**, and (9) the
-**close-out display** — per-container backlog rows and the burndown chart. The section ORDER, the
+**close-out display** — per-container backlog rows and the burndown chart, and (10) **cycle mode**
+(`--cycle`) — why it is shaped as it is and what it measured; its PROCEDURE is `cycle.md` beside this
+file, not here. The section ORDER, the
 eight always-present sentinels, the
 reconciliation steps THEMSELVES, the closure refusals, and the Hard rules are OWNED by the command
 and are not restated here; where the two could ever disagree, the command is authoritative.
@@ -142,6 +144,22 @@ any check cited as evidence, moved one surface earlier — to the moment the cla
 and a 300-line ceiling. A compliant directives section is 3 prose lines + ≤5 two-line entries ≈ 13
 lines at maximum, ~4 lines in the common case, and 3 lines when empty. It is not what pushes an
 artifact toward the ceiling; an unbounded `Where we are` narrative is.
+
+In full wrapup, when history placement already surfaced this session, plan moving attributed history out of the current-fragment directory before handover:
+
+```bash
+node .claude/bin/session-notes-archive.mjs notes --json
+```
+
+Retain each owner's source, destination and hash from the plan. Resolve refusals before applying:
+
+```bash
+node .claude/bin/session-notes-archive.mjs notes --apply --json
+```
+
+Confirm byte conservation and aggregate success; each fragment's owner repoints any reported
+history links to the named archive. Keep standing directives in the current fragment.
+CLI and result fields: `.claude/bin/session-notes-archive.mjs:42-61,74-102`.
 
 ## 4. The in-play branch and worktree inventory
 
@@ -367,8 +385,10 @@ carry reasoning the command references rather than restates.
 (loom-internal reference) and
 `rules/knowledge-convergence.md` MUST-1, work-state transitions are append-only signed events at
 `burndown/events.jsonl` and the forest ledger is a DERIVED PROJECTION regenerated from
-`.claude/hooks/lib/burndown-events.js::foldEvents`. Three consequences the command states as rules
-and this file explains:
+`.claude/hooks/lib/burndown-events.js::foldEvents`. An `appendEvent` lands in the gitignored pending
+stream first; the projection step (`forest-ledger-project.mjs`) flushes it into the tracked log
+before it regenerates, so the ledger folds this session's own events. Three consequences the command
+states as rules and this file explains:
 
 - **Carry-forward became implicit, and that is a SIMPLIFICATION, not a relaxation.** The old
   protocol's step 1 read the prior notes and step 2 re-transcribed every unclosed row — a manual
@@ -795,14 +815,12 @@ membership on every build. Each render's tokens bind its own digest, so both val
 simply two states. If the fragment's quote disagrees with the reply block's ALL PAGES row, say the
 sources moved between the two commands; never pick one, and never reconcile them by hand.
 
-**Rendered BEFORE the ledger emission.** The manifest's tracker is `burndown/events.jsonl`, and
-its `_tracker_note` in `burndown-manifest.json` records that `assertCommittedAndUnmodified` holds the
-tracker to the same standard as every declared source. Inferred from that note, NOT measured here
-(measuring it would mean appending to the real log): after slot (b) appends, the generator refuses
-until the log is committed. So the chart is rendered first, which is correct whether or not the
-inference holds — it shows the committed state the session closes on, and its `generated_from_sha:`
-says which. If the write guard verifying the fragment afterwards meets that refusal,
-`rules/burndown-integrity.md` names a refusing generator as UNKNOWN, never clean.
+**Rendered BEFORE the ledger emission.** The manifest's tracker is `burndown/events.jsonl`. Slot
+(b)'s appends land in the gitignored pending stream, not in that file, so the tracked log — and
+the chart built from it — is unchanged until the projection step flushes the stream. The chart is
+rendered first all the same: it shows the committed state the session closes on, and its
+`generated_from_sha:` says which. If the write guard verifying the fragment afterwards meets a
+refusing generator, `rules/burndown-integrity.md` names that UNKNOWN, never clean.
 
 **A consumer with no manifest gets a refusal, and that is the expected shape.** MEASURED in a fresh
 temporary git repo with no `burndown-manifest.json`: exit 2, `UNRUNNABLE — refusing because declared
@@ -819,3 +837,51 @@ MUST NOT names.
 - "The two renders differ by one, I will use the bigger number" (that is reconciling by hand)
 - "The generator refused, so there is nothing open" (a refusal emits no block; UNKNOWN is the answer)
 - "Twelve rows is plenty; the rest are the same kind" (then group them and list every name)
+
+## 10. Cycle mode (`--cycle`) — why bounded, and what it measured
+
+The procedure and the seed schema live in `cycle.md` beside this file, sized to be read ALONE (≤ 6,000 B
+target, CYCLE.md §1.3; 7,815 B since 2026-10-12, when the ASSIGNMENT binding, the `written=` clock rule,
+the tail fence and the one-retry slot list were added — the measured lost-assignment and lost-tail failures
+are the reason those rules cannot live elsewhere).
+This section holds the reasoning so the procedure stays small.
+
+**Why it exists.** The context cycle hands over at a token threshold, and today's full wrapup cannot
+finish inside the headroom: its instruction load plus census is larger than the headroom itself
+(CYCLE.md §1.3(a)). A handover that overruns the backstop is cut by the autocompaction mid-write.
+
+**Why seed FIRST.** Writes are ordered by value, so every prefix of the procedure leaves a usable
+boundary. After slot 1 alone, a `/clear` or an autocompact resumes from the seed; slots 2–3 only add
+durability (ledger events, fragment `## CURRENT`, vault pair).
+
+**Why ONE bounded retry, never a loop.** A refused or incomplete render is loud on the final line and the
+seed still stands. A retry loop at the threshold spends the headroom the boundary needs; the meter
+re-signals and the NEXT cycle rewrites the seed, carrying the failure in TRAPS. The slot list is therefore
+cap 4 plus ONE retry of at most 2 calls (≤ 6), for exactly three codes, each fixed by a value the signal
+itself names: `written-skew` (Edit the header to the printed clock — only a FUTURE label is fixed in
+place), `seed-stale` (a NEW seed file from live state — re-labelling an old seed would re-freshen old
+content) and `assignment-ledger-stale` (the ledger append). The clock is COPIED from the `[CTX]`
+handover line (`seed written=<clock>`), so the first attempt needs no lookup call; with no such line
+(a csq-primary session), the seed-write `[CTX] seed …` line prints it and that Edit is the retry.
+
+**Why the full gate does not run.** The sweep gate, the container census and the burndown render are
+MEASUREMENTS the full wrapup owes; at the threshold they are the cost being avoided. The seed's
+MECHANICAL section carries generated lines already in context and nothing typed from memory. Decision D1
+(CYCLE.md §6) is adopted by default 2026-10-10, overrulable by the owner: a renderer-projected cycle pair satisfies the vault directive between
+full `/sweep` runs, and a full `/sweep` runs on request, at most once a day.
+
+**Measured walk (2026-10-10, at loom, on a scratch copy — the walk script lives in loom's `context-budget-2026-10-10` workspace).**
+Seed = `design/seed-example.txt` (2,974 B) rendered into a copy of the live 77,651 B fragment and an
+empty scratch vault; the renderer exited 0 with `HANDOVER WRITTEN 55b40351` and a verify-clean pair.
+
+| | today's full `/wrapup` | `--cycle` (via `cycle.md`) | `--cycle` (via the command) |
+| --- | --- | --- | --- |
+| instruction + output reads | 136,835 B measured (command, skill, chained sweep command + skill, burndown print + quote), plus the census (73,552 B, CYCLE.md M17, not re-measured) | 6,049 B (`cycle.md` 5,422 + receipt 627) | 28,916 B (`commands/wrapup.md` 28,289 + receipt 627) |
+| model-authored writes | 77,651 B fragment rewrite, plus the wave tracker (29,621 B, M14, not re-measured) | 2,974 B seed (+ events JSON when the forest moved) | same |
+| generated writes | vault pair by hand (22,275 B, M18) | 3,678 B fragment section + 9,486 B vault pair, by the renderer | same |
+| tool calls | 6 + 3 (loom vault) + the chained sweep | ≤ 4 (≤ 6 with the one retry) | ≤ 4 (≤ 6 with the one retry) |
+
+At CYCLE.md M9's 2.99 B/token that is ~45.8k tokens of reads (before the census) against ~2.0k via
+`cycle.md` or ~9.7k via the command, and ~26k authored tokens against ~1.0k. Invoking through the
+command is the dearer path because the whole command body loads; an autonomous handover reads `cycle.md`
+directly. The token conversion is an INFERENCE from M9's tool-output ratio, not a transcript measurement.

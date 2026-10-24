@@ -40,6 +40,7 @@
 "use strict";
 
 const fs = require("fs");
+const { parseCoordinationLog } = require("./fold-record-limits.js");
 const path = require("path");
 
 // FSUB (2026-06-11): signed-emission dependencies are lazy-required inside
@@ -231,17 +232,9 @@ function _foldHighWater(repoDir, dirRel) {
     if (err && err.code === "ENOENT") return 0;
     throw err;
   }
-  const records = raw
-    .split("\n")
-    .filter((l) => l.length > 0)
-    .map((l) => {
-      try {
-        return JSON.parse(l);
-      } catch {
-        return null;
-      }
-    })
-    .filter((r) => r && typeof r === "object");
+  const records = parseCoordinationLog(raw, {
+    malformed: "skip", objectRecordsOnly: true, maxRecords: null,
+  }).records;
   if (records.length === 0) return 0;
 
   // The roster read REFUSES on failure, for the same reason the log read above
@@ -725,7 +718,13 @@ function reserveJournalSlotSigned(repoDir, opts) {
       step: "args",
     };
   }
-  const o = opts || {};
+  // Read opts only through the emitter's own snapshot: a seam the caller left
+  // out must read `undefined`, never a value planted on a polluted
+  // Object.prototype that the envelope below would turn into an OWN field
+  // (sigcov R2-C1, the R1 S2 class at the wrapper).
+  const snapshot = require("./coc-emit.js").snapshotPlainOpts(opts);
+  if (snapshot.refusal) return snapshot.refusal;
+  const o = snapshot.o;
   const dirRel =
     typeof o.dir === "string" && o.dir.trim() ? o.dir.trim() : "journal";
 

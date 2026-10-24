@@ -61,6 +61,22 @@
  * noise the CI audit already covers.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<os.tmpdir()>/coc-cjb-engine-absent-<session-id>"
+ *     ],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "The write target sits under the OS temp root, outside the repo. The marker is created with flag 'wx' and keyed on session_id, so a repeat payload is a no-op (EEXIST -> quiet). The workflow read is through a file descriptor; the audit engine is imported in-process (it spawns and writes nothing)."
+ * }
+ */
+
 const path = require("path");
 const fs = require("fs");
 const os = require("os");

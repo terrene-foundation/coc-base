@@ -24,7 +24,7 @@ Reported symptom across repositories: *"projects are never done."* Nothing about
 
 | Proposed fix | Refuted by |
 | --- | --- |
-| **Cap the rounds** | *Looping Is Not Reliability* (arXiv:2607.24604): correctness **82.0% → 67.3%** rev 1→2; **16.0% of trajectories produce a correct patch then LOSE it** by rev 3. Iteration is not monotone, so a count cannot encode correctness. (The paper also reports a flat condition — the load-bearing claim is **non-monotonicity**, not "more rounds are bad".) This is why `completion-criterion.md` MUST-4 makes the cap a **circuit breaker** and mandates last-known-good preservation. |
+| **Cap the rounds** | *Looping Is Not Reliability* (arXiv:2607.24604): correctness **82.0% → 67.3%** rev 1→2; **16.0% of trajectories produce a correct patch then LOSE it** by rev 3. Iteration is not monotone, so a count cannot encode correctness. (The paper also reports a flat condition — the load-bearing claim is **non-monotonicity**, not "more rounds are bad".) This is why `completion-criterion.md` MUST-4 makes BOUNDED ROUNDS the **normal** termination (a residual CRITICAL/HIGH when review ends goes to the owner) and mandates last-known-good preservation. |
 | **Filter harder on severity** | Falsified in the field (§2) — zero of seven findings were incremental. Independently, `product-completion-first.md` MUST-1 **BLOCKS severity-as-gate** outright; the corpus gates on CATEGORY with fail-closed ambiguity resolution. |
 | **Trust the critic** | arXiv:2407.04549 — iterative self-refinement drives the model evaluator away from human judgement in-context. Huang et al. (ICLR 2024) — intrinsic self-correction without an external signal degrades output. |
 | **Iterate longer** | Reflexion's gains are real (~12 steps, AlfWorld) but only against an **external** oracle — and even then, oracle-grounded reflection scored **55.15 vs 55.76 baseline** at moderate complexity (arXiv:2506.12928). External signal is **necessary, not sufficient**. |
@@ -36,12 +36,14 @@ Corroborating scale: *When Agents Do Not Stop* (arXiv:2607.01641) — **68 confi
 
 Twenty completion-bearing surfaces were read. **No clause is capable of terminating the loop.** The reason is structural, not an oversight in any one rule:
 
-1. **Every terminal condition is the absence of findings** (`commands/redteam.md` Convergence Criterion 3). An absence cannot be finished, only waited for.
-2. **`product-completion-first.md` is a pass-through in this case by design.** Its BUG row is a positive allowlist of what counts and its disposition reads "converges to 2 clean rounds" — the classifier **feeds** the loop rather than bounding it. It was built to stop incrementals resetting the counter; when every finding is a real BUG it removes nothing.
+1. **Every terminal condition is the absence of findings** (`commands/redteam.md` § Convergence Criteria). An absence cannot be finished, only waited for (closed by the round mechanism — see below).
+2. **`product-completion-first.md` is a pass-through in this case by design.** Its BUG row is a positive allowlist of what counts and its disposition routes each real BUG back into the review loop rather than curbing it — the classifier **feeds** the loop rather than bounding it. It was built to stop incrementals resetting the counter; when every finding is a real BUG it removes nothing.
 3. **Three clauses ratchet the surface UPWARD per round** — `zero-tolerance.md` Rule 1 (found ⇒ owned, this run), `autonomous-execution.md` MUST-4 (warm same-class gaps fixed now), `coc-artifact-eval-coverage.md` MUST-2 (every finding becomes a permanent named case). Each round can legitimately **create** the work the next round finds.
 4. **Both ambiguity resolvers point inward** — `product-completion-first.md` MUST-1 (ambiguous → IMMEDIATE) and MUST-3 (no covering criterion → ESCALATE). Correct individually; jointly they mean uncertainty always adds work.
-5. **Every clause that could gate the loop is asymmetric** — `sweep-completeness.md` MUST-1, `redteam.md`'s stop-early violation, `wave-loop.md` MUST-6 all fire on doing LESS. Nothing fires on doing more.
-6. **`redteam.md` penalises stopping with no symmetric penalty for continuing.**
+5. **Every clause that could gate the loop is asymmetric** — `sweep-completeness.md` MUST-1, `redteam.md`'s then-stop-early violation, `wave-loop.md` MUST-6 all fired on doing LESS. Nothing fired on doing more (closed by the round mechanism — see below).
+6. **`redteam.md` penalised stopping with no symmetric penalty for continuing** (closed by the round mechanism — see below).
+
+**The round mechanism (D237, landed 2026-10-08 — `commands/redteam.md` § Convergence Criteria, Criterion 3) closes items 1, 5 and 6 at the `/redteam` layer.** The round structure is bounded and posture-invariant: Round 1 is a full review (a **paired** Round 1 — correctness + adversarial security, in parallel — for a security-critical change); a round is **clean** when it has no CRITICAL/HIGH finding, and the every-round evidence gate counts a reviewer only if it genuinely ran; **Round 1 clean = review ends**; not clean → fix → Round 2 reviews ONLY the fixes plus their blast radius, with the SAME reviewer composition; a Round-2 finding gets its fix plus its A5 check(s) (D237, `commands/redteam.md` Criterion 3); then review ends — never a Round 3 or 4. **WHEN REVIEW ENDS, at any round, every remaining finding of ANY severity goes to the durable LEDGER** — none is dropped (rule 5 — 5(c) provisional acceptance applies ONLY to a risk that is NOT security-critical (rule 1's class, including any trust boundary) and NOT HIGH/CRITICAL; a security-critical or HIGH/CRITICAL residual follows (d) and needs the owner's acceptance BEFORE landing). `redteam.md` therefore now fires on doing MORE — a second full round after a clean Round 1, or any Round 4 — and the terminal condition is a bounded round structure rather than an open-ended absence. The survey above stands as the 2026-08-02 measurement that motivated `completion-criterion.md`.
 
 Measured absence: `grep -rniE "before (any )?verification|acceptance list|stated up.?front|exit criteria|definition of done"` over `.claude/rules/*.md` + `.claude/commands/*.md` → **zero matches** (positive control `"acceptance criteria"`, same command form, same corpus → 12 lines). `commands/todos.md` — the plan-authoring gate — contains **zero** occurrences of `success criteri` or `acceptance`.
 
@@ -137,7 +139,7 @@ Reported as **not found**, not as **does not exist**:
 
 2026-08-02, co-owner-directed. Four independent investigations converged: a corpus-completion-surface audit (§4), a practice-and-standards review (§9), an overthinking/adaptive-calibration review (§5–§7), and a downstream proposal (loom#1528) itself adversarially reviewed by two further reviewers who converged on the **imminence** and **authorship** gaps and corrected several citation over-claims.
 
-Two premises did not survive and are recorded so they are not re-proposed: **(a)** scoping the acceptance list to *user-visible* behaviour — the highest-consequence defect classes (security, data-integrity, tenant-isolation) are the least visible; and **(b)** calibrating review depth on *model capability* — the least-supported axis available, refuted in §5–§6.
+Two premises did not survive and are recorded so they are not re-proposed: **(a)** scoping the acceptance list to *user-visible* behaviour — the highest-consequence defect classes (security, data-integrity, tenant-isolation) are the least visible; and **(b)** calibrating review depth on *model capability* (the "modern models self-critique, so cut the external round" form) — the least-supported axis available, refuted in §5–§6.
 
 A third near-miss is recorded because it is the most instructive: the first draft imported an external best practice (**"gate on a severity bar"**) over a ratified local rule (`product-completion-first.md` MUST-1, which BLOCKS severity-as-gate and fixes CATEGORY as the gate). It produced a rule that read authoritative — it cited real industry practice — while contradicting the corpus it shipped into. **Check the corpus before importing the literature.**
 
@@ -179,22 +181,31 @@ Tests pass · no stubs · CHANGELOG entry · zero open `BUG` / `INVEST-NOW` find
 ```markdown
 # DO — split, then converge on one side and budget the other
 
-BUG / INVEST-NOW / on-list: 2 findings → converge (iterate to clean; no cap applies)
+BUG / INVEST-NOW / on-list: 2 findings → converge under the BOUNDED rounds (Round 1 clean =
+  review ends; else fix → Round 2 on the fixes plus their blast radius, a Round-2 finding's fix +
+  its A5 check(s), then review ends — never a Round 3 or 4; remainder LEDGERED per rule 5)
 INCREMENTAL + off-list: 9 findings → backlog w/ the four MUST-2 defer conditions; 1 round
                                     budgeted; not gating
 LIVE + actively exploitable: 1 finding → notify NOW, in parallel, incident lane; still not gating
 
 # DO NOT — one convergence criterion over everything
 
-"11 findings, none trivial. Round 12." (round 50 is this sentence, 38 more times)
+"11 findings, none trivial. Round 12." (the pre-D237 unbounded loop — its round 50 was this sentence, 38 more times)
 ```
 
 **BLOCKED rationalizations:** "Every finding here is real, so every finding must gate" (real ≠ `BUG`/`INVEST-NOW` ≠ on-list; the 50-round loop had zero trivial findings) · "Budgeting findings means shipping known defects" (it means shipping *triaged* ones, which is what every shipped system has done) · "The category call is subjective, so gate on everything" (it is fail-closed, not subjective: ambiguity resolves INTO the gating half) · "One more round is cheap" · "The live-incident finding can wait for the round to close" (imminence does not wait).
 
-## MUST-3 — the counter
+## MUST-3 — "Clean" = no CRITICAL/HIGH; the evidence gate; Round 1 ends the review
+
+A round is **"clean"** when it has **no CRITICAL/HIGH finding**, and **Round 1 clean = review
+ends** — there is no second clean round. The evidence gate applies EVERY round: a reviewer counts
+only if it genuinely ran (an errored, empty or timed-out review is NO evidence: re-run it, never
+count it). The premise below is what keeps "clean" a claim about the ARTIFACT: a finding never
+re-opens a round — a CHANGE to the affected surface does, and it voids evidence at every call site
+it reaches, which is why Round 2 is fix-scoped rather than a fresh full review.
 
 ```markdown
-# DO — counter tracks the ARTIFACT's state, and the surface includes consumers
+# DO — the counter tracks the ARTIFACT's state, and the surface includes consumers
 
 Round 5 finds an on-list defect in shared validate_scope() → fix lands → counter resets for
 validate_scope AND all 40 call sites (their evidence was earned against the OLD behaviour).
@@ -207,27 +218,28 @@ Round 5 finds anything → counter → 0 → begin again
 "One-file diff, so one surface resets" (40 call sites keep stale evidence)
 ```
 
-**BLOCKED rationalizations:** "A new finding means the earlier clean rounds were wrong" (it means they did not cover that surface) · "Resetting globally is the conservative choice" (it is the non-terminating choice) · "Partial resets are hard to track" (the surface is the diff plus its consumers) · "The diff is one file, so one surface resets".
+**BLOCKED rationalizations:** "A new finding means the earlier clean round was wrong" (it means that round did not cover that surface) · "Resetting globally is the conservative choice" (it is the non-terminating choice) · "Partial resets are hard to track" (the surface is the diff plus its consumers) · "The diff is one file, so one surface resets".
 
-## MUST-4 — circuit breaker, rotation, last-known-good
+## MUST-4 — bounded rounds are the NORMAL termination, rotation, last-known-good
 
 ```markdown
-# DO — effort budget, risk-allocated, rotating instrument, cap as a breaker
+# DO — the round structure IS the terminal state; budget is effort, risk-allocated
 
-Budget: 3 rounds. R1 adversarial security lens · R2 mechanical AST/grep sweep ·
-R3 fresh-context correctness reviewer.
-Stop on budget exhaustion OR marginal BUDGETED-HALF yield ≈ 0 — stated with its falsifying
-result: "round 3 surfaced 0 new INCREMENTAL where rounds 1-2 surfaced 6 and 2."
-At the cap with open gating-half findings → ESCALATE, naming them. Never "converged".
-Last-known-good pinned at the round-4 tree, which passed its gating checks.
+Review ends by DESIGN: Round 1 full review · not clean → fix → Round 2 over the fixes plus their
+blast radius, same reviewer composition · a Round-2 finding gets its fix + its A5 check(s) (D237) before review ends, never a Round 3.
+A residual CRITICAL/HIGH when review ends → the OWNER, named with its open findings. Never "converged".
+The BUDGETED half stops on effort exhaustion OR marginal yield ≈ 0 — stated with its falsifying
+result: "round 2 surfaced 0 new INCREMENTAL where round 1 surfaced 6."
+Instrument ROTATES between rounds; last-known-good pinned at the last tree that passed its checks.
 
-# DO NOT — N rounds of the same lens, or a cap-stop called done
+# DO NOT — N rounds of the same lens, or a stop called done
 
-Round 6 of the same reviewer prompt (the residue is that lens's blind spot)
-"Round 5 of 5, so this is convergence."
+Round 3 of the same reviewer prompt, full set re-run (the residue is that lens's blind spot;
+rule 7: never the full set per fix)
+"The review ended, so it is converged." (a residual CRITICAL/HIGH still goes to the owner)
 ```
 
-**BLOCKED rationalizations:** "The reviewer found something last round, so it is still productive" · "Rotating instruments is more setup than just re-running" · "Two clean rounds is the standard" (a customary stop, not a measured one) · "A cap risks shipping a defect the next round would have caught" (the cap is a BREAKER — hitting it is escalation, not a ship decision) · "We are at round 4, so we are nearly done" (a round count encodes effort, never correctness) · "The latest revision supersedes the earlier one" (16% of trajectories lose a correct patch by rev 3).
+**BLOCKED rationalizations:** "The reviewer found something last round, so it is still productive" · "Rotating instruments is more setup than just re-running" · "The review ended, so it is converged" (the bounded stop is the NORMAL termination, but the residual still owes a disposition — a remaining CRITICAL/HIGH goes to the owner, never silently closed) · "Ending at the bound risks shipping a defect the next round would have caught" (rule 5: no finding is dropped — every one is fixed, ledgered, or goes to the owner) · "We are at round 3, so we are nearly done" (a round count encodes effort, never correctness) · "The latest revision supersedes the earlier one" (16% of trajectories lose a correct patch by rev 3).
 
 ## MUST-5 — oracle presence
 
@@ -236,8 +248,9 @@ Round 6 of the same reviewer prompt (the residue is that lens's blind spot)
 
 Tested engine change; red established for the changed property (stash-and-run shows RED)
   → oracle sound FOR THAT PROPERTY → 1 rotated adversarial round (floor)
-Baseline rule / spec / config edit → no oracle exists → full budget, rotating lenses
-Revocation path → trust-bearing → full uncapped loop regardless of oracle
+Baseline rule / spec / config edit → no oracle exists → adversarial review is the ONLY channel:
+  full depth, instrument rotating between rounds
+Revocation path → trust-bearing → paired round 1, full depth, never reduced (never a Round 3 or 4)
 
 # DO NOT — condition on the model, its confidence, or a suite-level green
 
@@ -262,13 +275,19 @@ for what is really a claim about the HOST". It shipped. That consequence is live
 fail-OPEN at `wip-discipline-guard.js:444` and fail-CLOSED at `:683`, so a MUST-7 override debt silently
 clears while every receipt is refused with a remedy no name can satisfy. The omission was named
 precisely, by someone who understood it, and the precision is what made it read as handled.
+The numeric locations above are historical. Current re-derivation anchors the debt
+read at `.claude/hooks/wip-discipline-guard.js::unpaidOverrideDebt`, and the
+receipt price at `.claude/hooks/wip-discipline-guard.js::receiptPriceViolation`.
 
 **THREE NEIGHBOURING CASES THIS CLAUSE DOES NOT REACH.** Recorded because an earlier draft of the rule's
 `**Why:**` cited all four as one shape, and a Tier-1 review measured that three are a DIFFERENT class —
 a FALSE COMPLIANCE CLAIM, not a declared omission. Nothing is declared undone in them; the opposite is
 asserted:
-- `wip-discipline-guard.js:1196-1197` — "this is not the dead end `hook-output-discipline.md` MUST NOT
-  forbids", while being exactly that dead end under survey failure.
+- The historical `wip-discipline-guard.js` finding quoted "not the dead end
+  `hook-output-discipline.md` MUST NOT forbids". The current comment is at
+  `.claude/hooks/wip-discipline-guard.js::runSpawnGuard` (the "PEEK, VALIDATE, THEN CONSUME" block); its current price predicate
+  is `.claude/hooks/wip-discipline-guard.js::receiptPriceViolation`. Those anchors identify
+  the present source, rather than asserting that the historical failure remains.
 - The burndown `migration_baseline` — two surfaces vouching a protection was live when it had never
   executed.
 - Dated registry rows booking detectors that cannot exist — these ARE the mechanism the clause blesses,
@@ -292,5 +311,7 @@ revisit: on next auth-surface change  OR  2026-11-01, whichever first
 "Logged as residual; no reviewer available this cycle." (not accepted → not done)
 "Low impact, closing." (a claim of harmlessness, with no name against it)
 ```
+
+**D237 rule 5(c) carve-out — PROVISIONAL acceptance is not closure.** A small KNOWN RISK on a shipped path **that is NOT security-critical (rule 1's class, including any trust boundary) and NOT HIGH/CRITICAL** may be **PROVISIONALLY** accepted by the agent **so the change can land**: it goes to the ledger as **OPEN**, with the risk stated plainly, and **STAYS OPEN** until a human either accepts it (named acceptor) or asks for the fix. `not accepted → not done` still holds — the agent's acceptance NEVER closes it. **A security-critical or HIGH/CRITICAL residual risk is NEVER provisionally accepted**: it follows (d), and needs the owner's acceptance **BEFORE landing**.
 
 **BLOCKED rationalizations:** "The agent triaged it, that is the acceptance" · "No human was available, so I filed it as residual" · "It is low severity, it does not need a signature" (route ceremony by category, but SOME name is required for anything gating-eligible) · "The revisit trigger is implicit in the backlog" (7 of 7 deferred items decayed) · "A calendar date is arbitrary" (an event trigger that never fires is a permanent park).

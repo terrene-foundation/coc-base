@@ -395,7 +395,7 @@ function _shimEnv() {
   if (process.platform === "win32") {
     for (const k of ["USERPROFILE", "HOMEDRIVE", "HOMEPATH"]) {
       const v = process.env[k];
-      // HOMEPATH is legitimately drive-relative (`\Users\x`), so absoluteness is
+      // HOMEPATH is legitimately drive-relative (`<operator-home>`), so absoluteness is (Source: .claude/hooks/lib/template-resolver.js:396-400.)
       // checked with win32 semantics, under which a leading `\` IS absolute.
       if (typeof v === "string" && path.win32.isAbsolute(v)) env[k] = v;
     }

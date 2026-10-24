@@ -56,8 +56,8 @@
 
 const { execFileSync } = require("child_process");
 const path = require("path");
-const { resolveGitBinary, gitEnv } = require(
-  path.join(__dirname, "lib", "git-subprocess-env.js"),
+const { resolveTargetRepo, targetGit } = require(
+  path.join(__dirname, "lib", "target-repo-git.js"),
 );
 
 const TIMEOUT_MS = 4000;
@@ -84,23 +84,31 @@ _scopeTimeoutHandle.unref?.();
 // diff both came from a decoy repository, so the scope check passed on facts
 // about a repo the operator was not committing to.
 //
-// `...opts` is spread BEFORE `env` deliberately: a caller-supplied `cwd` still
-// applies, but no caller can override the environment back to ambient.
-function git(args, opts = {}) {
-  const gitBin = resolveGitBinary();
-  // INDETERMINATE — `null` is this wrapper's existing "could not answer".
-  if (!gitBin) return null;
-  try {
-    return execFileSync(gitBin, args, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1500,
-      ...opts,
-      env: gitEnv(),
-    }).trim();
-  } catch (e) {
-    return null;
+// M-W4.3 RUN 8 — THE TARGET-REPO ENVELOPE (lib/target-repo-git.js). This is the
+// same probe validate-bash-command.js runs before the disclosure scan (`diff
+// --cached --name-only` of the committed repository), and it now runs through the
+// same envelope: the repository is the one the commit lands in, so its config is
+// the agent's, and `diff --cached` / `rev-parse` must not run a program that
+// config names (`core.fsmonitor` on the index refresh, external diff and textconv
+// drivers). The repository is resolved ONCE, from this process's cwd — which
+// validate-bash-command.js sets to the commit's own `-C` target, as its sibling
+// probe does; installed as a git pre-commit hook, git sets it to the work tree.
+let _repo; // undefined = not resolved yet; null = did not resolve
+function targetRepo() {
+  if (_repo === undefined) {
+    const r = resolveTargetRepo({ dir: path.resolve(process.cwd()) }, { timeout: 1500 });
+    _repo = r.ok ? r.repo : null;
   }
+  return _repo;
+}
+
+// INDETERMINATE — `null` is this wrapper's existing "could not answer": an
+// unresolvable repository, a refused or unanswered read, and a non-zero exit.
+function git(args) {
+  const repo = targetRepo();
+  if (!repo) return null;
+  const r = targetGit(repo, args, { timeout: 1500 });
+  return r.ok ? r.stdout.trim() : null;
 }
 
 function gh(args) {

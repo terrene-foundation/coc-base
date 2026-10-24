@@ -34,6 +34,7 @@
 
 import "../_lib/no-ambient-git.cjs";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdtempSync,
   mkdirSync,
@@ -145,12 +146,23 @@ function git(dir, args, { date } = {}) {
       stdout: execFileSync("git", args, {
         cwd: dir,
         encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
+        stdio: ["ignore", "pipe", "pipe"],
         env,
       }),
+      stderr: "",
     };
   } catch (e) {
-    return { code: typeof e.status === "number" ? e.status : -1, stdout: e.stdout || "" };
+    // stderr is KEPT. A silent `-1` once hid two fixture defects for a whole run:
+    // a cherry-pick carrying an option git does not have (`unknown option`, 129)
+    // and a cwd the mid-file teardown had already deleted (spawn ENOENT). `error`
+    // names the SPAWN-failure case, which is not a git verdict about the subject
+    // at all — reading it as one is the empty-result-as-confirmation trap.
+    return {
+      code: typeof e.status === "number" ? e.status : -1,
+      stdout: e.stdout || "",
+      stderr: e.stderr || "",
+      error: e.code || null,
+    };
   }
 }
 
@@ -228,8 +240,8 @@ function buildRepo({ lanes = [], withRemote = true, landContent = false } = {}) 
  * advisory (or `null` when the guard stayed silent), so every assertion below
  * reads what the AGENT receives rather than an internal constant.
  */
-function runGuard(payload, env = {}) {
-  const r = spawnSync(process.execPath, [GUARD], {
+function runGuard(payload, env = {}, driver = null) {
+  const r = spawnSync(process.execPath, driver ? ["-e", driver] : [GUARD], {
     input: JSON.stringify(payload),
     encoding: "utf8",
     timeout: 20000,
@@ -279,10 +291,11 @@ const fired = (g) => g.advisory !== null;
  * `Agent` tool name) are DELETED with the arm rather than re-pointed, because
  * re-pointing them would assert a contract that no longer exists.
  */
+const LANE_OPEN_COMMAND = "git worktree add ../new-lane -b feat/another";
 const laneOpenPayload = (cwd, extra = {}) => ({
   hook_event_name: "PreToolUse",
   tool_name: "Bash",
-  tool_input: { command: "git worktree add ../new-lane -b feat/another" },
+  tool_input: { command: LANE_OPEN_COMMAND },
   cwd,
   ...extra,
 });
@@ -291,12 +304,45 @@ const laneOpenPayload = (cwd, extra = {}) => ({
 //
 // Written INSIDE the hermetic fixture repo, never in this checkout: the guard
 // resolves candidates against the payload's `cwd` and that repo's own
-// `--git-common-dir`, both of which are the tmp repo here. Nothing under
-// `.claude/` in the real tree is read or written by these rows.
-function writeReceipt(repoWork, reason) {
+// `--git-common-dir`, both of which are the tmp repo here — and so does the use
+// ledger an honoured receipt appends to (`<main checkout>/.claude/learning/
+// override-receipt-uses.jsonl`). Nothing under `.claude/` in the real tree is
+// read or written by these rows.
+//
+// A receipt is BOUND to one call (2026-10-10): its digest covers the tool, the
+// exact command, and — for this gate — its whole door set (`wip-discipline-guard.js`
+// `WIP_GATE_FINDING_IDS` says why the whole set rather than the doors that fired).
+// The digest is computed HERE from the library's DOCUMENTED serialization, never by
+// calling the library, so a guard that digests the wrong inputs cannot agree with
+// this oracle by construction. `payload` names the call the receipt is FOR; it
+// defaults to `laneOpenPayload`, the call almost every row sends.
+const WIP_DOOR_IDS = ["wip-discipline/MUST-2", "wip-discipline/MUST-3", "wip-discipline/MUST-4"];
+function documentedDigest(payload) {
+  const p = payload || laneOpenPayload("");
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        "coc-override-receipt/call-digest/v1",
+        p.tool_name,
+        "",
+        p.tool_input.command,
+        [...WIP_DOOR_IDS].sort(),
+      ]),
+      "utf8",
+    )
+    .digest("hex");
+}
+function writeReceipt(repoWork, reason, payload, writtenAt) {
   const p = path.join(repoWork, RECEIPT_REL);
   mkdirSync(path.dirname(p), { recursive: true });
-  writeFileSync(p, reason);
+  writeFileSync(
+    p,
+    JSON.stringify({
+      digest: documentedDigest(payload),
+      reason,
+      written_at: writtenAt || new Date().toISOString(),
+    }),
+  );
   return p;
 }
 function receiptExists(repoWork) {
@@ -1183,8 +1229,13 @@ polesDiffer("pair8-poles-differ", preHead, sessionHead);
 polesDiffer("pair8b-block-head-differs-from-report-head", blockHead, preHead);
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PAIR 9 — FAIL-OPEN. Every error path yields {continue:true}.
-// A detector that can wedge a session is worse than the inventory it reports.
+// PAIR 9 — WHAT FAILS OPEN AND WHAT REFUSES. An unreadable lane survey (a non-repo
+// cwd) and a payload naming no event are COMPLETED verdicts and pass the call through
+// ({continue:true}); a detector that wedges a session on a survey it cannot run is worse
+// than the inventory it reports. A payload the guard cannot READ is different: the run
+// is owned by guard-runner.js::runGuard, which REFUSES it — loudly, on stderr — because
+// a deny-capable guard that never saw the call cannot clear it (it used to emit
+// {continue:true} here, which let any unparseable payload through the WIP ceiling).
 // ═══════════════════════════════════════════════════════════════════════════
 const malformed = spawnSync(process.execPath, [GUARD], {
   input: "{not json at all",
@@ -1198,14 +1249,14 @@ try {
   malformedJson = null;
 }
 check(
-  "pair9-malformed-payload-fails-open",
-  malformedJson && malformedJson.continue === true,
-  `unparseable stdin must still emit {continue:true}; got stdout=${JSON.stringify(malformed.stdout)}`,
+  "pair9-malformed-payload-FAILS-CLOSED",
+  malformed.status === 2 && !(malformedJson && malformedJson.continue === true),
+  `unparseable stdin must be REFUSED (exit 2, no {continue:true}); got status=${malformed.status} stdout=${JSON.stringify(malformed.stdout)}`,
 );
 check(
   "pair9-malformed-payload-is-LOUD-on-stderr",
-  /HOOK ERROR/.test(malformed.stderr || ""),
-  `fail-open must not be fail-silent — the error belongs on stderr; got ${JSON.stringify(malformed.stderr)}`,
+  /\[guard-runner\] DENY wip-discipline-guard: wip-discipline-guard could not read its hook payload/.test(malformed.stderr || ""),
+  `the refusal must not be silent — it names the guard and the unreadable payload on stderr; got ${JSON.stringify(malformed.stderr)}`,
 );
 const nonRepo = runGuard({
   hook_event_name: "SessionStart",
@@ -1550,7 +1601,7 @@ polesDiffer("pair14-receipt-poles-differ", nonOpenerAfter, openerAfter);
     cwd: underRepo.work,
     tool_input: { command: "git worktree add ../wt-under -b feat/under" },
   };
-  writeReceipt(underRepo.work, "fixture: an undecided age scan must name this\nland-first: lane/u-0");
+  writeReceipt(underRepo.work, "fixture: an undecided age scan must name this\nland-first: lane/u-0", underOpen);
   const ageUndecided = runGuard(underOpen, expiredAge);
   const ageDecided = runGuard(underOpen);
   check(
@@ -1594,21 +1645,15 @@ polesDiffer("pair14-receipt-poles-differ", nonOpenerAfter, openerAfter);
 // Its own fixtures are `.claude/audit-fixtures/nested-worktree-guard/`.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── teardown ────────────────────────────────────────────────────────────────
-// Worktrees are pruned before the directories go, so no admin entry survives in
-// a repo this fixture is about to delete.
-try {
-  git(treeRepo.work, ["worktree", "prune"]);
-} catch {
-  /* best effort */
-}
-for (const d of cleanup) {
-  try {
-    rmSync(d, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-}
+// ── teardown ownership moved to the END of this file ────────────────────────
+// It used to run HERE, after pair 17 — but `cleanup` holds every repo built so
+// far, and repos built before this point are still measured by blocks BELOW:
+// `unknownBase` (the no-remote pole of the undetermined-trunk door) and
+// `overLimit` (the shared at-limit repo the push-cure pole mutates). Deleting
+// them mid-run is invisible: git() answered `-1` with empty stderr for a missing
+// cwd, which reads exactly like an empty answer, so the undetermined pole passed
+// for the WRONG reason (no cwd, not no remote) and the cure pole could not even
+// build its fixture. The teardown now runs last, right before the summary.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PAIR 18 — `git worktree add <path> <EXISTING-branch>` attaches a WORKER to
@@ -2478,6 +2523,7 @@ check(
 writeReceipt(
   p21_agedRepo.work,
   "landing the s91 fold needs this lane opened first\nland-first: feat/aged-work",
+  p21_bashOpen(p21_agedRepo.work),
 );
 const p21_ageOverride = runGuard(p21_bashOpen(p21_agedRepo.work));
 check(
@@ -2640,6 +2686,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   writeReceipt(
     leakRepo.work,
     "reaping blocked on this remote — approved\nland-first: feat/leak-lane-1",
+    leakPayload,
   );
   const leakFirst = runGuard(leakPayload);
   check(
@@ -2849,7 +2896,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   };
 
   // 1. A receipt naming a lane arms the debt.
-  writeReceipt(debtRepo.work, "need one more lane\nland-first: feat/debt-lane-1");
+  writeReceipt(debtRepo.work, "need one more lane\nland-first: feat/debt-lane-1", debtPayload);
   const armed = runGuard(debtPayload);
   check(
     "pair25-receipt-with-land-first-is-honoured",
@@ -2860,7 +2907,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   // CONTROL: the debt is REALLY armed — a second receipt must now be REFUSED,
   // because `feat/debt-lane-1` is still open. Without this the rows below would
   // pass against a guard that never arms a debt at all.
-  writeReceipt(debtRepo.work, "second override\nland-first: feat/debt-lane-2");
+  writeReceipt(debtRepo.work, "second override\nland-first: feat/debt-lane-2", debtPayload);
   const refused = runGuard(debtPayload);
   check(
     "pair25-control-second-receipt-REFUSED-while-promise-open",
@@ -2871,7 +2918,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   // 2. THE ASSERTION. An env override appends an audit-only row. It must NOT pay
   //    the debt off: a receipt after it must STILL be refused.
   runGuard(debtPayload, { COC_ALLOW_WIP_OVERRUN: "1" });
-  writeReceipt(debtRepo.work, "third override\nland-first: feat/debt-lane-3");
+  writeReceipt(debtRepo.work, "third override\nland-first: feat/debt-lane-3", debtPayload);
   const afterEnv = runGuard(debtPayload);
   check(
     "pair25-env-row-does-NOT-clear-the-receipt-debt",
@@ -2922,7 +2969,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   );
 
   // A receipt with a REASON but NO `land-first:` token — previously honoured.
-  writeReceipt(priceRepo.work, "need one more lane for the s96 fix, approved");
+  writeReceipt(priceRepo.work, "need one more lane for the s96 fix, approved", pricePayload);
   const noToken = runGuard(pricePayload);
   check(
     "pair26-receipt-without-land-first-is-REFUSED",
@@ -2944,6 +2991,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   writeReceipt(
     priceRepo.work,
     "need one more lane for the s96 fix, approved\nland-first: feat/price-lane-1",
+    pricePayload,
   );
   const withToken = runGuard(pricePayload);
   check(
@@ -3000,7 +3048,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   );
 
   // HIGH-2 (a): the placeholder the OLD refusal told agents to paste.
-  writeReceipt(priceRepo2.work, "approved\nland-first: <ref>");
+  writeReceipt(priceRepo2.work, "approved\nland-first: <ref>", p27);
   check(
     "pair27-placeholder-ref-is-REFUSED",
     runGuard(p27).blocked === true,
@@ -3008,7 +3056,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   );
 
   // HIGH-2 (b): a syntactically fine ref that names no open lane.
-  writeReceipt(priceRepo2.work, "approved\nland-first: no-such-lane");
+  writeReceipt(priceRepo2.work, "approved\nland-first: no-such-lane", p27);
   const ghost = runGuard(p27);
   check(
     "pair27-nonexistent-lane-is-REFUSED",
@@ -3032,7 +3080,7 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
   );
 
   // A REAL open lane is honoured — the price is payable, not merely a refusal.
-  writeReceipt(priceRepo2.work, "approved\nland-first: feat/p27-lane-1");
+  writeReceipt(priceRepo2.work, "approved\nland-first: feat/p27-lane-1", p27);
   check(
     "pair27-real-open-lane-IS-honoured",
     runGuard(p27).blocked === false,
@@ -3911,6 +3959,596 @@ for (const d of [p21_agedRepo, p21_youngRepo, p21_freshTip, p21_landedOld, p21_n
     /EXCLUDED/.test(redX.advisory || ""),
     /EXCLUDED/.test(greenX.advisory || ""),
   );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAIR 33 — THE RECEIPT IS BOUND TO ONE COMMAND (2026-10-10).
+//
+// Until then any non-empty receipt lifted ANY lane-opening command at the limit:
+// one written for `git worktree add …` lifted whichever command arrived first. The
+// receipt now names its call by digest. A is the command the receipt is FOR, B a
+// different lane-opening command in the SAME repo at the SAME limit, so the only
+// variable is the call. The pair is bipolar on ONE receipt: a guard that ignores
+// the digest fails the B rows; one that honours no receipt fails the A row.
+// ═══════════════════════════════════════════════════════════════════════════
+{
+  const bindRepo = buildRepo({
+    lanes: Array.from({ length: WIP_LIMIT }, (_, i) => ({
+      name: `feat/bind-lane-${i + 1}`,
+      ageHours: 3 + i,
+    })),
+  });
+  const callA = laneOpenPayload(bindRepo.work);
+  const callB = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "git switch -c feat/bind-other" },
+    cwd: bindRepo.work,
+  };
+  check(
+    "pair33-control-B-BLOCKS-without-any-receipt",
+    runGuard(callB).blocked === true,
+    "the ceiling must be what refuses B, or the binding rows prove nothing",
+  );
+  const receiptPath = writeReceipt(bindRepo.work, "one more lane, for call A only\nland-first: feat/bind-lane-1", callA);
+  const bytesA = readFileSync(receiptPath, "utf8");
+  const crossed = runGuard(callB);
+  const crossedText = `${crossed.advisory || ""}\n${crossed.stderr}`;
+  check(
+    "pair33-receipt-for-A-does-NOT-lift-B",
+    crossed.blocked === true,
+    `a receipt written for one command lifted another — the unbound receipt this pair exists for; got ${JSON.stringify(crossed.json)}`,
+  );
+  check(
+    "pair33-B-does-NOT-consume-As-receipt",
+    existsSync(receiptPath) && readFileSync(receiptPath, "utf8") === bytesA,
+    "B spent or altered a receipt it may not use",
+  );
+  check(
+    "pair33-B-block-NAMES-the-refusal-and-says-it-was-left-in-place",
+    /RECEIPT-DIGEST-MISMATCH/.test(crossedText) && /left in place/.test(crossedText),
+    `got ${JSON.stringify((crossed.advisory || "").slice(0, 300))}`,
+  );
+  check(
+    "pair33-B-meets-the-plain-ceiling-never-an-override-refusal-for-As-receipt",
+    !/WIP override REFUSED/.test(crossed.advisory || ""),
+    "the price and debt gates must not act on a receipt this call cannot spend",
+  );
+  const liftedA = runGuard(callA);
+  check(
+    "pair33-the-SAME-receipt-lifts-A",
+    liftedA.blocked === false && /OVERRIDDEN/.test(liftedA.advisory || "") && !existsSync(receiptPath),
+    `got ${JSON.stringify(liftedA.json)}`,
+  );
+  polesDiffer("pair33-binding-poles-differ", crossed.blocked, liftedA.blocked);
+  const useLedger = path.join(bindRepo.work, ".claude", "learning", "override-receipt-uses.jsonl");
+  const useRows = existsSync(useLedger)
+    ? readFileSync(useLedger, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
+    : [];
+  check(
+    "pair33-the-honoured-use-is-in-the-USE-ledger-once",
+    useRows.length === 1 &&
+      useRows[0].digest === documentedDigest(callA) &&
+      useRows[0].channel === ".claude/wip-authz/wip-limit-allow",
+    `one honour, one row, naming A; got ${JSON.stringify(useRows)}`,
+  );
+
+  // TTL — the same call, a receipt past its 15 minutes.
+  writeReceipt(
+    bindRepo.work,
+    "aged out\nland-first: feat/bind-lane-2",
+    callA,
+    new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+  );
+  const stale = runGuard(callA);
+  check(
+    "pair33-a-STALE-receipt-does-NOT-lift-A-and-is-left-in-place-named",
+    stale.blocked === true &&
+      existsSync(path.join(bindRepo.work, RECEIPT_REL)) &&
+      /RECEIPT-STALE/.test(`${stale.advisory || ""}\n${stale.stderr}`),
+    `got ${JSON.stringify((stale.advisory || "").slice(0, 300))}`,
+  );
+  check(
+    "pair33-the-block-PRINTS-As-documented-digest",
+    (stale.advisory || "").includes(`"digest":"${documentedDigest(callA)}"`),
+    "the printed receipt template must name THIS command's digest",
+  );
+  rmSync(bindRepo.root, { recursive: true, force: true });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAIR 34 — A HOLD THAT CANNOT BE SPENT IS NOT A HOLD (2026-10-10).
+//
+// The landed-remote-ref door is HELD on a PEEK and SPENT later. If the spend
+// honours nothing — here, because the receipt's use cannot be recorded in the use
+// ledger — the door's refusal must stand. Before this the call proceeded on the
+// peek alone under an advisory claiming the receipt was "consumed, deleted", and a
+// `land_first: null` row went into the debt ledger: an override honoured with
+// nothing spent and nothing recorded. The ledger is made unwritable by putting a
+// DIRECTORY at its path; the receipt itself stays readable and deletable.
+// ═══════════════════════════════════════════════════════════════════════════
+{
+  const holdRepo = buildRepo({
+    lanes: Array.from({ length: 3 }, (_, i) => ({ name: `feat/hold-lane-${i + 1}`, ageHours: 2 + i })),
+    withRemote: true,
+    landContent: true,
+  });
+  git(holdRepo.work, ["push", "-q", "origin", "main:refs/heads/landed-hold-1"]);
+  const holdPayload = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "git worktree add ../wt-hold -b feat/hold-next" },
+    cwd: holdRepo.work,
+  };
+  const control = runGuard(holdPayload);
+  check(
+    "pair34-control-remote-door-REFUSES-without-receipt",
+    control.blocked === true && /remote ref/i.test(control.advisory || ""),
+    `the remote door must fire for this repo shape, else pair34 proves nothing; got ${JSON.stringify(control.json)}`,
+  );
+
+  const useLedger = path.join(holdRepo.work, ".claude", "learning", "override-receipt-uses.jsonl");
+  mkdirSync(useLedger, { recursive: true });
+  // PRICED (`land-first:` an open lane), exactly as pair 22's receipt is: without the token the
+  // price gate refuses the receipt at the PEEK, the door blocks before any spend is attempted, and
+  // both poles below block for that unrelated reason — measured, a vacuous pair.
+  const receiptPath = writeReceipt(
+    holdRepo.work,
+    "reaping blocked on this remote — approved\nland-first: feat/hold-lane-1",
+    holdPayload,
+  );
+  const before = readFileSync(receiptPath, "utf8");
+  const debtLedger = path.join(holdRepo.work, ".claude", "wip-authz", "override-ledger.jsonl");
+  const debtRows = () => (existsSync(debtLedger) ? readFileSync(debtLedger, "utf8").split("\n").filter(Boolean).length : 0);
+  const rowsBefore = debtRows();
+  const held = runGuard(holdPayload);
+  check(
+    "pair34-an-UNRECORDABLE-hold-BLOCKS-at-the-remote-door",
+    held.blocked === true && /remote ref/i.test(held.advisory || ""),
+    `a hold whose spend honoured nothing let the call proceed; got ${JSON.stringify(held.json)}`,
+  );
+  check(
+    "pair34-the-receipt-is-PUT-BACK",
+    existsSync(receiptPath) && readFileSync(receiptPath, "utf8").trim() === before.trim(),
+    "a refusal must not destroy the receipt it refuses",
+  );
+  check(
+    "pair34-the-refusal-is-NAMED",
+    /USE-LEDGER-WRITE-FAILED/.test(`${held.advisory || ""}\n${held.stderr}`),
+    `got ${JSON.stringify((held.advisory || "").slice(0, 300))}`,
+  );
+  check(
+    "pair34-NO-debt-row-for-an-override-that-did-not-happen",
+    debtRows() === rowsBefore,
+    `a land_first:null row would erase an armed MUST-7 debt (the PAIR 25 shape); rows ${rowsBefore} -> ${debtRows()}`,
+  );
+
+  const undecidedDriver = (removeHold) => `
+    const fs=require('node:fs'), Module=require('node:module'), assert=require('node:assert/strict');
+    const lanes=require(${JSON.stringify(LIB)}), original=lanes.confirmAtLimit;
+    const fast=lanes.laneCountFast;
+    lanes.laneCountFast=(opts)=>({...fast(opts),ok:true,count:lanes.WIP_LIMIT});
+    lanes.confirmAtLimit=(opts)=>{process.stderr.write('R1-OR-FORCED-CONFIRM\\n');return {...original(opts),decided:false,atLeastLimit:false};};
+    const file=${JSON.stringify(GUARD)}; let source=fs.readFileSync(file,'utf8');
+    const target='if (!held.ok && blockRemoteDoor) return blockRemoteDoor();';
+    assert.equal(source.split(target).length,2,'M14 target reached once');
+    if(${JSON.stringify(removeHold)}) source=source.replace(target,'');
+    const instance=new Module(file);instance.filename=file;instance.paths=Module._nodeModulePaths(require('node:path').dirname(file));
+    instance._compile(source,file);instance.exports.hookMain();`;
+  const upperHeld = runGuard(holdPayload, {}, undecidedDriver(false));
+  check("R1-OR-MED-1", upperHeld.stderr.includes("R1-OR-FORCED-CONFIRM") && upperHeld.blocked && /remote ref/i.test(upperHeld.advisory || ""),
+    `undecided confirmation with unrecordable hold: ${JSON.stringify(upperHeld.json)}`);
+  const m14 = runGuard(holdPayload, {}, undecidedDriver(true));
+  check("R1-OR-MED-1-M14-red", m14.stderr.includes("R1-OR-FORCED-CONFIRM") && !m14.blocked && /confirmation was undecided/.test(m14.advisory || ""),
+    `removing the reached hold refusal must allow the call: ${JSON.stringify(m14.json)} stderr=${m14.stderr}`);
+  polesDiffer("R1-OR-MED-1-mutant-poles-differ", upperHeld.blocked, m14.blocked);
+
+  const refusedRepo = buildRepo({ withRemote: true, lanes: Array.from({ length: 3 }, (_, i) => ({ name: `feat/refused-${i + 1}`, ageHours: 2 })) });
+  const refusedPayload = { ...holdPayload, cwd: refusedRepo.work };
+  writeReceipt(refusedRepo.work, "approved\nland-first: feat/refused-1", refusedPayload);
+  mkdirSync(path.join(refusedRepo.work, ".claude", "learning", "override-receipt-uses.jsonl"), { recursive: true });
+  const refused = runGuard(refusedPayload, {}, undecidedDriver(false));
+  check("R1-OR-L3", !refused.blocked && /the receipt could not be honoured/.test(refused.advisory || "") &&
+    /USE-LEDGER-WRITE-FAILED/.test(refused.advisory || "") && !/does not pay the price/.test(refused.advisory || ""),
+    `consume refusal must be named, not misreported as a price refusal: ${JSON.stringify(refused.json)} stderr=${refused.stderr}`);
+  rmSync(refusedRepo.root, { recursive: true, force: true });
+
+  // CONTROL — the same repo, the ledger writable again: the hold IS spent and the call proceeds.
+  rmSync(useLedger, { recursive: true, force: true });
+  const spent = runGuard(holdPayload);
+  check(
+    "pair34-control-a-RECORDABLE-hold-PROCEEDS-and-spends-the-receipt",
+    spent.blocked === false && !existsSync(receiptPath),
+    `got ${JSON.stringify(spent.json)}`,
+  );
+  polesDiffer("pair34-poles-differ", held.blocked, spent.blocked);
+  rmSync(holdRepo.root, { recursive: true, force: true });
+}
+
+{
+  const repo = buildRepo({ lanes: Array.from({ length: WIP_LIMIT }, (_, i) => ({ name: `feat/race-${i + 1}` })) });
+  const payload = laneOpenPayload(repo.work);
+  const useLedger = path.join(repo.work, ".claude/learning/override-receipt-uses.jsonl");
+  const debtLedger = path.join(repo.work, ".claude/wip-authz/override-ledger.jsonl");
+  const rows = (file) => existsSync(file) ? readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
+  const baseline = runGuard(payload);
+  check("R1-OR-WIP-RACE-armed", baseline.blocked && /WIP/i.test(baseline.advisory || ""), JSON.stringify(baseline));
+  writeReceipt(repo.work, "approved\nland-first: feat/race-1", payload);
+  const childResult = path.join(repo.root, "contender.json");
+  // The guard opens the ledger under the CANONICAL main-checkout root. Where the
+  // temp root is a symlink (macOS: /var -> /private/var) that is not the lexical
+  // path above, so the interceptor matches either spelling of the same file.
+  const useLedgerSpellings = [useLedger, path.join(realpathSync(repo.work), ".claude/learning/override-receipt-uses.jsonl")];
+  const driver = `
+    const fs = require('fs'), cp = require('child_process');
+    const originalOpen = fs.openSync; let scheduled = false;
+    fs.openSync = function(file, ...args) {
+      if (!scheduled && typeof file === 'string' && ${JSON.stringify(useLedgerSpellings)}.includes(file)) {
+        scheduled = true; console.error('REACHED-WIP-USE-SINK-CONTENDER');
+        const r = cp.spawnSync(process.execPath, [${JSON.stringify(GUARD)}], {
+          input: ${JSON.stringify(JSON.stringify(payload))}, encoding: 'utf8', timeout: 20000, env: process.env,
+        });
+        fs.writeFileSync(${JSON.stringify(childResult)}, JSON.stringify({ status: r.status, stdout: r.stdout, stderr: r.stderr, error: r.error && r.error.message }));
+      }
+      return originalOpen.call(this, file, ...args);
+    };
+    require(${JSON.stringify(GUARD)}).hookMain();
+  `;
+  const winner = runGuard(payload, {}, driver);
+  check("R1-OR-WIP-RACE-reached", winner.stderr.includes("REACHED-WIP-USE-SINK-CONTENDER") && existsSync(childResult), winner.stderr);
+  const contender = existsSync(childResult) ? JSON.parse(readFileSync(childResult, "utf8")) : {};
+  let contenderJson;
+  try { contenderJson = JSON.parse((contender.stdout || "").trim()); } catch { contenderJson = null; }
+  check("R1-OR-WIP-RACE-single-winner", winner.status === 0 && /OVERRIDDEN/.test(winner.advisory || "") && contender.status === 2 && contenderJson?.hookSpecificOutput?.permissionDecision === "deny", JSON.stringify({ winner, contender }));
+  check("R1-OR-WIP-RACE-one-use-one-debt", rows(useLedger).length === 1 && rows(debtLedger).length === 1 && rows(debtLedger)[0].land_first === "feat/race-1", JSON.stringify({ uses: rows(useLedger), debt: rows(debtLedger) }));
+  rmSync(repo.root, { recursive: true, force: true });
+}
+
+{
+  const repo = buildRepo({ lanes: Array.from({ length: WIP_LIMIT }, (_, i) => ({ name: `feat/swap-${i + 1}` })) });
+  const payload = laneOpenPayload(repo.work);
+  const receipt = writeReceipt(repo.work, "approved\nland-first: feat/swap-1", payload);
+  const replacement = JSON.stringify({ digest: documentedDigest(payload), reason: "approved without a priced lane", written_at: new Date().toISOString() });
+  const overrideLib = path.resolve(HERE, "../../hooks/lib/override-receipt.js");
+  const driver = `
+    const fs = require('fs'), lib = require(${JSON.stringify(overrideLib)});
+    const create = lib.createOverrideGate;
+    lib.createOverrideGate = function(...args) {
+      const gate = create(...args), consume = gate.consumeReceipt;
+      let swapped = false;
+      gate.consumeReceipt = function(...consumeArgs) {
+        if (!swapped) {
+          swapped = true; const next = ${JSON.stringify(receipt)} + '.swap';
+          fs.writeFileSync(next, ${JSON.stringify(replacement)});
+          fs.renameSync(next, ${JSON.stringify(receipt)});
+          console.error('REACHED-WIP-PRICE-TO-CONSUME-SWAP');
+        }
+        return consume.apply(gate, consumeArgs);
+      };
+      return gate;
+    };
+    require(${JSON.stringify(GUARD)}).hookMain();
+  `;
+  const swapped = runGuard(payload, {}, driver);
+  check("R1-OR-WIP-SWAP-reached", swapped.stderr.includes("REACHED-WIP-PRICE-TO-CONSUME-SWAP"), swapped.stderr);
+  check("R1-OR-WIP-SWAP-refused", swapped.status === 2 && swapped.json?.hookSpecificOutput?.permissionDecision === "deny" && !/OVERRIDDEN/.test(swapped.advisory || ""), JSON.stringify(swapped));
+  check("R1-OR-WIP-SWAP-no-use-no-debt", !existsSync(path.join(repo.work, ".claude/learning/override-receipt-uses.jsonl")) && !existsSync(path.join(repo.work, ".claude/wip-authz/override-ledger.jsonl")), JSON.stringify(swapped));
+  check("R1-OR-WIP-SWAP-exact-replacement-preserved", existsSync(receipt) && readFileSync(receipt, "utf8") === replacement, "replacement receipt bytes were lost or rewritten");
+  writeReceipt(repo.work, "approved\nland-first: feat/swap-1", payload);
+  const control = runGuard(payload);
+  check("R1-OR-WIP-SWAP-priced-control", control.status === 0 && /OVERRIDDEN/.test(control.advisory || "") && !existsSync(receipt), JSON.stringify(control));
+  polesDiffer("R1-OR-WIP-SWAP-poles-differ", swapped.blocked, control.blocked);
+  rmSync(repo.root, { recursive: true, force: true });
+}
+
+{
+  const repo = buildRepo({ lanes: Array.from({ length: WIP_LIMIT }, (_, i) => ({ name: `feat/claim-${i + 1}` })) });
+  const payload = laneOpenPayload(repo.work);
+  const receipt = writeReceipt(repo.work, "approved\nland-first: feat/claim-1", payload);
+  const otherPayload = { ...payload, tool_input: { command: "git branch feat/other-call" } };
+  const replacement = JSON.stringify({ digest: documentedDigest(otherPayload), reason: "approved\nland-first: feat/claim-1", written_at: new Date().toISOString() });
+  const driver = `
+    const fs = require('fs'), originalRename = fs.renameSync; let swapped = false;
+    fs.renameSync = function(from, to) {
+      if (!swapped && from === ${JSON.stringify(receipt)}) {
+        swapped = true; const next = from + '.swap';
+        fs.writeFileSync(next, ${JSON.stringify(replacement)});
+        originalRename(next, from);
+        console.error('REACHED-WIP-CLAIM-BOUNDARY-SWAP');
+      }
+      return originalRename.apply(this, arguments);
+    };
+    require(${JSON.stringify(GUARD)}).hookMain();
+  `;
+  const swapped = runGuard(payload, {}, driver);
+  check("R1-OR-WIP-CLAIM-reached", swapped.stderr.includes("REACHED-WIP-CLAIM-BOUNDARY-SWAP"), swapped.stderr);
+  check("R1-OR-WIP-CLAIM-boundary-swap-refused", swapped.status === 2 && swapped.json?.hookSpecificOutput?.permissionDecision === "deny" && !/OVERRIDDEN/.test(swapped.advisory || ""), JSON.stringify(swapped));
+  check("R1-OR-WIP-CLAIM-no-use-no-debt", !existsSync(path.join(repo.work, ".claude/learning/override-receipt-uses.jsonl")) && !existsSync(path.join(repo.work, ".claude/wip-authz/override-ledger.jsonl")), JSON.stringify(swapped));
+  check("R1-OR-WIP-CLAIM-exact-replacement-preserved", existsSync(receipt) && readFileSync(receipt, "utf8") === replacement, "claimed replacement bytes were lost or rewritten");
+  writeReceipt(repo.work, "approved\nland-first: feat/claim-1", payload);
+  const control = runGuard(payload);
+  check("R1-OR-WIP-CLAIM-priced-control", control.status === 0 && /OVERRIDDEN/.test(control.advisory || "") && !existsSync(receipt), JSON.stringify(control));
+  polesDiffer("R1-OR-WIP-CLAIM-poles-differ", swapped.blocked, control.blocked);
+  rmSync(repo.root, { recursive: true, force: true });
+}
+
+{
+  const repo = buildRepo({ lanes: Array.from({ length: WIP_LIMIT }, (_, i) => ({ name: `feat/path-${i + 1}` })) });
+  const payload = laneOpenPayload(repo.work);
+  const receipt = writeReceipt(repo.work, "approved\nland-first: feat/path-1", payload);
+  const bytes = readFileSync(receipt, "utf8");
+  const alternateRoot = path.join(repo.work, "alternate-root");
+  const alternate = path.join(alternateRoot, RECEIPT_REL);
+  mkdirSync(path.dirname(alternate), { recursive: true });
+  const overrideLib = path.resolve(HERE, "../../hooks/lib/override-receipt.js");
+  const driver = `
+    const fs = require('fs'), lib = require(${JSON.stringify(overrideLib)});
+    const create = lib.createOverrideGate;
+    lib.createOverrideGate = function(opts) {
+      const gate = create({ ...opts, extraRoots: () => [${JSON.stringify(alternateRoot)}] });
+      const consume = gate.consumeReceipt; let substituted = false;
+      gate.consumeReceipt = function(...args) {
+        if (!substituted) {
+          substituted = true;
+          fs.writeFileSync(${JSON.stringify(alternate)}, ${JSON.stringify(bytes)});
+          fs.unlinkSync(${JSON.stringify(receipt)});
+          console.error('REACHED-WIP-DIFFERENT-PATH-SAME-DIGEST');
+        }
+        return consume.apply(gate, args);
+      };
+      return gate;
+    };
+    require(${JSON.stringify(GUARD)}).hookMain();
+  `;
+  const substituted = runGuard(payload, {}, driver);
+  check("R1-OR-WIP-PATH-reached", substituted.stderr.includes("REACHED-WIP-DIFFERENT-PATH-SAME-DIGEST"), substituted.stderr);
+  check("R1-OR-WIP-PATH-substitution-refused", substituted.status === 2 && substituted.json?.hookSpecificOutput?.permissionDecision === "deny" && !/OVERRIDDEN/.test(substituted.advisory || ""), JSON.stringify(substituted));
+  check("R1-OR-WIP-PATH-no-use-no-debt", !existsSync(path.join(repo.work, ".claude/learning/override-receipt-uses.jsonl")) && !existsSync(path.join(repo.work, ".claude/wip-authz/override-ledger.jsonl")), JSON.stringify(substituted));
+  check("R1-OR-WIP-PATH-identical-alternate-preserved", existsSync(alternate) && readFileSync(alternate, "utf8") === bytes, "same-digest identical bytes at a different path must remain unspent");
+  writeReceipt(repo.work, "approved\nland-first: feat/path-1", payload);
+  const control = runGuard(payload);
+  check("R1-OR-WIP-PATH-priced-control", control.status === 0 && /OVERRIDDEN/.test(control.advisory || "") && !existsSync(receipt), JSON.stringify(control));
+  polesDiffer("R1-OR-WIP-PATH-poles-differ", substituted.blocked, control.blocked);
+  rmSync(repo.root, { recursive: true, force: true });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// F3 — THE UNPUSHED TRUNK DELTA IS ADVISORY, AND THE CAP'S INPUT IS NOT
+// AGENT-WRITABLE (R1 security HIGH, 2026-10-20).
+//
+// A first cut measured landedness AT the local trunk so a just-landed-but-
+// unpushed lane would read LANDED. That failed the cap OPEN: three ordinary
+// operations on local `main` — an octopus merge, an empty commit carrying forged
+// `Landed-From:` trailers, or `update-ref refs/heads/main` — each collapsed the
+// census, while the same tree measured at `origin/main` still confirmed every
+// lane. Landedness is therefore reachable-from-the-REMOTE-trunk again, and the
+// delta is DISPLAY ONLY.
+//
+// POLES: (a) the delta is ONE `advisory` row with its count and the age of its
+// OLDEST unpushed commit, and it SUBTRACTS NOTHING — the just-landed-but-unpushed
+// lane still reads OPEN (fail-closed); (b) after the push the row is gone; (c)
+// each of the three attacks leaves `confirmAtLimit` at the limit, with a CONTROL
+// showing the same state measured at the LOCAL trunk WOULD collapse it, so the
+// resistance is measured rather than claimed.
+// ═══════════════════════════════════════════════════════════════════════════
+{
+  const { openLanes } = require(LIB);
+  const repo = buildRepo({
+    lanes: [
+      { name: "feat/landed-locally", ageHours: 30 },
+      { name: "feat/still-open", ageHours: 2 },
+    ],
+  });
+  // A landing replayed onto main, NOT pushed: the state the rejected design read
+  // as LANDED, and the ruling says must STILL read OPEN.
+  const replayed = git(repo.work, ["rev-parse", "feat/landed-locally"]).stdout.trim();
+  git(repo.work, ["cherry-pick", "-x", replayed], { date: stampHoursAgo(30) });
+  const ahead = Number(git(repo.work, ["rev-list", "--count", "origin/main..main"]).stdout.trim());
+  check("F3-fixture-trunk-is-ahead", ahead === 1, `the fixture must build an unpushed trunk delta; got ${ahead}`);
+
+  const census = openLanes({ repoDir: repo.work });
+  const names = census.lanes.map((l) => l.name);
+  const delta = census.lanes.find((l) => l.kind === "trunk-delta");
+  check("F3-trunk-delta-is-one-advisory-row", Boolean(delta) && delta.advisory === true && delta.name === "main" && delta.unpushed === 1 && delta.uniqueCommits === 1, `the unpushed trunk must be ONE ADVISORY row carrying its count; got ${JSON.stringify(delta)}`);
+  check("F3-trunk-delta-age-is-oldest-unpushed", Boolean(delta) && delta.ageHours >= 29 && delta.ageHours <= 31, `the delta must age from its OLDEST unpushed commit (30 h here); got ${delta && delta.ageHours}`);
+  check("F3-advisory-row-subtracts-no-lane", names.includes("feat/landed-locally") && names.includes("feat/still-open"), `a locally-landed-but-unpushed lane must STILL read OPEN (fail-closed); got ${JSON.stringify(names)}`);
+  check("F3-census-states-the-remote-base", census.landednessBase === "origin/main" && census.trunkDeltaUnknown === false, JSON.stringify({ landednessBase: census.landednessBase, trunkDelta: census.trunkDelta }));
+
+  // THE UNRESOLVED-TRUNK POLE, driven DIRECTLY (the guard's own PAIR 2 goes silent
+  // before it reaches this door). The pole is a LIVE directory that is NOT a git
+  // repository: `rev-parse` answers 128 there, which `trunk-ref.js::probeRef` reads
+  // as UNDETERMINED — never as "absent" — so `_trunkFor` fails and the door must
+  // answer decided:false, never a verdict.
+  //
+  // A NO-REMOTE REPO IS NOT THIS POLE, and an earlier revision believed it was.
+  // Without an `origin`, probing `origin/dev` exits 1: a genuine ABSENT, so the
+  // ladder resolves `origin/main` on its DECLARED main-fallback basis and the door
+  // decides. The liveness assertion is the dead-directory trap: a DELETED cwd also
+  // fails the resolution, so the pole would pass for the wrong reason — the vacuous
+  // green a mid-file teardown already produced once.
+  const notARepo = mkdtempSync(path.join(tmpdir(), "wip-disc-notarepo-"));
+  cleanup.push(notARepo);
+  check("F3-undetermined-pole-runs-against-a-live-directory", existsSync(notARepo), `the undetermined pole needs a real, unprobeable cwd; a missing directory answers the same shape for the wrong reason (${notARepo})`);
+  const undetermined = confirmAtLimit({ repoDir: notARepo, names: ["feat/unknown-1"] });
+  check(
+    "F3-confirm-undetermined-trunk-is-not-a-verdict",
+    undetermined.decided === false &&
+      undetermined.reason === "trunk-undetermined" &&
+      undetermined.candidates === 1 &&
+      undetermined.confirmed === 0 &&
+      Boolean(undetermined.trunkReason),
+    JSON.stringify(undetermined),
+  );
+
+  // THE NO-REMOTE POLE — what a bare/consumer checkout actually does, pinned
+  // separately now that it is measured rather than assumed. The ladder falls back
+  // to `origin/main` by DECLARATION, the lane cannot be measured there, and the
+  // door answers decided:true with the lane UNANSWERABLE: unknown is skipped,
+  // never read as content and never as 0 — a lower bound that cannot measure must
+  // not manufacture a block (cc-artifacts.md Rule 7).
+  check("F3-no-remote-pole-runs-against-a-live-repo", existsSync(unknownBase.work), unknownBase.work);
+  const noRemote = confirmAtLimit({ repoDir: unknownBase.work, names: ["feat/unknown-1"] });
+  check(
+    "F3-no-remote-repo-skips-the-unanswerable-lane",
+    noRemote.decided === true &&
+      noRemote.atLeastLimit === false &&
+      noRemote.confirmed === 0 &&
+      noRemote.unanswerable === 1 &&
+      noRemote.candidates === 1,
+    JSON.stringify(noRemote),
+  );
+
+  // AFTER THE PUSH the delta row is gone, and the replayed lane closes by CONTENT
+  // at the remote base — not by trusting a local ref.
+  git(repo.work, ["push", "-q", "origin", "main"]);
+  const pushed = openLanes({ repoDir: repo.work });
+  const pushedNames = pushed.lanes.map((l) => l.name);
+  check("F3-after-push-no-trunk-delta", !pushed.lanes.some((l) => l.kind === "trunk-delta"), `a synced trunk must add no row; got ${JSON.stringify(pushedNames)}`);
+  check("F3-after-push-landed-lane-closes", !pushedNames.includes("feat/landed-locally"), JSON.stringify(pushedNames));
+  check("F3-after-push-unlanded-lane-stays", pushedNames.includes("feat/still-open"), JSON.stringify(pushedNames));
+  check("F3-push-poles-differ", census.lanes.some((l) => l.kind === "trunk-delta") !== pushed.lanes.some((l) => l.kind === "trunk-delta"), "the delta row must exist before the push and not after");
+}
+
+// ─── the three attacks the ruling names: each must leave the cap at the limit ───
+{
+  const { openLanes } = require(LIB);
+  const laneNames = Array.from({ length: WIP_LIMIT }, (_, i) => `feat/atk-${i + 1}`);
+  const laneShas = (r) => laneNames.map((n) => git(r.work, ["rev-parse", n]).stdout.trim());
+  const withProvenance = (r) => {
+    // The forged-trailer attack only bites where a landing-provenance config
+    // exists (the real repo has one), so every attack repo carries it.
+    const seed = git(r.work, ["rev-list", "--max-parents=0", "main"]).stdout.trim();
+    mkdirSync(path.join(r.work, ".claude", "bin"), { recursive: true });
+    writeFileSync(
+      path.join(r.work, ".claude", "bin", "landing-provenance.json"),
+      JSON.stringify({
+        schema: "landing-provenance/1",
+        integration_branch: "main",
+        promotion_branch: "main",
+        remote: "origin",
+        protected_branches: ["main"],
+        cutover: seed,
+      }),
+    );
+  };
+  const buildAttack = (mutate) => {
+    const r = buildRepo({ lanes: laneNames.map((name) => ({ name, ageHours: 2 })) });
+    withProvenance(r);
+    mutate(r);
+    return r;
+  };
+  const attacks = {
+    "octopus-merge": buildAttack((r) => {
+      git(r.work, ["checkout", "-q", "main"]);
+      git(r.work, ["merge", "-q", "--no-ff", ...laneNames]);
+    }),
+    "forged-trailers": buildAttack((r) => {
+      git(r.work, ["checkout", "-q", "main"]);
+      laneNames.forEach((lane, i) => {
+        git(r.work, ["commit", "--allow-empty", "-q", "-m", `chore: forged landing for ${lane}\n\nLanded-From: ${lane}@${laneShas(r)[i]}`]);
+      });
+    }),
+    "update-ref": buildAttack((r) => {
+      git(r.work, ["checkout", "-q", "--detach", "main"]);
+      git(r.work, ["checkout", "-q", "-b", "atk-tmp", "main"]);
+      // NO `-q` HERE: `git cherry-pick` has no quiet option (it exits 129 with
+      // its usage text), and the silent git() made that look like a clean attack
+      // that changed nothing — the control reded, which is how it surfaced.
+      for (const sha of laneShas(r)) git(r.work, ["cherry-pick", sha]);
+      const tip = git(r.work, ["rev-parse", "atk-tmp"]).stdout.trim();
+      git(r.work, ["checkout", "-q", "main"]);
+      git(r.work, ["update-ref", "refs/heads/main", tip]);
+      git(r.work, ["checkout", "-q", "main"]);
+    }),
+  };
+  // EACH ATTACK'S CONTROL USES THE INSTRUMENT THE ATTACK ACTUALLY MOVES.
+  // `git cherry` is the content question (merge, update-ref); the forged-trailer
+  // attack leaves content untouched and moves the PROVENANCE question, so its
+  // control is the forged record's presence on the local trunk and absence at the
+  // remote. A single content control for all three would score the trailer attack
+  // against the wrong instrument — and it did, before this split.
+  const contentOpenAt = (r, base) =>
+    laneNames.filter((n) => git(r.work, ["cherry", base, n]).stdout.split("\n").some((l) => l.startsWith("+"))).length;
+  const controls = {
+    "octopus-merge": (r) => contentOpenAt(r, "refs/heads/main") === 0 && contentOpenAt(r, "origin/main") === WIP_LIMIT,
+    // The "absent at the remote" half reads the remote's OWN history, which is
+    // non-empty — `origin/main..origin/main` is an always-empty range and could
+    // never fail (correctness R2 LOW).
+    "forged-trailers": (r) =>
+      git(r.work, ["log", "--format=%B", "origin/main..refs/heads/main"]).stdout.includes("Landed-From: feat/atk-1@") &&
+      git(r.work, ["rev-list", "--count", "origin/main"]).stdout.trim() !== "0" &&
+      !git(r.work, ["log", "--format=%B", "origin/main"]).stdout.includes("Landed-From:"),
+    // The ref itself moved locally while the remote did not: that IS the attack's
+    // threat shape (an agent-writable ref deciding landedness). Content equivalence
+    // is decided by the provenance instrument here, so it is not the control.
+    "update-ref": (r) =>
+      git(r.work, ["rev-parse", "refs/heads/main"]).stdout.trim() !== git(r.work, ["rev-parse", "origin/main"]).stdout.trim() &&
+      contentOpenAt(r, "origin/main") === WIP_LIMIT,
+  };
+  for (const [label, r] of Object.entries(attacks)) {
+    const decided = confirmAtLimit({ repoDir: r.work, names: laneNames });
+    check(`F3-attack-${label}-stays-at-limit`, decided.decided === true && decided.atLeastLimit === true && decided.confirmed >= WIP_LIMIT, `${WIP_LIMIT} lanes must stay CONFIRMED under the ${label} attack, or the cap fails open; got ${JSON.stringify(decided)}`);
+    // THE SHARPER STATEMENT: the attack must not make ANY lane read LANDED.
+    // Measured under the rejected local-trunk base, `git cherry main <lane>` emits
+    // `-` for every lane in the update-ref repo — the cherry-picked copies are
+    // patch-equivalent — yet `confirmAtLimit` decided all five by PROVENANCE,
+    // which answers OPEN because the attack moves content and never records a
+    // landing. That is the instrument the cap actually rests on, so it is pinned
+    // rather than assumed from the count alone.
+    check(`F3-attack-${label}-lands-no-lane`, decided.landedByProvenance.length === 0, `no lane may read LANDED under the ${label} attack; got ${JSON.stringify(decided.landedByProvenance)}`);
+    // CONTROL — the attack really landed on the LOCAL trunk (and is absent at the
+    // remote), so the green above is not a vacuous fixture with an inert attack.
+    check(`F3-attack-${label}-control-reaches-the-local-trunk-only`, controls[label](r), `the ${label} attack must be REAL on the local trunk and absent at origin/main`);
+    rmSync(r.root, { recursive: true, force: true });
+  }
+}
+
+// ─── the refusal NAMES THE DELTA, and offers the CURE only when it is SOUND ───
+// A DEDICATED repo (the shared `overLimit` is never mutated): an unpushed landing
+// on main that is backed by a land-lane ledger row, then the SAME delta with the
+// ledger withheld. R2 security LOW: a `Landed-From:` trailer is text anyone can
+// type, so the refusal must not tell an agent to push a record no ledger vouches
+// for.
+{
+  const cureRepo = buildRepo({
+    lanes: Array.from({ length: WIP_LIMIT }, (_, i) => ({ name: `feat/cure-${i + 1}`, ageHours: 2 + i })),
+  });
+  const source = git(cureRepo.work, ["rev-parse", "feat/cure-1"]).stdout.trim();
+  const added = git(cureRepo.work, ["commit", "--allow-empty", "-q", "-m", `chore: land feat/cure-1\n\nLanded-From: feat/cure-1@${source}`]);
+  const landed = git(cureRepo.work, ["rev-parse", "HEAD"]).stdout.trim();
+  check("F3-cure-fixture-built", added.code === 0 && /^[0-9a-f]{40}$/.test(landed), `the cure fixture must add an unpushed landing to main; got code=${added.code} landed=${landed} error=${added.error} stderr=${JSON.stringify(added.stderr)}`);
+  const common = git(cureRepo.work, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).stdout.trim();
+  const ledgerFile = path.join(common, "land-lane", "landing-ledger.jsonl");
+  mkdirSync(path.dirname(ledgerFile), { recursive: true });
+  writeFileSync(
+    ledgerFile,
+    JSON.stringify({ schema: "land-lane-landing/1", branch: "feat/cure-1", source, landed, kind: "from", at: new Date().toISOString() }) + "\n",
+  );
+  const backed = runGuard(laneOpenPayload(cureRepo.work));
+  check("F3-refusal-names-the-push-cure", /push main, then retire the landed lanes/.test(backed.advisory || ""), `an at-limit refusal whose every unpushed commit is ledger-backed must name the cure; got ${JSON.stringify(backed.advisory)}`);
+  // THE NEGATIVE POLE — same delta, ledger withheld: the delta is still NAMED
+  // (the operator must see why the count is what it is) but NO push is advised.
+  rmSync(ledgerFile, { force: true });
+  const unbacked = runGuard(laneOpenPayload(cureRepo.work));
+  check("F3-cure-withheld-when-not-ledger-backed", Boolean(unbacked.advisory) && /UNPUSHED TRUNK DELTA/.test(unbacked.advisory) && !/push main, then retire/.test(unbacked.advisory) && /NO CURE IS OFFERED/.test(unbacked.advisory), `an unbacked delta must be named WITHOUT a push cure; got ${JSON.stringify(unbacked.advisory)}`);
+  check("F3-cure-absent-without-a-delta", !/push main/.test(redLimit.advisory || ""), `the pre-delta refusal must NOT carry the cure line; got ${JSON.stringify(redLimit.advisory)}`);
+  rmSync(cureRepo.root, { recursive: true, force: true });
+}
+
+// ── teardown ────────────────────────────────────────────────────────────────
+// LAST, after every case has read its repo. Worktrees are pruned before the
+// directories go, so no admin entry survives in a repo this fixture deletes.
+try {
+  git(treeRepo.work, ["worktree", "prune"]);
+} catch {
+  /* best effort */
+}
+for (const d of cleanup) {
+  try {
+    rmSync(d, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 }
 
 console.log(`wip-discipline fixtures: ${pass} pass, ${fail} fail`);

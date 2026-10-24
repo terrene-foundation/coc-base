@@ -1,0 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
+import { repoRoot } from "./elsewhere.mjs";
+
+// B1: the root comes from another module; its kind is UNKNOWN here (census, not a finding).
+export function inside(p) {
+  const real = fs.realpathSync(p);
+  return real.startsWith(repoRoot() + path.sep);
+}

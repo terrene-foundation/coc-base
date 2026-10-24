@@ -143,6 +143,71 @@
  *     than the exact prefix the signer attested fails the digest.
  *
  * ---------------------------------------------------------------------------
+ * THE INCREMENTAL FOLD (2026-10-08) — DESIGN, AND WHY THE BOUND IS THE FIX
+ * ---------------------------------------------------------------------------
+ *
+ * THE MECHANISM THIS FILE OWNS, stated as the three invariants a reader can
+ * check against the code:
+ *
+ *   1. A checkpoint IS the last verified record plus the fold state needed to
+ *      continue from it: `covered_count` (the boundary — every record at an
+ *      index BELOW it was verified), `prefix_digest` (SHA-256 over the ordered
+ *      FULL-record hashes of exactly those records — a hash of the last
+ *      verified record is subsumed by it, and the digest binds every earlier
+ *      one too, including order), `roster_digest` (the trust set the verdicts
+ *      were reached under), and `rule1_failed_indices` (the pinned verdicts the
+ *      next fold must re-derive rather than trust). The remaining fold state is
+ *      NOT carried: every non-crypto rule (2, 3, 4, 5, presence gate,
+ *      per-type dispatch) still runs over EVERY record on every fold, from the
+ *      same array, in the same order. That is deliberate — it is what makes an
+ *      incremental fold's `accepted`/`rejected`/`forks` output EQUAL to a full
+ *      fold's BY CONSTRUCTION rather than by an argument about cached state.
+ *
+ *   2. ON THE NEXT CALL ONLY THE RECORDS AFTER THE CHECKPOINT are verified
+ *      cryptographically. The resolver re-derives `prefix_digest` from the
+ *      records on disk (never from a cache), verifies the checkpoint's ONE
+ *      signature, and reports `coveredCount`. The fold loop then replays the
+ *      covered prefix through the roster-membership half of rule 1 (no
+ *      subprocess) and verifies the tail for real. The checkpoint record itself
+ *      is inside the covered prefix of the NEXT checkpoint, so it too is
+ *      verified once, not per-fold.
+ *
+ *   3. ANY MISMATCH, TAMPER, OR UNVERIFIABLE STATE IS A CACHE MISS → FULL FOLD.
+ *      There is no partial credit and no soft failure: `coveredCount: 0` (see
+ *      FAIL-CLOSED, EVERYWHERE below) puts the fold on full signature
+ *      verification, the behaviour that shipped before this file existed.
+ *
+ * WHY A CHECKPOINT THE FOLD DID NOT PRODUCE IS NEVER TRUSTED, AND CANNOT BE.
+ *    A content-hash cache in the working tree was considered and REJECTED — see
+ *    § WHY THIS IS A SIGNATURE AND NOT THE CONTENT-HASH CACHE THAT WAS
+ *    REJECTED above: it promotes a file anyone who can write the tree can forge
+ *    into a signature-verification oracle. The contract implemented instead is
+ *    exact: coverage is granted ONLY to a record whose own detached signature
+ *    verifies under a CURRENT, owner-eligible roster key, over content that
+ *    commits to the covered bytes by digest. A checkpoint minted elsewhere,
+ *    replayed, widened, signed by a non-owner, or left behind by a roster
+ *    change is not "unlikely to be trusted" — it resolves to coverage 0.
+ *
+ * WHAT WAS ACTUALLY BROKEN, because the mechanism above already existed and the
+ * fold was still refusing every guarded write (measured 2026-10-08): the
+ * mechanism could not REFRESH. The producer's trigger was a constant (200)
+ * derived from a cost model — 8.98 ms per verify — that the log had outgrown
+ * (the owner's signing key moved to ssh-rsa, which the in-process SSHSIG path
+ * does not cover, so every tail record pays a ~30 ms `ssh-keygen` SPAWN). At
+ * 150 uncovered records the fold cost 7.5-14 s against a 5.75 s dispatcher row
+ * budget whose `on_incomplete` is `deny`, so integrity-guard was killed mid-fold
+ * and EVERY write to journal/, the roster, posture or team-memory was refused.
+ * The trigger never fired (150 < 200), so the tail could only grow.
+ *
+ * THE FIX, in three parts, each measured rather than argued:
+ *   (a) the trigger is DERIVED from its cost model (below), not typed in, so a
+ *       tail can never exceed the budget the fold actually has;
+ *   (b) the fold no longer pays for two GPG homedirs, or for verifying its own
+ *       checkpoint record twice (see coordination-log.js);
+ *   (c) the producer, not the read path, absorbs the remaining cost — the
+ *       bounded tail is paid once per interval in a detached teardown worker.
+ *
+ * ---------------------------------------------------------------------------
  * FAIL-CLOSED, EVERYWHERE
  * ---------------------------------------------------------------------------
  *
@@ -171,17 +236,74 @@ const { isEligibleSigner } = require("./eligibility.js");
 const CHECKPOINT_TYPE = "fold-verification-checkpoint";
 
 /**
- * Emit trigger: number of records ABOVE the last valid checkpoint at which a
- * new one is emitted.
+ * The TAIL BUDGET — how much wall-clock the uncovered tail may spend inside a
+ * read-time fold, and therefore the quantity the emit trigger below is DERIVED
+ * from rather than guessed at.
  *
- * Chosen on the measurement, not by taste. Per-record fold cost measured at
- * 8257 ms / 919 records = 8.98 ms, essentially all subprocess spawn. The three
- * PreToolUse folding hooks run under a 5-second timeout, and the fold is only
- * part of each hook's work. 200 records ≈ 1.8 s of tail verification, which
- * leaves >3 s of headroom inside the timeout. Larger thresholds spend that
- * headroom; smaller ones write checkpoint records more often for no gain.
+ * THE SHAPE OF THE BOUND, stated once because every number below reads from it:
+ *
+ *   hook budget              5750 ms   (dispatcher row timeout 5000 + 750 GRACE_MS,
+ *                                       dispatch-main.js::budgetOf — the row that
+ *                                       declares on_incomplete:"deny", i.e. a fold
+ *                                       that overruns it REFUSES the write)
+ *   − fixed per-fold costs   ~2400 ms  (MEASURED on loom's own 1070-record log,
+ *                                       2026-10-08: 3 `gpg --homedir` spawns
+ *                                       ~780 ms + 2 `gpgconf --homedir` calls
+ *                                       ~1500 ms + git probes ~130 ms)
+ *   − non-crypto fold work    ~600 ms  (prefix digest over the covered prefix +
+ *                                       the per-record JS rules, same log)
+ *   − guard work around it    ~400 ms  (identity, main-checkout, roster reads)
+ *   ≈ 2350 ms of headroom, of which the tail may claim TAIL_BUDGET_MS.
+ *
+ * THE PER-RECORD COST IS A SUBPROCESS SPAWN and it is load-sensitive, which is
+ * exactly how the previous value rotted: 200 was derived when a verify cost
+ * 8.98 ms (measured 2026-08-21), and the live log's owner key had meanwhile
+ * moved to an ssh-rsa key the in-process SSHSIG path does not cover — so every
+ * tail record paid a full `ssh-keygen -Y verify` SPAWN. Measured 2026-10-08
+ * across this change's own runs: 145 tail verifies took 4403 ms (30.4 ms each,
+ * the value used below); the same spawn measured 11-12 ms and 914 ms at
+ * different load moments, which is the variance the RESIDUAL below is about.
+ * 200 × 30 ms = 6.0 s of tail verification alone, over the whole row budget
+ * before the fixed costs are even counted — which is how a log at 150 uncovered
+ * records started REFUSING every guarded write (measured end-to-end:
+ * integrity-guard killed at its 5 s row budget with on_incomplete:"deny").
+ *
+ * So the constant is no longer typed in: the trigger is the largest integer
+ * whose worst measured tail FITS the budget it is given. Re-derive by editing
+ * the two measurement inputs below — never by editing the derived value.
+ *
+ * RESIDUAL, named rather than implied: spawn cost scales with host load, and a
+ * single `ssh-keygen -Y verify` was measured at BOTH 11-12 ms and 914 ms inside
+ * this change's own working window (the 30 ms below is the amortised figure
+ * over 145 verifies in one run, and it is the one the derivation budgets
+ * against). A load spike costs the tail a multiple of that. What keeps the
+ * spike bounded is the refresh, not this comment: the tail is re-bounded every
+ * time a producer run folds the log, so the exposure is one inter-boundary
+ * interval, and the fail direction is a REFUSED WRITE, never a skipped
+ * verification.
  */
-const CHECKPOINT_INTERVAL = 200;
+const CHECKPOINT_TAIL_BUDGET_MS = 750;
+/**
+ * The per-record tail verification cost the derivation budgets against —
+ * amortised over 145 verifies in one measured run (30.4 ms each). NOT a claim
+ * about the worst case; see RESIDUAL above for why no such constant exists.
+ */
+const CHECKPOINT_PER_RECORD_ASSUMED_MS = 30;
+
+/**
+ * Emit trigger: number of records ABOVE the last valid checkpoint at which a
+ * new one is emitted. DERIVED from the two measurements above so the trigger
+ * cannot drift away from the budget it exists to respect.
+ *
+ * Smaller spends more checkpoint records (one ~1.4 KB signed record per
+ * interval) to buy tail headroom; larger spends the headroom a read-time fold
+ * does not have. At 25 that is ~4% record-count growth on a log of this
+ * shape — the cheap side of the trade, because the expensive side is a
+ * fail-closed refusal on every write to a guarded surface.
+ */
+const CHECKPOINT_INTERVAL = Math.floor(
+  CHECKPOINT_TAIL_BUDGET_MS / CHECKPOINT_PER_RECORD_ASSUMED_MS,
+);
 
 /**
  * Upper bound on pinned rule-1 failure INDICES.
@@ -451,14 +573,79 @@ function _validateCheckpointContent(c, checkpointIndex, recordCount) {
 }
 
 /**
+ * The CHEAP (no-crypto) half of candidate admission: everything the resolver is
+ * willing to establish before it spends a signature verification — the roster
+ * the verdict set was attested under is still current, the signer resolves to a
+ * roster person, that person is owner-quorum eligible, and the roster carries
+ * the key the record names.
+ *
+ * WHY IT IS ONE FUNCTION. The SAME predicate now decides both (a) whether a
+ * trailing record may CONSUME one of the MAX_CHECKPOINT_ATTEMPTS candidate
+ * slots and (b) whether a candidate is adjudicated. When only (b) ran it, three
+ * appended lines that were shape-valid but UNSIGNABLE — no roster key, no
+ * eligibility, no signature needed — spent every slot, and the genuine
+ * checkpoint below them was never reached: coverage 0, full verification, and
+ * (on a log long enough that this mechanism exists to bound it) the refusal
+ * storm the checkpoint exists to prevent. Detection was never weakened — the
+ * fallback is fail-closed — but the BOUND stopped firing, which is the failure
+ * mode this module was built to end.
+ *
+ * @returns {{ok: true, matchingKey: object} |
+ *           {ok: false, reason: string} |
+ *           {ok: false, throwing: string}} — `throwing` is the roster digest
+ *   failing to compute at all, which is a fact about the ROSTER rather than
+ *   about this candidate; the caller must fail the WHOLE resolution closed
+ *   (coveredCount 0), never merely skip the candidate.
+ */
+function _cheapCandidateAdmission(record, roster) {
+  const c = record && record.content ? record.content : null;
+  if (!c) return { ok: false, reason: "no content" };
+  let observedRosterDigest;
+  try {
+    observedRosterDigest = computeRosterDigest(roster);
+  } catch (err) {
+    return { ok: false, throwing: `roster digest threw: ${err && err.message}` };
+  }
+  if (observedRosterDigest !== c.roster_digest) {
+    return {
+      ok: false,
+      reason: `roster digest mismatch (pinned ${String(c.roster_digest).slice(0, 16)}…, observed ${observedRosterDigest.slice(0, 16)}…) — the trust set changed since attestation, so the pinned rule-1 verdicts are stale`,
+    };
+  }
+  const resolved = _resolveRosterPerson(roster, record.verified_id);
+  if (!resolved) {
+    return { ok: false, reason: `signer ${record.verified_id} not in roster` };
+  }
+  const elig = isEligibleSigner(resolved.person, "owner-quorum");
+  if (!elig || !elig.eligible) {
+    return {
+      ok: false,
+      reason: `signer ineligible: ${(elig && elig.reason) || "unknown"}`,
+    };
+  }
+  // S61 defense-in-depth; REDS NO POLE today — a person returned by
+  // `_resolveRosterPerson` provably has an ARRAY `keys` (the resolver only
+  // returns after iterating it and matching a `.fingerprint` inside). Kept
+  // for a future caller resolving a person some other way; NOT claimed covered.
+  const matchingKey = (
+    Array.isArray(resolved.person.keys) ? resolved.person.keys : []
+  ).find((k) => k && k.fingerprint === record.verified_id);
+  if (!matchingKey) {
+    return { ok: false, reason: "no roster pubkey matching signer" };
+  }
+  return { ok: true, matchingKey };
+}
+
+/**
  * resolveCheckpointCoverage — decide how much of `records` may skip the
  * rule-1 subprocess.
  *
  * Walks trailing `fold-verification-checkpoint` records newest-first (at most
  * MAX_CHECKPOINT_ATTEMPTS of them) and returns the first that satisfies ALL
- * of: content shape, coverage bounds, owner-role + owner-quorum-eligible
- * signer, a cryptographically valid detached signature bound to that signer's
- * fingerprint, and an exact `prefix_digest` match recomputed from `records`.
+ * of: content shape, cheap admission (roster current + owner-eligible signer +
+ * roster key present), coverage bounds, a cryptographically valid detached
+ * signature bound to that signer's fingerprint, and an exact `prefix_digest`
+ * match recomputed from `records`.
  *
  * EVERY failure path returns `coveredCount: 0`, which means "verify every
  * signature" — the pre-existing behaviour.
@@ -489,15 +676,34 @@ function resolveCheckpointCoverage(records, roster, opts) {
 
   // Collect trailing checkpoint candidates, newest-first, bounded.
   //
-  // Candidacy requires the content to be SHAPE-VALID, not merely to carry the
-  // right `type`. Counting by type alone was a denial-of-bound: anyone able to
-  // append to the log could write MAX_CHECKPOINT_ATTEMPTS lines of
+  // Candidacy requires the content to be SHAPE-VALID AND to clear the CHEAP
+  // admission checks below — never merely to carry the right `type`. Counting
+  // by type alone was a denial-of-bound: anyone able to append to the log could
+  // write MAX_CHECKPOINT_ATTEMPTS lines of
   // `{"type":"fold-verification-checkpoint"}` and the genuine checkpoint below
   // them would never be examined again. The log is append-only and nothing in
   // the repo compacts it, so that poison would have been permanent — the fold
   // would silently return to its unbounded cost under a 5-second hook timeout.
   // Fail-closed in the integrity sense (no signature is ever skipped), but it
   // defeats the entire mechanism, so shape is checked BEFORE a slot is spent.
+  //
+  // SHAPE ALONE WAS NOT ENOUGH (security review, 2026-10-08): a shape-valid line
+  // needs no signature, no roster membership and no eligibility, so three such
+  // lines still spent every slot. The cheap admission below is the same
+  // no-crypto predicate the adjudication loop applies — roster-digest match,
+  // signer present in the roster, owner-quorum eligible, roster key present — so
+  // a slot can only be spent by a candidate that COULD grant coverage.
+  //
+  // WHAT THIS DOES NOT CLOSE, stated rather than implied: a writer who can
+  // append records AND knows the logged owner fingerprint + current
+  // roster_digest (both are in the log) can still spend slots with
+  // shape-valid lines whose only defect is an unverifiable signature — no
+  // cheap check can separate those from the genuine checkpoint, because the
+  // separation IS the signature verification this resolver is trying to spend
+  // only once. That variant is bounded by the refresh, not by this gate: the
+  // producer appends a NEW checkpoint at the next Stop/SessionEnd, which out-
+  // ranks any poison, so the shadowed window closes at the next producer run
+  // rather than lasting forever.
   const candidates = [];
   const reasons = [];
   for (let i = records.length - 1; i >= 0; i -= 1) {
@@ -509,13 +715,20 @@ function resolveCheckpointCoverage(records, roster, opts) {
       if (reasons.length < 8) reasons.push(`@${i}: ${shape.reason}`);
       continue;
     }
+    const cheap = _cheapCandidateAdmission(r, roster);
+    if (cheap.throwing) return none(cheap.throwing);
+    if (!cheap.ok) {
+      // Same rule: an inadmissible candidate costs no slot.
+      if (reasons.length < 8) reasons.push(`@${i}: ${cheap.reason}`);
+      continue;
+    }
     candidates.push(i);
     if (candidates.length >= MAX_CHECKPOINT_ATTEMPTS) break;
   }
   if (candidates.length === 0) {
     return none(
       reasons.length
-        ? `no shape-valid checkpoint: ${reasons.join("; ")}`
+        ? `no admissible checkpoint: ${reasons.join("; ")}`
         : "no checkpoint record present",
     );
   }
@@ -524,45 +737,15 @@ function resolveCheckpointCoverage(records, roster, opts) {
     const record = records[idx];
     const c = record.content;
 
-    // --- the roster this verdict set was attested under MUST still be current ---
-    let observedRosterDigest;
-    try {
-      observedRosterDigest = computeRosterDigest(roster);
-    } catch (err) {
-      return none(`roster digest threw: ${err && err.message}`);
-    }
-    if (observedRosterDigest !== c.roster_digest) {
-      reasons.push(
-        `@${idx}: roster digest mismatch (pinned ${c.roster_digest.slice(0, 16)}…, observed ${observedRosterDigest.slice(0, 16)}…) — the trust set changed since attestation, so the pinned rule-1 verdicts are stale`,
-      );
+    // The SAME cheap admission the collection loop applied — one predicate, so
+    // a candidate can never consume a slot here and fail there (or the reverse).
+    const cheap = _cheapCandidateAdmission(record, roster);
+    if (cheap.throwing) return none(cheap.throwing);
+    if (!cheap.ok) {
+      reasons.push(`@${idx}: ${cheap.reason}`);
       continue;
     }
-
-    // --- signer must be an owner-role, owner-quorum-eligible roster person ---
-    const resolved = _resolveRosterPerson(roster, record.verified_id);
-    if (!resolved) {
-      reasons.push(`@${idx}: signer ${record.verified_id} not in roster`);
-      continue;
-    }
-    const elig = isEligibleSigner(resolved.person, "owner-quorum");
-    if (!elig || !elig.eligible) {
-      reasons.push(
-        `@${idx}: signer ineligible: ${(elig && elig.reason) || "unknown"}`,
-      );
-      continue;
-    }
-    // S61 defense-in-depth; REDS NO POLE today — a person returned by
-    // `_resolveRosterPerson` provably has an ARRAY `keys` (the resolver only
-    // returns after iterating it and matching a `.fingerprint` inside). Kept
-    // for a future caller resolving a person some other way; NOT claimed covered.
-    const matchingKey = (
-      Array.isArray(resolved.person.keys) ? resolved.person.keys : []
-    ).find((k) => k && k.fingerprint === record.verified_id);
-    if (!matchingKey) {
-      reasons.push(`@${idx}: no roster pubkey matching signer`);
-      continue;
-    }
-
+    const matchingKey = cheap.matchingKey;
     // --- the checkpoint's OWN signature (the one subprocess we still pay) ---
     let bytes;
     try {
@@ -791,6 +974,8 @@ function foldVerificationCheckpoint(record, ctx) {
 module.exports = {
   CHECKPOINT_TYPE,
   CHECKPOINT_INTERVAL,
+  CHECKPOINT_TAIL_BUDGET_MS,
+  CHECKPOINT_PER_RECORD_ASSUMED_MS,
   MAX_PINNED_RULE1_FAILURES,
   MAX_CHECKPOINT_ATTEMPTS,
   canonicalRecordHash,

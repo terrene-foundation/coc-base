@@ -1,0 +1,19 @@
+{
+  "_note": "Live-sweep hits of rules/security.md § Path Containment, keyed <path>::<enclosingFunction>::<arm>#<ordinal> (symbols, never line numbers). Reconciled BOTH ways by run.mjs: an unacknowledged hit FAILS and an acknowledgement with no live hit FAILS as stale. Every entry MUST carry: reason (>= 30 chars naming its polarity: allow (inside => permit) or deny (inside => refuse / protect / occupied)); disposition (fixed-pending | by-design); expires (ISO YYYY-MM-DD, at most 90 days after this file's commit date — the runner REDS once it has passed or when it lies beyond that horizon, so no acknowledgement is permanent); tracking (an issue id #N / owner/repo#N, or a journal/ or workspaces/ .md path that EXISTS and records the ruling); site_sha256 (the hash run.mjs prints for the live hit — it binds the comparison AND its enclosing decision, so a rewritten comparison or a flipped polarity re-fails).",
+  "sites": {
+    ".claude/hooks/lib/pcf-category.js::canonicalizeThroughExistingAncestor::A3d#1": {
+      "reason": "deny polarity (a diagnostic of a refusal): the any-errno climb picks the refusal MESSAGE for an unresolvable body file (was it aimed outside the root?); the caller refuses either way and the load-bearing containment test runs on fully resolved forms. Walking past ELOOP / ENOTDIR is by design and pinned by the pcf-category fixtures. Its second use, as the checkoutOf walk start, is the open question for the re-review.",
+      "disposition": "by-design",
+      "expires": "2027-01-15",
+      "tracking": "workspaces/train8-path-containment-2026-10-17/acknowledged-sites.md",
+      "site_sha256": "8740b9cd5bc4e06d975b2e3eaa777fc572cfd830df0ac62336438eaae34a16d9"
+    },
+    ".claude/bin/worktree-triage.mjs::realOrResolve::A3d#1": {
+      "reason": "deny polarity (the --capture forbidden list: a capture target inside any worktree is refused). The existsSync climb walks past an EACCES-shadowed or dangling worktree path and denies its GUESSED location. The strict fix (throw) refused the whole rescue run on one unreadable worktree, breaking the pinned HIGH-4 contract (exit 2, the other trees still captured), so it was reverted pending an owner/ROOT design ruling.",
+      "disposition": "fixed-pending",
+      "expires": "2026-11-16",
+      "tracking": "workspaces/train8-path-containment-2026-10-17/acknowledged-sites.md",
+      "site_sha256": "aae29140096bdde092836a822935fb6501c80ed96de9a53a453486975d77225a"
+    }
+  }
+}

@@ -91,6 +91,8 @@ LANDING: where the repo ships a provenance-recording landing script (loom:
 .claude/bin/land-lane.mjs), you land this lane ONLY through it, straight onto the integration
 branch - never a hand merge, cherry-pick or rebase.
 READ-ONLY: dispatch analysis / review / verification agents as needed - unbounded.
+EFFORT: every agent you launch carries an explicit effort level, set through the CLI's own
+per-launch effort or reasoning setting; a launch without one is a defect.
 BUILD DIRS: each compiling agent uses its own build/output dir inside this worktree.
 BUDGET: <work budget>. Return: per todo, what landed, what did not, and why.
 ```
@@ -105,7 +107,7 @@ BUDGET: <work budget>. Return: per todo, what landed, what did not, and why.
 - **LANDING** — landing rewrites commit ids, and only the script writes the source-to-landed link,
   so a hand-landed lane later reads as unlanded and is re-reviewed or re-landed over later fixes
   (`rules/wip-discipline.md` MUST-4). Straight onto the integration branch: re-landing strips the
-  first hop's link (loom: `.claude/bin/land-lane.mjs:371-381`).
+  first hop's link (loom: `.claude/bin/land-lane.mjs::stripLandedTrailers`).
 - **ROOT-CAUSE** — a sub-agent that never loads `rules/autonomous-execution.md` ships the symptom
   patch; the rule requires the orchestrator to carry the clause.
 - **CONTAINMENT** — composes with the partition. Writers take `rules/worktree-isolation.md` Rule 10's
@@ -116,8 +118,10 @@ BUDGET: <work budget>. Return: per todo, what landed, what did not, and why.
 - **BUILD DIRS** — build contention is isolated by directory, not by worktree. Point each compiling
   agent's build output at its own subdirectory, for example a per-agent target, virtualenv or dist
   directory.
+- **EFFORT** — a launch with no effort set runs at whatever default the harness picks, not the
+  effort its duty needs; until a hook enforces it, the brief is the only carrier.
 - **BUDGET** — an agent with no budget that wedges returns silence, and silence reads as progress
-  (`rules/agents.md` § A Dispatched Agent's Result Is Not Received Until It Is DELIVERED).
+  (`rules/agents.md` § A Dispatched Agent's Result Is Not Received Until DELIVERED).
 
 ## 6. Refill
 
@@ -138,6 +142,12 @@ or branch only when none can take it.
 - "one todo per lane keeps review simple" — review is gate-level at landing, not per todo
 - "I'll bind todos to lanes when I dispatch" — an unbound todo makes lane depth unmeasurable at the
   moment it matters
+
+## 8. When a fleet runs the lanes
+
+When two or three sessions work the repo at once, each lane belongs to one orchestrator's share, and
+the fleet's roles, workhorse liveness, ROOT's stall watchdog, review seating, the workhorse brief and
+the token discipline bind every lane brief above: `skills/lane-planning/fleet-operations.md`.
 
 ## Origin
 

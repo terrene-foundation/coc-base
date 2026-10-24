@@ -77,7 +77,10 @@
  *   6. this session has not already been told, in this repo.
  *
  * COST. One `git status --porcelain --untracked-files=no`, bounded by a 2s timeout,
- * fail-open on any error. `-uno` is deliberate: the untracked walk is the expensive
+ * fail-open on any error, preceded by the resolve the target-repo envelope needs
+ * (`target-repo-git.js::resolveTargetRepo` and its filter-driver walk: rev-parse,
+ * config and ls-files per repository, each bounded). All of it runs only once the command has
+ * already classified as an unscoped test run not yet advised this session. `-uno` is deliberate: the untracked walk is the expensive
  * half of `git status`, and this is a PreToolUse hook on a developer's own command.
  * The bound is stated rather than hidden — a brand-new, never-added test file is not
  * counted in the path total. It costs an undercount in the advisory's headline
@@ -86,7 +89,14 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
+// The status below runs in the payload cwd, which can be a scratch repository the
+// session made and whose `.git/config` / `.git/info/attributes` it wrote. `gitEnv()`
+// closes only global and system config, so the call goes through the shared
+// target-repo envelope (lib/target-repo-git.js) — the SAME one the destructive-op
+// fence uses: resolved once, every filter driver and config hook the status could
+// reach (the repo and every populated submodule) disabled, the binary resolved and
+// the env built from constants.
+const { resolveTargetRepo, targetGit } = require("./target-repo-git.js");
 
 /* Recognised runners. Each entry names the runner and the tokens that mean "I have
  * already narrowed this run".
@@ -211,16 +221,16 @@ function classifyUnscopedTestRun(command) {
  *
  * @returns {{count: number, sample: string[]} | null}
  */
-function changedPathCount(cwd, opts = {}) {
-  const gitBin = opts.gitBin || "git";
-  const env = opts.env || process.env;
+function changedPathCount(cwd) {
   try {
-    const out = execFileSync(
-      gitBin,
-      ["-C", cwd, "status", "--porcelain=1", "-z", "--untracked-files=no"],
-      { encoding: "utf8", env, timeout: 2000, maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
-    );
-    const paths = out
+    // An UNKNOWN repository or driver set is not measured: null, the existing failure
+    // answer. The envelope owns the binary (resolved, never PATH) and the env (built
+    // from constants, never process.env); no caller can hand it either.
+    const res = resolveTargetRepo({ dir: cwd }, { timeout: 2000 });
+    if (!res.ok || !res.repo.workTree) return null;
+    const r = targetGit(res.repo, ["status", "--porcelain=1", "-z", "--untracked-files=no"], { timeout: 2000 });
+    if (!r.ok) return null;
+    const paths = r.stdout
       .split("\0")
       .filter(Boolean)
       .map((rec) => rec.slice(3))
@@ -348,7 +358,7 @@ function buildTestScopeAdvisory(command, cwd, opts = {}) {
   if (!hit) return null;
   const sessionId = opts.sessionId || "no-session";
   if (alreadyAdvised(cwd, sessionId)) return null;
-  const changed = opts.changed !== undefined ? opts.changed : changedPathCount(cwd, opts);
+  const changed = opts.changed !== undefined ? opts.changed : changedPathCount(cwd);
   const text = formatScopeAdvisory({ runner: hit.runner, changed });
   if (!text) return null;
   recordAdvised(cwd, sessionId);

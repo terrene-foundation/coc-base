@@ -1,0 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 sec F6: an alias of the realpath function keeps its family.
+const rp = fs.realpathSync;
+
+export function inside(p, root) {
+  const c = rp(p);
+  return c.startsWith(path.resolve(root) + path.sep);
+}

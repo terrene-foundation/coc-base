@@ -318,7 +318,7 @@ export function applyOverlay(globalSrc, overlaySrc) {
       // `slot:neutral-body`. When the global carries NO slot markers at
       // all, its whole body IS the implicit neutral-body, so the
       // overlay's neutral-body replaces it outright — the documented
-      // Replacement semantic (artifact-flow.md § Variant Overlay
+      // Replacement semantic (artifact-flow-distribution.md § Variant Overlay
       // Semantics), identical to the full-file overlay path
       // (emit.mjs:291 `composed = overlay`). Without this branch the
       // RECOMMENDED slot-only form silently regresses to the generic

@@ -1,0 +1,41 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// A resolver reached through TWO same-file helpers. The binding `real` is read before
+// `viaHelper` is known (pass 1: UNKNOWN), so it must be RE-DERIVED once it is — or the stale
+// UNKNOWN makes `path.join(real, …)` lexical and this safe climb reads as a FALLBACK.
+function tryReal(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
+function viaHelper(p) {
+  return tryReal(p);
+}
+
+function nearest(p) {
+  let cur = path.resolve(p);
+  const tail = [];
+  for (;;) {
+    const real = viaHelper(cur);
+    if (real) return tail.length ? path.join(real, ...tail) : real;
+    try {
+      fs.lstatSync(cur);
+      return null;
+    } catch {
+      /* genuinely absent: climb */
+    }
+    const up = path.dirname(cur);
+    if (up === cur) return null;
+    tail.unshift(path.basename(cur));
+    cur = up;
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return nearest(p).startsWith(r + path.sep);
+}

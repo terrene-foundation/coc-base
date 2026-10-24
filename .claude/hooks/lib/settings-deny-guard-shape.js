@@ -94,8 +94,8 @@ function invokesGuard(command, marker) {
 // neuter BOTH guards (they launch the same way) WHILE the registration command stays
 // byte-identical — invokesGuard can't see it. settings.json `env` reaches the hook subprocess
 // (empirically confirmed), so it is settings.json CONTENT #1309 fences (NOT the out-of-scope
-// HOST env). Benign operator keys (e.g. CLAUDE_CODE_*) are unaffected — only the redirection
-// keys below gate. Co-owner-ratified IN-SCOPE 2026-07-23.
+// HOST env). Benign operator keys (e.g. CLAUDE_CODE_EXPERIMENTAL_*) are unaffected — only the
+// redirection keys below gate (the CLAUDE_CODE_ group is EXACT entries, never a prefix). Co-owner-ratified IN-SCOPE 2026-07-23.
 //
 // NAMED BEST-EFFORT RATIONALE (co-owner OPTION-A, 2026-07-24). This denylist is a
 // DELIBERATELY-BEST-EFFORT defense-in-depth layer over a NON-ENUMERABLE surface — NOT a
@@ -113,6 +113,10 @@ function invokesGuard(command, marker) {
 //   CLAUDE_PROJECT_DIR — expands in the command's path prefix → points at an attacker tree.
 //   BASH_ENV / ENV     — sourced by a bash/sh startup (F15); no legit CC-config purpose → fail-closed-safe.
 //   DYLD_* / LD_*      — dynamic-linker injection (macOS / Linux).
+//   RUN 8 env-key CLASSES — CODE-LOAD (OPENSSL_*, PERL5*, RUBY*, PYTHON*, JAVA_TOOL_OPTIONS, …),
+//                      COMMAND-WRAP (CLAUDE_CODE_SHELL_PREFIX, RUSTC_WRAPPER, CARGO_*, PAGER, EDITOR,
+//                      SSH_ASKPASS, LESSOPEN, …) and CONFIG-RELOCATION (KUBECONFIG, AWS_CONFIG_FILE, GH_*,
+//                      COREPACK_*, GOPROXY, …): see the class block closing DANGEROUS_ENV_EXACT.
 //   LOOM_ECOSYSTEM_CONFIG — POLICY-CONFIG redirection (#1429). Not a node-execution vector: it
 //                      relocates the ecosystem config to any absolute path, and BOTH readers honor
 //                      it — coordination-mode.js tier-3 (`coordination.enabled`, the master switch
@@ -197,7 +201,7 @@ const DANGEROUS_ENV_EXACT = new Set([
   // while leaving the primary open is exactly the sibling-blindness this file names.
   // Scoped by reading the three gpg surfaces rather than assuming they match:
   //   VERIFY  — NOT exposed. `coc-sign.js::_verifyGpg` resolves
-  //             `gpgHome || fs.mkdtempSync(...)`, so a homedir is always passed.
+  //             `gpgHome || _createHomedir(...)`, so a homedir is always passed.
   //   SIGN    — exposed when the caller omits it: `_signGpg` does
   //             `if (gpgHome) args.unshift("--homedir", gpgHome)` and otherwise spawns
   //             bare, so $GNUPGHOME selects the signing keyring.
@@ -217,6 +221,10 @@ const DANGEROUS_ENV_EXACT = new Set([
   // `git config --get user.signingkey` spawn passes NO `env:` — measured: HOME=decoy returns the
   // planted /tmp/victim.pub. ALSO blinds these guards' own sibling scan via os.homedir()
   "USERPROFILE", // the Windows HOME sibling — read as `HOME || USERPROFILE` at 5 hook sites
+  "CLAUDE_CONFIG_DIR", // M-W4.3 RUN 8 R2 Q4 — the HOME of Claude Code's own config: CC reads its
+  // user settings + global config (both env sources) from it, and settings-deny-edit-guard.js
+  // ::userConfigDirs fences that dir by reading it — so a settings-env value would move the fenced
+  // scope away from the file the session really reads, as HOME blinds os.homedir() above
   "XDG_CONFIG_HOME", // the CONDITIONAL second route to that same lookup: git consults
   // $XDG_CONFIG_HOME/git/config only when $HOME/.gitconfig is ABSENT (measured both branches)
   "CLAUDE_WORKTREE_PATH", // detectWorktreeDrift returns null when a path is "contained", so
@@ -240,6 +248,23 @@ const DANGEROUS_ENV_EXACT = new Set([
   "SSL_CERT_FILE", // substitutes the TLS trust anchor (OpenSSL)
   "SSL_CERT_DIR",
   "CURL_CA_BUNDLE", // same, for curl
+  "CURL_HOME", // relocates curl's CONFIG directory: curl reads $CURL_HOME/.curlrc before
+  // $HOME, so one value plants a .curlrc (proxy, --insecure, -K includes, output redirection)
+  // outside every protected row — the config-home sibling of HOME / XDG_CONFIG_HOME / GNUPGHOME
+  // ── M-W4.3 RUN 8: the remaining CONFIG-/STARTUP-relocation siblings of CURL_HOME. Each
+  //    points a trusted tool at an attacker-chosen startup or config file. MEASURED where the
+  //    tool is installed; the npm and pip FAMILIES are prefix entries in DANGEROUS_ENV_PREFIX. ──
+  "ZDOTDIR", // zsh reads .zshenv/.zshrc from $ZDOTDIR instead of $HOME — the strongest of the
+  // set: .zshenv runs for EVERY zsh, interactive or not (measured: a planted .zshenv executed
+  // under `ZDOTDIR=<dir> zsh -c true`)
+  "WGETRC", // GNU wget loads the startup file named by $WGETRC (wget manual § Startup File);
+  // wget is not installed on the measuring host, so this entry rests on the manual
+  "GH_CONFIG_DIR", // gh reads config.yml / hosts.yml from it (`gh help environment`; measured:
+  // a planted config.yml's git_protocol was returned by `gh config get`)
+  "PYTHONPATH", // prepends import paths, so a planted sitecustomize.py runs at interpreter start
+  // (measured: executed under `python3 -c pass`)
+  "PYTHONSTARTUP", // file executed at interactive start (measured under `python3 -i`)
+  "PYTHONHOME", // relocates the standard library itself — the same code-load lever as PYTHONPATH
   "SSH_AUTH_SOCK", // redirects the agent that answers signing / auth challenges
   "NODE_EXTRA_CA_CERTS", // adds an attacker CA to every Node subprocess's trust store
   "NODE_TLS_REJECT_UNAUTHORIZED", // "0" disables certificate verification outright.
@@ -258,11 +283,139 @@ const DANGEROUS_ENV_EXACT = new Set([
   "TMPDIR",
   "TMP",
   "TEMP",
+
+  // ── M-W4.3 RUN 8 env-key CLASSES — keys that make a HOOK PROCESS (or a tool it spawns) run
+  //    attacker code. MEASURED by the adversarial seat through the live edit-guard: a Write
+  //    creating settings.local.json with ONE key was ALLOWED for OPENSSL_CONF, PERL5OPT and
+  //    CLAUDE_CODE_SHELL_PREFIX while NODE_OPTIONS / CURL_HOME were denied; OPENSSL_CONF loaded a
+  //    provider shared library into node before any JS ran (ovh-1 + mini-2025). Grouped by CLASS;
+  //    the open-ended families are PREFIX entries in DANGEROUS_ENV_PREFIX (OPENSSL_, PERL5, RUBY,
+  //    PYTHON, CARGO_, GH_, COREPACK_, YARN_, UV_, AWS_ENDPOINT_URL), the closed ones are here. ──
+  // (1) CODE-LOAD — an interpreter / runtime loads code the value names
+  "PERLLIB", // the pre-PERL5 spelling of PERL5LIB (the PERL5 prefix covers PERL5OPT/PERL5LIB/PERL5DB)
+  "JAVA_TOOL_OPTIONS", // every JVM reads it: -javaagent:<jar> runs attacker code at JVM start
+  "_JAVA_OPTIONS", // the same lever, HotSpot spelling
+  "JDK_JAVA_OPTIONS", // the same lever, `java` launcher spelling (JDK 9+)
+  "NODE_REDIRECT_WARNINGS", // node writes process warnings to the named FILE — an arbitrary-path
+  // write from every node hook process (exact, not a NODE_ prefix: NODE_ENV is an operator key)
+  "NODE_REPL_EXTERNAL_MODULE", // node loads the named module in place of the built-in REPL
+  "GOFLAGS", // injected into every go command: -toolexec=<cmd> wraps every compiler invocation
+  "GOTOOLCHAIN", // selects / downloads and RUNS another toolchain
+  "GOENV", // relocates the go env config file that sets all of the above
+  "GOROOT", // relocates the toolchain itself
+  "GOPATH", // relocates the module cache + installed binaries (the cache is trusted once present)
+  "GOMODCACHE", // relocates the module cache alone
+  // (2) COMMAND-WRAP — the value wraps or replaces a command something executes
+  "CLAUDE_CODE_SHELL_PREFIX", // Claude Code runs every hook and Bash command through this
+  // wrapper (named in the CC 2.1.300 string table, the seat's finding; not executed here).
+  // EXACT entries for the whole CLAUDE_CODE_ group, never a prefix: the committed settings.json
+  // sets CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS + CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING, and
+  // operators set CLAUDE_CODE_AUTO_COMPACT_WINDOW — a prefix would refuse all three.
+  "CLAUDE_CODE_SHELL", // overrides the shell commands run under
+  "CLAUDE_CODE_GIT_BASH_PATH", // the bash.exe commands run under on Windows
+  "CLAUDE_CODE_PROCESS_WRAPPER", // a launcher wrapper around the claude process itself
+  "CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT", // a script the Windows shell launcher evaluates
+  "CLAUDE_CODE_TEAMMATE_COMMAND", // the command a teammate session is spawned with
+  "CLAUDE_ENV_FILE", // a file whose exports are loaded into the Bash tool's environment
+  "RUSTC_WRAPPER", // cargo runs `$RUSTC_WRAPPER rustc …` for every compile
+  "RUSTC_WORKSPACE_WRAPPER", // the same, for workspace members
+  "RUSTC", // replaces the compiler cargo runs (CARGO_* incl. CARGO_BUILD_RUSTC_WRAPPER and the
+  // unbounded CARGO_TARGET_<triple>_RUNNER/_LINKER are the CARGO_ prefix)
+  "SSH_ASKPASS", // ssh/git run it to obtain a passphrase
+  "SUDO_ASKPASS", // sudo -A runs it
+  "PAGER", // git/gh/man pipe output through it
+  "MANPAGER",
+  "EDITOR", // git/gh/crontab run it
+  "VISUAL",
+  "BROWSER", // gh/xdg-open/python webbrowser run it
+  "LESSOPEN", // less runs it as an input preprocessor on every file it opens
+  "LESSCLOSE",
+  // (3) CONFIG-RELOCATION — the value relocates a tool's config, registry, trust anchor or
+  //     credentials (the CURL_HOME / GH_CONFIG_DIR / KUBECONFIG class)
+  "XDG_CONFIG_DIRS", // the system-config search path every XDG tool consults after XDG_CONFIG_HOME
+  "KUBECONFIG", // kubectl's cluster + credential file (an exec: credential plugin runs a command)
+  "AWS_CONFIG_FILE", // the AWS config file (credential_process runs a command)
+  "AWS_SHARED_CREDENTIALS_FILE", // the AWS credentials file
+  "AWS_CA_BUNDLE", // the AWS TLS trust anchor. AWS_REGION / AWS_PROFILE are NOT fenced: they are
+  // the documented Claude-Code-on-Bedrock settings-env keys, and select WITHIN the fenced files
+  "REQUESTS_CA_BUNDLE", // python-requests' TLS trust anchor — the CURL_CA_BUNDLE sibling
+  "GOPROXY", // module source (GOFLAGS/GOPATH above are the code-load half of the go family)
+  "GOSUMDB", // checksum database — "off" disables verification
+  "GONOSUMDB", // per-module checksum bypass
+  "GONOSUMCHECK",
+  "GOINSECURE", // permits plain-HTTP module fetch
+  "GOPRIVATE", // disables the checksum database for the matched modules
+  "CLAUDE_CODE_MANAGED_SETTINGS_PATH", // relocates managed settings — the CC-native deny backstop
+  // this module's header names as the layer that holds when a guard is neutered
+  "CLAUDE_CODE_REMOTE_SETTINGS_PATH", // the same, for remote settings
+
+  // ── M-W4.3 RUN 8 R2 Q2 — the add-now set the class fix above still allowed (exit=0 allow through
+  //    the live edit guard). EXACT names, so the no-CLAUDE_CODE_-prefix decision stands. ──
+  // (4) HOOK-CONTROL — the value bounds or bypasses the hooks themselves
+  "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP", // CC caps how many times a Stop hook may block (default 8,
+  // R2 Q2's string-table quote); lowering it lets a turn end past a blocking Stop guard (inference)
+  "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS", // a tiny value cuts every SessionEnd hook short
+  "CLAUDE_CODE_SIMPLE", // CC's "bare mode"; whether it skips hooks is UNANSWERED — fenced fail-closed
+  // (5) NODE-LOAD — node reads code or data the value names (exact: NODE_ENV is an operator key)
+  "NODE_COMPILE_CACHE", // node loads compiled code from this directory
+  "NODE_V8_COVERAGE", // node writes coverage files into this directory
+  "NODE_ICU_DATA", // node loads its ICU data file from this path
+  // (6) SHELL-STARTUP — bash startup variables. Their effect depends on the shell hooks launch
+  //     through, which is UNANSWERED (the measuring probe was stopped); fenced fail-closed.
+  "SHELLOPTS", // set -o options applied at bash start (xtrace, …)
+  "PS4", // the xtrace prompt, which bash EXPANDS — command substitution included
+  "BASHOPTS", // shopt options applied at bash start
+  "BASH_XTRACEFD", // where xtrace output goes
+
+  // ── M-W4.3 RUN 8 R2 F3/F4 — CONFIG-FILE SELECTION: the value changes WHICH settings or global-config
+  //    file Claude Code reads, so a settings-env value moves the session off the file the edit guard
+  //    fences — the CLAUDE_CONFIG_DIR argument, one file down. EXACT names (CC 2.1.300 string table). ──
+  "CLAUDE_CODE_USE_COWORK_PLUGINS", // `if(e.coworkPlugins||a.CLAUDE_CODE_USE_COWORK_PLUGINS)return
+  // Nv.cowork` — the user settings file becomes cowork_settings.json
+  "CLAUDE_CODE_CUSTOM_OAUTH_URL", // `function J5(){if(process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL)return
+  // "-custom-oauth";…}` — the global config becomes .claude-custom-oauth.json (and the OAuth endpoints
+  // move with it). The other suffixes come from a build constant (`function s(){return"prod"}`), not env
 ]);
 const DANGEROUS_ENV_PREFIX = [
   "DYLD_", // dynamic-linker injection (macOS)
   "LD_", // dynamic-linker injection (Linux)
   "BASH_FUNC_", // R11-sec-1 — bash environment-exported function override of `node` (shellshock family)
+  // M-W4.3 RUN 8 — config FAMILIES, so a prefix is forced: every npm option is settable as
+  // npm_config_<name> in EITHER case (measured: NPM_CONFIG_REGISTRY and npm_config_registry both
+  // reached `npm config get registry`), incl. userconfig/globalconfig relocation; every pip option
+  // is settable as PIP_<OPTION> (pip docs § Environment Variables), incl. PIP_CONFIG_FILE and
+  // PIP_INDEX_URL (measured: PIP_CONFIG_FILE's index-url surfaced in `pip config list`).
+  // The trailing underscore keeps `PIPELINE_*` and `NPM_TOKEN` out.
+  "NPM_CONFIG_",
+  "PIP_",
+  // ── M-W4.3 RUN 8 env-key CLASSES — the OPEN-ENDED families (see the class block at the end of
+  //    DANGEROUS_ENV_EXACT for the closed members and the measurement). A prefix is used ONLY where
+  //    the family is open-ended AND no committed or operator settings key it would refuse exists
+  //    (checked: the committed settings.json `env` holds only two CLAUDE_CODE_* keys). ──
+  "OPENSSL_", // CODE-LOAD: OPENSSL_CONF loads providers/engines (shared libraries) into every
+  // OpenSSL-linked process incl. node — MEASURED: a provider library loaded before any JS ran
+  // (ovh-1 + mini-2025); OPENSSL_MODULES / OPENSSL_ENGINES / OPENSSL_CONF_INCLUDE relocate what it loads
+  "PERL5", // CODE-LOAD: PERL5OPT (-M<module> runs at start), PERL5LIB, PERL5DB (debugger code)
+  "RUBY", // CODE-LOAD: RUBYOPT (-r<lib> runs at start), RUBYLIB. No underscore: RUBYOPT/RUBYLIB
+  // carry none; RUBYGEMS_* also gates — accepted, gem credentials do not belong in settings env
+  "PYTHON", // CODE-LOAD: PYTHONPATH / PYTHONHOME / PYTHONSTARTUP (exact entries above, kept) plus
+  // PYTHONUSERBASE (user site → .pth executes), PYTHONWARNINGS (a category spec IMPORTS a module),
+  // PYTHONBREAKPOINT (imports a callable), PYTHONPYCACHEPREFIX, PYTHONPLATLIBDIR — open-ended, so
+  // the stem. OVER-FLAG COST, deliberately accepted on the GIT_ argument below: PYTHONIOENCODING /
+  // PYTHONUNBUFFERED also gate; no committed or operator settings file sets any PYTHON* key
+  "CARGO_", // COMMAND-WRAP + CONFIG: CARGO_BUILD_RUSTC_WRAPPER, the UNBOUNDED
+  // CARGO_TARGET_<triple>_RUNNER / _LINKER (forced prefix, the GIT_CONFIG_KEY_<n> argument), and
+  // CARGO_HOME (relocates config.toml + credentials). CARGO_TARGET_DIR / CARGO_INCREMENTAL also gate:
+  // this repo uses them only as command-line prefixes in docs, never as settings env keys
+  "GH_", // COMMAND-WRAP + CONFIG: GH_PAGER / GH_BROWSER / GH_EDITOR run commands; GH_HOST / GH_REPO
+  // retarget every gh call (repo-scope-discipline's subject); GH_TOKEN / GH_ENTERPRISE_TOKEN
+  // substitute the credential. GITHUB_TOKEN stays OUT: a CI-gated #1471 case pins it benign
+  "COREPACK_", // CONFIG: COREPACK_NPM_REGISTRY swaps the registry package managers are fetched from
+  // (then RUN); COREPACK_HOME relocates the cached managers
+  "YARN_", // CONFIG: every yarn (berry) option is settable as YARN_<OPTION> — the NPM_CONFIG_ family
+  "UV_", // CONFIG: every uv option is settable as UV_<OPTION> (UV_INDEX_URL, UV_CONFIG_FILE) — the PIP_ family
+  "AWS_ENDPOINT_URL", // CONFIG: AWS_ENDPOINT_URL and the open-ended AWS_ENDPOINT_URL_<SERVICE>
+  // retarget every AWS call (credentials included) at an attacker endpoint
   // ── #1450 Class-C: TEST-AFFORDANCE / DRIVER-SEAM families ─────────────────
   // ~20 `COC_TEST_*` / `COC_XECO_*` switches are read straight from process.env
   // inside modules on a guard's require path. The name says TEST; nothing
@@ -371,9 +524,20 @@ const DANGEROUS_ENV_PREFIX_LC = DANGEROUS_ENV_PREFIX.map((p) =>
 // by redirecting the guard command's node execution / path, or (#1429) by redirecting the POLICY
 // CONFIG a guard consults? Case-folded (F14) so a Windows-effective `Path` / `Node_Options` /
 // `dyld_*` is caught (fail-closed on Unix).
+//
+// SHAPE FIRST (M-W4.3 RUN 8 R2 Q3). The name match below is exact after a case fold, so a key that
+// is not a plain env-var name escaped it: `CLAUDE_CODE_SHELL_PREFIX ` (trailing space), Cyrillic
+// `ОPENSSL_CONF`, long-s `OPENſſL_CONF`. CC applies settings env under the ORIGINAL key, and on
+// Windows the env lookup ignores case — whether a look-alike resolves to the real name there is
+// UNANSWERED. So any key outside ENV_NAME_SHAPE is refused before the name match (fail-closed: no
+// legitimate settings env key needs another character), and so is `__proto__`, whose behaviour in
+// CC's env merge was not traced.
+const ENV_NAME_SHAPE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 function isDangerousEnvKey(key) {
   if (typeof key !== "string") return false;
+  if (!ENV_NAME_SHAPE.test(key)) return true;
   const k = key.toLowerCase();
+  if (k === "__proto__") return true;
   return (
     DANGEROUS_ENV_EXACT_LC.has(k) ||
     DANGEROUS_ENV_PREFIX_LC.some((p) => k.startsWith(p))
@@ -406,10 +570,205 @@ function envKeysAddedOrChanged(beforeObj, afterObj) {
   return out;
 }
 
+// Every OWN `__proto__` key in a parsed JSON value, at ANY depth, as a `$.a.b[0].__proto__` path
+// (M-W4.3 RUN 8 R2 LOW). isDangerousEnvKey refuses it as an env key only; JSON.parse makes it an own
+// property anywhere — `{"__proto__":{"env":{…}}}` at the top level, or inside `permissions` — and a
+// merge that copies keys can apply it as a prototype. ITERATIVE, not recursive: a deeply nested body
+// must not overflow the stack, since the guard's catch-all would turn that throw into a passthrough.
+function ownProtoKeyPaths(value) {
+  const out = [];
+  const stack = [[value, "$"]];
+  while (stack.length) {
+    const [v, at] = stack.pop();
+    if (v === null || typeof v !== "object") continue;
+    const isArr = Array.isArray(v);
+    for (const k of Object.keys(v)) {
+      if (k === "__proto__") out.push(`${at}.__proto__`);
+      stack.push([v[k], isArr ? `${at}[${k}]` : `${at}.${k}`]);
+    }
+  }
+  return out;
+}
+
+// THE LOADER KEYS — names that make node or the dynamic loader run code, or change how a require
+// resolves, before a process's first line. A DIFFERENT question from isDangerousEnvKey above
+// ("which env keys may a settings file carry"). Since R2 HIGH-1 (ROOT ruling A) this set is NOT
+// the guard child's filter: a guard child gets an ALLOWLISTED env (isGuardChildEnvKey below), so
+// a key nobody listed — GIT_*, XDG_CONFIG_HOME, CLAUDE_TRUST_STATE_DIR, anything Gemini copied
+// in from a `.env` — never reaches it. What this set still decides is the CONTENT fence on a
+// Gemini env file (dotenvLoaderKeys), together with isHookShellStartupEnvKey. It lives here so
+// env-key membership is decided in ONE module (#1471; env-denyset-predicate-1471.test.js).
+// Case-insensitive.
+const CHILD_LOADER_ENV_EXACT = new Set([
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "NODE_PRESERVE_SYMLINKS",
+  "NODE_REPL_EXTERNAL_MODULE",
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "LD_AUDIT",
+]);
+const CHILD_LOADER_ENV_PREFIX = ["DYLD_"];
+function isChildLoaderEnvKey(key) {
+  const K = String(key).toUpperCase();
+  return CHILD_LOADER_ENV_EXACT.has(K) || CHILD_LOADER_ENV_PREFIX.some((p) => K.startsWith(p));
+}
+
+// THE HOOK SHELL'S START-UP KEYS. Gemini runs every hook command as `bash -c <command>` with its
+// own environment, a loaded `.env` included (Gemini CLI 0.41.2 bundle, chunk-6DSAZLFF.js
+// `getShellConfiguration` -> `{ executable: "bash", argsPrefix: ["-c"] }`, and
+// `HookRunner.executeCommandHook`, which spawns it with `...sanitizeEnvironment(process.env)`).
+// That bash starts BEFORE the command's `env -i` can clear anything, and a non-interactive bash
+// runs code named by these keys at start-up: BASH_ENV is sourced; SHELLOPTS imports options such
+// as xtrace, whose PS4 is then expanded (a `$(…)` in it runs); BASHOPTS imports shopt options;
+// BASH_FUNC_<name>%% imports a function over a command name (a dotenv key cannot carry `%`, so
+// that one is listed for completeness). ENV is not here: bash reads it only for an INTERACTIVE
+// POSIX-mode shell, never for `bash -c`.
+// MEASURED here: `BASH_ENV=<file> bash -c 'exec env -i … /usr/bin/true; exit 2'` ran <file>, and
+// `SHELLOPTS=xtrace PS4='$(echo …)'` ran the substitution, each before `env -i`. So the content
+// fence refuses them too; the loader keys above also act on the bash binary itself.
+const HOOK_SHELL_STARTUP_ENV_EXACT = new Set(["BASH_ENV", "SHELLOPTS", "BASHOPTS"]);
+const HOOK_SHELL_STARTUP_ENV_PREFIX = ["BASH_FUNC_"];
+function isHookShellStartupEnvKey(key) {
+  const K = String(key).toUpperCase();
+  return HOOK_SHELL_STARTUP_ENV_EXACT.has(K) || HOOK_SHELL_STARTUP_ENV_PREFIX.some((p) => K.startsWith(p));
+}
+
+// THE GUARD CHILD'S ENVIRONMENT (R2 HIGH-1, ROOT ruling A2) — an ALLOWLIST, not a scrub. A guard
+// a hook runtime spawns (gemini-hook-runtime.js::scrubEnv) receives ONLY these inherited names,
+// plus the two the runtime sets itself (COC_RUNTIME, CLAUDE_PROJECT_DIR). Every other name is
+// dropped, whatever it is called and however it got into the parent's environment. MEASURED from
+// the require closure of every guard the Gemini adapter runs: PATH (git-subprocess-env.js resolves
+// `git` from it) and HOME (os.homedir(); the settings guard's ~/.claude fence) are the only
+// non-test names they need that the runtime does not set. CLAUDE_CONFIG_DIR is deliberately NOT
+// here: it is a dangerous settings key (DANGEROUS_ENV_EXACT) a `.env` can plant when unset, so on
+// Gemini the settings guard fences ~/.claude and not a csq per-terminal config dir. On win32 the
+// OS-set names a node child needs to start (SystemRoot, …) are added; Windows env names fold case
+// there, so the comparison folds case on win32 only — on POSIX `path` is not `PATH`.
+const GUARD_CHILD_ENV_ALLOW = Object.freeze(["PATH", "HOME"]);
+const GUARD_CHILD_ENV_ALLOW_WIN32 = Object.freeze(["SYSTEMROOT", "WINDIR", "PATHEXT", "COMSPEC", "USERPROFILE", "TEMP", "TMP"]);
+function isGuardChildEnvKey(key, platform = process.platform) {
+  if (typeof key !== "string") return false;
+  if (platform === "win32") {
+    const K = key.toUpperCase();
+    return GUARD_CHILD_ENV_ALLOW.includes(K) || GUARD_CHILD_ENV_ALLOW_WIN32.includes(K);
+  }
+  return GUARD_CHILD_ENV_ALLOW.includes(key);
+}
+
+// ── THE GEMINI ENV FILE (R1 HIGH-1) ───────────────────────────────────────────────────────────
+// Gemini loads ONE dotenv file into its own process.env at start-up, and every hook process it
+// starts inherits it. MEASURED by reading the installed Gemini CLI 0.41.2 bundle
+// (chunk-5A3LI34G.js `findEnvFile` + `loadEnvironment`): from the workspace dir UP to the
+// filesystem root it takes the first of `<dir>/.gemini/.env` (trusted workspace only) and
+// `<dir>/.env`, then `~/.gemini/.env` (trusted) and `~/.env`; it parses it with `dotenv.parse`
+// and sets every key not already in process.env, and the `advanced.excludedEnvVars` list is
+// skipped for a `.gemini/.env`. The workspace can be any directory, so EVERY file named `.env` is
+// one Gemini may load — the four named copies are the common case, not the boundary.
+//
+// THE BOUNDARY IS STRUCTURAL (R2 HIGH-1, ROOT ruling A): every Gemini hook command starts the
+// adapter through `exec env -i PATH=… HOME=… node …` (gemini-hook-runtime.js::
+// registrationCommand), so no key from that file reaches the adapter's node, and the adapter
+// hands each guard an allowlisted env (isGuardChildEnvKey). This content fence is DEPTH, and it
+// covers the one stage the structural fix cannot: the `bash -c` Gemini wraps the command in,
+// which starts before `env -i` (isHookShellStartupEnvKey), and the loader keys that act on that
+// bash binary (isChildLoaderEnvKey). Which keys are refused is isDotenvForbiddenKey's question,
+// answered here and nowhere else.
+
+// A basename as the OS will open it, folded the way settings-deny-edit-guard.js::foldBasename
+// folds a settings name (NFKC, an NTFS stream suffix, a Win32 trailing dot/space, case).
+function foldEnvBasename(name) {
+  return String(name).normalize("NFKC").split(":")[0].replace(/[.\s]+$/u, "").toLowerCase();
+}
+/** Is `name` (a basename) a file Gemini's env loader opens? */
+function isGeminiEnvFileName(name) {
+  return foldEnvBasename(name) === ".env";
+}
+/**
+ * The Bash-lane spelling of such a file, for violation-patterns.js::
+ * detectStateFileMutationSegmentAware: a path whose LAST component is `.env` (any case; a
+ * Win32 trailing dot), preceded by a path or shell-word boundary. `.env.example`, `.envrc` and
+ * `foo.env` are not it.
+ */
+const GEMINI_ENV_FILE_RX = /(?:^|[\/\\\s'"=<>|;&(`:])\.env\.*(?![A-Za-z0-9_.\-])/i;
+/** A key the content fence refuses in a Gemini env file: a loader key or a hook-shell start-up key. */
+function isDotenvForbiddenKey(key) {
+  return isChildLoaderEnvKey(key) || isHookShellStartupEnvKey(key);
+}
+/**
+ * Every forbidden key (isDotenvForbiddenKey) a dotenv TEXT names, as a sorted unique list. Every
+ * identifier-shaped run in the text is a candidate — keys, values and comments alike — and the
+ * text is ALSO read with every backslash removed, because a backslash can split a name. An
+ * over-approximation by design: a comment naming NODE_OPTIONS reds too. No legitimate env file
+ * an agent writes needs one of these keys, and the human edits one from their own terminal. A
+ * host that TRANSFORMS the text before writing it is not modelled here: the caller refuses a
+ * write the host would transform (geminiWriteFileConverts).
+ */
+function dotenvLoaderKeys(text) {
+  if (typeof text !== "string" || !text) return [];
+  const out = new Set();
+  for (const view of [text, text.replace(/\\/g, "")]) {
+    for (const tok of view.split(/[^A-Za-z0-9_]+/)) if (tok && isDotenvForbiddenKey(tok)) out.add(tok);
+  }
+  return [...out].sort();
+}
+
+/**
+ * Gemini write_file's escape conversion, ported VERBATIM from the installed Gemini CLI 0.41.2
+ * bundle (chunk-6DSAZLFF.js `unescapeStringForGeminiBug`, :272025-272056). write_file applies it
+ * through `ensureCorrectFileContent` (:271949-271970, called at :272086-272087): when the
+ * conversion would change the content, the bytes written are the CONVERTED text (LLM correction
+ * off, a non-Gemini-3 model), the ORIGINAL text (LLM correction off, a Gemini-3 model), or
+ * whatever an LLM rewrite of it returns (LLM correction on) — and only when the conversion
+ * changes NOTHING are the bytes written exactly the content the hook saw. A `\n` before a key is
+ * the case that matters: `A=1\nNODE_OPTIONS=…` names no loader key in either view the fence
+ * reads (the token is `nNODE_OPTIONS`), and is two lines on disk.
+ */
+function geminiWriteFileUnescape(inputString) {
+  return String(inputString).replace(/\\+(n|t|r|'|"|`|\\|\n)/g, (match, capturedChar) => {
+    switch (capturedChar) {
+      case "n":
+        return "\n";
+      case "t":
+        return "\t";
+      case "r":
+        return "\r";
+      case "'":
+        return "'";
+      case '"':
+        return '"';
+      case "`":
+        return "`";
+      case "\\":
+        return "\\";
+      case "\n":
+        return "\n";
+      default:
+        return match;
+    }
+  });
+}
+/** Would Gemini's write_file write something other than `content`? (See geminiWriteFileUnescape.) */
+function geminiWriteFileConverts(content) {
+  return typeof content === "string" && geminiWriteFileUnescape(content) !== content;
+}
+
 module.exports = {
   invokesGuard,
   canonicalGuardCommand,
   isDangerousEnvKey,
   dangerousEnvKeys,
   envKeysAddedOrChanged,
+  ownProtoKeyPaths,
+  isChildLoaderEnvKey,
+  isHookShellStartupEnvKey,
+  isDotenvForbiddenKey,
+  GUARD_CHILD_ENV_ALLOW,
+  GUARD_CHILD_ENV_ALLOW_WIN32,
+  isGuardChildEnvKey,
+  isGeminiEnvFileName,
+  GEMINI_ENV_FILE_RX,
+  dotenvLoaderKeys,
+  geminiWriteFileUnescape,
+  geminiWriteFileConverts,
 };

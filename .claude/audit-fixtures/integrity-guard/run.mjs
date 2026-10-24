@@ -270,6 +270,28 @@ const GUARD_ENV_KEYS = [
   "LOOM_ECOSYSTEM_CONFIG",
 ];
 
+function nativeDenied(r) {
+  const h = r.json?.hookSpecificOutput;
+  return r.code === 2 && h?.hookEventName === "PreToolUse" &&
+    h.permissionDecision === "deny" && typeof h.permissionDecisionReason === "string" &&
+    h.permissionDecisionReason.trim().length > 0 &&
+    typeof r.stderr === "string" && r.stderr.includes(h.permissionDecisionReason);
+}
+
+{
+  const reason = "STOP — Tool call blocked. Full refusal body.";
+  const h = { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason };
+  const good = { code: 2, json: { hookSpecificOutput: h }, stderr: reason };
+  for (const [name, result, expected] of [
+    ["exit 2 with full stderr", good, true],
+    ["exit 0 with native JSON", { ...good, code: 0 }, false],
+    ["exit 2 without stderr", { ...good, stderr: "" }, false],
+    ["exit 2 with unrelated stderr", { ...good, stderr: "another refusal" }, false],
+  ]) check(`native denial contract: ${name}`, nativeDenied(result) === expected,
+    `expected=${expected}`, "native denial accepted a missing transport signal or rejected the full refusal");
+}
+
+
 function driveGuard(fx, payload) {
   const env = { ...process.env };
   for (const k of GUARD_ENV_KEYS) delete env[k];
@@ -292,6 +314,7 @@ function driveGuard(fx, payload) {
   const tagMatch = combined.match(/\[(?:BLOCK|HALT-AND-REPORT|ADVISORY)\]/);
   return {
     code: r.status,
+    stderr: r.stderr || "",
     json,
     tag: tagMatch ? tagMatch[0] : "(none)",
     combined,
@@ -414,10 +437,10 @@ console.log("\n=== T3: drive each fixture against the REAL hook at its declared 
     console.log(`\n  -- ${name} [harness setup: branch=${setup.branch}${setup.lease ? ", signed lease" : ""}${setup.malformedLog ? ", malformed log" : ""} — ${setup.why}]`);
 
     check(
-      `${name}: exit code ${f.expected.exit_code}`,
-      r.code === f.expected.exit_code,
+      `${name}: native denial matches the declared disposition`,
+      f.expected.severity === "block" ? nativeDenied(r) : r.code === f.expected.exit_code && !nativeDenied(r),
       `exit=${r.code} (expected ${f.expected.exit_code})`,
-      `a different exit code = the guard took a different branch than the fixture's declared predicate; exit 0 where ${f.expected.exit_code} is expected is a fail-OPEN on an integrity-critical write, exit ${f.expected.exit_code} where 0 is expected is a false positive that halts a clean /codify`,
+      "missing native denial on a block, or denial on a grant/advisory pole, violates the declared disposition",
     );
     check(
       `${name}: continue=${f.expected.continue}`,
@@ -470,7 +493,7 @@ console.log("\n=== T4: paired controls — flip one setup element, require the v
     const after = driveGuard(fx, f.payload);
     check(
       "C1: same payload + same branch, lease ABSENT ⇒ REFUSED / lease PRESENT ⇒ passthrough",
-      before.refused === true && after.refused === false && after.code === 0,
+      before.refused === true && after.refused === false && after.code === 0 && !nativeDenied(after),
       `no-lease: exit=${before.code} tag=${before.tag} | with-lease: exit=${after.code} tag=${after.tag}`,
       "identical dispositions = the covering-lease lookup is NOT what produces fixture 03's passthrough, so that green carries no information about findCoveringLease. A no-lease passthrough specifically means the fence is off (watched-path miss, coordination gate, or an unresolved identity), and fixture 03 would then be green against a guard that authorizes every integrity-critical write",
     );
@@ -488,7 +511,7 @@ console.log("\n=== T4: paired controls — flip one setup element, require the v
     const watched = driveGuard(fx, watchedPayload);
     check(
       "C2: same repo/branch, src/foo.js ⇒ passthrough / operators.roster.json ⇒ REFUSED",
-      unwatched.refused === false && unwatched.code === 0 && watched.refused === true,
+      unwatched.refused === false && unwatched.code === 0 && !nativeDenied(unwatched) && watched.refused === true,
       `src/foo.js: exit=${unwatched.code} tag=${unwatched.tag} | roster: exit=${watched.code} tag=${watched.tag}`,
       "identical dispositions = isWatchedPath is not gating anything here. If BOTH pass, the §2.3 watched set stopped matching and every integrity-critical artifact is unfenced; if BOTH refuse, the guard fences ordinary source edits and every session halts on src/",
     );
@@ -510,7 +533,7 @@ console.log("\n=== T4: paired controls — flip one setup element, require the v
 
     check(
       "C3: same roster Edit, branch=main ⇒ REFUSED / branch=codify/self-<date> + lease ⇒ passthrough",
-      onMain.refused === true && onCodify.refused === false && onCodify.code === 0,
+      onMain.refused === true && onCodify.refused === false && onCodify.code === 0 && !nativeDenied(onCodify),
       `main: exit=${onMain.code} tag=${onMain.tag} | codify: exit=${onCodify.code} tag=${onCodify.tag}`,
       "identical dispositions = resolveActiveBranch/isCodifyBranch is not what produces fixture 01's block. A guard that refuses on BOTH makes /codify itself impossible; one that passes on BOTH has lost the §2.3 off-codify fence entirely",
     );
@@ -534,7 +557,7 @@ console.log("\n=== T4: paired controls — flip one setup element, require the v
 
     check(
       "C4: covering lease on BOTH arms — codify/SIBLING-<date> ⇒ REFUSED / codify/self-<date> ⇒ passthrough",
-      foreign.refused === true && own.refused === false && own.code === 0,
+      foreign.refused === true && own.refused === false && own.code === 0 && !nativeDenied(own),
       `SIBLING: exit=${foreign.code} tag=${foreign.tag} | self: exit=${own.code} tag=${own.tag}`,
       "identical dispositions = the {foreign:true} arm of isCodifyBranch is dead. A pass on the SIBLING arm means one operator can write integrity-critical artifacts from another operator's codify branch — the cross-operator condition the lease exists to guard",
     );
@@ -559,7 +582,7 @@ console.log("\n=== T4: paired controls — flip one setup element, require the v
     const r = driveGuard(fx, f.payload);
     check(
       "C5: coordination OFF (no roster, no override) ⇒ SILENT passthrough, NOT a fail-open",
-      r.code === 0 && r.json?.continue === true && r.tag === "(none)",
+      r.code === 0 && !nativeDenied(r) && r.json?.continue === true && r.tag === "(none)",
       `exit=${r.code} continue=${r.json?.continue} tag=${r.tag}`,
       "a refusal here = the opt-in gate stopped gating and a solo/un-enrolled repo now pays the full multi-operator fence. WITHOUT the tag leg this row cannot discriminate: halt-and-report is exit 0 / continue:true and would read as a silent pass",
     );

@@ -126,7 +126,7 @@ check("RED/pre-fix code records an UNCONFIRMED sha as the merge sha", () => {
 
 check("fix/a FAILING required check yields verdict red and names the offender", () => {
   const gh = makeGh({ checksJson: RED });
-  const g = confirmRequiredChecksGreen({ prUrl: "u", exec: gh.exec });
+  const g = confirmRequiredChecksGreen({ prUrl: "u", runFile: gh.exec });
   if (g.verdict !== "red") return `verdict ${g.verdict}, expected red`;
   if (gh.merged()) return "the gate itself must never merge";
   return g.offenders.some((o) => o.name === "Required checks" && o.state === "FAILURE")
@@ -136,20 +136,20 @@ check("fix/a FAILING required check yields verdict red and names the offender", 
 
 check("fix/a PENDING required check is NOT green (stale-green half of the clause)", () => {
   const gh = makeGh({ checksJson: PENDING });
-  const g = confirmRequiredChecksGreen({ prUrl: "u", exec: gh.exec });
+  const g = confirmRequiredChecksGreen({ prUrl: "u", runFile: gh.exec });
   return g.verdict === "red" ? true : `verdict ${g.verdict}, expected red for PENDING`;
 });
 
 check("fix/a head that MOVES between the reads refuses as moved", () => {
   const gh = makeGh({ heads: ["sha-aaa", "sha-bbb"], checksJson: GREEN });
-  const g = confirmRequiredChecksGreen({ prUrl: "u", exec: gh.exec });
+  const g = confirmRequiredChecksGreen({ prUrl: "u", runFile: gh.exec });
   if (g.verdict !== "moved") return `verdict ${g.verdict}, expected moved`;
   return /no longer the head/.test(g.reason) ? true : `reason did not explain the pin: ${g.reason}`;
 });
 
 check("fix/an UNREADABLE check list is zero evidence, never an all-clear", () => {
   const gh = makeGh({ checksThrows: true });
-  const g = confirmRequiredChecksGreen({ prUrl: "u", exec: gh.exec });
+  const g = confirmRequiredChecksGreen({ prUrl: "u", runFile: gh.exec });
   return g.verdict === "unreadable" && !gh.merged()
     ? true
     : `verdict ${g.verdict}, expected unreadable`;
@@ -159,7 +159,7 @@ check("fix/an UNREADABLE check list is zero evidence, never an all-clear", () =>
 
 check("fix/GREEN on a pinned head yields verdict green (the no-false-refusal pole)", () => {
   const gh = makeGh({ checksJson: GREEN });
-  const g = confirmRequiredChecksGreen({ prUrl: "u", exec: gh.exec });
+  const g = confirmRequiredChecksGreen({ prUrl: "u", runFile: gh.exec });
   return g.verdict === "green" && g.head === "sha-aaa"
     ? true
     : `verdict ${g.verdict} head ${g.head}, expected green on sha-aaa`;

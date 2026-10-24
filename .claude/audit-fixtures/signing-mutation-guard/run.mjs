@@ -10,7 +10,7 @@
  *
  * THE PRECONDITION IS THE WHOLE POINT. The guard gates its ENTIRE substrate —
  * both the §4.2 sibling-porcelain check and the degraded-mode block — behind
- * `isCoordinationEnabled()` (signing-mutation-guard.js:398) and passes through
+ * `isCoordinationEnabled()` (signing-mutation-guard.js::main, the "MO-OPT W1-c" opt-in gate) and passes through
  * BEFORE either predicate is evaluated when coordination is OFF. Measured here,
  * on a real temp repo with the fixture-03 shape:
  *
@@ -59,7 +59,7 @@ const REPO = path.resolve(HERE, "..", "..", "..");
 const HOOK = process.env.HOOK || path.join(REPO, ".claude/hooks/signing-mutation-guard.js");
 const require_ = createRequire(import.meta.url);
 
-// The SHARED predicate the guard itself consults (signing-mutation-guard.js:398).
+// The SHARED predicate the guard itself consults (signing-mutation-guard.js::main, the `isCoordinationEnabled` opt-in gate).
 // Importing it — rather than re-deriving "is coordination on?" here — is what makes
 // the precondition check attest to the SAME question the guard asks
 // (rules/security.md § Enforcement-Surface Parity).
@@ -94,7 +94,7 @@ const PRECONDITIONS = {
     signingKey: true,
     why:
       "the §4.2 porcelain branch is evaluated AFTER the degraded-mode branch " +
-      "(signing-mutation-guard.js:423 PRECEDENCE note), so a resolvable signing key is " +
+      "(signing-mutation-guard.js::main PRECEDENCE note), so a resolvable signing key is " +
       "required for the porcelain branch to be REACHED at all. Left to `resolveIdentity`, " +
       "this fixture's disposition would depend on whether the HOST has a git signing key.",
   },
@@ -152,7 +152,7 @@ function mkrepo(coordinationOn) {
 
 /**
  * A signing-key file. The guard's Tier-1 predicate is `existsSync(explicitKey)`
- * (signing-mutation-guard.js:439-442) — it never parses the key — so a real
+ * (signing-mutation-guard.js::main, the signing-key discovery) — it never parses the key — so a real
  * ed25519 key is not required for the predicate to resolve. We generate one when
  * `ssh-keygen` is available anyway (fixture 05 names "a valid ssh ed25519 key"),
  * and fall back to a plain file otherwise. Either way the guard sees "key present",
@@ -204,6 +204,28 @@ const GUARD_ENV_KEYS = [
   "CLAUDE_TRUST_STATE_DIR",
   "LOOM_ECOSYSTEM_CONFIG",
 ];
+
+function nativeDenied(r) {
+  const h = r.json?.hookSpecificOutput;
+  return r.code === 2 && h?.hookEventName === "PreToolUse" &&
+    h.permissionDecision === "deny" && typeof h.permissionDecisionReason === "string" &&
+    h.permissionDecisionReason.trim().length > 0 &&
+    typeof r.stderr === "string" && r.stderr.includes(h.permissionDecisionReason);
+}
+
+{
+  const reason = "STOP — Tool call blocked. Full refusal body.";
+  const h = { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason };
+  const good = { code: 2, json: { hookSpecificOutput: h }, stderr: reason };
+  for (const [name, result, expected] of [
+    ["exit 2 with full stderr", good, true],
+    ["exit 0 with native JSON", { ...good, code: 0 }, false],
+    ["exit 2 without stderr", { ...good, stderr: "" }, false],
+    ["exit 2 with unrelated stderr", { ...good, stderr: "another refusal" }, false],
+  ]) check(`native denial contract: ${name}`, nativeDenied(result) === expected,
+    `expected=${expected}`, "native denial accepted a missing transport signal or rejected the full refusal");
+}
+
 
 function driveGuard(payload, fixtureEnv) {
   const env = { ...process.env };
@@ -347,7 +369,7 @@ const onRepo = mkrepo(true);
     "PRECONDITION — isCoordinationEnabled() is TRUE at the fixture repo",
     isCoordinationEnabled(onRepo) === true,
     `repo=${onRepo} via tier-2 .claude/learning/coordination-mode.json {"enabled":true}`,
-    "false = the substrate opt-in gate (signing-mutation-guard.js:398) short-circuits to passthrough BEFORE any predicate runs; every block/halt fixture below would then fail for a HARNESS reason, not a guard reason — the exact coc-rs#89 defect",
+    "false = the substrate opt-in gate (signing-mutation-guard.js::main `isCoordinationEnabled`) short-circuits to passthrough BEFORE any predicate runs; every block/halt fixture below would then fail for a HARNESS reason, not a guard reason — the exact coc-rs#89 defect",
   );
 
   for (const name of EXPECTED_FIXTURES) {
@@ -357,10 +379,10 @@ const onRepo = mkrepo(true);
     console.log(`\n  -- ${name} (coordination=ON)${preNote}`);
 
     check(
-      `${name}: exit code ${fx.expected.exit_code}`,
-      r.code === fx.expected.exit_code,
+      `${name}: native denial matches the declared disposition`,
+      fx.expected.severity === "block" ? nativeDenied(r) : r.code === fx.expected.exit_code && !nativeDenied(r),
       `exit=${r.code} (expected ${fx.expected.exit_code})`,
-      `a different exit code = the guard took a different branch than the fixture's declared predicate; exit 0 where ${fx.expected.exit_code} is expected is a fail-OPEN, exit ${fx.expected.exit_code} where 0 is expected is a false positive`,
+      "missing native denial on a block, or denial on a grant/advisory pole, violates the declared disposition",
     );
     check(
       `${name}: continue=${fx.expected.continue}`,
@@ -399,7 +421,7 @@ console.log("\n=== T7: the loom#1323 asymmetry is locked in BOTH directions ==="
   const r01 = driveGuard(f01.payload, f01.env);
   check(
     "§4.2 sibling contention is halt-and-report (recoverable class)",
-    r01.code === 0 && r01.json?.continue === true && /\[HALT-AND-REPORT\]/.test(r01.stderr),
+    r01.code === 0 && !nativeDenied(r01) && r01.json?.continue === true && /\[HALT-AND-REPORT\]/.test(r01.stderr),
     `exit=${r01.code} continue=${r01.json?.continue} tag=${/\[HALT-AND-REPORT\]/.test(r01.stderr) ? "HALT-AND-REPORT" : "other"}`,
     "exit 2 / continue:false here = the §4.2 branch was re-UPGRADED to block, undoing loom#1323; sibling worktrees are physically separate, so the write cannot clobber the sibling's bytes",
   );
@@ -415,7 +437,7 @@ console.log("\n=== T7: the loom#1323 asymmetry is locked in BOTH directions ==="
     const r = driveGuard(fx.payload, fx.env);
     check(
       `${name}: degraded-mode mutation STAYS block (irrecoverable class)`,
-      r.code === 2 && r.json?.hookSpecificOutput?.permissionDecision === "deny" && r.json?.continue !== false && /\[BLOCK\]/.test(r.stderr),
+      nativeDenied(r) && r.json?.continue !== false && /\[BLOCK\]/.test(r.stderr),
       `exit=${r.code} continue=${r.json?.continue}`,
       "halt-and-report / exit 0 here = the 'consistency fix' README.md warns about: an UNSIGNED mutation would land with no attributable, chain-verifiable record and nothing recovers the missing signature after the fact",
     );
@@ -461,9 +483,9 @@ const offRepo = mkrepo(false);
     offDisposition[name] = `exit=${r.code} continue=${r.json?.continue} tag=${tag}`;
     check(
       `${name}: coordination OFF ⇒ SILENT passthrough (NOT a fail-open, NOT a finding)`,
-      r.code === 0 && r.json?.continue === true && tag === "(none)",
+      r.code === 0 && !nativeDenied(r) && r.json?.continue === true && tag === "(none)",
       `${offDisposition[name]} — matches coc-rs#89's measurement`,
-      "a DENY here, or ANY severity tag on stderr, would mean the opt-in gate at signing-mutation-guard.js:398 stopped gating — and WITHOUT the tag leg this row reads identically whether the guard passed through or emitted the full §4.2 finding at exit 0",
+      "a DENY here, or ANY severity tag on stderr, would mean the opt-in gate in signing-mutation-guard.js::main stopped gating — and WITHOUT the tag leg this row reads identically whether the guard passed through or emitted the full §4.2 finding at exit 0",
     );
   }
 

@@ -46,7 +46,10 @@ import { fileURLToPath } from "node:url";
 import { isMainModule } from "./entry-point.mjs";
 // F6e (security read): the ONE fold used by BOTH the scanner's gate and this
 // module's redactor, so their matching cannot diverge (the Kelvin-sign case).
-import { foldForGate } from "./identity-scrub.mjs";
+// The canonical identity declaration (`orgSets`, `privateOrgSlugs`) and the private
+// repository names (`privateRepoNames`) are read there too, and re-exported below.
+import { foldForGate, orgSets, privateOrgSlugs, privateRepoNames } from "./identity-scrub.mjs";
+export { orgSets, privateOrgSlugs, privateRepoNames };
 
 // ── loom-workspace name set (DERIVED, not literal) ──────────────────
 // #673-A2: section 1 below used to match ONLY `workspaces/multi-cli-coc/…`,
@@ -256,135 +259,18 @@ export function isLoomSourceTree() {
   return readRepoClass(repoRoot) === "coc-source";
 }
 
-/** GitHub org-name shape: 2–39 chars — 1-char values ARE REJECTED (F7: the
- * previous regex admitted them while its comment claimed 2–39) — alnum with
- * interior hyphens, and NOT a common word. */
-const ORG_VALUE_RX = /^[a-z0-9][a-z0-9-]{0,37}[a-z0-9]$/;
-// M1 (cc-architect, 2026-10-04): a 2–3 character value is almost always an
-// English word once the shape check passes (`is`, `to`, `at` all do), and a
-// short true org name is vanishingly rare while the COST of a false positive is
-// rewriting prose ("This is a test" → "This is <org> test", measured). So a
-// value must ALSO be either ≥4 characters or contain a hyphen — every real
-// slug in this ecosystem carries the hyphen (both the private canon slug and
-// the public template org are hyphenated; neither is written here, and the
-// literal that briefly was is exactly what the delivered-tree scan caught
-// before this line learned to describe instead of name). A genuinely short org
-// can be added to the stopword-exempt seed deliberately.
-const ORG_VALUE_MIN = 4;
-const ORG_VALUE_STOPWORDS = new Set([
-  "a", "an", "at", "is", "it", "of", "on", "or", "to", "in", "by",
-  "the", "and", "for", "org", "com", "github", "enterprise", "foundation",
-]);
-function assertValidOrgValue(value, where) {
-  const v = String(value).trim().toLowerCase();
-  const longEnough = v.length >= ORG_VALUE_MIN || v.includes("-");
-  if (!ORG_VALUE_RX.test(v) || !longEnough || ORG_VALUE_STOPWORDS.has(v)) {
-    // LOG-HYGIENE (Tier-1 r4): the REJECTED value is itself a candidate private
-    // identity (this function validates the private declaration) — print its
-    // LENGTH and the redacted placeholder, never the value.
-    throw new Error(
-      `strip-build-internal: INVALID org value ${JSON.stringify("<PRIVATE-ORG>")} (length ${v.length}) at ${where}. ` +
-        "Org values must be GitHub-org-shaped (2–39 chars, alnum + interior hyphens), ≥4 chars or " +
-        "hyphen-bearing, and not a common word. Refusing rather than rewriting prose with an invalid slug.",
-    );
-  }
-  return v;
-}
+// THE CANONICAL ORG SETS (`orgSets`, `privateOrgSlugs`) and the org-value validator live in
+// `identity-scrub.mjs` since 2026-10-10 — moved, behaviour unchanged, and re-exported from this
+// module (see the import block) so every existing import keeps resolving. The move is what
+// lets `identity-scrub.mjs::deriveDynamicTokens` classify private REPOSITORY names without
+// importing this module back (an import cycle); `privateRepoNames` sits beside them there.
 
-/**
- * THE CANONICAL ORG SETS — read from `.claude/canon-identity-values.json`, the
- * canonical identity declaration (already fenced `loom_only` +
- * CLIENT_TEMPLATE_REMOVE, so it ships nowhere). This is the SOURCE for the
- * private-slug guarantee:
- *   • PRIVATE slugs are subject to the delivery GATE (sync-tier-aware asserts
- *     ZERO case-insensitive occurrences, raw substring, any form, in every
- *     delivered and emitted tree) and to the best-effort path-prefix rewrites.
- *   • RETIRED slugs stay in the private set forever (F4): a transfer or rename
- *     would otherwise silently SHRINK the set while the old slug sits in
- *     carriers.
- *   • PUBLIC slugs are orgs the templates LIVE IN — clone URLs and runner
- *     endpoints naming them are CORRECT and are never gated or rewritten.
- *   • NEVER only the current `remote_links`: this declaration is the authority.
- *   • A non-string or malformed entry THROWS rather than being skipped (F4).
- * LAZY (F1): resolved on FIRST USE, never at module load — the client-template
- * seed and the public fork are `coc-source` trees with NO ecosystem.json, and an
- * import-time throw deadlocks `/ecosystem-init`. The DISTRIBUTION entrypoints
- * call `assertPrivateOrgConfig()` before they distribute; the scanner and
- * coc-manifest imports NEVER throw on a missing config.
- */
-const CANON_IDENTITY_REL = path.join("..", "..", "canon-identity-values.json");
-let _orgSets = null;
-export function orgSets() {
-  if (_orgSets) return _orgSets;
-  const identityPath = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    CANON_IDENTITY_REL,
-  );
-  let rawText;
-  try {
-    rawText = fs.readFileSync(identityPath, "utf8");
-  } catch (e) {
-    // L1 (cc-architect, 2026-10-04): ONLY absence is the benign case. Any OTHER
-    // read error (EACCES, EISDIR, ELOOP …) is NOT "no config" — treating it as
-    // MISSING would silently empty the private set and disarm both the gate and
-    // the rewrites. Rethrow it typed.
-    if (e && e.code === "ENOENT") {
-      // ABSENT (a fork or downstream consumer without canon identity): EMPTY
-      // sets, NO throw — /ecosystem-init supplies the fork's own values later.
-      return (_orgSets = { private: [], retired: [], public: [] });
-    }
-    throw new Error(
-      `canon-identity-values.json could not be read at ${CANON_IDENTITY_REL}: ${e && e.code ? e.code : "read error"}`,
-    );
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch (e) {
-    throw new Error(
-      // L2 (security read): V8's JSON.parse message QUOTES an excerpt of the
-      // input, and this file holds the org slugs — the excerpt printed the
-      // value. Generic message; the position is not worth the disclosure.
-      // The RELATIVE constant, never the full path, and never through
-      // redactPrivateIdentity: this throw runs INSIDE orgSets() (the memo is
-      // not yet set), and redactPrivateIdentity resolves the slug set via
-      // orgSets — MEASURED as unbounded mutual recursion ("Maximum call stack
-      // size exceeded") on the malformed-config pole.
-      `canon-identity-values.json present but unparseable at ${CANON_IDENTITY_REL} — refusing ` +
-        "to proceed with a silently-emptied private set (the parser's message is withheld: it quotes the input).",
-    );
-  }
-  const read = (key) => {
-    const v = parsed ? parsed[key] : undefined;
-    if (v === undefined) return [];
-    if (!Array.isArray(v)) {
-      throw new Error(`canon-identity-values.json::${key} must be an array (got ${typeof v})`);
-    }
-    return v.map((s) => {
-      if (typeof s !== "string") {
-        throw new Error(
-          // F6a (security read): print the TYPE only — JSON.stringify of the
-          // entry could echo a value-shaped string (or an object carrying one).
-          `canon-identity-values.json::${key} holds a NON-STRING entry (type ${Array.isArray(s) ? "array" : typeof s}) — refusing to skip it silently (F4).`,
-        );
-      }
-      return assertValidOrgValue(s, `canon-identity-values.json::${key}`);
-    });
-  };
-  return (_orgSets = {
-    private: read("private_org_slugs"),
-    retired: read("retired_org_slugs"),
-    public: read("public_org_slugs"),
-  });
-}
-/** The orgs subject to rewriting AND to the delivery gate: private + retired. */
-export function privateOrgSlugs() {
-  const s = orgSets();
-  return [...new Set([...s.private, ...s.retired])].sort();
-}
 /** DISTRIBUTION-TIME assertion (F1/F4): the entrypoints call this before they
  * distribute; a missing or empty private set HALTS loudly there — the one
- * place the guarantee may not silently degrade. */
+ * place the guarantee may not silently degrade. The private REPOSITORY names are
+ * derived here too, so a `.gitmodules` the derivation refuses halts the entrypoint
+ * BEFORE it writes anything, rather than at the post-write gate. (An EMPTY name set
+ * is legitimate — a checkout with no private-owned submodule — and is not refused.) */
 export function assertPrivateOrgConfig() {
   const slugs = privateOrgSlugs();
   if (slugs.length === 0) {
@@ -394,6 +280,7 @@ export function assertPrivateOrgConfig() {
         "gate would be vacuous.",
     );
   }
+  privateRepoNames();
   return slugs;
 }
 
@@ -403,6 +290,13 @@ export function assertPrivateOrgConfig() {
 // edition-emit, publish-to-private-template, publish-to-public,
 // fork-conference-pack, and the delivery engine itself). The guarantee covers
 // what is WRITTEN, not what the writer intended.
+//
+// THE TOKENS: the private (+ retired) org slugs AND, since 2026-10-10, the private
+// REPOSITORY names — every repository the checkout's root `.gitmodules` declares under a
+// private owner (`identity-scrub.mjs::privateRepoNames`). A repository name names a
+// non-public sibling system on its own, without its org beside it, so it is gated as a
+// token in its own right and redacted as `<PRIVATE-REPO>`. At a consumer both sets are
+// empty (no canon-identity declaration), so the gate there is unchanged.
 //
 // THE SCAN: every file's bytes — a RAW pass (latin1 preserves bytes 1:1, then
 // ASCII-only lowercase) PLUS, on any file carrying a non-ASCII byte, a FOLDED
@@ -523,18 +417,35 @@ export function forkIdentityDerivedVerdict({ remoteUrl, declared }) {
   return { ok: true };
 }
 
-/** Replace every case-variant of each private slug with `<PRIVATE-ORG>` — for
- * every message, selftest diff and path string a human or a log will read. */
-export function redactPrivateIdentity(text, slugs = null) {
+/** Replace every case-variant of each private slug with `<PRIVATE-ORG>`, and of each
+ * private REPOSITORY name with `<PRIVATE-REPO>` — for every message, selftest diff and
+ * path string a human or a log will read.
+ *
+ * `slugs` overrides the ORG set only. The repository names (`repoNames`, default
+ * `privateRepoNames()`) are masked on EVERY call, explicit slugs or not: over-masking a
+ * log line costs legibility, under-masking is the leak. When the names cannot be derived
+ * (a malformed `.gitmodules`), the text is WITHHELD rather than returned unmasked — a
+ * redactor that cannot know what to hide must not print. */
+export function redactPrivateIdentity(text, slugs = null, { repoNames = null } = {}) {
   let s = String(text ?? "");
+  let repos;
+  try {
+    repos = repoNames || privateRepoNames();
+  } catch (e) {
+    return `<redaction-unavailable: the private repository names could not be derived (${e && e.code ? e.code : "error"}) — output withheld>`;
+  }
   // F6b (security read): LONGEST-FIRST. Replacing a short slug that is a
   // PREFIX of a longer one leaves the longer one's tail unmasked (short slug
   // first renders `<PRIVATE-ORG>-<tail>`, never a whole-span mask); the
-  // longer match must consume the span first.
-  const ordered = [...(slugs || privateOrgSlugs())].sort((a, b) => String(b).length - String(a).length);
-  for (const slug of ordered) {
+  // longer match must consume the span first. Orgs and repository names are
+  // ordered TOGETHER, so a repository name carrying an org slug is masked whole.
+  const ordered = [
+    ...(slugs || privateOrgSlugs()).map((v) => [v, "<PRIVATE-ORG>"]),
+    ...repos.map((v) => [v, "<PRIVATE-REPO>"]),
+  ].sort((a, b) => String(b[0]).length - String(a[0]).length);
+  for (const [slug, mask] of ordered) {
     // Pass 1: exact case-insensitive spans.
-    s = s.replace(new RegExp(escapeRx(slug), "gi"), "<PRIVATE-ORG>");
+    s = s.replace(new RegExp(escapeRx(slug), "gi"), mask);
     // Pass 2 (F6e): FOLDED spans. The scanner matches through `foldForGate`
     // (NFKD + mark-strip + lowercase — the U+212A Kelvin case), while `/i`
     // alone does NOT fold compatibility spellings, so a Kelvin-spelled value
@@ -558,7 +469,7 @@ export function redactPrivateIdentity(text, slugs = null) {
       if (at === -1) break;
       const start = map[at];
       const end = map[at + fSlug.length - 1] + 1;
-      s = s.slice(0, start) + "<PRIVATE-ORG>" + s.slice(end);
+      s = s.slice(0, start) + mask + s.slice(end);
       applied += 1;
     }
     // LOW-4: at the cap the loop used to STOP silently, leaving every remaining
@@ -594,8 +505,18 @@ function foldedRawRanges(text, fSlug) {
   return out;
 }
 
+/** The tokens the identity gate holds by default: the private (+ retired) org slugs AND
+ * the private repository names this checkout's `.gitmodules` declares — one lower-cased
+ * set, because the scan below matches every member identically. Throws (typed) when the
+ * repository names cannot be derived: an underivable token set is never an empty one. */
+export function privateIdentityTokens({ slugs = null, repoNames = null } = {}) {
+  return [...new Set([...(slugs || privateOrgSlugs()), ...(repoNames || privateRepoNames())])];
+}
+
+/** `slugs` here is the WHOLE token set (orgs and repository names alike); absent, it is
+ * `privateIdentityTokens()`. */
 export function scanTreeForPrivateIdentity(root, slugs = null, onlyPaths = null) {
-  const set = slugs || privateOrgSlugs();
+  const set = slugs || privateIdentityTokens();
   const out = { total: 0, hits: [], unreadable: [], absent: false, root: path.resolve(String(root)) };
   if (!fs.existsSync(out.root)) {
     out.absent = true; // ONLY an absent TOP-LEVEL root is exempt
@@ -736,12 +657,20 @@ export function scanTreeForPrivateIdentity(root, slugs = null, onlyPaths = null)
  * (with `absent: true`) when clean; throws with a REDACTED message naming the
  * first hits by file:line / path-component when not. `onlyPaths` restricts the
  * scan to what a run WROTE (the engine's mode); absent, the whole tree under
- * `root` is scanned (fresh staging/emission trees). */
-export function assertTreeFreeOfPrivateIdentity(root, { slugs = null, label = null, onlyPaths = null } = {}) {
-  const set = slugs || privateOrgSlugs();
+ * `root` is scanned (fresh staging/emission trees).
+ *
+ * `slugs` overrides the ORG set only; the private REPOSITORY names are held on every
+ * call (`repoNames`, default `privateRepoNames()`), because nearly every exit passes
+ * the org set it already asserted (`assertPrivateOrgConfig()`) and an org override
+ * that silently dropped the repository names would disarm that half at exactly those
+ * exits. A `.gitmodules` the derivation refuses THROWS here, before any scan. */
+export function assertTreeFreeOfPrivateIdentity(root, { slugs = null, repoNames = null, label = null, onlyPaths = null } = {}) {
+  const orgs = slugs || privateOrgSlugs();
+  const repos = repoNames || privateRepoNames();
+  const set = privateIdentityTokens({ slugs: orgs, repoNames: repos });
   const r = scanTreeForPrivateIdentity(root, set, onlyPaths);
   if (r.absent) return r;
-  const rid = (s) => redactPrivateIdentity(s, set);
+  const rid = (s) => redactPrivateIdentity(s, orgs, { repoNames: repos });
   if (r.unreadable.length) {
     throw new Error(
       `PRIVATE-IDENTITY GATE: ${r.unreadable.length} UNREADABLE entr(ies) under ${rid(r.root)} — ` +
@@ -1367,13 +1296,13 @@ function buildSelfTestFixtures() {
     expected: "Read (loom-internal reference) first.",
   },
   // ── loom#1930 — the manifest floor: an ARCHIVED name still strips ──
-  // `loom-command` is not a top-level `workspaces/` directory (it lives under
+  // `autonomous-wave-loop` is not a top-level `workspaces/` directory (it lives under
   // `workspaces/_archive/`), so the pre-1930 live-readdir alternation had
   // dropped it. It is in the committed manifest, so it strips regardless of
   // whether the directory is present, archived, or gone.
   {
     name: "loom-workspace-archived-name-still-strips",
-    input: "Origin: `workspaces/loom-command/02-plans/01-x.md` cites this.",
+    input: "Origin: `workspaces/autonomous-wave-loop/02-plans/01-x.md` cites this.",
     expected: "Origin: (loom-internal reference) cites this.",
   },
   // ── loom#1930 — a FOREIGN internal name (undervivable at loom) strips ──
@@ -1954,6 +1883,11 @@ function f6RedactionSelftest({ verbose = false } = {}) {
       const libDir = path.join(sandbox, ".claude", "bin", "lib");
       fs.mkdirSync(libDir, { recursive: true });
       fs.cpSync(path.dirname(fileURLToPath(import.meta.url)), libDir, { recursive: true });
+      const hookLib = path.join(sandbox, ".claude", "hooks", "lib");
+      fs.mkdirSync(hookLib, { recursive: true });
+      for (const dep of ["git-subprocess-env.js", "redaction-map-binding.js"]) {
+        fs.copyFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "hooks", "lib", dep), path.join(hookLib, dep));
+      }
       const cfgPath = path.join(sandbox, ".claude", "canon-identity-values.json");
       const run = (cfg) => {
         fs.writeFileSync(cfgPath, JSON.stringify(cfg));

@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import { posix } from "node:path";
+
+// R1 sec F6: the posix namespace of node:path is a path object too.
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  return c.startsWith(posix.resolve(root) + "/");
+}

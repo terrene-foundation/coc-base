@@ -1,0 +1,7 @@
+{
+  "path": "workspaces/churn/notes.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "scope gate — path (workspace note, reject pole)",
+  "defeats": "a pattern list that still carries `/(^|\\/)workspaces\\//`, which made every workspace note a spec surface. specs-authority.md's `paths:` no longer include workspaces (2026-10-10). Body is BYTE-IDENTICAL to `flag-bare-table-name-body`, so a verdict difference is the path predicate alone."
+}

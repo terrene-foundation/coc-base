@@ -3,7 +3,6 @@ priority: 10
 scope: path-scoped
 paths:
   - "**/specs/**"
-  - "**/workspaces/**"
   - "**/briefs/**"
   - "**/02-plans/**"
   - "**/todos/**"

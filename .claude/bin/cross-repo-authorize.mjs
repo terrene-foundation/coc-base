@@ -111,11 +111,14 @@ function fail(msg) {
  * steer a call made here at a different repository. Resolved ONCE and memoized —
  * `resolveGitBinary` caches internally, but this also avoids re-`require`ing.
  *
- * Falls back to PATH resolution when the shim is unavailable (a deployment that
- * ships this tool without its sibling hooks lib). The fallback is exactly the
- * behaviour every call site here had before, so it is a degradation to the
- * status quo, never a new hole — and the literal lives HERE, in one resolver,
- * rather than at each call site.
+ * REFUSES when the shim is unavailable or resolves no trusted binary. It used to
+ * fall back to a PATH-resolved `git` on the AMBIENT environment, reasoned as "a
+ * degradation to the status quo" — but these calls decide WHERE the
+ * authorization receipt is written (`repoToplevel`) and whether the operator is
+ * told it is unreachable from origin/main (`gitCapture`), so an inherited
+ * GIT_DIR on that fallback re-pointed a trust decision (GITENV2-A5 F3). A receipt
+ * the guard will never grep is worse than no receipt, so the tool stops, like
+ * every sibling bin on the envelope.
  */
 let _gitShim;
 function gitShim() {
@@ -131,27 +134,33 @@ function gitShim() {
         break;
       }
     } catch {
-      /* shim absent — fall through to the PATH fallback below */
+      /* shim absent — `gitShimOrRefuse` refuses below */
     }
   }
   return _gitShim;
 }
 
-function gitInvocation() {
+function gitShimOrRefuse() {
   const shim = gitShim();
-  const bin = shim ? shim.resolveGitBinary() : null;
-  // `resolveGitBinary` returning null is a REAL answer (git not found), not an
-  // error to swallow; the PATH-resolved name is the pre-shim behaviour and the
-  // caller's try/catch still turns a genuine absence into a null result.
-  return { bin: bin || "git", env: shim ? shim.gitEnv() : process.env };
+  if (!shim) {
+    fail("the git subprocess envelope (hooks/lib/git-subprocess-env.js) could not be loaded, or is incompatible — refusing to run an un-enveloped git, whose inherited GIT_DIR would choose where the receipt is written; nothing was written");
+  }
+  return shim;
+}
+
+/** The resolved ABSOLUTE git binary; no trusted git is a refusal, never a PATH `git`. */
+function gitBinOrRefuse() {
+  const bin = gitShimOrRefuse().resolveGitBinary();
+  if (!bin) fail("no 'git' resolved on a TRUSTED path — the literal 'git' is not used as a fallback, because a PATH shim would answer; nothing was written");
+  return bin;
 }
 
 function repoToplevel(startDir) {
-  const { bin, env } = gitInvocation();
+  const bin = gitBinOrRefuse();
   try {
     return execFileSync(bin, ["rev-parse", "--show-toplevel"], {
       cwd: startDir || process.cwd(),
-      env,
+      env: gitShimOrRefuse().gitEnv(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1000,
@@ -384,11 +393,11 @@ const ORIGIN_MAIN_REF = "origin/main";
 const ORIGIN_MAIN_SCAN_BUDGET = 200;
 
 function gitCapture(root, argv) {
-  const { bin, env } = gitInvocation();
+  const bin = gitBinOrRefuse();
   try {
     return execFileSync(bin, argv, {
       cwd: root,
-      env,
+      env: gitShimOrRefuse().gitEnv(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       maxBuffer: 8 * 1024 * 1024,

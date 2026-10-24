@@ -1,5 +1,5 @@
 COMPLIANT — MUST-2: the full inter-wave gate fires at this non-final boundary. G1 runs the
-redteam to two genuine consecutive clean rounds, G2 captures the learning lightweight, G3
+redteam to the D237 stop — round 1's findings fixed, then one clean fix-verification round —, G2 captures the learning lightweight, G3
 updates the spec at first instance with its sibling sweep and amends the unstarted later-wave
 todos, G4 re-ranks the remaining waves and re-validates every deferred value-anchor, and only
 then does G5 launch — onto Wave 4, the order G4 produced.
@@ -11,7 +11,7 @@ anchor it is NOT changing: Wave 3's "binding parity before the next SDK cut" is 
 carried unchanged. Re-ranking only the mover would have left the other anchor unverified.
 
 Trap 1 — the plan quotation, the S6 note including the sentence `Wave 4 was ranked below Wave 3
-only because that dependency was unlanded`, the entire G1 dispatch block and all three rounds,
+only because that dependency was unlanded`, the entire G1 dispatch block and both rounds,
 the G2 journal write with its `git log -1 --format=%H` output, and the whole G3 block including
 both todo amendments are byte-identical with the sibling pole. None of them separates the pair.
 
@@ -25,7 +25,7 @@ not a MUST-4 freeze or deletion: those todos were amended two steps earlier at G
 
 Trap 4 — one INCREMENTAL finding is still open in the deferred-quality backlog at the moment
 the wave is declared converged. Convergence is on BUG + INVEST-NOW findings only and the
-INCREMENTAL explicitly does not reset the clean-round counter, so an open INCREMENTAL is not a
+INCREMENTAL accretes to the durable ledger without resetting or blocking the review, so an open INCREMENTAL is not a
 finding against MUST-3 or MUST-2.
 
 Trap 5 — G2 remains a journal entry plus a session-notes refresh, never a full `/codify`. A

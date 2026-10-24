@@ -22,6 +22,23 @@
 // SWEEP-EXEMPT-STUB-MARKERS: this file IS the stub-marker detector; literal strings are detection patterns, not stubs.
 // See .claude/audit-fixtures/sweep-stub-marker-false-positives/README.md for the convention.
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/observations.jsonl",
+ *       ".claude/learning/observations.archive/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The pattern checks are pure over the file text, but the learning tail APPENDS one observation row per detected pattern per invocation via lib/learning-utils.js (framework_selection / workflow_pattern / node_usage / dataflow_model / rule_violation), which mkdirs `.claude/learning/` + `observations.archive/` and, when identity resolves, shells out through lib/operator-id.js (git/ssh-keygen) for the signed stamp. Repeat payload ⇒ another row, so not idempotent."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const { parseEnvFile, getModelProvider } = require("./lib/env-utils");
@@ -143,7 +160,10 @@ function validateFile(data) {
     return {
       continue: true,
       exitCode: 0,
-      messages: ["Not a code or config file -- skipped"],
+      // SILENT ON SUCCESS (journal/0661 hook output economy): a skip is not a
+      // finding, and its context line fired 2,316 times / 197 KB in the loom
+      // transcripts. No messages ⇒ the emitter writes no additionalContext.
+      messages: [],
     };
   }
 
@@ -220,9 +240,10 @@ function validateFile(data) {
     if (stubBlocked) shouldBlock = true;
   }
 
-  if (messages.length === 0) {
-    messages.push("All patterns validated");
-  }
+  // SILENT ON SUCCESS (journal/0661): a clean file used to add the line "All
+  // patterns validated" to the agent's context on every Edit/Write (711 firings
+  // in the loom transcripts). An empty message list now emits no context block;
+  // every finding — advisory or BLOCKED — still renders unchanged.
 
   // --- Observation logging (Phase 2: enriched learning) ---
   try {
@@ -739,7 +760,7 @@ function checkFrontendMockData(content, filePath, messages) {
   // Call patterns: functions that produce synthetic display data
   // Targets: generate*Data/List/Records/Entries/Stats/Metrics/Occupancy/Transactions/Revenue
   //          generateFake*/Mock*/Random*/Sample*/Dummy*
-  //          mockData/Users/Items/Records/Response*
+  //          mockData*, mockUsers*, mockItems*, mockRecords*, mockResponse* (Source: .claude/hooks/validate-workflow.js:743-744.)
   const mockFuncCallPattern =
     /\b(generate(?:\w*(?:Data|List|Records|Entries|Stats|Metrics|Occupancy|Transactions|Revenue|Items))|generate(?:Fake|Mock|Random|Sample|Dummy)\w*|mock(?:Data|Users|Items|Records|Response)\w*)\s*\(/;
 

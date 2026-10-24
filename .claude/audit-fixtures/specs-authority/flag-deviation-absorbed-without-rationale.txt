@@ -55,6 +55,5 @@ Gates:
 
     round 1 — reviewer: "cursor is monotonic, no gap on concurrent inserts."
               security-reviewer: "the since-cursor is scoped to the caller, no leak."
-    round 2 — both clean, both payloads read.
 
-Two consecutive clean rounds. W6 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W6 lands.

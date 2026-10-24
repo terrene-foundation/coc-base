@@ -25,6 +25,15 @@ const {
   protectedPathTokens,
   collapsePathTraversal,
 } = require("./state-target-scope.js");
+// WORKTREE-WIDE receipt resolution (Gate-1 intake of the rs template's #174
+// change, journal/0655). `enumerateSiblingWorktrees` is reused rather than
+// open-coding `git worktree list`: it already verifies each candidate's
+// `git-common-dir` matches our own, so a planted porcelain entry cannot aim the
+// search outside this repo, and it returns a result object separating "could
+// not answer" from "answered: none". `sibling-porcelain.js` requires only
+// `git-subprocess-env.js` (already loaded above), so this adds no cycle and no
+// file to the shipped closure — `.claude/hooks/**` is ALWAYS_INCLUDE.
+const { enumerateSiblingWorktrees } = require("./sibling-porcelain.js");
 
 /**
  * pathSpellingViews — the spellings of `text` a protected-path matcher must be
@@ -272,6 +281,22 @@ const CROSS_REPO_RECEIPT_WINDOW_MS = 6 * 60 * 60 * 1000;
 // does it non-adversarially). Skew tolerates benign multi-host clock drift.
 const CROSS_REPO_RECEIPT_SKEW_MS = 5 * 60 * 1000;
 
+/**
+ * Is this receipt content LIVE right now? The ONE predicate; `scanRoot` below
+ * calls it, and it is EXPORTED so the compaction handoff snapshot
+ * (`hooks/lib/compaction-handoff.js`) reports the same liveness the fence
+ * enforces instead of re-deriving the window — two lineages of this predicate
+ * would be free to disagree about which receipts a session may still rely on.
+ */
+function isReceiptLive(content, now = Date.now()) {
+  const ts = _receiptTimestampMs(content);
+  return (
+    ts !== null &&
+    now - ts <= CROSS_REPO_RECEIPT_WINDOW_MS &&
+    ts - now <= CROSS_REPO_RECEIPT_SKEW_MS
+  );
+}
+
 // Parse a receipt's `timestamp:` (ISO) or `date:` (YYYY-MM-DD) frontmatter →
 // ms epoch, or null if absent/unparseable (→ treated as stale, fail-closed).
 function _receiptTimestampMs(content) {
@@ -300,6 +325,39 @@ function _receiptTimestampMs(content) {
  *
  * Scans the non-codify-gated `.claude/cross-repo-authz/` (RC6 break, journal/0488)
  * FIRST, then repo-root journal/ + workspace journals for codify-authored receipts.
+ *
+ * WORKTREE-WIDE (#174). The search covers EVERY worktree of this repo, not only
+ * the cwd's toplevel. The session cwd and the cwd the guarded command runs in
+ * are routinely DIFFERENT worktrees of one repo — the normal shape of parallel
+ * lane work — so a correctly-formed receipt written by the sanctioned
+ * `/cross-repo-authorize` affordance was invisible to the guard that demands it.
+ * An operator who followed the ceremony exactly was still halted, and the
+ * natural next move is to override, which is what the ceremony exists to stop.
+ *
+ * Every worktree of a repo shares one `.git` and one operator, so a receipt in
+ * any of them is equally authoritative. `enumerateSiblingWorktrees` is reused
+ * rather than open-coding `git worktree list`: it already verifies each
+ * candidate's `git-common-dir` matches our own, so a planted porcelain entry
+ * cannot aim the search outside this repo.
+ *
+ * OWN ROOT IS SCANNED FIRST, AND THE SIBLING SWEEP IS ONLY REACHED IF IT MISSES
+ * — this ordering is load-bearing for COST, not neatness. Measured at the
+ * template this intake came from (#174): on a 72-worktree forest
+ * `enumerateSiblingWorktrees` alone costs ~710ms (per-sibling git subprocesses)
+ * while the whole filesystem scan is ~1ms. Enumerating up front therefore taxed
+ * EVERY call, including the overwhelmingly common one where the receipt sits in
+ * the caller's own tree, which is exactly where the affordance writes it.
+ * Deferring it keeps that path at its pre-#174 cost and spends the sweep only on
+ * the case that previously failed outright.
+ *
+ * FAIL-CLOSED IS PRESERVED IN BOTH DIRECTIONS. Widening the search can only
+ * find MORE receipts, never authorize without one — absent a receipt in every
+ * worktree the answer is still `false`. And when enumeration CANNOT ANSWER
+ * (`ok:false` — no git binary, a `safe.directory` refusal) the own-root result
+ * still stands, so behaviour is never worse than before the fix; the narrowing
+ * is reported on stderr rather than collapsed into "no siblings", which is the
+ * precise conflation sibling-porcelain.js's result-object contract exists to
+ * prevent (`rules/zero-tolerance.md` Rule 3 — no silent fallbacks).
  */
 function hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode) {
   if (!targetSlug) return false;
@@ -334,54 +392,88 @@ function hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode) {
     "mi",
   );
   const now = Date.now();
-  const dirs = [
-    path.join(root, ".claude", "cross-repo-authz"),
-    path.join(root, "journal"),
-  ];
-  try {
-    const wsRoot = path.join(root, "workspaces");
-    for (const e of fs.readdirSync(wsRoot, { withFileTypes: true })) {
-      if (
-        e.isDirectory() &&
-        e.name !== "instructions" &&
-        !e.name.startsWith("_")
-      ) {
-        dirs.push(path.join(wsRoot, e.name, "journal"));
-        dirs.push(path.join(wsRoot, e.name, "journal", ".pending"));
-      }
-    }
-  } catch {
-    /* no workspaces/ — repo-root journal/ only */
-  }
-  for (const d of dirs) {
-    let entries;
+
+  /** The receipt-bearing directories inside ONE worktree root. */
+  const dirsFor = (r) => {
+    const out = [
+      path.join(r, ".claude", "cross-repo-authz"),
+      path.join(r, "journal"),
+    ];
     try {
-      entries = fs.readdirSync(d, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const f of entries) {
-      if (!f.isFile() || !f.name.endsWith(".md")) continue;
-      const fp = path.join(d, f.name);
-      try {
-        const content = fs.readFileSync(fp, "utf8");
-        if (!markerRe.test(content)) continue;
-        // Content-timestamp age bound (checkout-stable, unlike mtime), TWO-SIDED:
-        // reject too-old (> window) AND future-dated (> skew) — a future
-        // `timestamp:` would otherwise authorize indefinitely (the age field is
-        // writer-controlled since the mtime→content-timestamp switch).
-        const ts = _receiptTimestampMs(content);
+      const wsRoot = path.join(r, "workspaces");
+      for (const e of fs.readdirSync(wsRoot, { withFileTypes: true })) {
         if (
-          ts === null ||
-          now - ts > CROSS_REPO_RECEIPT_WINDOW_MS ||
-          ts - now > CROSS_REPO_RECEIPT_SKEW_MS
-        )
-          continue;
-        return true;
+          e.isDirectory() &&
+          e.name !== "instructions" &&
+          !e.name.startsWith("_")
+        ) {
+          out.push(path.join(wsRoot, e.name, "journal"));
+          out.push(path.join(wsRoot, e.name, "journal", ".pending"));
+        }
+      }
+    } catch {
+      /* no workspaces/ in this worktree — its repo-root journal/ only */
+    }
+    return out;
+  };
+
+  /**
+   * Scan ONE worktree root's receipt directories. True on the first live
+   * receipt. Extracted rather than duplicated per root: the own-root and
+   * sibling passes MUST decide by ONE predicate, or the two lineages drift
+   * (`security.md` § Enforcement-Surface Parity — one shared function, never N
+   * copies). Semantics are byte-identical to the pre-#174 single-root loop.
+   */
+  const scanRoot = (r) => {
+    for (const d of dirsFor(r)) {
+      let entries;
+      try {
+        entries = fs.readdirSync(d, { withFileTypes: true });
       } catch {
         continue;
       }
+      for (const f of entries) {
+        if (!f.isFile() || !f.name.endsWith(".md")) continue;
+        const fp = path.join(d, f.name);
+        try {
+          const content = fs.readFileSync(fp, "utf8");
+          if (!markerRe.test(content)) continue;
+          // Content-timestamp age bound (checkout-stable, unlike mtime), TWO-SIDED:
+          // reject too-old (> window) AND future-dated (> skew) — a future
+          // `timestamp:` would otherwise authorize indefinitely (the age field is
+          // writer-controlled since the mtime→content-timestamp switch). The
+          // predicate is `isReceiptLive` above, the ONE copy, shared with the
+          // compaction handoff snapshot.
+          if (!isReceiptLive(content, now)) continue;
+          return true;
+        } catch {
+          continue;
+        }
+      }
     }
+    return false;
+  };
+
+  if (scanRoot(root)) return true;
+
+  // Own root had no live receipt. Only NOW pay for enumeration (~710ms at 72
+  // worktrees, measured at the template) and sweep the rest of the forest.
+  const sib = enumerateSiblingWorktrees(root);
+  if (!sib.ok) {
+    // NOT collapsed to "no siblings" — that conflation is what the result-object
+    // contract exists to prevent. The own-root answer above still stands, so
+    // this is never worse than the pre-#174 behaviour; it is a NARROWED search
+    // and it says so rather than failing silently.
+    process.stderr.write(
+      `[cross-repo-authz] worktree enumeration could not answer (${sib.reason}) — ` +
+        `receipt search narrowed to ${root}. A receipt in a sibling worktree will NOT be seen.\n`,
+    );
+    return false;
+  }
+  for (const s of sib.siblings) {
+    const sibRoot = typeof s === "string" ? s : s && s.path;
+    if (!sibRoot || sibRoot === root) continue;
+    if (scanRoot(sibRoot)) return true;
   }
   return false;
 }
@@ -2301,6 +2393,29 @@ function isOptionToken(t) {
  * decide" — for which the caller MUST fall back to the whole-line test. `null`
  * is therefore the fail-closed answer, and every unmodelled shape returns it.
  */
+/**
+ * The operands an `rm` hit removes: every non-option argument (options end at `--`). A
+ * `find … -delete` hit (findActionHits, which carries `paths`) removes within its search
+ * roots, so those are returned.
+ */
+function rmOperands(hit) {
+  if (!hit || !Array.isArray(hit.args)) return [];
+  if (Array.isArray(hit.paths)) return findSearchRoots(hit.args);
+  if (hit.direct !== true) return [];
+  const out = [];
+  let afterDashDash = false;
+  for (const a of hit.args) {
+    if (typeof a !== "string") continue;
+    if (!afterDashDash && a === "--") {
+      afterDashDash = true;
+      continue;
+    }
+    if (!afterDashDash && isOptionToken(a)) continue;
+    out.push(a);
+  }
+  return out;
+}
+
 function layer2WriteOperands(hit) {
   if (!hit || hit.direct !== true || !Array.isArray(hit.args)) return null;
   const verb = hit.verb;
@@ -2507,7 +2622,7 @@ function gitPathspecWriteHits(segText, P) {
   } catch {
     return [];
   }
-  if (!g || !g.sub || g.unresolvable) return [];
+  if (!g || !g.sub || g.unresolvable === "command" || g.unresolvable === "subcommand") return [];
   if (!GIT_PATHSPEC_WRITE_SUBS.has(g.sub)) return [];
   // `tokenize` is quote-aware and already consumes the quotes of a SEPARATED word
   // (git-command-parse.js:480-481), so this `dequote` is a no-op on the common
@@ -2549,7 +2664,7 @@ function gitPathspecWriteHits(segText, P) {
     paths.push(base && !path.isAbsolute(p) ? path.join(base, p) : p);
   }
   if (!paths.length) return [];
-  return [{ verb: `git ${g.sub}`, args: argv, paths }];
+  return [{ verb: `git ${g.sub}`, args: argv, paths, gitInvocation: g, pathspecs: operands.map(gitPathspecOperand).filter(Boolean) }];
 }
 
 // Lazy: `git-command-parse.js` requires THIS module at load, so a top-level
@@ -3260,11 +3375,17 @@ function detectStateFileMutation(command, pathRx, opts) {
     } else {
       let undecidedVerb = null;
       const directed = [];
+      // The operands every UNDECIDED `rm` hit removes. Detection is unchanged (the
+      // whole-line test still decides); they only ride on the result, for a caller that
+      // classifies what the removal destroys (validate-bash-command.js, the git-dir
+      // data-loss arm). Every non-option operand of rm is removed, so no model is needed.
+      const removed = [];
       for (const h of verbHits) {
         if (!LAYER2_VERBS.has(h.verb)) continue;
         const targets = layer2WriteOperands(h);
         if (targets === null) {
           if (undecidedVerb === null) undecidedVerb = h.verb;
+          if (h.verb === "rm") removed.push(...rmOperands(h));
         } else {
           directed.push([h.verb, targets]);
         }
@@ -3272,14 +3393,16 @@ function detectStateFileMutation(command, pathRx, opts) {
       if (undecidedVerb !== null) {
         const hit = scopedPathHit(scanLine, pathRx, scope);
         if (hit) {
-          return { layer: 2, kind: undecidedVerb, scope: hit };
+          return { layer: 2, kind: undecidedVerb, scope: hit, ...(removed.length ? { targets: removed } : {}) };
         }
       }
       for (const [verb, targets] of directed) {
         for (const t of targets) {
           const hit = scopedPathHit(t, pathRx, scope);
           if (hit) {
-            return { layer: 2, kind: verb, scope: hit };
+            // `target`: the operand that matched, for a caller that classifies what the
+            // verb destroys (validate-bash-command.js, the git-dir data-loss arm).
+            return { layer: 2, kind: verb, scope: hit, targets: [t] };
           }
         }
       }
@@ -3301,9 +3424,21 @@ function detectStateFileMutation(command, pathRx, opts) {
     // which is what keeps a read-only `git log … -- <state>` clean.
     for (const h of verbHits || []) {
       if (!h.paths || !h.paths.length) continue;
-      for (const p of h.paths) {
+      let targets = h.paths;
+      if (h.gitInvocation && scope) {
+        const { resolveGitTargetContext, physicalPath } = require("./git-target-context.js");
+        const context = resolveGitTargetContext(h.gitInvocation, o.cwd);
+        if (!context.known) {
+          if (h.pathspecs.some((p) => pathSpellingHit(p, pathRx)))
+            return { layer: 2, kind: h.verb, scope: "unresolved" };
+          continue;
+        }
+        targets = h.pathspecs.map((p) => physicalPath(p, context.target) ||
+          (path.isAbsolute(p) ? p : context.target + path.sep + p));
+      }
+      for (const p of targets) {
         const hit = scopedPathHit(p, pathRx, scope);
-        if (hit) return { layer: 2, kind: h.verb, scope: hit };
+        if (hit) return { layer: 2, kind: h.verb, scope: hit, targets: [p] };
       }
     }
 
@@ -3529,6 +3664,11 @@ function splitShellSegments(command, opts = {}) {
       continue;
     }
     if (newlineSeparates && ch === "\n") {
+      flush(i + 1);
+      i += 1;
+      continue;
+    }
+    if (opts.backgroundSeparates === true && ch === "&" && command[i + 1] !== "&" && command[i + 1] !== ">" && command[i - 1] !== ">" && command[i - 1] !== "<") {
       flush(i + 1);
       i += 1;
       continue;
@@ -5088,6 +5228,7 @@ function detectStateFileMutationSegmentAware(command, pathRx, opts) {
         rawText: rawSegment,
         scanText: maskedSeg,
         scope,
+        cwd: opts && opts.cwd,
       });
       if (maskedHit) return maskedHit;
       // Fail-closed (#745 F1/F2): `$(…)` / backtick command-substitution
@@ -5106,7 +5247,7 @@ function detectStateFileMutationSegmentAware(command, pathRx, opts) {
       // `--body "$(node -e '…write…')"` and `` --body "…`rm <state>`…" `` still
       // fail closed.
       if (hasActiveExecutingConstruct(segment)) {
-        const rawHit = detectStateFileMutation(rawSegment, pathRx, { scope });
+        const rawHit = detectStateFileMutation(rawSegment, pathRx, { scope, cwd: opts && opts.cwd });
         if (rawHit) return rawHit;
       }
     } else {
@@ -5117,6 +5258,7 @@ function detectStateFileMutationSegmentAware(command, pathRx, opts) {
         rawText: rawSegment,
         scanText: rawSegment,
         scope,
+        cwd: opts && opts.cwd,
       });
       if (hit) return hit;
     }
@@ -5126,7 +5268,7 @@ function detectStateFileMutationSegmentAware(command, pathRx, opts) {
   // so the heredoc body's internal `;` fractures the write from the run across
   // sibling segments. This pass reconstructs the heredoc structurally and
   // matches the write→execute conjunction on the FULL command.
-  const bundleHit = detectHeredocWriteRunBundle(command, pathRx, { scope });
+  const bundleHit = detectHeredocWriteRunBundle(command, pathRx, { scope, cwd: opts && opts.cwd });
   if (bundleHit) return bundleHit;
   return null;
 }
@@ -6042,38 +6184,36 @@ function readRefDivergenceFromOrigin(ref, cwd, opts = {}) {
   // `ok:false` arm already takes in validate-bash-command.js. The security
   // property the allowlist exists for (an attacker steering WHICH repository
   // answers) is unaffected by the direction of that fallback.
-  const gitBin = resolveGitBinary();
-  if (!gitBin) return null;
+  //
+  // RUN 8 — THE TARGET-REPO ENVELOPE (lib/target-repo-git.js). `cwd` is a directory the
+  // INSPECTED command chose (`git -C <x> worktree add`), so the repository that answers
+  // is the agent's, and so is its `.git/config`. The env half above stops an ambient
+  // GIT_DIR from choosing the repository; it cannot stop that repository's own config
+  // from choosing a PROGRAM. The repository is resolved ONCE through the envelope and
+  // the count runs against that canonical pair with every program-executing key closed
+  // and every transport refused. A repository that will not resolve, or a read the
+  // envelope refuses, is the same fail-open null as a git that never answered (the
+  // NAMED DEVIATION above).
   try {
-    const out = execFileSync(
-      gitBin,
-      [
-        "-C",
-        cwd || process.cwd(),
-        "rev-list",
-        "--left-right",
-        "--count",
-        `refs/heads/${branch}...refs/remotes/origin/${branch}`,
-      ],
-      {
-        encoding: "utf8",
-        // The RESOLVED value, not the module constant — `opts.timeoutMs` is the
-        // seam the fixture runner uses for contention headroom, and reading the
-        // constant here left that seam computed-but-dead: the runner's override
-        // would have been silently ignored and the flakiness it exists to absorb
-        // would have re-appeared as a bogus red.
-        timeout: timeoutMs,
-        stdio: ["ignore", "pipe", "ignore"],
-        env: gitEnv(),
-      },
+    const { resolveTargetRepo, targetGit } = require("./target-repo-git.js");
+    const resolved = resolveTargetRepo({ dir: path.resolve(cwd || process.cwd()) }, { timeout: timeoutMs });
+    if (!resolved.ok) return null;
+    const r = targetGit(
+      resolved.repo,
+      ["rev-list", "--left-right", "--count", `refs/heads/${branch}...refs/remotes/origin/${branch}`],
+      // The RESOLVED value, not the module constant — `opts.timeoutMs` is the seam the
+      // fixture runner uses for contention headroom; reading the constant left that
+      // seam computed-but-dead.
+      { timeout: timeoutMs },
     );
-    const m = String(out)
+    if (!r.ok) return null;
+    const m = String(r.stdout)
       .trim()
       .match(/^(\d+)\s+(\d+)$/);
     if (!m) return null;
     return { ahead: Number(m[1]), behind: Number(m[2]) };
   } catch {
-    // Non-zero exit (either ref absent / not a repo), ENOENT, or timeout.
+    // The envelope's require or resolution threw: nothing was measured.
     return null;
   }
 }
@@ -6294,8 +6434,9 @@ function detectDockerfileWholeContextCopy(filePath, content) {
 // DELIBERATELY EXCLUDED, each because its exit status IS information the
 // operator is reading — firing on them is the false positive that gets the whole
 // detector switched off:
-//   grep / rg / ag   1 means "no match". `gate | grep FAIL` is the pinned
-//                    COMPLIANT fixture: the operator is testing for a marker.
+//   rg / ag          1 means "no match"; these retain their marker semantics.
+//   grep             retained outside the foreground-final R1-F17 branch
+//                    (.claude/hooks/lib/violation-patterns.js:7217-7238).
 //   jq               non-zero on a parse/filter failure.
 //   awk              an awk program may `exit N`, making the status deliberate.
 //   diff / cmp / test  their status is the whole point.
@@ -6997,7 +7138,80 @@ function setsErrexit(argv) {
   return false;
 }
 
-function detectExitCodeLaundering(command) {
+/**
+ * IS THE LAUNDERED STATUS ACTUALLY BANKED? — the second half of the violation.
+ *
+ * The pipeline/successor SHAPE is only NECESSARY: the rule extract says the violation
+ * "completes when the laundered status is READ as a verdict". Until 2026-10-10 the
+ * detector fired on the shape alone, so `node <gate> 2>&1 | tail -3` — issued to LOOK
+ * at output, with no status cited anywhere — drew a ~1 KB halt-and-report every time.
+ * MEASURED over the operator's transcripts: 139 resolved firings, 102 pipeline-sink and
+ * 36 discarded-by-successor, most of them display-only pipes and diagnostic scripts.
+ *
+ * The status is BANKED — and only then does the detector fire — when, walking FORWARD
+ * from the laundering point in evaluation order, one of these is reached BEFORE any
+ * other verdict command takes over the status:
+ *   control  a `&&` / `||` joins the laundered pipeline to what follows in the SAME
+ *            statement — the chain branches on the wrong status (FORM 1 only; FORM 2
+ *            reaches its successor through `;`/newline by construction);
+ *   read     a later pipeline holds an EXPANDING `$?` / PIPESTATUS read (single-quoted
+ *            spans are masked: bash does not expand there, so it is not a read);
+ *   condition `if`/`elif`/`while`/`until`/`!` heads the laundered pipeline (FORM 1);
+ *   background the call ran with `run_in_background` — its completion notification
+ *            reports the compound's final status, which is not the gate's.
+ * A later VERDICT command (`isGateInvocation`) ends the walk: a `$?` after it reads
+ * THAT command, legitimately.
+ *
+ * Parsed, never regexed over the joined string (`hook-output-discipline.md` MUST-5):
+ * pipelines come from `shellStatements`, the read test is the same masked
+ * `STATUS_CAPTURE` FORM 2's own `capturesStatus` uses, the gate test is the closed
+ * argv-position table.
+ *
+ * @returns {string|null} the banking mode, or null when nothing reads the status.
+ */
+function launderedStatusBanked(statements, src, si, startP, opts) {
+  if (opts && opts.background === true) return "background";
+  const pipelineText = (p) => {
+    const last = p[p.length - 1];
+    return src.slice(p[0].start, last.start + last.text.length);
+  };
+  // Walks ONE statement — the first non-empty one at or after `si` — from pipeline
+  // `startP`, in evaluation order. The caller decides `control` and `condition`,
+  // which are properties of the laundering point itself.
+  //
+  // WHY ONE STATEMENT, NOT THE REST OF THE COMMAND. `$?` names the command that
+  // finished LAST. A read two statements on — `gate | tail; git diff a b; echo
+  // "diff rc=$?"` — reads `git diff`, which is exactly what its author asked for;
+  // MEASURED as the dominant residual false positive when the walk ran to the end
+  // of the command (diagnostic scripts with their own per-step `rc=$?`). Inside
+  // the successor statement the pinned case stays covered: `gate; ls && rc=$?`
+  // reads `ls` while the gate is the only verdict in sight, the shape the
+  // `late` pole of the suite pins. Named residual, accepted: `gate | tail; echo
+  // x; echo "rc=$?"` is silent — the read is no longer adjacent to anything the
+  // parse can tie to the gate.
+  let s = si;
+  for (; s < statements.length; s++) {
+    const st = statements[s];
+    if (s === si && startP >= st.length) continue;
+    const text = pipelineText(st[0]).trim();
+    if (text && !text.startsWith("#")) break;
+  }
+  if (s >= statements.length) return null;
+  const stmt = statements[s];
+  for (let p = s === si ? startP : 0; p < stmt.length; p++) {
+    const pipe = stmt[p];
+    if (STATUS_CAPTURE.test(maskUnexpandedSpans(pipelineText(pipe)))) return "read";
+    if (pipe.some((seg) => isGateInvocation(stripCompoundKeywords(stageArgv(seg.text)))))
+      return null;
+  }
+  return null;
+}
+
+// The keywords whose construct BRANCHES on the status of the pipeline they head. A
+// subset of COMPOUND_KEYWORDS: `then`/`do`/`{`/`(` open a body, they consume nothing.
+const STATUS_CONSUMING_HEADS = new Set(["if", "elif", "while", "until", "!"]);
+
+function detectExitCodeLaundering(command, opts) {
   if (!command || typeof command !== "string") return null;
 
   const { statements, src } = shellStatements(command);
@@ -7039,25 +7253,38 @@ function detectExitCodeLaundering(command) {
       stmt.some((stages) => setsPipefail(stageArgv(stages[0].text))),
     ) || STATUS_ARRAY_READ.test(src);
   if (!standDown) {
-    for (const stmt of statements) {
-      for (const stages of stmt) {
+    for (let si = 0; si < statements.length; si++) {
+      const stmt = statements[si];
+      for (let pj = 0; pj < stmt.length; pj++) {
+        const stages = stmt[pj];
         if (stages.length < 2) continue;
         // FORM 1 ONLY — see COMPOUND_KEYWORDS for why FORM 2 must not strip.
-        const gate = isGateInvocation(
-          stripCompoundKeywords(stageArgv(stages[0].text)),
-        );
+        const headArgv = stageArgv(stages[0].text);
+        const gate = isGateInvocation(stripCompoundKeywords(headArgv));
         if (!gate) continue;
         const lastArgv = stageArgv(stages[stages.length - 1].text);
         // Whole argv, not argv[0]: `sort -c` / `base64 -d` / `xxd -r` are
         // verdict-carrying and MUST NOT rank as sinks (see SINK_VERDICT_FLAGS).
-        if (!isLaunderSink(lastArgv)) continue;
+        const foregroundFinal = opts?.background !== true && pj === stmt.length - 1 &&
+          statements.slice(si + 1).every((s) => s.every((p) => p.every((seg) => !seg.text.trim())));
+        if (!isLaunderSink(lastArgv) && !(foregroundFinal && path.basename(lastArgv[0] || "") === "grep")) continue;
+        // R1-F17: the foreground final pipeline supplies the tool result too.
+        const banked = STATUS_CONSUMING_HEADS.has(headArgv[0])
+          ? "condition"
+          : pj < stmt.length - 1
+            ? "control"
+            : launderedStatusBanked(statements, src, si, pj + 1, opts) ||
+              (foregroundFinal ? "foreground-pipeline" : null);
+        if (!banked) continue;
         return {
           rule_id: "instrument-discipline/MUST-1",
-          severity: "halt-and-report",
+          severity: banked === "foreground-pipeline" ? "advisory" : "halt-and-report",
           laundering_form: "pipeline-sink",
+          banked_by: banked,
           evidence:
             `pipeline exit status is \`${lastArgv[0]}\`'s, not \`${gate}\`'s — ` +
-            `the gate's verdict is discarded and $? reports 0 whether it passed or failed: ` +
+            `the gate's verdict is discarded and $? reports 0 whether it passed or failed ` +
+            `(status banked by: ${banked}): ` +
             `"${command.trim().slice(0, 200)}"`,
         };
       }
@@ -7066,7 +7293,8 @@ function detectExitCodeLaundering(command) {
 
   // FORM 2 — a later statement eats it.
   const live = [];
-  for (const stmt of statements) {
+  for (let si = 0; si < statements.length; si++) {
+    const stmt = statements[si];
     const first = stmt[0][0];
     const lastSeg = stmt[stmt.length - 1][stmt[stmt.length - 1].length - 1];
     // RAW slice, not a re-join: the `&&` / `||` separator bytes are load-bearing
@@ -7074,7 +7302,7 @@ function detectExitCodeLaundering(command) {
     const text = src.slice(first.start, lastSeg.start + lastSeg.text.length);
     const t = text.trim();
     if (!t || t.startsWith("#")) continue; // empty tail after `;`, or a comment
-    live.push({ stmt, text });
+    live.push({ stmt, text, si });
   }
   // `set -e` stands this form down ONLY where it is IN FORCE at the gate. The
   // header's justification — "failure aborts the compound" — holds for a `set -e`
@@ -7107,14 +7335,22 @@ function detectExitCodeLaundering(command) {
     if (abortsOnFailure(live[i].stmt, src)) continue; // fail-fast guard propagates it
     const next = live[i + 1];
     if (capturesStatus(next.stmt, src)) continue;
+    // NECESSARY, not sufficient — the same banking test FORM 1 applies. A gate
+    // whose status nothing downstream reads (a diagnostic script that prints the
+    // gate's own output and moves on) launders nothing into a verdict; a LATER
+    // `$?` read before any other gate does (it reads the wrong command), and so
+    // does a backgrounded call (its notification reports the final status).
+    const banked = launderedStatusBanked(statements, src, next.si, 0, opts);
+    if (!banked) continue;
     return {
       rule_id: "instrument-discipline/MUST-1",
       severity: "halt-and-report",
       laundering_form: "discarded-by-successor",
+      banked_by: banked,
       evidence:
         `the command's exit status is \`${next.text.trim().slice(0, 60)}\`'s, not \`${gate}\`'s — ` +
-        `the gate is not the last statement and nothing reads $? after it, so a FAILING gate ` +
-        `reports overall success (a backgrounded run notifies "exit code 0"): ` +
+        `the gate is not the last statement and the status read downstream is not the gate's, so a FAILING gate ` +
+        `reports overall success (status banked by: ${banked}): ` +
         `"${command.trim().slice(0, 200)}"`,
     };
   }
@@ -7141,6 +7377,12 @@ module.exports = {
   detectRepoScopeDriftText,
   detectRepoScopeDriftBash,
   hasCrossRepoAuthorizationReceipt,
+  // The receipt LIVENESS predicate and its window, exported so the compaction
+  // handoff snapshot reports the liveness the FENCE enforces. Text-anchored to
+  // `isReceiptLive` rather than to a line number: see the module header.
+  isReceiptLive,
+  receiptTimestampMs: _receiptTimestampMs,
+  CROSS_REPO_RECEIPT_WINDOW_MS,
   // F47 — exported so the RECEIPT WRITER (`.claude/bin/cross-repo-authorize.mjs`)
   // canonicalizes `--target` through the SAME function this module greps with,
   // instead of carrying a second copy of the slug rule that can (and did) drift.
@@ -7174,6 +7416,7 @@ module.exports = {
   // regression was reachable only by reading the code. A security predicate that
   // reviewers cannot execute is one a reviewer will mis-read.
   hasActiveExecutingConstruct,
+  maskQuotedSpans,
   detectHeredocWriteRunBundle,
   hasInterpreterWriteSignal,
   splitShellSegments,

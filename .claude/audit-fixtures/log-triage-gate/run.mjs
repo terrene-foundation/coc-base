@@ -43,7 +43,7 @@
  */
 
 import "../_lib/no-ambient-git.cjs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -850,12 +850,12 @@ withLogs(
 // fixture-32 emptied PATH outright, and the resulting `status=null, stdout=""`
 // looked exactly like the defect it was meant to catch. Distinguishing "the
 // hook reported clean" from "the hook never ran" is the whole point.
-function runHookWithPath(cwd, pathValue) {
+function runHookWithPath(cwd, pathValue, extraEnv = {}) {
   const r = spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify({ hook_event_name: "Stop", cwd }),
     encoding: "utf8",
     timeout: 30000,
-    env: { ...process.env, PATH: pathValue },
+    env: { ...process.env, PATH: pathValue, ...extraEnv },
   });
   let parsed = null;
   try {
@@ -864,6 +864,110 @@ function runHookWithPath(cwd, pathValue) {
     /* left null — the assertion reports it */
   }
   return { status: r.status, json: parsed, msg: (parsed && parsed.systemMessage) || "" };
+}
+
+// ---------------------------------------------------------------------------
+// PRELOADS — deterministic control of the filesystem the hook SEES.
+// ---------------------------------------------------------------------------
+// Some properties are about ORDER or TIMING the host decides (readdir order, a
+// path swapped between two syscalls, a slow directory). Real trees cannot pin
+// those, so a preload (`node -r <file>`) wraps the exact fs calls the hook
+// makes. The hook itself is unmodified; each preload appends to a MARK file
+// whenever it acts, and every case using one asserts that mark — a preload that
+// stopped reaching the code it wraps reds the case instead of greening it.
+
+// Hand `locked` to the reader before every sibling (fixture-34c).
+const ORDER_LOCKED_FIRST = `
+const fs = require("fs");
+const read = fs.Dir.prototype.readSync;
+const queued = new WeakMap();
+fs.Dir.prototype.readSync = function () {
+  if (!queued.has(this)) {
+    const all = [];
+    let e;
+    while ((e = read.call(this)) !== null) all.push(e);
+    all.sort((a, b) => (b.name === "locked") - (a.name === "locked"));
+    if (all.length > 1 && all[0].name === "locked") fs.appendFileSync(process.env.LOGTRIAGE_FX_MARK, "reordered\\n");
+    queued.set(this, all);
+  }
+  const q = queued.get(this);
+  return q.length > 0 ? q.shift() : null;
+};
+`;
+
+// Swap <tree>/logs for a symlink to LOGTRIAGE_FX_OUTSIDE at the instant the
+// hook opens it — after any lstat that classified it as a directory (fixture-40).
+const SWAP_LOGS_ON_OPEN = `
+const fs = require("fs");
+const path = require("path");
+const open = fs.opendirSync;
+let swapped = false;
+fs.opendirSync = function (p, ...rest) {
+  if (!swapped && typeof p === "string" && path.basename(p) === "logs" &&
+      fs.realpathSync(path.dirname(p)) === process.env.LOGTRIAGE_FX_TREE) {
+    swapped = true;
+    fs.renameSync(p, p + ".real");
+    fs.symlinkSync(process.env.LOGTRIAGE_FX_OUTSIDE, p);
+    fs.appendFileSync(process.env.LOGTRIAGE_FX_MARK, "swapped\\n");
+  }
+  return open.call(this, p, ...rest);
+};
+`;
+
+// Every directory entry costs 100 ms (fixture-43b).
+const SLOW_DIR_READS = `
+const fs = require("fs");
+const read = fs.Dir.prototype.readSync;
+const cell = new Int32Array(new SharedArrayBuffer(4));
+let marked = false;
+fs.Dir.prototype.readSync = function () {
+  Atomics.wait(cell, 0, 0, 100);
+  if (!marked) { marked = true; fs.appendFileSync(process.env.LOGTRIAGE_FX_MARK, "slowed\\n"); }
+  return read.call(this);
+};
+`;
+
+/** Write a preload + mark file into a private mktemp dir. */
+function preloadKit(source) {
+  const kit = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-preload-"));
+  const file = path.join(kit, "preload.cjs");
+  const mark = path.join(kit, "mark");
+  fs.writeFileSync(file, source);
+  fs.writeFileSync(mark, "");
+  return {
+    file,
+    mark,
+    marks: () => fs.readFileSync(mark, "utf8"),
+    cleanup: () => fs.rmSync(kit, { recursive: true, force: true }),
+  };
+}
+
+function runHookWithPreload(cwd, source, extraEnv = {}, opts = {}) {
+  const kit = preloadKit(source);
+  try {
+    const r = spawnSync(process.execPath, ["-r", kit.file, HOOK], {
+      input: JSON.stringify({ hook_event_name: "Stop", cwd }),
+      encoding: "utf8",
+      timeout: opts.timeoutMs ?? 30000,
+      killSignal: "SIGKILL",
+      env: { ...process.env, LOGTRIAGE_FX_MARK: kit.mark, ...extraEnv },
+    });
+    let parsed = null;
+    try {
+      parsed = JSON.parse((r.stdout || "").trim());
+    } catch {
+      /* left null — the assertion reports it */
+    }
+    return {
+      status: r.status,
+      json: parsed,
+      msg: (parsed && parsed.systemMessage) || "",
+      err: r.stderr || "",
+      marks: kit.marks(),
+    };
+  } finally {
+    kit.cleanup();
+  }
 }
 
 // fixture-32: every per-file `grep` FAILS (exit 2), which is not the same thing
@@ -899,19 +1003,105 @@ withLogs({ "app.log": "ERROR database connection failed" }, {}, (dir) => {
   );
 });
 
-// fixture-34: the ENUMERATION stage itself fails. With PATH stripped, the
-// `find … | head` pipeline cannot run at all, so the hook learns nothing about
-// the tree. Reporting that as "no logs found" is the same defect one stage
-// earlier. node still starts (absolute path), so an empty result here is a
-// verdict about the hook, not about the harness.
+// fixture-34: the ENUMERATION stage itself fails — here by running out of its
+// budget. The enumeration is an in-process walk now, so stripping PATH no
+// longer breaks it (fixture-38 pins exactly that); the deterministic way to
+// make it fail on every host is a zero budget. Reporting that as "no logs
+// found" is the same defect one stage earlier.
 withLogs({ "app.log": "ERROR database connection failed" }, {}, (dir) => {
-  const r = runHookWithPath(dir, "/nonexistent-bin-dir-for-fixture-34");
+  const r = runHookWithPath(dir, process.env.PATH, { COC_LOG_TRIAGE_ENUM_BUDGET_MS: "0" });
   check(
     "fixture-34-a-failed-enumeration-is-reported-not-treated-as-clean",
-    r.json !== null && r.json.continue === true && r.msg.includes("enumeration itself failed"),
-    `a scan whose enumeration failed reported clean: status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
+    r.json !== null && r.json.continue === true && r.msg.includes("enumeration failed or timed out for declared root(s) (.)"),
+    `a scan whose enumeration ran out of budget reported clean: status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
   );
 });
+
+// fixture-34b: an UNREADABLE declared root is a failed enumeration, not an
+// empty one. Needs a host where mode 000 actually denies the reader — root
+// reads straight through it, so there the arm says NOT RUN and emits no row.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  const logs = path.join(dir, "logs");
+  try {
+    fs.mkdirSync(logs);
+    fs.writeFileSync(path.join(logs, "app.log"), "ERROR database connection failed\n");
+    fs.chmodSync(logs, 0o000);
+    let denied = false;
+    try {
+      fs.readdirSync(logs);
+    } catch {
+      denied = true;
+    }
+    if (!denied) {
+      process.stdout.write("  NOT RUN  fixture-34b (mode 000 does not deny this reader; uid 0?)\n");
+    } else {
+      const r = runHook(dir);
+      check(
+        "fixture-34b-an-unreadable-declared-root-is-named-as-failed",
+        r.json !== null && r.json.continue === true && r.msg.includes("declared root(s) (logs)"),
+        `an unreadable declared root reported clean: status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
+      );
+    }
+  } finally {
+    try {
+      fs.chmodSync(logs, 0o755);
+    } catch {
+      // never created; rmSync below has nothing to restore
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// fixture-34c: an unreadable SUBdirectory is skipped, not fatal. The root is
+// still named as failed, AND every readable sibling is still walked — find
+// walked past it too.
+//
+// DETERMINISTIC BY CONSTRUCTION. Directory-read order is filesystem-defined, so
+// a walk that STOPS at the unreadable directory used to miss only whatever it
+// had not yet reached — all fifteen siblings only if `locked` happened to be
+// read first, so the stop mutation redded ~15 runs in 16, not 16 in 16. A
+// preload (ORDER_LOCKED_FIRST) now hands the hook's directory reader `locked`
+// BEFORE every sibling, so a stop-on-unreadable walk reaches none of the
+// fifteen on every host. The preload records that it reordered, and the case
+// requires that record — a preload that silently stopped reaching the reader
+// would red here instead of reverting to a probabilistic green.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  const locked = path.join(dir, "logs", "locked");
+  try {
+    for (let i = 0; i < 15; i++) {
+      const sub = path.join(dir, "logs", `ok${i}`);
+      fs.mkdirSync(sub, { recursive: true });
+      fs.writeFileSync(path.join(sub, "app.log"), `ERROR sibling ${String.fromCharCode(97 + i)} failed\n`);
+    }
+    fs.mkdirSync(locked);
+    fs.chmodSync(locked, 0o000);
+    let denied = false;
+    try {
+      fs.readdirSync(locked);
+    } catch {
+      denied = true;
+    }
+    if (!denied) {
+      process.stdout.write("  NOT RUN  fixture-34c (mode 000 does not deny this reader; uid 0?)\n");
+    } else {
+      const r = runHookWithPreload(dir, ORDER_LOCKED_FIRST);
+      check(
+        "fixture-34c-an-unreadable-subdirectory-is-named-and-its-siblings-still-walked",
+        r.marks.includes("reordered") && reportedCount(r.msg) === 15 && r.msg.includes("declared root(s) (logs)"),
+        `expected the preload to put locked first (marks=${JSON.stringify(r.marks)}), all 15 sibling findings AND the root named as failed, got ${reportedCount(r.msg)}: ${JSON.stringify(r.msg).slice(0, 400)}`,
+      );
+    }
+  } finally {
+    try {
+      fs.chmodSync(locked, 0o755);
+    } catch {
+      // never created; rmSync below has nothing to restore
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 // fixture-35: THE NEGATIVE ARM for 34 — a healthy scan never claims the
 // enumeration failed. Pairs with 34 the way 33 pairs with 32.
@@ -919,7 +1109,7 @@ withLogs({ "app.log": "ERROR database connection failed" }, {}, (dir) => {
   const r = runHook(dir);
   check(
     "fixture-35-a-healthy-scan-does-not-claim-enumeration-failure",
-    !r.msg.includes("enumeration itself failed"),
+    !r.msg.includes("enumeration failed"),
     `a healthy scan claimed its enumeration failed: ${JSON.stringify(r.msg).slice(0, 300)}`,
   );
 });
@@ -966,6 +1156,977 @@ withLogs(
       "fixture-36-healthy-build-output-yields-only-its-one-real-warning",
       reportedCount(r.msg) === 1 && r.msg.includes("npm WARN deprecated"),
       `expected exactly the one genuine WARN line, got ${reportedCount(r.msg)}: ${JSON.stringify(r.msg).slice(0, 500)}`,
+    );
+  },
+);
+
+// ===========================================================================
+// NOTHING THE HOOK STARTS OUTLIVES IT
+// ===========================================================================
+// The enumeration used to be `find … | head` under execSync's timeout. On
+// expiry Node killed only `sh`; `find` and `head` were re-parented to init and
+// kept walking — 5-12 orphans at a time on the host, each walking a 2.37M-file
+// tree for ~100 s. A slow REAL tree is host-speed-dependent and costs the host
+// exactly the load this case exists to prevent, so the slowness is supplied
+// deterministically instead: a `find` shim on PATH that records each call and
+// then sleeps far past the hook's enumeration budget.
+//
+// Descendants are identified by PROCESS GROUP, which survives re-parenting:
+// the hook is spawned detached (its own group, pgid = its pid) and every child
+// it starts inherits that group. A pid cannot be reused while a group still
+// carries it as its id, so after the hook exits ANY process in that group is
+// something the hook left behind. Each is matched by pid + start time + command
+// before it is signalled, and only this fixture's group is ever signalled.
+
+/** pid, pgid, start time and command of every process, from one `ps` read. */
+function processTable() {
+  const r = spawnSync("ps", ["-A", "-ww", "-o", "pid=,pgid=,lstart=,command="], { encoding: "utf8" });
+  if (r.status !== 0 || !r.stdout) return null;
+  const rows = [];
+  for (const line of r.stdout.split("\n")) {
+    // lstart is five fields on both procps and BSD ps ("Sun Oct 11 20:05:34 2026").
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.*)$/);
+    if (m) rows.push({ pid: Number(m[1]), pgid: Number(m[2]), start: m[3], command: m[4] });
+  }
+  return rows;
+}
+
+function runHookDetached(cwd, env) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [HOOK], {
+      detached: true,
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    child.stdout.on("data", (c) => (stdout += c));
+    child.stderr.resume();
+    const killer = setTimeout(() => {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // group already gone
+      }
+    }, 30000);
+    child.on("close", (status) => {
+      clearTimeout(killer);
+      resolve({ pid: child.pid, status, stdout });
+    });
+    child.stdin.end(JSON.stringify({ hook_event_name: "Stop", cwd }));
+  });
+}
+
+/** Signal ONLY processes still matching the exact identity recorded for them. */
+function reapExact(survivors) {
+  for (const s of survivors) {
+    const now = (processTable() || []).find((p) => p.pid === s.pid);
+    if (now && now.pgid === s.pgid && now.start === s.start && now.command === s.command) {
+      try {
+        process.kill(s.pid, "SIGKILL");
+      } catch {
+        // exited between the read and the signal
+      }
+    }
+  }
+}
+
+// fixture-37: a hook run whose enumeration is slow leaves NO process behind.
+{
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-orphan-"));
+  const calls = path.join(shim, "calls");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  let survivors = [];
+  try {
+    fs.writeFileSync(
+      path.join(shim, "find"),
+      `#!/bin/sh\necho "$$" >> '${calls}'\nexec sleep 20\n`,
+      { mode: 0o755 },
+    );
+    fs.mkdirSync(path.join(tree, "logs", "a", "b"), { recursive: true });
+    fs.writeFileSync(path.join(tree, "app.log"), "ERROR database connection failed\n");
+    fs.writeFileSync(path.join(tree, "logs", "a", "b", "deep.log"), "ERROR deep failure\n");
+    if (processTable() === null) {
+      check("fixture-37-no-process-outlives-the-hook", false, "`ps -A -ww -o pid=,pgid=,lstart=,command=` could not be read — the case cannot see survivors, so it does not pass");
+    } else {
+      const r = await runHookDetached(tree, { ...process.env, PATH: `${shim}:${process.env.PATH}` });
+      survivors = (processTable() || []).filter((p) => p.pgid === r.pid);
+      const shimCalls = fs.existsSync(calls) ? fs.readFileSync(calls, "utf8").split("\n").filter(Boolean).length : 0;
+      process.stdout.write(`  NOTE  fixture-37: hook pid=${r.pid} exit=${r.status}; find shim invoked ${shimCalls} time(s)\n`);
+      check(
+        "fixture-37-no-process-outlives-the-hook",
+        r.status !== null && survivors.length === 0,
+        `the hook exited (status=${r.status}) leaving ${survivors.length} process(es) in its group: ${JSON.stringify(survivors).slice(0, 600)}`,
+      );
+    }
+  } finally {
+    reapExact(survivors);
+    fs.rmSync(shim, { recursive: true, force: true });
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
+// fixture-38: the enumeration does not depend on PATH. With every external
+// tool unreachable the walk still FINDS the log (so nothing is reported as an
+// enumeration failure) and the per-file grep is what is reported as unable to
+// run. Against a shell enumeration this arm reds: no `find` ⇒ enumeration
+// failed. It is the PATH-stripped arm fixture-34 used to be, now pinning the
+// opposite pole.
+withLogs({ "app.log": "ERROR database connection failed" }, {}, (dir) => {
+  const r = runHookWithPath(dir, "/nonexistent-bin-dir-for-fixture-38");
+  check(
+    "fixture-38-enumeration-runs-without-any-external-tool",
+    r.json !== null && r.json.continue === true && !r.msg.includes("enumeration failed") && r.msg.includes("1 file(s) could not be read"),
+    `with PATH stripped the enumeration should still find app.log and only the grep should fail: status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
+  );
+});
+
+// ===========================================================================
+// A DECLARED ROOT IS A DIRECTORY, AND STAYS THE ONE THAT WAS CHECKED
+// ===========================================================================
+
+/** A tree plus a separate OUTSIDE dir holding a recent ERROR log. */
+function withOutside(fn) {
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-outside-"));
+  try {
+    fs.writeFileSync(path.join(outside, "evil.log"), "ERROR outside the declared surface\n");
+    return fn(tree, outside);
+  } finally {
+    // rmSync does not follow a symlink, so the link in `tree` never reaches `outside`.
+    fs.rmSync(tree, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+}
+
+// fixture-39a (M1): a declared root that is a SYMLINK is a FAILED root, named,
+// and is not followed. Before: find's -P semantics carried over — the symlink
+// root was "neither a directory nor a file", so it enumerated as EMPTY and the
+// hook reported the root clean. A declared log dir replaced by a link reads
+// exactly like "no logs there". The top-level log is the other pole: the scan
+// is not muted by the failed root.
+withOutside((tree, outside) => {
+  fs.writeFileSync(path.join(tree, "top.log"), "ERROR at the top level\n");
+  fs.symlinkSync(outside, path.join(tree, "logs"));
+  const r = runHook(tree);
+  check(
+    "fixture-39a-a-symlinked-declared-root-is-named-as-failed-and-not-followed",
+    r.json !== null && r.msg.includes("declared root(s) (logs)") && !r.msg.includes("evil.log") && r.msg.includes("top.log"),
+    `a symlinked declared root was read as clean (or followed): ${JSON.stringify(r.msg).slice(0, 400)}`,
+  );
+});
+
+// fixture-39b (M1): a DANGLING symlink as a declared root. It exists (lstat
+// succeeds), so it is not "declared-missing" — it is a root that cannot be
+// enumerated. Before: `fs.existsSync` FOLLOWED the link, saw nothing, and the
+// root was skipped as a true zero. Silence again.
+withOutside((tree) => {
+  fs.symlinkSync(path.join(tree, "no-such-target"), path.join(tree, "logs"));
+  const r = runHook(tree);
+  check(
+    "fixture-39b-a-dangling-symlink-declared-root-is-named-as-failed",
+    r.json !== null && r.json.continue === true && r.msg.includes("declared root(s) (logs)"),
+    `a dangling-symlink declared root was skipped as missing: ${JSON.stringify(r.msg).slice(0, 400)}`,
+  );
+});
+
+// fixture-39c: the OTHER pole of 39a — the session's OWN directory reached
+// through a symlink is the subject, not a declared root, so it must NOT be
+// refused. The hook resolves cwd once (realpath) and judges declared roots
+// under the real directory. Without that, 39a's rule would name `.` as failed
+// on every session started through a symlinked path — and on the pre-fix
+// bytes the `.` root was silently enumerated as empty instead, so the
+// top-level log here never surfaced at all.
+withOutside((tree) => {
+  fs.writeFileSync(path.join(tree, "top.log"), "ERROR at the top level\n");
+  const linkDir = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-cwdlink-"));
+  try {
+    const link = path.join(linkDir, "session");
+    fs.symlinkSync(tree, link);
+    const r = runHook(link);
+    check(
+      "fixture-39c-a-session-cwd-reached-through-a-symlink-is-walked-not-refused",
+      r.msg.includes("top.log") && !r.msg.includes("enumeration failed"),
+      `a symlinked session cwd was refused or enumerated as empty: ${JSON.stringify(r.msg).slice(0, 400)}`,
+    );
+  } finally {
+    fs.rmSync(linkDir, { recursive: true, force: true });
+  }
+});
+
+// fixture-40 (L1): the dir→symlink SWAP RACE. A preload swaps <tree>/logs for a
+// symlink to OUTSIDE at the instant the hook opens it — after the lstat that
+// classified it as a directory. opendir follows links, so the old walk
+// enumerated OUTSIDE and reported its log as this session's finding, with the
+// root never named. The walk now re-checks the opened path's dev+ino against
+// the classifying lstat; a mismatch closes the handle unread and fails the root.
+withOutside((tree, outside) => {
+  fs.mkdirSync(path.join(tree, "logs"));
+  fs.writeFileSync(path.join(tree, "logs", "inside.log"), "INFO nothing wrong\n");
+  const r = runHookWithPreload(tree, SWAP_LOGS_ON_OPEN, {
+    LOGTRIAGE_FX_TREE: fs.realpathSync(tree),
+    LOGTRIAGE_FX_OUTSIDE: outside,
+  });
+  check(
+    "fixture-40-a-root-swapped-for-a-symlink-mid-walk-is-failed-not-followed",
+    r.marks.includes("swapped") && r.msg.includes("declared root(s) (logs)") && !r.msg.includes("evil.log"),
+    `marks=${JSON.stringify(r.marks)} — the swapped root was followed or reported clean: ${JSON.stringify(r.msg).slice(0, 400)}`,
+  );
+});
+
+// ===========================================================================
+// THE FILENAME IS THE ONE THE HOOK OPENED, AND NOTHING REACHES THE TERMINAL RAW
+// ===========================================================================
+
+/** Rendered per-entry lines (two-space indented, not the "… and" tail). */
+function renderedLines(msg) {
+  return msg.split("\n").filter((l) => /^ {2}\S/.test(l) && !l.includes("… and"));
+}
+
+// fixture-41a (L2): a log whose NAME contains `:<n>:`. The old `grep -H` output
+// was re-parsed as `<file>:<n>:<text>`, so this file was attributed to a file
+// called `decoy`, and its content was reported as `forged.log:1:ERROR …`. The
+// match must be attributed to the file the hook actually opened.
+withLogs({ "decoy:1:forged.log": "ERROR genuine failure" }, {}, (dir) => {
+  const r = runHook(dir);
+  const rows = renderedLines(r.msg);
+  check(
+    "fixture-41a-a-colon-bearing-filename-is-attributed-to-the-file-opened",
+    rows.length === 1 && rows[0].endsWith("/decoy:1:forged.log: ERROR genuine failure"),
+    `rows=${JSON.stringify(rows).slice(0, 400)}`,
+  );
+});
+
+// fixture-41b (L2 + L4): a log whose NAME contains a newline. Under `grep -H`
+// the name split into two output lines: one entry attributed to a file named
+// `ERROR forged-entry.log` that does not exist, and one `unknown`. Exactly ONE
+// finding exists, and it must render as ONE line naming the real file, with
+// the newline made visible — and, since LOW-3, the name QUOTED: a control byte
+// takes a path off the bare form, so the attribution ends at the closing quote
+// rather than at the first `": "`.
+withLogs({ "split\nERROR forged-entry.log": "ERROR genuine failure" }, {}, (dir) => {
+  const r = runHook(dir);
+  const rows = renderedLines(r.msg);
+  check(
+    "fixture-41b-a-newline-bearing-filename-forges-no-second-entry",
+    reportedCount(r.msg) === 1 && rows.length === 1 && rows[0].startsWith('  "') &&
+      rows[0].endsWith('/split\\x0aERROR forged-entry.log": ERROR genuine failure'),
+    `count=${reportedCount(r.msg)} rows=${JSON.stringify(rows).slice(0, 400)}`,
+  );
+});
+
+// fixture-42 (L4): terminal control bytes in BOTH the filename and the matched
+// content — an OSC title write, a CSI screen clear, SGR colour, DEL, and the
+// 8-bit C1 CSI (U+009B). JSON escapes C0 on the wire, but the host decodes it
+// before display, so the old hook delivered every one of these RAW to the
+// operator's terminal. No control byte other than TAB and the line separators
+// may survive, and each must still be VISIBLE (escaped), not silently dropped.
+withLogs(
+  { "esc\u001b[2J.log": "ERROR \u001b]0;pwned\u0007 then \u001b[31mred\u001b[0m del\u007f c1\u009b2J end" },
+  {},
+  (dir) => {
+    const r = runHook(dir);
+    const raw = r.msg.match(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g) || [];
+    check(
+      "fixture-42-terminal-control-bytes-are-neutralised-in-filenames-and-content",
+      r.msg !== "" && raw.length === 0 && r.msg.includes("esc\\x1b[2J.log") && r.msg.includes("\\x1b]0;pwned\\x07") && r.msg.includes("del\\x7f c1\\x9b2J"),
+      `raw control chars surviving=${JSON.stringify(raw)} msg=${JSON.stringify(r.msg).slice(0, 400)}`,
+    );
+  },
+);
+
+// ===========================================================================
+// THE HOOK FINISHES INSIDE THE DISPATCHER'S TIMEOUT — PROVABLY (L3)
+// ===========================================================================
+
+// fixture-43a: a SOURCE-TEXT PIN, not a behavioural witness. It re-derives the
+// arithmetic from the two sources that must agree — the dispatcher's timeout for
+// this row from dispatch-registry.json AND hook-registry.json, the budgets from
+// the hook's own constants — and it pins the TEXT of the two deadline clamps. That
+// last part is lexical: an edit that keeps the clamp text but stops using it (e.g.
+// `triageLogs(cwd, Infinity)`) passes here. The behavioural witness of the clamp
+// is fixture-43b, which measures the hook's wall time on the worst shape. Before:
+// the enumeration budget was armed PER ROOT (4 x 1500 ms) on top of a 2500 ms
+// scan and a 5000 ms stdin wait, with no constant tying any of it to the 7 s
+// timeout.
+{
+  const REG = path.join(HERE, "..", "..", "hooks", "dispatch-registry.json");
+  const HREG = path.join(HERE, "..", "..", "hook-registry.json");
+  const src = fs.readFileSync(HOOK, "utf8");
+  const num = (name) => {
+    const m = src.match(new RegExp(`^const ${name} = (\\d+);$`, "m"));
+    return m ? Number(m[1]) : null;
+  };
+  const rows = [];
+  (function walk(v) {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") {
+      if (typeof v.command === "string" && v.command.includes("log-triage-gate.js")) rows.push(v.timeout);
+      Object.values(v).forEach(walk);
+    }
+  })(JSON.parse(fs.readFileSync(REG, "utf8")));
+  const hrows = (JSON.parse(fs.readFileSync(HREG, "utf8")).hooks || [])
+    .filter((h) => h && h.file === ".claude/hooks/log-triage-gate.js")
+    .map((h) => h.timeout);
+  const c = {
+    dispatch: num("DISPATCH_TIMEOUT_MS"),
+    hook: num("HOOK_BUDGET_MS"),
+    enumB: num("ENUM_BUDGET_MS"),
+    scan: num("SCAN_BUDGET_MS"),
+  };
+  check(
+    "fixture-43a-source-pin-budget-constants-and-clamp-text-fit-the-registered-dispatcher-timeout",
+    rows.length === 1 && hrows.length === 1 && rows[0] === hrows[0] &&
+      c.dispatch === rows[0] * 1000 && c.hook !== null && c.enumB !== null && c.scan !== null &&
+      c.enumB + c.scan <= c.hook && c.dispatch - c.hook >= 1000 &&
+      /Math\.min\(Date\.now\(\) \+ enumBudgetMs\(\), hookDeadline\)/.test(src) &&
+      /Math\.min\(Date\.now\(\) \+ SCAN_BUDGET_MS, hookDeadline\)/.test(src),
+    `registry=${JSON.stringify(rows)} hook-registry=${JSON.stringify(hrows)} constants=${JSON.stringify(c)} — the budgets no longer provably fit the dispatcher timeout`,
+  );
+}
+
+// fixture-43b: the bound, MEASURED on the worst shape the hook can meet — stdin
+// arriving 4.5 s late, every directory entry costing 100 ms (preload), all four
+// declared roots populated past their budget, and a grep that never returns
+// (shim). The whole hook must still exit inside the 7 s dispatcher timeout, and
+// report `continue: true`. Before: stdin + 4 roots x 1.5 s + 2.5 s scan — killed
+// by the dispatcher, output lost. WHY 4.5 s: it is the stdin delay at which the
+// ONE hook deadline is what bounds the run. With it the hook ends near 5.5 s (the
+// enumeration and scan get only what the 5500 ms hook deadline leaves); a hook
+// that dropped the hook-deadline clamp but kept the per-phase budgets ends near
+// 4.5 + 1.5 + 2.5 = 8.5 s. At the old 3 s delay that same mutant landed at
+// ~7.02 s — a 19 ms red, too thin to be a witness.
+{
+  const kit = preloadKit(SLOW_DIR_READS);
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-shim-"));
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  try {
+    fs.writeFileSync(path.join(shim, "grep"), "#!/bin/sh\nexec sleep 30\n", { mode: 0o755 });
+    fs.writeFileSync(path.join(tree, "top.log"), "ERROR at the top level\n");
+    for (const root of [".claude/logs", "logs", "workspaces"]) {
+      for (let i = 0; i < 30; i++) fs.mkdirSync(path.join(tree, root, `d${i}`), { recursive: true });
+    }
+    const t0 = Date.now();
+    const r = await new Promise((resolve) => {
+      const child = spawn(process.execPath, ["-r", kit.file, HOOK], {
+        env: { ...process.env, PATH: `${shim}:${process.env.PATH}`, LOGTRIAGE_FX_MARK: kit.mark },
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stdout = "";
+      child.stdout.on("data", (d) => (stdout += d));
+      child.stderr.resume();
+      const killer = setTimeout(() => child.kill("SIGKILL"), 30000);
+      const feeder = setTimeout(() => child.stdin.end(JSON.stringify({ hook_event_name: "Stop", cwd: tree })), 4500);
+      child.on("close", (status) => {
+        clearTimeout(killer);
+        clearTimeout(feeder);
+        resolve({ status, stdout });
+      });
+    });
+    const wall = Date.now() - t0;
+    let parsed = null;
+    try {
+      parsed = JSON.parse(r.stdout.trim());
+    } catch {
+      /* left null — the assertion reports it */
+    }
+    process.stdout.write(`  NOTE  fixture-43b: wall=${wall}ms exit=${r.status}\n`);
+    check(
+      "fixture-43b-the-worst-case-run-exits-inside-the-dispatcher-timeout",
+      kit.marks().includes("slowed") && wall < 7000 && parsed !== null && parsed.continue === true,
+      `wall=${wall}ms (limit 7000) marks=${JSON.stringify(kit.marks())} stdout=${r.stdout.slice(0, 300)}`,
+    );
+  } finally {
+    kit.cleanup();
+    fs.rmSync(shim, { recursive: true, force: true });
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
+// ===========================================================================
+// THE BYTES GREP READS ARE THE FILE THE WALK CLASSIFIED (MED-1)
+// ===========================================================================
+// The walk lstat'd each log, but the scan handed grep the PATH, and grep opens
+// a path the ordinary way: it follows a symlink, and it resolves every ancestor
+// directory afresh. Anything able to rename inside a scanned directory could
+// therefore swap the entry — or one of its ancestor directories — between the
+// walk's classification and grep's open, and the bytes of a file OUTSIDE the
+// declared surface reached the systemMessage as this session's finding. A
+// security review EXECUTED that with a racing swap loop (9 leaks in 40 runs).
+//
+// These cases make the race deterministic: a preload performs the swap at the
+// exact boundary — the first moment the hook either opens `victim.log` or
+// spawns a grep naming it, whichever comes first — so the same preload drives
+// the old path-to-grep bytes and the fd-bound bytes alike. Each requires the
+// preload's own record that it swapped, so a preload that stopped reaching the
+// boundary reds instead of greening. The secret is a placeholder string.
+const SECRET = "PLACEHOLDER-SECRET-0f3a outside the declared surface";
+
+// Swap <tree>/logs/victim.log at the read boundary. LOGTRIAGE_FX_SWAP picks the
+// replacement: `symlink` (a link to the outside file), `hardlink` (the outside
+// file's own inode under the victim's name — no symlink anywhere, so only an
+// identity check can see it), or `fifo` (a named pipe: an open without
+// O_NONBLOCK would block the hook forever).
+const SWAP_FILE_AT_READ = `
+const fs = require("fs");
+const path = require("path");
+const cp = require("child_process");
+let swapped = false;
+const isVictim = (p) => typeof p === "string" && path.basename(p) === "victim.log" &&
+  path.dirname(p) === path.join(process.env.LOGTRIAGE_FX_TREE, "logs");
+function swap(p) {
+  if (swapped) return;
+  swapped = true;
+  fs.renameSync(p, p + ".real");
+  const tmp = p + ".swap";
+  const kind = process.env.LOGTRIAGE_FX_SWAP;
+  if (kind === "symlink") fs.symlinkSync(process.env.LOGTRIAGE_FX_SECRET_FILE, tmp);
+  else if (kind === "hardlink") fs.linkSync(process.env.LOGTRIAGE_FX_SECRET_FILE, tmp);
+  else if (kind === "fifo") cp.spawnSync("mkfifo", [tmp]);
+  fs.renameSync(tmp, p);
+  fs.appendFileSync(process.env.LOGTRIAGE_FX_MARK, "swapped:" + kind + "\\n");
+}
+// LOGTRIAGE_FX_SWAP_AT=grep moves the swap to the FIRST grep spawn instead —
+// after the hook has already opened the victim (fixture-44e).
+const atGrep = process.env.LOGTRIAGE_FX_SWAP_AT === "grep";
+const open = fs.openSync;
+fs.openSync = function (p, ...rest) {
+  if (!atGrep && isVictim(p)) swap(p);
+  return open.call(this, p, ...rest);
+};
+const spawn = cp.spawnSync;
+cp.spawnSync = function (cmd, args, ...rest) {
+  if (cmd === "grep" && atGrep) swap(path.join(process.env.LOGTRIAGE_FX_TREE, "logs", "victim.log"));
+  else if (cmd === "grep" && Array.isArray(args)) for (const a of args) if (isVictim(a)) swap(a);
+  return spawn.call(this, cmd, args, ...rest);
+};
+`;
+
+// Swap the victim's PARENT directory for a symlink to an outside directory
+// holding a same-named log, at the instant the walk lstat's the victim. The
+// walk's own lstat then classifies the OUTSIDE file, so a check that only binds
+// the opened fd to that lstat agrees with it: only re-verifying the ancestor
+// directories the walk entered can see the swap.
+const SWAP_ANCESTOR_ON_LSTAT = `
+const fs = require("fs");
+const path = require("path");
+let swapped = false;
+const lstat = fs.lstatSync;
+fs.lstatSync = function (p, ...rest) {
+  const sub = path.join(process.env.LOGTRIAGE_FX_TREE, "logs", "sub");
+  if (!swapped && typeof p === "string" && path.basename(p) === "victim.log" && path.dirname(p) === sub) {
+    swapped = true;
+    fs.renameSync(sub, sub + ".real");
+    fs.symlinkSync(process.env.LOGTRIAGE_FX_OUTSIDE, sub);
+    fs.appendFileSync(process.env.LOGTRIAGE_FX_MARK, "swapped:ancestor\\n");
+  }
+  return lstat.call(this, p, ...rest);
+};
+`;
+
+/** A tree with logs/victim.log (benign) + logs/other.log (a real finding), and
+ *  an OUTSIDE dir holding the secret both as secret.log and as victim.log. */
+function withVictim(nested, fn) {
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-outside-"));
+  try {
+    const logs = path.join(tree, "logs", ...(nested ? ["sub"] : []));
+    fs.mkdirSync(logs, { recursive: true });
+    fs.writeFileSync(path.join(logs, "victim.log"), "INFO nothing wrong here\n");
+    fs.writeFileSync(path.join(tree, "logs", "other.log"), "ERROR genuine sibling failure\n");
+    fs.writeFileSync(path.join(outside, "secret.log"), `ERROR ${SECRET}\n`);
+    fs.writeFileSync(path.join(outside, "victim.log"), `ERROR ${SECRET}\n`);
+    return fn(fs.realpathSync(tree), outside);
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+}
+
+// fixture-44a (MED-1): victim.log swapped for a SYMLINK to an outside file at
+// the read boundary. Before: grep received the path and followed the link —
+// the secret was reported as a finding of `logs/victim.log`. After: the hook
+// opens with O_NOFOLLOW and binds the descriptor to the walk's lstat; the file
+// is disclosed as unreadable and the sibling's genuine finding still surfaces.
+withVictim(false, (tree, outside) => {
+  const r = runHookWithPreload(tree, SWAP_FILE_AT_READ, {
+    LOGTRIAGE_FX_TREE: tree,
+    LOGTRIAGE_FX_SWAP: "symlink",
+    LOGTRIAGE_FX_SECRET_FILE: path.join(outside, "secret.log"),
+  });
+  check(
+    "fixture-44a-a-log-swapped-for-a-symlink-at-read-time-is-never-read",
+    r.marks.includes("swapped:symlink") && !r.msg.includes("PLACEHOLDER-SECRET") &&
+      r.msg.includes("1 file(s) could not be read") && r.msg.includes("genuine sibling failure"),
+    `marks=${JSON.stringify(r.marks)} msg=${JSON.stringify(r.msg).slice(0, 500)}`,
+  );
+});
+
+// fixture-44b (MED-1): the same swap with a HARD LINK — the outside file's own
+// inode under the victim's name. There is no symlink anywhere, so O_NOFOLLOW
+// cannot see it; only the dev+ino comparison against the walk's lstat can.
+withVictim(false, (tree, outside) => {
+  const r = runHookWithPreload(tree, SWAP_FILE_AT_READ, {
+    LOGTRIAGE_FX_TREE: tree,
+    LOGTRIAGE_FX_SWAP: "hardlink",
+    LOGTRIAGE_FX_SECRET_FILE: path.join(outside, "secret.log"),
+  });
+  check(
+    "fixture-44b-a-log-swapped-for-a-hard-link-at-read-time-is-never-read",
+    r.marks.includes("swapped:hardlink") && !r.msg.includes("PLACEHOLDER-SECRET") &&
+      r.msg.includes("1 file(s) could not be read") && r.msg.includes("genuine sibling failure"),
+    `marks=${JSON.stringify(r.marks)} msg=${JSON.stringify(r.msg).slice(0, 500)}`,
+  );
+});
+
+// fixture-44c (MED-1, the ancestor residual): the victim's PARENT directory is
+// swapped for a symlink to an outside directory at the instant the walk lstat's
+// the victim. Before: grep resolved the path through the swapped ancestor and
+// read the outside log. After: the hook re-verifies every directory between the
+// session root and the file against the identity recorded when the walk entered
+// it, immediately before the open and again after it, and refuses on mismatch.
+withVictim(true, (tree, outside) => {
+  const r = runHookWithPreload(tree, SWAP_ANCESTOR_ON_LSTAT, {
+    LOGTRIAGE_FX_TREE: tree,
+    LOGTRIAGE_FX_OUTSIDE: outside,
+  });
+  check(
+    "fixture-44c-an-ancestor-directory-swapped-before-the-read-is-never-followed",
+    r.marks.includes("swapped:ancestor") && !r.msg.includes("PLACEHOLDER-SECRET") &&
+      r.msg.includes("could not be read") && r.msg.includes("genuine sibling failure"),
+    `marks=${JSON.stringify(r.marks)} msg=${JSON.stringify(r.msg).slice(0, 500)}`,
+  );
+});
+
+// fixture-44d (MED-1, liveness): victim.log swapped for a FIFO at the read
+// boundary. The hook must open WITHOUT blocking (O_NONBLOCK) and refuse the
+// non-regular descriptor; an open that blocks on a writer-less pipe pins the
+// hook's only thread until the dispatcher kills it and its output is lost.
+withVictim(false, (tree, outside) => {
+  const t0 = Date.now();
+  const r = runHookWithPreload(tree, SWAP_FILE_AT_READ, {
+    LOGTRIAGE_FX_TREE: tree,
+    LOGTRIAGE_FX_SWAP: "fifo",
+    LOGTRIAGE_FX_SECRET_FILE: path.join(outside, "secret.log"),
+  }, { timeoutMs: 15000 });
+  const wall = Date.now() - t0;
+  check(
+    "fixture-44d-a-log-swapped-for-a-fifo-is-refused-without-blocking",
+    r.marks.includes("swapped:fifo") && r.status === 0 && wall < 7000 &&
+      r.msg.includes("1 file(s) could not be read") && r.msg.includes("genuine sibling failure"),
+    `wall=${wall}ms status=${r.status} marks=${JSON.stringify(r.marks)} msg=${JSON.stringify(r.msg).slice(0, 400)}`,
+  );
+});
+
+// fixture-44e (MED-1): the swap lands at the grep SPAWN — after the hook has
+// opened and bound the victim. The only log is logs/victim.log, plus a sibling
+// under `workspaces/`, the LAST declared root, so the first grep spawned is the
+// victim's. Before: grep was handed the path and opened the swapped-in link.
+// After: grep reads the descriptor bound before the swap, so it sees the
+// victim's ORIGINAL bytes — nothing leaks, AND nothing is reported unreadable,
+// because the file the walk classified is exactly the file that was read.
+{
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-outside-"));
+  try {
+    fs.mkdirSync(path.join(tree, "logs"));
+    fs.mkdirSync(path.join(tree, "workspaces"));
+    fs.writeFileSync(path.join(tree, "logs", "victim.log"), "WARN the victim's own bytes\n");
+    fs.writeFileSync(path.join(tree, "workspaces", "other.log"), "ERROR genuine sibling failure\n");
+    fs.writeFileSync(path.join(outside, "secret.log"), `ERROR ${SECRET}\n`);
+    const real = fs.realpathSync(tree);
+    const r = runHookWithPreload(real, SWAP_FILE_AT_READ, {
+      LOGTRIAGE_FX_TREE: real,
+      LOGTRIAGE_FX_SWAP: "symlink",
+      LOGTRIAGE_FX_SWAP_AT: "grep",
+      LOGTRIAGE_FX_SECRET_FILE: path.join(outside, "secret.log"),
+    });
+    check(
+      "fixture-44e-a-swap-after-the-open-cannot-change-what-grep-reads",
+      r.marks.includes("swapped:symlink") && !r.msg.includes("PLACEHOLDER-SECRET") &&
+        r.msg.includes("the victim's own bytes") && r.msg.includes("genuine sibling failure") &&
+        !r.msg.includes("could not be read"),
+      `marks=${JSON.stringify(r.marks)} msg=${JSON.stringify(r.msg).slice(0, 500)}`,
+    );
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+}
+
+// ===========================================================================
+// POST-GREP WORK IS BOUNDED PER LINE, NOT BY THE LINE'S LENGTH (LOW-2)
+// ===========================================================================
+
+// Meter every call of the hook's control-byte neutraliser: the total number of
+// characters it is handed is written to the mark at exit. A regex-identity
+// match (the CONTROL_BYTES class, global) keeps unrelated replace() calls out.
+const INERT_METER = `
+const fs = require("fs");
+const replace = String.prototype.replace;
+let chars = 0;
+let calls = 0;
+String.prototype.replace = function (re, ...rest) {
+  if (re instanceof RegExp && re.global && re.source.includes("\\\\u007f-\\\\u009f")) {
+    chars += String(this).length;
+    calls++;
+  }
+  return replace.call(this, re, ...rest);
+};
+process.on("exit", () => fs.appendFileSync(process.env.LOGTRIAGE_FX_MARK, "inert-calls=" + calls + " inert-chars=" + chars + "\\n"));
+`;
+
+// fixture-45 (LOW-2): 150 matched lines of `ERROR` followed by 40,000 control
+// bytes. Before: each whole 40 kB line was run through the neutraliser BEFORE
+// the 120-character display cut — ~6 M characters of per-byte callbacks, which
+// took the scan past its own deadline with no deadline covering it. After: the
+// line is cut first, neutralised, and cut again, so the work per line is a
+// constant independent of the line's length. The bound asserted (100,000
+// characters for the whole run) is ~60x under the old figure and ~5x over the
+// most the cut can hand it (150 lines x 120 + names and roots).
+{
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  try {
+    fs.mkdirSync(path.join(tree, "logs"));
+    const line = "ERROR flood " + "\u0001".repeat(40000);
+    fs.writeFileSync(path.join(tree, "logs", "flood.log"), Array.from({ length: 150 }, () => line).join("\n") + "\n");
+    const t0 = Date.now();
+    const r = runHookWithPreload(tree, INERT_METER);
+    const wall = Date.now() - t0;
+    const m = r.marks.match(/inert-calls=(\d+) inert-chars=(\d+)/);
+    const chars = m ? Number(m[2]) : null;
+    process.stdout.write(`  NOTE  fixture-45: wall=${wall}ms inert-calls=${m ? m[1] : "?"} inert-chars=${chars}\n`);
+    check(
+      "fixture-45-post-grep-work-per-line-is-bounded-independent-of-line-length",
+      m !== null && Number(m[1]) > 0 && chars <= 100000 && r.status === 0 && r.msg.includes("ERROR flood \\x01"),
+      `inert-chars=${chars} (bound 100000) status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
+    );
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
+// ===========================================================================
+// AN ATTRIBUTION CANNOT BE FORGED BY A FILENAME (LOW-3)
+// ===========================================================================
+
+/**
+ * Parse the attribution off a rendered row: a QUOTED path (`"…"`, with `\\`,
+ * `\"`, `\xHH` and `\u{H…}` escapes) or a BARE path ending at the first `": "`.
+ * Returns the decoded path, or null when the row has no parseable attribution.
+ */
+function attributionOf(row) {
+  const s = row.slice(2);
+  if (s.startsWith('"')) {
+    let out = "";
+    for (let i = 1; i < s.length; ) {
+      const c = s[i];
+      if (c === '"') return s.slice(i + 1).startsWith(": ") ? { path: out, quoted: true } : null;
+      if (c === "\\") {
+        const n = s[i + 1];
+        if (n === "\\" || n === '"') { out += n; i += 2; continue; }
+        if (n === "x") { out += String.fromCharCode(parseInt(s.slice(i + 2, i + 4), 16)); i += 4; continue; }
+        if (n === "u" && s[i + 2] === "{") { const j = s.indexOf("}", i); out += String.fromCodePoint(parseInt(s.slice(i + 3, j), 16)); i = j + 1; continue; }
+        return null;
+      }
+      out += c;
+      i++;
+    }
+    return null;
+  }
+  const k = s.indexOf(": ");
+  return k < 0 ? null : { path: s.slice(0, k), quoted: false };
+}
+
+// fixture-46 (LOW-3): a log NAMED `a.log: FATAL db corrupted, run reset; z.log`
+// beside a real, clean `a.log`. Before: it rendered as
+//   …/logs/a.log: FATAL db corrupted, run reset; z.log: ERROR attacker line
+// which reads as `a.log` reporting a FATAL. After: a name that could be misread
+// is QUOTED, so the attribution parses back to the file that was opened. The
+// other pole: an ordinary name still renders bare, exactly as before.
+{
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  try {
+    const logs = path.join(tree, "logs");
+    fs.mkdirSync(logs);
+    const forged = "a.log: FATAL db corrupted, run reset; z.log";
+    fs.writeFileSync(path.join(logs, "a.log"), "INFO all fine\n");
+    fs.writeFileSync(path.join(logs, forged), "ERROR attacker line\n");
+    fs.writeFileSync(path.join(logs, "ok.log"), "ERROR ordinary failure\n");
+    const real = fs.realpathSync(logs);
+    const r = runHook(tree);
+    const rows = renderedLines(r.msg);
+    const parsed = rows.map((row) => ({ row, a: attributionOf(row) }));
+    const forgedRow = parsed.find((p) => p.row.includes("attacker line"));
+    const okRow = parsed.find((p) => p.row.includes("ordinary failure"));
+    check(
+      "fixture-46-a-separator-bearing-filename-cannot-forge-another-files-attribution",
+      rows.length === 2 && forgedRow && forgedRow.a && forgedRow.a.path === path.join(real, forged) &&
+        okRow && okRow.row === `  ${path.join(real, "ok.log")}: ERROR ordinary failure`,
+      `rows=${JSON.stringify(rows).slice(0, 500)} parsed=${JSON.stringify(parsed.map((p) => p.a)).slice(0, 400)}`,
+    );
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
+// ===========================================================================
+// CRLF LOGS, AND TWO BOUNDS THAT WERE PINNED FROM ONE SIDE ONLY
+// ===========================================================================
+
+// fixture-47 (CRLF): three IDENTICAL failures in a CRLF log. Before: grep's
+// `<n>:` prefix was parsed with `/^\d+:(.*)$/`, which fails on a trailing `\r`
+// (`.` does not match it), so the line number stayed in the rendered text and
+// the dedupe key — three entries, `1:ERROR …`, `2:ERROR …`, `3:ERROR …`, each
+// ending in a visible `\x0d`. After: one entry, no line number, no `\r`.
+withLogs({ "win.log": "ERROR disk quota exceeded\r\nERROR disk quota exceeded\r\nERROR disk quota exceeded\r\n" }, {}, (dir) => {
+  const r = runHook(dir);
+  const rows = renderedLines(r.msg);
+  check(
+    "fixture-47-crlf-lines-collapse-and-render-without-line-number-or-cr",
+    reportedCount(r.msg) === 1 && rows.length === 1 && rows[0].endsWith("/win.log: ERROR disk quota exceeded"),
+    `count=${reportedCount(r.msg)} rows=${JSON.stringify(rows).slice(0, 400)}`,
+  );
+});
+
+// fixture-48 (L3d): a grep that IGNORES SIGTERM. The HOOK_BUDGET_MS arithmetic
+// assumes a grep straddling the scan deadline is GONE when its timeout fires,
+// which only SIGKILL guarantees. The shim ignores TERM (`trap '' TERM`, which
+// the exec'd sleep inherits) and sleeps 12 s: under SIGKILL the hook exits once
+// the 2500 ms scan deadline fires; under SIGTERM spawnSync waits out the sleep.
+// fixture-43b cannot see this — its shim's sleep dies on TERM as readily as on
+// KILL.
+{
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-shim-"));
+  try {
+    fs.writeFileSync(path.join(shim, "grep"), "#!/bin/sh\ntrap '' TERM\nexec sleep 12\n", { mode: 0o755 });
+    withLogs({ "app.log": "ERROR database connection failed" }, {}, (dir) => {
+      const t0 = Date.now();
+      const r = runHookWithPath(dir, `${shim}:${process.env.PATH}`);
+      const wall = Date.now() - t0;
+      process.stdout.write(`  NOTE  fixture-48: wall=${wall}ms exit=${r.status}\n`);
+      check(
+        "fixture-48-a-term-ignoring-grep-is-killed-at-the-scan-deadline",
+        r.status === 0 && wall < 7000 && r.msg.includes("1 file(s) could not be read"),
+        `wall=${wall}ms (limit 7000) status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
+      );
+    });
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+  }
+}
+
+// fixture-49 (L3e): COC_LOG_TRIAGE_ENUM_BUDGET_MS may LOWER the enumeration
+// budget, never RAISE it (fixture-34 pins only the lowering pole, "0"). With the
+// override at 60000 and every directory entry costing 100 ms, a clamped hook
+// gives up enumerating at ENUM_BUDGET_MS (1500 ms) and names the root failed; a
+// hook that honoured the override walks on until the 5500 ms hook deadline.
+{
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  try {
+    for (let i = 0; i < 60; i++) fs.mkdirSync(path.join(tree, "logs", `d${i}`), { recursive: true });
+    const t0 = Date.now();
+    const r = runHookWithPreload(tree, SLOW_DIR_READS, { COC_LOG_TRIAGE_ENUM_BUDGET_MS: "60000" });
+    const wall = Date.now() - t0;
+    process.stdout.write(`  NOTE  fixture-49: wall=${wall}ms exit=${r.status}\n`);
+    check(
+      "fixture-49-the-enum-budget-override-cannot-raise-the-budget",
+      r.marks.includes("slowed") && r.status === 0 && wall < 4000 &&
+        r.msg.includes("enumeration failed or timed out for declared root(s)"),
+      `wall=${wall}ms (limit 4000) marks=${JSON.stringify(r.marks)} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
+    );
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
+// ===========================================================================
+// A FILE IS READ AS TEXT, AND A MATCH THAT PRINTS NOTHING IS NOT CLEAN (HIGH-1)
+// ===========================================================================
+
+// fixture-50a (HIGH-1): one NUL byte, and one invalid UTF-8 byte (Latin-1 é),
+// in two logs that each carry real failures. Before: grep ran without `-a`, so
+// GNU grep exited 0 with an EMPTY stdout and "binary file matches" on stderr —
+// the file counted as scanned and its failures vanished — and BSD grep printed
+// "Binary file (standard input) matches" in place of the matches. After: both
+// files are read as text and every failure renders, nothing unreadable.
+{
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  try {
+    fs.mkdirSync(path.join(tree, "logs"));
+    fs.writeFileSync(path.join(tree, "logs", "nul.log"), Buffer.from("ERROR before-nul\n\0\nERROR after-nul\n", "latin1"));
+    fs.writeFileSync(path.join(tree, "logs", "latin1.log"), Buffer.concat([
+      Buffer.from("ERROR caf", "latin1"), Buffer.from([0xe9]), Buffer.from(" latin1 failure\n", "latin1"),
+    ]));
+    const r = runHook(tree);
+    check(
+      "fixture-50a-a-nul-or-invalid-utf8-byte-does-not-hide-a-files-findings",
+      r.status === 0 && r.msg.includes("ERROR before-nul") && r.msg.includes("ERROR after-nul") &&
+        r.msg.includes(" latin1 failure") && !/binary file/i.test(r.msg) && !r.msg.includes("could not be read"),
+      `status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 500)}`,
+    );
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
+// fixture-50b (HIGH-1): a grep that exits 0 — "matched" — and prints nothing.
+// That is the shape `binary file matches` takes on GNU grep, isolated from any
+// byte content so it pins the scan's own guard rather than `-a`. Before: the
+// file counted as scanned and the session read clean. After: a match with no
+// line to show is an answer that cannot be read, and is disclosed as such.
+{
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-shim-"));
+  try {
+    fs.writeFileSync(path.join(shim, "grep"), "#!/bin/sh\ncat >/dev/null\nexit 0\n", { mode: 0o755 });
+    withLogs({ "app.log": "ERROR database connection failed" }, {}, (dir) => {
+      const r = runHookWithPath(dir, `${shim}:${process.env.PATH}`);
+      check(
+        "fixture-50b-a-grep-that-matches-but-prints-nothing-is-unreadable-not-clean",
+        r.status === 0 && r.msg.includes("1 file(s) could not be read"),
+        `status=${r.status} msg=${JSON.stringify(r.msg).slice(0, 300)}`,
+      );
+    });
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+  }
+}
+
+// ===========================================================================
+// A HARD LINK IS NOT PART OF THE DECLARED SURFACE (MED-2)
+// ===========================================================================
+
+// fixture-51a (MED-2): a hard link PLANTED in logs/ before the hook runs, whose
+// other name is a file outside every declared root. Nothing is swapped, so the
+// dev+ino binding agrees with the walk — the inode IS the one the walk saw.
+// Before: its bytes were reported as a finding of logs/planted.log. After: a
+// file with more than one link is refused and counted unreadable, and the
+// sibling's genuine finding still surfaces.
+{
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-outside-"));
+  try {
+    fs.mkdirSync(path.join(tree, "logs"));
+    fs.writeFileSync(path.join(outside, "secret.log"), `ERROR ${SECRET}\n`);
+    fs.linkSync(path.join(outside, "secret.log"), path.join(tree, "logs", "planted.log"));
+    fs.writeFileSync(path.join(tree, "logs", "other.log"), "ERROR genuine sibling failure\n");
+    const r = runHook(tree);
+    check(
+      "fixture-51a-a-planted-hard-link-to-an-outside-file-is-never-read",
+      !r.msg.includes("PLACEHOLDER-SECRET") && r.msg.includes("1 file(s) could not be read") &&
+        r.msg.includes("genuine sibling failure"),
+      `msg=${JSON.stringify(r.msg).slice(0, 500)}`,
+    );
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+}
+
+// The link count can change between the walk's lstat and the open. Just AFTER
+// the walk's lstat of the victim has returned (the only lstat the hook takes of
+// a file — the chain checks lstat directories), LOGTRIAGE_FX_LINK=add gives it
+// a second name (the walk saw one link, the descriptor sees two); =drop removes
+// the second name the tree was built with (the walk saw two, the descriptor
+// would see one). Each pins ONE of the two checks: `add` only the
+// descriptor's, `drop` only the walk's.
+const RELINK_AFTER_LSTAT = `
+const fs = require("fs");
+const path = require("path");
+let done = false;
+const lstat = fs.lstatSync;
+fs.lstatSync = function (p, ...rest) {
+  const st = lstat.call(this, p, ...rest);
+  if (!done && typeof p === "string" && path.basename(p) === "victim.log") {
+    done = true;
+    const extra = path.join(process.env.LOGTRIAGE_FX_TREE, "extra-name");
+    if (process.env.LOGTRIAGE_FX_LINK === "add") fs.linkSync(p, extra);
+    else fs.unlinkSync(extra);
+    fs.appendFileSync(process.env.LOGTRIAGE_FX_MARK, "linked:" + process.env.LOGTRIAGE_FX_LINK + "\\n");
+  }
+  return st;
+};
+`;
+
+for (const mode of ["add", "drop"]) {
+  // fixture-51b (add) / fixture-51c (drop). Before: neither check existed, so
+  // the file was read either way and nothing was disclosed.
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  try {
+    fs.mkdirSync(path.join(tree, "logs"));
+    fs.writeFileSync(path.join(tree, "logs", "victim.log"), "INFO nothing wrong here\n");
+    fs.writeFileSync(path.join(tree, "logs", "other.log"), "ERROR genuine sibling failure\n");
+    if (mode === "drop") fs.linkSync(path.join(tree, "logs", "victim.log"), path.join(tree, "extra-name"));
+    const real = fs.realpathSync(tree);
+    const r = runHookWithPreload(real, RELINK_AFTER_LSTAT, { LOGTRIAGE_FX_TREE: real, LOGTRIAGE_FX_LINK: mode });
+    const label = mode === "add"
+      ? "fixture-51b-a-link-added-after-the-walk-is-refused-by-the-descriptor-check"
+      : "fixture-51c-a-link-seen-by-the-walk-is-refused-even-if-gone-at-the-open";
+    check(
+      label,
+      r.marks.includes(`linked:${mode}`) && r.msg.includes("1 file(s) could not be read") &&
+        r.msg.includes("genuine sibling failure"),
+      `marks=${JSON.stringify(r.marks)} msg=${JSON.stringify(r.msg).slice(0, 400)}`,
+    );
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
+// ===========================================================================
+// WHAT A MATCHED LINE RENDERS (LOW: leading whitespace, invisible characters)
+// ===========================================================================
+
+const NBSP = String.fromCharCode(0xa0);
+const LS = String.fromCharCode(0x2028);
+const RLO = String.fromCharCode(0x202e);
+const BS = String.fromCharCode(92);
+
+// fixture-52: a matched line led by MORE than the 4096-byte decode window of
+// whitespace — 5000 spaces, and 3000 NO-BREAK SPACEs (6000 bytes, each one a
+// two-byte UTF-8 form) — and one followed by 5000 trailing spaces. Before: the
+// window was cut BEFORE the trim, so the first two rendered as "" and the third
+// kept 106 trailing spaces. After: whitespace is skipped on bytes first, so each
+// renders exactly as a whole-line trim would.
+{
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "logtriage-fx-"));
+  try {
+    fs.mkdirSync(path.join(tree, "logs"));
+    fs.writeFileSync(path.join(tree, "logs", "a.log"), " ".repeat(5000) + "ERROR deep indent\n");
+    fs.writeFileSync(path.join(tree, "logs", "b.log"), NBSP.repeat(3000) + "ERROR wide indent\n");
+    fs.writeFileSync(path.join(tree, "logs", "c.log"), "ERROR trailing pad" + " ".repeat(5000) + "\n");
+    const real = fs.realpathSync(path.join(tree, "logs"));
+    const rows = renderedLines(runHook(tree).msg);
+    const want = [
+      `  ${path.join(real, "a.log")}: ERROR deep indent`,
+      `  ${path.join(real, "b.log")}: ERROR wide indent`,
+      `  ${path.join(real, "c.log")}: ERROR trailing pad`,
+    ];
+    check(
+      "fixture-52-a-line-led-or-trailed-by-more-than-the-window-of-whitespace-renders-its-text",
+      rows.length === 3 && want.every((w) => rows.includes(w)),
+      `rows=${JSON.stringify(rows).slice(0, 500)}`,
+    );
+  } finally {
+    fs.rmSync(tree, { recursive: true, force: true });
+  }
+}
+
+// fixture-53: log CONTENT carrying U+2028 LINE SEPARATOR (one log line that
+// renders as two rows, the second imitating another file's entry) and U+202E
+// RIGHT-TO-LEFT OVERRIDE (reverses what follows it). Before: only FILENAMES had
+// these escaped, so content delivered both raw. After: each renders as a
+// visible `\u{H…}` and none survives raw.
+withLogs(
+  { "fmt.log": `ERROR a${LS}  /x/forged.log: FATAL forged-row\nERROR ${RLO}desrever` },
+  {},
+  (dir) => {
+    const r = runHook(dir);
+    const raw = r.msg.match(/[\u2028\u2029\u202a-\u202e\u2066-\u2069]/g) || [];
+    check(
+      "fixture-53-invisible-format-characters-in-log-content-are-made-visible",
+      r.msg !== "" && raw.length === 0 && r.msg.includes(`ERROR a${BS}u{2028}  /x/forged.log`) &&
+        r.msg.includes(`ERROR ${BS}u{202e}desrever`),
+      `raw=${JSON.stringify(raw)} msg=${JSON.stringify(r.msg).slice(0, 400)}`,
     );
   },
 );

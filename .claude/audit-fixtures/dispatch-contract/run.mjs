@@ -176,22 +176,137 @@
  *         and the SENTINEL receipt placed in that copy was DELETED — the same run with the
  *         sandbox intact leaves it byte-identical, so the sentinel check discriminates
  *
- * Pure functions against in-memory inputs plus throwaway tmpdirs. No network, no live session, no
- * sink. The hook-boundary cases spawn the real hook as a child process, ONLY through `spawnHook`,
- * inside runner-created sandboxes that are removed on exit.
+ * ── CASES 71a + 76a–76f: the 2026-10-10 CALL BINDING at the real hook boundary ──
+ *
+ * The receipt is bound to ONE dispatch by a digest the block prints. The expected digest is computed
+ * HERE from the library's DOCUMENTED serialization (`documentedDigest`), never by calling the
+ * library's own `callDigestOf` — an oracle derived from the subject agrees with it by construction
+ * (`evidence-first-claims.md` MUST-5), and this one would not catch a hook that digests the wrong
+ * inputs. 71a reads the digest the block actually PRINTS and holds it to that oracle; 76a–76d are the
+ * bipolar binding pair (A's receipt does not lift B, is not consumed by B, B names the refusal, and
+ * the same receipt then lifts A); 76e reads the use ledger the honours wrote; 76f is the TTL pole.
+ * Every sandbox is a `git init`ed repository, because an honoured receipt's use is recorded under
+ * the sandbox's MAIN checkout and an unresolvable one refuses the override.
+ *
+ * ── CASES 54f1–54f4, 54g, 54h, 54k1–54k15: the 2026-10-16 TOKEN-CONTINUATION fix ──
+ * ── CASES 54h5, 54m1–54m5, 54n1–54n6, 54p1–54p3, 54q1–54q2, 54r: the 2026-10-16 v3 PIN-ANCHOR fix ──
+ *
+ * ESTABLISHED RED, MEASURED 2026-10-16 on a scratch git repository holding a copy of the checkout:
+ * per mutation the anchor count was asserted 1, the bytes asserted changed, `node --check` run on
+ * the mutant, this runner run, and the library restored from a `cp` backup and `cmp`-verified.
+ * Control 237/237. Each reddened set below is what the mutation ACTUALLY reddened:
+ *
+ *   M-v3-1   build LANE_ROOT_POSITION_RX from a second, narrower anchor list (v2's)  → 54m1–54m5 54n6
+ *            (ruling item 1: ONE anchor alternation — R2-HIGH `Work only in`/`rooted at` escapes)
+ *   M-v3-2   re-add the `<placeholder>` arm to TOKEN_CONTINUATION_RX                → 54q2
+ *            (ruling item 2: the continuation skip covers `$`-expressions ONLY)
+ *   M-v3-2b  withdraw no placeholder ARGUMENT beside a real pin                     → 54f4
+ *   M-v3-2c  require a separator in a placeholder token (v2's filter)               → 54q1
+ *   M-v3-eq  let `=` continue a placeholder token                                   → 54n5
+ *            (R2-MEDIUM `Worktree: \`WT=<wt>/lane\`` escape)
+ *   M-v3-3   let any anchored absolute path count as the pin                        → 54n1–54n4
+ *            (ruling item 3: the root a placeholder abbreviates comes from a pin-class anchor —
+ *            R2-MEDIUM incidental `cd /tmp` / `checkout /etc/hosts` escape)
+ *   M-v3-3b  treat every lane-root placeholder as shorthand when a pin exists       → 54n6 54p1 54p2
+ *   M-v3-4   drop the `..` segment test in isPinShorthand                           → 54p1 54p2
+ *            (ruling item 4 — R2-LOW `cd <wt>/../../nope` escape)
+ *   M-v3-4i  drop the shorthand exception entirely                                  → 54h 54h5
+ *   M-v3-5   nest `+` inside the connector repetition (v2's tail shape)             → 54r
+ *            (R2 correctness HIGH: 16 separators cost 27 s; 54r runs in a worker with a 5 s wait,
+ *            so the regression reds the case instead of hanging the runner)
+ *   M-v3-6   make `(` a one-character connector again (drop the aside)              → 54h5
+ *            (a real brief pinned `WORKTREE (created for you, …): /abs`)
+ *   M-tc     drop the TOKEN_CONTINUATION_RX skip                                    → 54f1 54f2 54f3
+ *   M-ph     drop the lane-root placeholder candidate (pass 3)                      → 54g 54m1–54m5
+ *            54n1–54n6 54p1–54p3 54q1
+ *
+ * Rows measured at v2 (2026-10-16, control 219/219) and NOT re-run at v3, kept as dated history:
+ *
+ *   (v2 M-tc/M-ph/M-ph2/M-ph3 rows are superseded by the v3 rows above: PLACEHOLDER_ROOT_RX and
+ *   PLACEHOLDER_ANCHOR_RX no longer exist.)
+ *   M-pd   drop `pushd` from WORKDIR_ANCHOR_RX                  → 54k15
+ *   M-w    (re-measured; the anchor line moved) drop `cd`       → 49 54a 54b 54c 54d 54k1 54k2 54k3
+ *          54k12 54k13 54k14 55 62–64 66–71 71a 74–76 76a 76c–76f 78 81 131–137 R1-OR-consumer
+ *   M-x    (re-measured) drop `worktree` ALONE reds NOTHING — an INERT mutation, not a vacuous case:
+ *          `work[- ]?tree` matches the same word. The DOUBLE mutation dropping both reds
+ *          50 54h 54k4–54k11, so the `M-x → 50` row above holds only for the double mutation.
+ *
+ * 54k1–54k14 are the shapes a rewrite of the ANCHORING once let through (each blocks at the prior
+ * extractor); this fix changes extraction for one candidate class only, so they stay red-guarded by
+ * the existing anchor rows rather than a mutation of their own.
+ *
+ * ── CASES 54s1–54s5 (+ 54g 54m1–54m5 54n1–54n5 54p3 54q1 MOVED block → advisory): the 2026-10-17
+ *    ROOT ruling — a placeholder-ONLY lane root ──
+ *
+ * With no real absolute pin anywhere in the brief, a lane root that is only an unfilled
+ * `<placeholder>` is a TEXT reading, not a filesystem fact, so `hook-output-discipline.md` MUST-2
+ * caps it below `block`: `detectMissingWorkdirPath` emits it at `advisory`. The two structural
+ * blocks stand — an ABSOLUTE root absent from disk, and a non-shorthand placeholder beside a real
+ * `Worktree: /abs` pin. `blocksOn`/`advisesOn` now read `missing` only under their own severity, so
+ * every case above names the tier it expects. The MOVED cases each have no real pin; every case
+ * with one (54f*, 54h*, 54n6, 54p1, 54p2) and every absolute one (54k*, 54q2) keeps its expectation.
+ *
+ * ESTABLISHED RED, MEASURED 2026-10-17 via `trestle run --repo <lane worktree>` on the mutated
+ * working tree (each mutant `node --check`ed, a reach probe showing the mutant's severity differs
+ * from the final library's on the same brief, restored from a `cp` backup and `cmp`-verified):
+ *   M-adv-A   restore `block` for the placeholder-only lane root          → 54g 54m1–54m5 54n1–54n5
+ *             54p3 54q1 54s1 54s2 54s3                         (226/242)
+ *   M-adv-B   downgrade the absolute-missing-root block to advisory       → 54k1–54k15 54s4 54q2 63
+ *             67 68 69 70 71 71a 74 75 76 76a 76c 76d 76f 76e R1-OR-consumer 78 81 131–137 (200/242)
+ *   M-adv-A2  downgrade every placeholder-only missing set, pin or not   → 54n6 54p1 54p2 54s5 (238/242)
+ *
+ * ── CASES 54t1–54t10, 72c (+ 54g arm 2, 54n1–54n4, 54s3 RETURNED advisory → block): the 2026-10-17
+ *    R1 fix — security R1 refuted the gate above ──
+ *
+ * The downgrade keyed on "no ABSENT absolute root and no PIN-CLASS pin", so an EXISTING absolute
+ * lane root under a non-pin anchor (or a pin anchor with intervening words) — 54t1–54t7 — and an
+ * absolute prefix fused to a placeholder, read whole as one token and never disk-checked —
+ * 54t8–54t10 — each dropped a placeholder root to advisory. The gate is now `placeholderOnly`
+ * from `readDeclaredWorkdirs`' single pass: EVERY lane root a PURE `<placeholder>` (opens with
+ * `<`). 72c spawns the real hook on a pure-placeholder brief: exit 0 with a rendered advisory line.
+ *
+ * ESTABLISHED RED, MEASURED 2026-10-17 via `trestle run --repo <lane worktree>` (control 253/253;
+ * mutant `node --check`ed, a reach probe showed the mutant's severity flip block → advisory on a
+ * MED and a LOW brief, library restored from a `cp` backup and `cmp`-verified):
+ *   M1   revert the gate to the 0036919dc predicate                → 54g 54n1–54n4 54s3 54t1–54t10
+ *                                                                      (237/253)
+ *
+ * ── CASES 54u1–54u8: the 2026-10-17 R2 fix (ruling F1 + F2) ──
+ *
+ * (F1) a `<…>` whose inside opens with a drive letter or URL scheme wraps a LOCATION, so it is not a
+ * pure placeholder (`isPurePlaceholder` / `LOCATION_PLACEHOLDER_RX`) — 54u1–54u3; (F2) a home- or
+ * UNC-rooted lane root disqualifies `placeholderOnly` though it is never disk-checked
+ * (`namesHomeOrUncLaneRoot`) — 54u4–54u7; 54u8 is the prohibition pole, which stays advisory.
+ *
+ * ESTABLISHED RED, MEASURED 2026-10-17 via `trestle run --repo <lane worktree>` (control 261/261;
+ * each mutant `node --check`ed, a reach probe showed its severity flip on an F1 / F2 brief against
+ * the unmutated library, restored from a `cp` backup and `cmp`-verified):
+ *   M-F1   drop the LOCATION_PLACEHOLDER_RX test from isPurePlaceholder   → 54u1 54u2 54u3 (258/261)
+ *   M-F2   drop the namesHomeOrUncLaneRoot term from placeholderOnly     → 54u4–54u7      (257/261)
+ *   M-F2w  drop the prohibition fence from namesHomeOrUncLaneRoot        → 54u8           (260/261)
+ *
+ * Pure functions against in-memory inputs plus throwaway tmpdirs. No network, no live session. The
+ * only sink written is the use ledger, inside a runner-created sandbox. The hook-boundary cases spawn
+ * the real hook as a child process, ONLY through `spawnHook`, inside runner-created sandboxes that
+ * are removed on exit.
  */
 
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { Worker } from "node:worker_threads";
 
 const require = createRequire(import.meta.url);
 const REPO = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const L = require(path.join(REPO, ".claude/hooks/lib/dispatch-contract.js"));
 const HOOK = path.join(REPO, ".claude/hooks/dispatch-contract-guard.js");
+/** The RE-TASK entry (SendMessage), registered apart so its row can declare on_incomplete: continue. */
+const RETASK_HOOK = path.join(REPO, ".claude/hooks/dispatch-retask-guard.js");
 
 /**
  * HOOK-SPAWN SANDBOX. Every child-process run of the real hook gets its cwd AND its
@@ -199,8 +314,11 @@ const HOOK = path.join(REPO, ".claude/hooks/dispatch-contract-guard.js");
  * started from. Those two are the ONLY roots the hook's override gate searches for a receipt: the
  * invoking tree is the hook's cwd, and the one extra root is `CLAUDE_PROJECT_DIR`
  * (`hooks/dispatch-contract-guard.js` passes `extraRoots: () => [PROJECT_DIR]`; candidates are built
- * in `hooks/lib/override-receipt.js:281-305`). Pinning both keeps every receipt a case writes, and
- * every receipt the hook could consume, inside a directory this runner created.
+ * by `hooks/lib/override-receipt.js::createOverrideGate` → `receiptCandidateRecords`). Pinning both
+ * keeps every receipt a case writes, and every receipt the hook could consume, inside a directory
+ * this runner created. Each sandbox is ALSO a git repository of its own, so the use ledger an
+ * honoured receipt appends to (`<main checkout>/.claude/learning/override-receipt-uses.jsonl`)
+ * resolves INSIDE the sandbox too — never in the checkout this runner was started from.
  *
  * WHY (2026-09-12): the earlier revision drove the hook with `CLAUDE_PROJECT_DIR` = the checkout and
  * opened each receipt section with an unconditional delete of
@@ -229,16 +347,104 @@ function makeHookSandbox(label) {
     throw new Error(`REFUSING hook sandbox ${dir}: not a fresh temp dir disjoint from ${REPO_REAL}`);
   }
   fs.cpSync(path.join(REPO, ".claude", "agents"), path.join(dir, ".claude", "agents"), { recursive: true });
+  // Its own repository, so the use ledger resolves to THIS sandbox as the main checkout.
+  spawnSync("git", ["init", "-q", dir], { stdio: "ignore" });
   const sb = { dir, receipt };
   sandboxes.push(sb);
   return sb;
 }
-/** The ONE call site that starts the hook. Refuses any project dir this runner did not create. */
-function spawnHook(sb, input, extraEnv = {}) {
+
+/**
+ * The digest a receipt must carry to lift `payload`, from the library's DOCUMENTED serialization
+ * (`hooks/lib/override-receipt.js` § THE CALL DIGEST) — computed here, independently of the
+ * library's own `callDigestOf`, so a hook that digests the wrong inputs cannot agree with this
+ * oracle by construction.
+ */
+function documentedDigest(payload, findingIds) {
+  const ti = routeLegacyLaunch(payload).tool_input || {};
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify([
+        "coc-override-receipt/call-digest/v1",
+        payload.tool_name,
+        typeof ti.subagent_type === "string" ? ti.subagent_type : "",
+        typeof ti.prompt === "string" ? ti.prompt : "",
+        [...new Set(findingIds)].sort(),
+      ]),
+      "utf8",
+    )
+    .digest("hex");
+}
+/** The one-line JSON receipt, as a blocked caller writes it. */
+const receiptLine = (digest, reason, writtenAt) =>
+  JSON.stringify({ digest, reason, written_at: writtenAt || new Date().toISOString() });
+/** The digest a block PRINTED in its receipt template, or null. */
+const printedDigest = (text) => {
+  // String `match`, not the RegExp method: case 138's start-site count is lexical, and a RegExp
+  // method call spelled with that verb reads to it as a process start.
+  const m = String(text || "").match(/"digest":"([0-9a-f]{64})"/);
+  return m ? m[1] : null;
+};
+const BLOCK_RULE = "agents/worktree-orchestration-absolute-path-pin";
+
+/**
+ * EFFORT ROUTING (2026-10-12) made every launch carry a `ROLE:` first line and the `effort` its role
+ * maps to, and the guard BLOCKS a launch that does not. Every hook-boundary case written before that
+ * decision sends a launch with neither, so each would now draw an `agents/effort-routing` block that
+ * has nothing to do with the predicate the case exists to pin. This routes such a LEGACY launch to a
+ * valid role — the first line `ROLE: routine-implementation` and `effort: "medium"`, the pair the
+ * routing table assigns — so the case keeps testing exactly what it tested, under the new contract.
+ * No assertion changes. A launch that already carries a ROLE line or an `effort` key is passed
+ * UNTOUCHED, which is how the effort cases below send unrouted, mis-routed and overridden launches.
+ * `documentedDigest` applies the SAME routing, so a receipt digest names the bytes the hook receives.
+ */
+const LEGACY_ROLE = "routine-implementation";
+const LEGACY_EFFORT = "medium";
+function routeLegacyLaunch(payload) {
+  if (!payload || typeof payload !== "object" || !["Agent", "Task"].includes(payload.tool_name)) return payload;
+  const ti = payload.tool_input;
+  if (!ti || typeof ti !== "object" || typeof ti.prompt !== "string") return payload;
+  if (/^\s*ROLE:/.test(ti.prompt) || Object.prototype.hasOwnProperty.call(ti, "effort")) return payload;
+  return { ...payload, tool_input: { ...ti, prompt: `ROLE: ${LEGACY_ROLE}\n${ti.prompt}`, effort: LEGACY_EFFORT } };
+}
+
+/**
+ * The ONE call site that starts the hook. Refuses any project dir this runner did not create.
+ * `opts.raw` sends the payload exactly as given (no legacy routing); `opts.hook` runs a COPY of the
+ * hook tree that lives INSIDE the sandbox (the routing-table cases), and is refused anywhere else.
+ */
+/** spawnHook's openStdin producer: start the hook, write the payload, never end stdin, report its exit + stdout. */
+const OPEN_PRODUCER = [
+  "const [hook, body] = process.argv.slice(1);",
+  "const c = require('node:child_process').spawn(process.execPath, [hook], { stdio: ['pipe', 'pipe', 'inherit'] });",
+  "let out = ''; c.stdout.on('data', (d) => { out += d; });",
+  "c.stdin.write(body);",
+  "c.on('exit', (code) => { process.stdout.write(JSON.stringify({ code, out })); process.exit(0); });",
+].join("\n");
+function spawnHook(sb, input, extraEnv = {}, opts = {}) {
   if (!sandboxes.includes(sb)) throw new Error("REFUSING hook spawn: not a runner-created sandbox");
+  const hook = opts.hook || HOOK;
+  if (hook !== HOOK && hook !== RETASK_HOOK && !within(hook, sb.dir)) throw new Error("REFUSING hook spawn: hook copy outside the sandbox");
+  let body = input;
+  if (!opts.raw) {
+    try {
+      const parsed = JSON.parse(input);
+      body = JSON.stringify(routeLegacyLaunch(parsed));
+    } catch {
+      body = input; // not JSON — the unparseable-payload cases send it verbatim
+    }
+  }
   const env = { ...process.env, ...extraEnv, CLAUDE_PROJECT_DIR: sb.dir };
   if (!Object.prototype.hasOwnProperty.call(extraEnv, L.OVERRIDE_ENV)) delete env[L.OVERRIDE_ENV];
-  return spawnSync("node", [HOOK], { input, encoding: "utf8", env, cwd: sb.dir });
+  // openStdin (E90): the same sandbox-pinned hook, started by a producer that writes the payload and NEVER closes
+  // stdin — the one way to reach the reader's open-no-EOF timer. Still this ONE call site (case 138).
+  const r = spawnSync("node", opts.openStdin ? ["-e", OPEN_PRODUCER, hook, body] : [hook],
+    { input: opts.openStdin ? "" : body, encoding: "utf8", env, cwd: sb.dir });
+  if (!opts.openStdin) return r;
+  let res = null;
+  try { res = JSON.parse(r.stdout); } catch {}
+  return { status: res ? res.code : null, stdout: res ? res.out : "", stderr: r.stderr };
 }
 process.on("exit", () => {
   for (const sb of sandboxes) {
@@ -750,7 +956,7 @@ check("36", "clip flattens newlines",
 
   // -- extraction: which tokens are even considered --
   check("49", "an absolute path after `cd` is extracted",
-    L.extractDeclaredWorkdirs("STEP 0: cd /Users/x/repos/.wt/lane-a then assert").includes("/Users/x/repos/.wt/lane-a"),
+    L.extractDeclaredWorkdirs(materializeFixtureText("STEP 0: cd {{FIXTURE_HOME_V1:MAC}}x/repos/.wt/lane-a then assert")).includes(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}x/repos/.wt/lane-a")),
     "the STEP-0 shape", "M-f: drop the `cd` anchor");
   check("50", "an absolute path after a `worktree ... at` phrase is extracted",
     L.extractDeclaredWorkdirs("The worktree is ALREADY CREATED and verified at /tmp/wt/lane-b.").includes("/tmp/wt/lane-b"),
@@ -804,6 +1010,241 @@ check("36", "clip flattens newlines",
     "without this case the brace guard has NO case that reds when it alone is removed — " +
       "54a passes through the prohibition arm instead",
     "M-k2: drop the `prompt[start + raw.length] === '{'` guard");
+  // -- TOKEN CONTINUATION (2026-10-16): a false `block` on a correct brief. The brief pinned a real
+  // worktree with a STEP-0 assertion, and `sh "$WT"/lib/x.sh` in its prose yielded the suffix
+  // `/lib/x.sh`, which the windowed `worktree`/`cd` gate then tested as the lane root. The fix
+  // removes ONE candidate class — a suffix of an unresolved expression — and nothing else, so the
+  // 54k cases pin every shape a broader rewrite of the anchoring once let through (each blocks at
+  // the prior extractor and must keep blocking).
+  const PIN = "/tmp/wt/lane-real";
+  const ONLY_PIN = (p) => p === PIN;
+  // Each helper reads `missing` ONLY under its own severity, so a case asserting a BLOCK reds when
+  // the finding drops to advisory and vice versa (ROOT ruling 2026-10-17: a placeholder-only lane
+  // root with no real pin is `advisory`; an absent ABSOLUTE root, or a non-shorthand placeholder
+  // beside a real pin, stays `block`).
+  const missingAt = (severity) => (prompt, exists = MISSING) => {
+    const f = L.detectMissingWorkdirPath({ prompt }, { existsSync: exists });
+    return (f && f.severity === severity ? f.missing : []).join("|");
+  };
+  const blocksOn = missingAt("block");
+  const advisesOn = missingAt("advisory");
+  const BT = "`";
+  [
+    ["1", `Worktree: ${PIN}. STEP-0: cd ${PIN} && assert toplevel == pwd -P. In the worktree run ${BT}sh "$WT"/lib/x.sh${BT} and report.`],
+    ["2", `Worktree: ${PIN}. STEP-0: cd ${PIN}. In the worktree run sh ${"$"}{WT}/x and report.`],
+    ["3", `Worktree: ${PIN}. STEP-0: cd ${PIN}. In the worktree run sh $(pwd)/x and report.`],
+    ["4", `Worktree: ${PIN}. STEP-0: cd ${PIN}. In the worktree run sh <wt>/x.sh and report.`],
+  ].forEach(([n, prompt]) =>
+    check(`54f${n}`, `a TOKEN-CONTINUATION suffix beside a real pin is not a lane root (shape ${n})`,
+      blocksOn(prompt, ONLY_PIN) === "",
+      "MISSING for everything but the pin, so the case can only stay silent by NOT extracting the suffix",
+      n === "4" ? "M-v3-2b: withdraw no placeholder ARGUMENT beside a real pin" : "M-tc: drop the TOKEN_CONTINUATION_RX skip"));
+  check("54g", "OTHER POLE — an unfilled `<placeholder>` lane root is REPORTED (named, not by accident; advisory when pure, block with an absolute prefix)",
+    advisesOn("Work in the worktree at <scratch>/wt. STEP-0: cd <scratch>/wt and assert toplevel.") === "<scratch>/wt" &&
+      blocksOn("STEP 0: cd /tmp/<lane>/wt and assert toplevel.").split("|").includes("/tmp/<lane>/wt") &&
+      L.detectMissingWorkdirPath({ prompt: "Work in the worktree at <scratch>/wt. STEP-0: cd <scratch>/wt." })?.severity === "advisory",
+    "the third arm uses the REAL resolver, which an unfilled placeholder never reaches: it names no " +
+      "location. Before the fix this blocked only because the suffix `/wt` happened not to exist",
+    "M-ph: drop the lane-root placeholder candidate (PLACEHOLDER_TOKEN_RX pass 3)");
+  check("54h", "a `<placeholder>` used as SHORTHAND for a declared absolute root, or as a return slot, is SILENT",
+    blocksOn(`WORKTREE: ${PIN}. STEP 0: cd <worktree>/sub; assert ${BT}git -C <worktree> rev-parse --show-toplevel${BT} equals ${PIN}.`, ONLY_PIN) === "" &&
+      blocksOn("Stay in the worktree and return <findings>/<verdict>.") === "" &&
+      blocksOn(`Worktree: ${PIN}, report <verdict>.`, ONLY_PIN) === "" &&
+      blocksOn("Read-only. If git reports no top level (root = <repo>/.git), say so.") === "",
+    "measured on real briefs: a pinned root plus `<worktree>` shorthand, and `<findings>` slots, are the common correct shapes",
+    "M-v3-4i: drop the shorthand exception");
+  [
+    ["1", "STEP 0: cd -- /nope and assert toplevel."],
+    ["2", `STEP 0: ${BT}cd -- /nope${BT} and assert toplevel.`],
+    ["3", "STEP 0: cd **/nope** and assert toplevel."],
+    ["4", "Worktree: **/nope** — work only there."],
+    ["5", `Worktree: **${BT}/nope${BT}** — work only there.`],
+    ["6", `Worktree: *${BT}/nope${BT}* — work only there.`],
+    ["7", `Worktree:\n${BT}${BT}${BT}\n/nope\n${BT}${BT}${BT}\nWork only there.`],
+    ["8", `Worktree: ${BT}WT=/nope${BT} then begin.`],
+    ["9", `Worktree: ${BT}export WT=/nope${BT}; cd "$WT" and begin.`],
+    ["10", `Worktree: ${BT} /nope${BT} then begin.`],
+    ["11", `Mind the stray ${BT} here. Worktree: /nope then begin.`],
+    ["12", "First cd to the lane dir /nope and begin."],
+    ["13", "Then cd into your lane at /nope and begin."],
+    ["14", "STEP-0:cd /nope && assert toplevel."],
+    ["15", "STEP 0: pushd /nope && assert toplevel."],
+  ].forEach(([n, prompt]) =>
+    check(`54k${n}`, `OTHER POLE — a dead lane root in pin shape ${n} still BLOCKS`,
+      blocksOn(prompt).startsWith("/nope"),
+      n === "15" ? "`pushd` is a cd-class anchor (an addition: the prior extractor allowed it)"
+        : "a shape a rewrite of the anchoring once let through; the token-continuation skip must not",
+      n === "15" ? "M-pd: drop `pushd` from WORKDIR_ANCHOR_RX" : "M-k4"));
+  // -- PIN-ANCHOR v3 (2026-10-16): the R2 escapes of v2, each closed by construction. ONE anchor
+  // alternation (`WORKDIR_ANCHORS`) builds every anchor test; the continuation skip covers
+  // `$`-expressions ONLY, so a `<placeholder>` path is read WHOLE; a placeholder may abbreviate a
+  // real root only when a pin-class anchor (`Worktree:`, `working directory`) pins one, never an
+  // incidental `cd`/`checkout`; and `..` after a placeholder never counts as shorthand.
+  [
+    ["1", "Work only in <wt>/lane and report.", "<wt>/lane"],
+    ["2", "Work from <wt>/lane and report.", "<wt>/lane"],
+    ["3", "The lane is rooted at <scratch>/wt; begin.", "<scratch>/wt"],
+    ["4", "Your checkout is located at <scratch>/wt; begin.", "<scratch>/wt"],
+    ["5", "Repository at <scratch>/wt; begin.", "<scratch>/wt"],
+  ].forEach(([n, prompt, want]) =>
+    check(`54m${n}`, `R2-HIGH: an anchor the scope gate holds also makes a lane-root position (shape ${n}; advisory, no pin)`,
+      advisesOn(prompt) === want,
+      "names the UNRESOLVED placeholder, not the suffix `/lane` the prior extractor tested by accident",
+      "M-v3-1: build LANE_ROOT_POSITION_RX from a second, narrower anchor list"));
+  [
+    ["1", "Worktree: <wt>/lane — work only there. Read /etc/hosts for reference. STEP 0: cd /tmp and run ls."],
+    ["2", "Worktree: <wt>/lane — work only there. Also check the checkout /etc/hosts."],
+    ["3", "Worktree: <wt>/lane. Repo root (for reference only): checkout at /tmp."],
+    ["4", "STEP 0: cd <wt>/lane. Scratch: cd /tmp first."],
+  ].forEach(([n, prompt]) =>
+    check(`54n${n}`, `R2-MEDIUM: an incidental cd/checkout of a REAL path does not license a placeholder root (shape ${n}; BLOCKS: an absolute lane root is named)`,
+      blocksOn(prompt, (p) => p === "/tmp" || p === "/etc/hosts").split("|").includes("<wt>/lane"),
+      "only a pin-class anchor (`Worktree:`/`working directory`) may name the root a placeholder abbreviates",
+      "M-v3-3: let any anchored absolute path count as the pin"));
+  check("54n5", "R2-MEDIUM: an assignment inside the pin (`WT=<wt>/lane`) is a lane-root position (advisory, no real pin)",
+    advisesOn(`Worktree: ${BT}WT=<wt>/lane${BT} then begin.`) === "<wt>/lane" &&
+      advisesOn(`Worktree: ${BT}export WT=<wt>/lane${BT} then begin.`) === "<wt>/lane",
+    "`=` ends the placeholder token and a `NAME=` is a connector, so the value is read as the root",
+    "M-v3-eq: let `=` continue a placeholder token");
+  check("54n6", "a placeholder ROOT that is not shorthand blocks even beside a real pin",
+    blocksOn(`Worktree: ${PIN}. Work only in /tmp/<lane>/wt.`, ONLY_PIN) === "/tmp/<lane>/wt" &&
+      blocksOn(`Worktree: ${PIN}. STEP 0: cd <a>/<b>/nope.`, ONLY_PIN) === "<a>/<b>/nope",
+    "an absolute prefix or a second placeholder is not an abbreviation of the pinned root",
+    "M-v3-3b: treat every lane-root placeholder as shorthand when a pin exists");
+  [
+    ["1", `Worktree: ${PIN}. STEP 0: cd <wt>/../../nope and assert toplevel.`, "<wt>/../../nope"],
+    ["2", `Worktree: ${PIN}. STEP 0: cd <wt>/.. and assert toplevel.`, "<wt>/"],
+    ["3", "STEP 0: cd <wt>/../../nope and assert toplevel.", "<wt>/../../nope"],
+  ].forEach(([n, prompt, want]) =>
+    check(`54p${n}`, `R2-LOW: \`..\` after a placeholder in lane-root position ${n === "3" ? "is REPORTED (advisory: no pin)" : "BLOCKS"} (shape ${n})`,
+      (n === "3" ? advisesOn : blocksOn)(prompt, ONLY_PIN) === want,
+      "a climb out of the pinned root is not an abbreviation of it; tested on the RAW token, so a " +
+        "trailing `..` the punctuation trim strips still counts",
+      n === "3" ? "M-ph (no pin: the placeholder blocks without the climb test)" : "M-v3-4: drop the `..` segment test in isPinShorthand"));
+  check("54h5", "a pin with a parenthetical aside still PINS the real root its shorthand abbreviates",
+    blocksOn(`WORKTREE (created for you, detached, no branch): ${PIN}. STEP 0: cd <wt>/sub && assert toplevel.`, ONLY_PIN) === "",
+    "MEASURED on a real brief 2026-10-16: the aside sits between the pin anchor and the path",
+    "M-v3-6: make `(` a one-character connector again (drop the aside)");
+  check("54q1", "a BARE placeholder lane root with NO pin is REPORTED (advisory)",
+    advisesOn("STEP 0: cd <worktree> && assert toplevel.") === "<worktree>",
+    "nothing will ever fill it, and no real root is pinned for it to abbreviate",
+    "M-v3-2c: require a separator in a placeholder token");
+  // -- PLACEHOLDER-ONLY LANE ROOT ⇒ ADVISORY (ROOT ruling 2026-10-17). With no real absolute pin
+  // anywhere in the brief, a placeholder lane root is a TEXT reading — nothing was measured — and
+  // hook-output-discipline MUST-2 lets only a parsed structural signal block. Each shape asserts
+  // the severity AND that nothing reaches the guard as `block`; 54s4/54s5 are the poles that keep
+  // the structural blocks (an absent ABSOLUTE root; a non-shorthand placeholder beside a real pin).
+  [
+    ["1", "STEP 0: cd <worktree> && assert toplevel.", "<worktree>"],
+    ["2", "Worktree: <wt>/lane — work only there.", "<wt>/lane"],
+  ].forEach(([n, prompt, want]) => {
+    const f = L.detectMissingWorkdirPath({ prompt }, { existsSync: MISSING });
+    const viaInspect = L.inspectDispatch("Agent", { prompt }, INV, { existsSync: MISSING });
+    check(`54s${n}`, `a placeholder-ONLY lane root with no real pin is ADVISORY, never block (shape ${n})`,
+      f?.severity === "advisory" && f.rule_id === "agents/worktree-orchestration-absolute-path-pin" &&
+        f.missing.join("|") === want && blocksOn(prompt) === "" &&
+        !viaInspect.some((x) => x.severity === "block") &&
+        viaInspect.some((x) => x.severity === "advisory" && x.rule_id === f.rule_id),
+      `severity=${f?.severity} missing=${f?.missing?.join("|")}`,
+      "M-adv-A: restore `block` for the placeholder-only lane root");
+  });
+  check("54s3", "OTHER POLE — an absolute prefix FUSED to a placeholder is an absolute lane root: it BLOCKS",
+    blocksOn("STEP 0: cd /tmp/<lane>/wt and assert toplevel.") === "/tmp/<lane>/wt",
+    "the downgrade covers a PURE placeholder only; an absolute component disqualifies it (R1 ruling 2026-10-17)",
+    "M1: revert the gate to the 0036919dc predicate (no absent absolute root and no pin-class pin)");
+  // -- R1 ESCAPES (security R1 2026-10-17, refuting 0036919dc). The downgrade keyed on "no absent
+  // absolute root and no pin-class pin", so (MED) an EXISTING absolute path named by a non-pin
+  // anchor, or by a pin anchor with intervening words, and (LOW) an absolute prefix fused to a
+  // placeholder — read whole as ONE placeholder token and never sent to the filesystem — each
+  // dropped a placeholder lane root to advisory. ANY absolute lane root now keeps the block.
+  const ALL_EXIST = (p) => !/[<>]/.test(p);
+  [
+    ["1", "STEP 0: cd <wt>/lane. Scratch: cd /tmp first."],
+    ["2", "Worktree: <wt>/lane. Also look at the checkout /tmp first."],
+    ["3", "STEP 0: cd <wt>/lane. Work in /tmp for scratch."],
+    ["4", "STEP 0: cd <wt>/lane. The repo is rooted at /tmp, for reference."],
+    ["5", "STEP 0: cd <wt>/lane. The primary is located at /tmp, for reference."],
+    ["6", "STEP 0: cd <wt>/lane. Its repo at /tmp, for reference."],
+    ["7", "Worktree for this lane, as created by the orchestrator, is at /tmp. STEP 0: cd <wt>/lane."],
+  ].forEach(([n, prompt]) =>
+    check(`54t${n}`, `R1-MED: an EXISTING absolute lane root beside a placeholder root keeps the BLOCK (shape ${n})`,
+      blocksOn(prompt, ALL_EXIST) === "<wt>/lane" && advisesOn(prompt, ALL_EXIST) === "",
+      "every absolute path EXISTS, so the case can only block on the placeholder root — never on a measured absence",
+      "M1: revert the gate to the 0036919dc predicate (no absent absolute root and no pin-class pin)"));
+  [
+    ["8", "STEP 0: cd /tmp/<lane>/wt and assert toplevel.", "/tmp/<lane>/wt"],
+    ["9", "Worktree: /tmp/<lane> — work only there.", "/tmp/<lane>"],
+    ["10", "STEP 0: cd C:\\wt\\<lane> and assert toplevel.", "C:\\wt\\<lane>"],
+  ].forEach(([n, prompt, want]) =>
+    check(`54t${n}`, `R1-LOW: an absolute prefix FUSED to a placeholder is never disk-checked, yet keeps the BLOCK (shape ${n})`,
+      blocksOn(prompt, ALL_EXIST) === want && advisesOn(prompt, ALL_EXIST) === "",
+      "the whole token is ONE placeholder, so no resolver answer can reach it; its absolute prefix alone decides",
+      "M1: revert the gate to the 0036919dc predicate (no absent absolute root and no pin-class pin)"));
+  // -- R2 ESCAPES (R2 ruling 2026-10-17, F1 + F2). (F1) a `<…>` whose inside opens with a drive
+  // letter or a URL scheme wraps a LOCATION, so it is not a pure placeholder; (F2) a home- or
+  // UNC-rooted lane root names a location the filesystem is never asked about. Either keeps the block.
+  [
+    ["1", "STEP 0: cd <C:/wt/lane> and assert toplevel.", "<C:/wt/lane>"],
+    ["2", "STEP 0: cd <C:\\wt\\lane> and assert toplevel.", "<C:\\wt\\lane>"],
+    ["3", "Worktree: <file:///tmp/wt> — work only there.", "<file:///tmp/wt>"],
+  ].forEach(([n, prompt, want]) =>
+    check(`54u${n}`, `R2-F1: a placeholder wrapping a drive letter or URL scheme is not PURE: it BLOCKS (shape ${n})`,
+      blocksOn(prompt, ALL_EXIST) === want && advisesOn(prompt, ALL_EXIST) === "",
+      "the token is read whole and never disk-checked; the location inside the brackets alone decides",
+      "M-F1: drop the LOCATION_PLACEHOLDER_RX test from isPurePlaceholder"));
+  [
+    ["4", "STEP 0: cd <wt>/lane. Scratch: cd ~/scratch first."],
+    ["5", "STEP 0: cd <wt>/lane. Work in $HOME/scratch for scratch."],
+    ["6", "STEP 0: cd <wt>/lane. The repo is rooted at ${HOME}/repos, for reference."],
+    ["7", "STEP 0: cd <wt>/lane. Its repo at \\\\fileserver\\share\\repo, for reference."],
+  ].forEach(([n, prompt]) =>
+    check(`54u${n}`, `R2-F2: a home- or UNC-rooted lane root beside a placeholder root keeps the BLOCK (shape ${n})`,
+      blocksOn(prompt, ALL_EXIST) === "<wt>/lane" && advisesOn(prompt, ALL_EXIST) === "",
+      "the home/UNC root is never sent to the resolver, so only its being NAMED can keep the block",
+      "M-F2: drop the namesHomeOrUncLaneRoot term from placeholderOnly"));
+  check("54u8", "OTHER POLE — a home root after a PROHIBITION word is not a lane root: the placeholder root stays ADVISORY",
+    advisesOn("STEP 0: cd <wt>/lane. NEVER cd ~/scratch.", ALL_EXIST) === "<wt>/lane" &&
+      blocksOn("STEP 0: cd <wt>/lane. NEVER cd ~/scratch.", ALL_EXIST) === "",
+    "unchanged by design (R2 ruling): a path after a prohibition word is not a lane root",
+    "M-F2w: drop the prohibition fence from namesHomeOrUncLaneRoot");
+  check("54s4", "OTHER POLE — no pin, a placeholder root AND an absent ABSOLUTE root: the filesystem fact BLOCKS",
+    blocksOn("STEP 0: cd <wt>/lane. Then cd /nope and run ls.").split("|").includes("/nope"),
+    "the advisory downgrade covers a brief whose ONLY missing roots are placeholders; a measured absence keeps `block`",
+    "M-adv-B: downgrade the absolute-missing block to advisory");
+  check("54s5", "OTHER POLE — a non-shorthand placeholder root beside a REAL pin still BLOCKS",
+    blocksOn(`Worktree: ${PIN}. STEP 0: cd <wt>/../../nope and assert toplevel.`, ONLY_PIN) === "<wt>/../../nope",
+    "the pin is a parsed structural fact; the ruling keeps every real-pin escape at `block`",
+    "M-adv-A2: downgrade every placeholder-only missing set to advisory, pin or not");
+  check("54q2", "NARROW continuation: a placeholder ARGUMENT with no pin keeps the prior extractor's reading",
+    blocksOn("In the worktree run sh <wt>/x.sh and report.") === "/x.sh",
+    "only `$`-expressions are skipped; a `<placeholder>` suffix is withdrawn ONLY beside a real pin " +
+      "(54f4) — without one the verdict is exactly the prior one",
+    "M-v3-2: re-add the `<placeholder>` arm to TOKEN_CONTINUATION_RX");
+  {
+    // LINEAR TIME. v2's placeholder tail nested `[…]+` inside `(…)*`: 16 separators cost 27 s
+    // (R2, measured). Run in a WORKER with a hard wait so a regressed regex reds this case
+    // instead of hanging the runner; the far `cd` sits inside the lookback and the near one keeps
+    // the scope gate open, so the lane-root test MUST walk all 100 separators and fail.
+    const seps = Array.from({ length: 100 }, (_, i) => (i % 3 === 0 ? ":" : " ")).join("");
+    const prompt = `cd${seps}cd x <a>/b`;
+    const sab = new SharedArrayBuffer(8);
+    const cell = new Int32Array(sab);
+    const w = new Worker(
+      "const { workerData: d } = require('node:worker_threads');" +
+        "const L = require(d.lib); const t0 = process.hrtime.bigint();" +
+        "L.detectMissingWorkdirPath({ prompt: d.prompt }, { existsSync: () => false });" +
+        "const a = new Int32Array(d.sab); a[1] = Number((process.hrtime.bigint() - t0) / 1000n);" +
+        "Atomics.store(a, 0, 1); Atomics.notify(a, 0);",
+      { eval: true, workerData: { lib: path.join(REPO, ".claude/hooks/lib/dispatch-contract.js"), prompt, sab } });
+    const waited = Atomics.wait(cell, 0, 0, 5000);
+    w.terminate();
+    w.unref();
+    const us = cell[1];
+    check("54r", "LINEAR TIME: 100 mixed separators between anchors return within 50 ms",
+      cell[0] === 1 && us < 50000,
+      `wait=${waited} elapsed_us=${cell[0] === 1 ? us : "none (5 s wait expired)"}`,
+      "M-v3-5: nest `+` inside the connector repetition");
+  }
   check("54c", "OTHER POLE — a genuinely absent root pin STILL fires (the fix is not a mute)",
     !!L.detectMissingWorkdirPath(
       { prompt: "STEP 0: cd /tmp/wt/definitely-not-here and assert toplevel." },
@@ -923,10 +1364,12 @@ check("36", "clip flattens newlines",
   // The sandbox is removed on exit, so there is no pre-existed/rmdir bookkeeping left to get wrong.
 
   // A clean start: neither channel armed (`spawnHook` strips the env var), no receipt in the sandbox.
+  // Receipts are bound to ONE dispatch; `putReceipt` defaults to the digest of `missingBrief` below.
   const clearReceipt = () => { try { fs.rmSync(RECEIPT, { force: true }); } catch {} };
-  const putReceipt = (reason) => {
+  let DIGEST_MISSING = null;
+  const putReceipt = (reason, digest = DIGEST_MISSING, writtenAt) => {
     fs.mkdirSync(path.dirname(RECEIPT), { recursive: true });
-    fs.writeFileSync(RECEIPT, reason);
+    fs.writeFileSync(RECEIPT, receiptLine(digest, reason, writtenAt));
   };
 
   /** Drive the hook as the runtime does, tolerating a NON-ZERO (blocking) exit. */
@@ -941,27 +1384,43 @@ check("36", "clip flattens newlines",
   const MISSING_PATH = "/tmp/loom-fixture-absent-" + process.pid + "/lane";
   const missingBrief = {
     hook_event_name: "PreToolUse", tool_name: "Agent",
+    session_id: "fixture-session", agent_id: "fixture-agent", agent_type: "fixture-worker", tool_use_id: "fixture-call",
     tool_input: { subagent_type: "general-purpose", prompt: `STEP 0: cd ${MISSING_PATH} then work there. Report back via SendMessage.` },
   };
   const presentBrief = {
     hook_event_name: "PreToolUse", tool_name: "Agent",
     tool_input: { subagent_type: "general-purpose", prompt: `STEP 0: cd ${sb.dir} then work there. Report back via SendMessage.` },
   };
+  DIGEST_MISSING = documentedDigest(missingBrief, [BLOCK_RULE]);
 
+  // WHICH block. Since effort routing (2026-10-12) a second block-class rule exists, and a bare
+  // "exit 2 / deny" is satisfied by EITHER; these cases are about the WORKDIR rule, so each asserts
+  // the reason names that rule and does NOT name the effort rule.
+  const workdirOnly = (o) => {
+    const t = String(o.stderr || "") + JSON.stringify(o.json || {});
+    return t.includes(BLOCK_RULE) && !t.includes("agents/effort-routing");
+  };
   clearReceipt();
   const blocked = fireRaw(missingBrief);
-  check("69", "END-TO-END: a non-existent declared workdir BLOCKS (exit 2)",
-    blocked.status === 2, `exit=${blocked.status}`,
+  check("69", "END-TO-END: a non-existent declared workdir BLOCKS (exit 2) — on the workdir rule, not effort routing",
+    blocked.status === 2 && workdirOnly(blocked), `exit=${blocked.status} workdirOnly=${workdirOnly(blocked)}`,
     "M-l / M-p — the teeth. This is the case that could not exist before this change.");
   check("70", "END-TO-END: the block payload denies the call",
     blocked.status === 2 && blocked.json?.continue !== false &&
-      blocked.json?.hookSpecificOutput?.permissionDecision === "deny",
+      blocked.json?.hookSpecificOutput?.permissionDecision === "deny" &&
+      String(blocked.json?.hookSpecificOutput?.permissionDecisionReason || "").includes(BLOCK_RULE) &&
+      !String(blocked.json?.hookSpecificOutput?.permissionDecisionReason || "").includes("agents/effort-routing"),
     `continue=${blocked.json?.continue}`, "M-p");
   check("71", "END-TO-END: the block names the missing path and the override escape",
     (blocked.stderr + JSON.stringify(blocked.json)).includes(MISSING_PATH) &&
-      (blocked.stderr + JSON.stringify(blocked.json)).includes(G.OVERRIDE_RECEIPT_REL),
+      (blocked.stderr + JSON.stringify(blocked.json)).includes(G.OVERRIDE_RECEIPT_REL) && workdirOnly(blocked),
     "a block with an unreachable escape is the MUST NOT this answers",
     "drop the receipt path from the block body");
+  check("71a", "END-TO-END: the block PRINTS this dispatch's call digest — the one the documented serialization gives",
+    printedDigest(blocked.stderr) === DIGEST_MISSING &&
+      printedDigest(blocked.json?.hookSpecificOutput?.permissionDecisionReason) === DIGEST_MISSING,
+    `printed=${String(printedDigest(blocked.stderr)).slice(0, 12)} documented=${DIGEST_MISSING.slice(0, 12)}`,
+    "M-DIGEST-INPUTS: digest promptOf (prompt+description) or the non-block ids — the printed receipt then lifts nothing");
 
   const permitted = fireRaw(presentBrief);
   check("72", "END-TO-END: an EXISTING declared workdir is permitted, exit 0",
@@ -988,6 +1447,20 @@ check("36", "clip flattens newlines",
       !ctx(named).includes("Every finding on this tier reads the brief's PROSE"),
     "", "M-dup-5: restore the blanket 'every finding reads PROSE' rationale, which the structural predicate falsifies");
 
+  // PLACEHOLDER-ONLY LANE ROOT at the real boundary (ROOT rulings 2026-10-17): the library's
+  // `advisory` verdict must reach the agent as a rendered advisory line and must NOT stop the call.
+  const placeholderOnly = fireRaw({
+    hook_event_name: "PreToolUse", tool_name: "Agent",
+    tool_input: { subagent_type: "general-purpose", prompt: "STEP 0: cd <wt>/lane then work there. Report back via SendMessage." },
+  });
+  check("72c", "END-TO-END: a placeholder-ONLY lane root is NOT blocked (exit 0) and renders an advisory line",
+    placeholderOnly.status === 0 && placeholderOnly.json?.continue === true &&
+      ctx(placeholderOnly).includes("[advisory]") &&
+      ctx(placeholderOnly).includes("agents/worktree-orchestration-absolute-path-pin") &&
+      ctx(placeholderOnly).includes("<wt>/lane"),
+    `exit=${placeholderOnly.status} ctx chars=${ctx(placeholderOnly).length}`,
+    "M-adv-A: restore `block` for the placeholder-only lane root (exit 2)");
+
   // ONE-SHOT: the receipt is honoured exactly once, then the gate re-arms.
   clearReceipt();
   putReceipt("worktree is created by the dispatched agent's own STEP-0 bootstrap");
@@ -1005,8 +1478,69 @@ check("36", "clip flattens newlines",
   check("75", "END-TO-END: the receipt is CONSUMED (deleted) as it is honoured",
     receiptGone, `gone=${receiptGone}`, "M-t: leave the receipt on disk");
   check("76", "END-TO-END: the very next identical call BLOCKS again",
-    reblocked.status === 2, `exit=${reblocked.status}`,
+    reblocked.status === 2 && workdirOnly(reblocked), `exit=${reblocked.status}`,
     "the one-shot property at the real boundary — one override cannot disarm the gate", "M-t");
+
+  // CALL BINDING at the real boundary — a receipt written for dispatch A must not lift dispatch B,
+  // must not be SPENT by B, must be NAMED in B's block, and must then still lift A. The pair is
+  // bipolar on ONE receipt: a hook that ignores the digest fails 76a/76b, one that refuses every
+  // receipt fails 76d.
+  const otherBrief = {
+    hook_event_name: "PreToolUse", tool_name: "Agent",
+    tool_input: {
+      subagent_type: "general-purpose",
+      prompt: `STEP 0: cd /tmp/loom-fixture-absent-${process.pid}/other-lane then work there. Report back via SendMessage.`,
+    },
+  };
+  clearReceipt();
+  putReceipt("written for the FIRST missing-path dispatch only");
+  const bytesA = fs.readFileSync(RECEIPT, "utf8");
+  const crossed = fireRaw(otherBrief);
+  const crossedText = crossed.stderr + JSON.stringify(crossed.json);
+  check("76a", "END-TO-END BINDING: a receipt written for dispatch A does NOT lift dispatch B (B still blocks)",
+    crossed.status === 2 && crossed.json?.hookSpecificOutput?.permissionDecision === "deny" && workdirOnly(crossed),
+    `exit=${crossed.status}`, "M-BIND: drop the digest comparison — one receipt lifts any blocked dispatch again");
+  check("76b", "END-TO-END BINDING: dispatch B does NOT consume A's receipt — present and byte-identical",
+    crossed.status === 2 && workdirOnly(crossed) && fs.existsSync(RECEIPT) && fs.readFileSync(RECEIPT, "utf8") === bytesA,
+    `present=${fs.existsSync(RECEIPT)}`, "M-BIND / spend the receipt before checking the call");
+  check("76c", "END-TO-END BINDING: B's block NAMES the refusal on the agent's channel, and says it was left in place",
+    crossedText.includes("RECEIPT-DIGEST-MISMATCH") && crossedText.includes("left in place") && workdirOnly(crossed),
+    `named=${crossedText.includes("RECEIPT-DIGEST-MISMATCH")}`,
+    "M-SILENT-MISMATCH: refuse quietly — 'your receipt was refused' reads as 'there is no receipt'");
+  const liftedA = fireRaw(missingBrief);
+  check("76d", "END-TO-END BINDING: the SAME receipt then lifts dispatch A (accept pole on the same bytes)",
+    liftedA.status === 0 && ctx(liftedA).includes("written for the FIRST missing-path dispatch only") &&
+      !fs.existsSync(RECEIPT),
+    `exit=${liftedA.status}`, "M-REFUSE-ALL: a hook that honours no receipt passes 76a-76c and fails here");
+
+  // TTL at the real boundary.
+  putReceipt("aged out", DIGEST_MISSING, new Date(Date.now() - 20 * 60 * 1000).toISOString());
+  const staleRun = fireRaw(missingBrief);
+  check("76f", "END-TO-END TTL: a receipt past its TTL does not lift the call; it is named and left in place",
+    staleRun.status === 2 && fs.existsSync(RECEIPT) &&
+      (staleRun.stderr + JSON.stringify(staleRun.json)).includes("RECEIPT-STALE"),
+    `exit=${staleRun.status} present=${fs.existsSync(RECEIPT)}`, "M-TTL: drop the age check");
+  clearReceipt();
+
+  // THE USE LEDGER the honours above wrote — under THIS sandbox's main checkout, one row per honour
+  // (73 and 76d), none for the refusals (76a, 76f) or the env channel (77 runs below).
+  const ledgerFile = path.join(sb.dir, ".claude", "learning", "override-receipt-uses.jsonl");
+  let rows = [];
+  try {
+    rows = fs.readFileSync(ledgerFile, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  } catch {
+    rows = [];
+  }
+  check("76e", "END-TO-END LEDGER: exactly one row per honoured receipt, naming this dispatch's digest and channel",
+    rows.length === 2 &&
+      rows.every((r) => r.digest === DIGEST_MISSING && r.channel === ".claude/dispatch-authz/dispatch-contract-allow" &&
+        /^[0-9a-f]{64}$/.test(r.reason_sha256)),
+    `rows=${rows.length}`, "M-NOLEDGER: honour without recording — the incident class the ledger closes");
+  check("R1-OR-consumer", "dispatch use-ledger rows carry this dispatch consumer identity",
+    rows.length === 2 && rows.every((row) => row.consumer?.session_id === "fixture-session" &&
+      row.consumer?.agent_id === "fixture-agent" && row.consumer?.agent_type === "fixture-worker" &&
+      row.consumer?.tool_use_id === "fixture-call"),
+    JSON.stringify(rows.map((row) => row.consumer)), "M-CONSUMER: drop consumer forwarding");
 
   // The operator/CI env channel.
   clearReceipt();
@@ -1018,12 +1552,15 @@ check("36", "clip flattens newlines",
     ctx(viaEnv).includes(G.OVERRIDE_ENV),
     "an override that leaves no trace is the failure this change exists to fix", "M-u");
 
-  // Fail-open arms at the real boundary.
+  // An unparseable payload is NO verdict: the launch row is `on_incomplete: "deny"`, so the run
+  // boundary (`lib/guard-runner.js::readPayload`) refuses it — inverted by the fail-closed migration
+  // (it used to pass, the `{}`-default bypass every deny guard carried).
   clearReceipt();
   const garbage = spawnHook(sb, "not json at all");
-  check("79", "END-TO-END: an unparseable payload fails OPEN, exit 0",
-    garbage.status === 0 && JSON.parse(garbage.stdout).continue === true,
-    `exit=${garbage.status}`, "block on an unknown");
+  check("79", "END-TO-END: an unparseable payload is REFUSED by the run boundary, exit 2, guard named",
+    garbage.status === 2 && /\[guard-runner\] DENY dispatch-contract-guard: dispatch-contract-guard could not read its hook payload/.test(garbage.stderr) &&
+      !/"continue"\s*:\s*true/.test(garbage.stdout),
+    `exit=${garbage.status}`, "unwrap runGuard (the old readStdinBounded {} default passes it)");
 
   // The LEXICAL arm must stay below block even when it fires.
   const lexicalOnly = fireRaw({
@@ -1053,7 +1590,7 @@ check("36", "clip flattens newlines",
 // matched) reds here instead of passing as "silent".
 {
   const FX = path.join(REPO, ".claude/audit-fixtures/dispatch-contract");
-  const brief = (name) => fs.readFileSync(path.join(FX, `lane-brief-${name}.txt`), "utf8");
+  const brief = (name) => materializeFixtureText(fs.readFileSync(path.join(FX, `lane-brief-${name}.txt`), "utf8"));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const cls = (namesLane, grantsCommit, leafDenial, role, missing) =>
     ({ namesLane, grantsCommit, leafDenial, role, missing });
@@ -1214,8 +1751,8 @@ check("36", "clip flattens newlines",
   // duplicated literal is the drift mechanism that lets a case keep asserting against a prompt
   // the substitution no longer reaches.
   const atRepo = (name, dir = sb.dir) =>
-    fs.readFileSync(path.join(FX, `lane-brief-${name}.txt`), "utf8")
-      .split("/Users/op/repos/.loom-wt/wip-ledger").join(dir);
+    materializeFixtureText(fs.readFileSync(path.join(FX, `lane-brief-${name}.txt`), "utf8"))
+      .split(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}op/repos/.loom-wt/wip-ledger")).join(dir);
   const RECEIPT = sb.receipt;
   const RECEIPT_DIR = path.dirname(RECEIPT);
   const clearReceipt = () => { try { fs.rmSync(RECEIPT, { force: true }); } catch {} };
@@ -1358,10 +1895,19 @@ check("36", "clip flattens newlines",
     };
   };
   const REASON = "operator override written for the BLOCKED lane-b dispatch only";
+  // The blocked dispatch the pending receipt is written FOR — declared before the receipt, because
+  // a receipt now names its call by digest.
+  const BLOCK = {
+    subagent_type: "general-purpose",
+    prompt: `STEP 0: cd /tmp/loom-fixture-absent-${process.pid}-binding/lane then work there. Report back via SendMessage.`,
+  };
   const readReceipt = () => { try { return fs.readFileSync(sb.receipt); } catch { return null; } };
   const putReceipt = () => {
     fs.mkdirSync(path.dirname(sb.receipt), { recursive: true });
-    fs.writeFileSync(sb.receipt, REASON + "\n");
+    fs.writeFileSync(
+      sb.receipt,
+      receiptLine(documentedDigest({ tool_name: "Agent", tool_input: BLOCK }, [BLOCK_RULE]), REASON) + "\n",
+    );
   };
   const findingLines = (s) => s.split("\n").filter((l) => l.startsWith("- ["));
 
@@ -1389,10 +1935,6 @@ check("36", "clip flattens newlines",
     !halt.ctx.includes(L.OVERRIDE_RECEIPT_REL), "", "M-B2: re-offer the receipt on the non-block tier");
 
   // -- (a) pole 2: the SAME pending receipt meets the blocked call it was written for --
-  const BLOCK = {
-    subagent_type: "general-purpose",
-    prompt: `STEP 0: cd /tmp/loom-fixture-absent-${process.pid}-binding/lane then work there. Report back via SendMessage.`,
-  };
   const blockF = L.inspectDispatch("Agent", BLOCK, inv);
   const overridden = fire(BLOCK);
   const afterBlock = readReceipt();
@@ -1406,8 +1948,8 @@ check("36", "clip flattens newlines",
   // -- (b) block + halt-and-report + advisory on ONE brief, no receipt --
   const MIXED = {
     name: "lane-w6", subagent_type: "general-purpose",
-    prompt: fs.readFileSync(path.join(REPO, ".claude/audit-fixtures/dispatch-contract/lane-brief-flag-orchestrator-serial.txt"), "utf8")
-      .split("/Users/op/repos/.loom-wt/wip-ledger").join(`/nonexistent-loom-probe-${process.pid}/repos/.loom-wt/lane-mixed`),
+    prompt: materializeFixtureText(fs.readFileSync(path.join(REPO, ".claude/audit-fixtures/dispatch-contract/lane-brief-flag-orchestrator-serial.txt"), "utf8"))
+      .split(materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}op/repos/.loom-wt/wip-ledger")).join(`/nonexistent-loom-probe-${process.pid}/repos/.loom-wt/lane-mixed`),
   };
   const mixedF = L.inspectDispatch("Agent", MIXED, inv);
   const mixed = fire(MIXED);
@@ -1441,14 +1983,1239 @@ check("36", "clip flattens newlines",
     "a render that adds phantom lines, or asks about findings that are not there");
 
   // -- runner isolation: the hook is started from ONE place, and every sandbox is outside the checkout --
+  // A call whose first argument is the literal "git" cannot start the hook, so it is not counted:
+  // `makeHookSandbox` runs `git init` to give each sandbox its own repository (the use ledger
+  // resolves under it). Any other start site — `node`, `process.execPath`, a variable — still counts.
   const SRC = fs.readFileSync(new URL(import.meta.url), "utf8");
-  const START_RX = new RegExp("\\b(?:spawnSync|execFileSync|execSync|spawn|execFile|exec|fork)\\(", "g");
-  const starts = SRC.match(START_RX) || [];
-  check("138", "ISOLATION: the hook is started from exactly ONE call site (the sandbox-pinned spawnHook), and all 4 sandboxes sit outside the checkout",
-    starts.length === 1 && sandboxes.length === 4 &&
+  const START_RX = new RegExp("\\b(?:spawnSync|execFileSync|execSync|spawn|execFile|exec|fork)\\((?!\\s*[\"']git[\"'])", "g");
+  // The openStdin producer's own start is the ONE spawnHook launches (its hook argv is spawnHook's checked one), so it
+  // is counted separately: the rest of the file holds exactly one start site, the producer exactly one.
+  const pAt = SRC.indexOf("const OPEN_PRODUCER = [");
+  const pEnd = pAt < 0 ? -1 : SRC.indexOf("].join(", pAt);
+  const starts = (pEnd < 0 ? SRC : SRC.slice(0, pAt) + SRC.slice(pEnd)).match(START_RX) || [];
+  const producerStarts = OPEN_PRODUCER.match(START_RX) || [];
+  check("138", "ISOLATION: the hook is started from exactly ONE call site (the sandbox-pinned spawnHook, plus its openStdin producer's single start), and all 4 sandboxes sit outside the checkout",
+    pEnd > 0 && starts.length === 1 && producerStarts.length === 1 && sandboxes.length === 4 &&
       sandboxes.every((s) => within(s.dir, TMP_REAL) && !within(s.dir, REPO_REAL)),
-    `start sites=${starts.length} sandboxes=${sandboxes.length}`,
+    `start sites=${starts.length} producer=${producerStarts.length} sandboxes=${sandboxes.length}`,
     "M-S2: a section that starts the hook directly again");
+}
+
+// ── 20. EFFORT ROUTING — every launch carries the effort its ROLE maps to (2026-10-12) ────────
+// Owner decision: a subagent launch MUST carry the effort the routing table assigns to its ROLE.
+// The table is ONE data file (`hooks/lib/effort-routing-policy.json`); the role is the brief's
+// FIRST non-empty line `ROLE: <role>`; an override is the NEXT non-empty line
+// `EFFORT-OVERRIDE: <level> — <reason>`. Every verdict compares PARSED fields — the role line, the
+// table, the `effort` tool parameter — so the arm is block-grade (hook-output-discipline MUST-2),
+// and it FAILS CLOSED: an invalid table, a missing role, an unknown role or a missing effort blocks.
+// Placed AFTER case 138 so its new sandboxes do not move 138's sandbox count.
+{
+  let ER = null;
+  try {
+    ER = require(path.join(REPO, ".claude/hooks/lib/effort-routing.js"));
+  } catch (e) {
+    ER = null;
+  }
+  const has = (name) => ER && typeof ER[name] === "function";
+  const codes = (r) => (r && Array.isArray(r.findings) ? r.findings.map((f) => `${f.severity}:${f.code}`).sort() : ["<no result>"]);
+  const tableOk = has("loadRoutingTable") ? ER.loadRoutingTable() : null;
+
+  // -- the TABLE: schema-versioned roles -> effort, every value in the five levels --
+  check("E01", "the shipped routing table loads VALID, with exactly the owner's nine roles and levels",
+    tableOk?.ok === true &&
+      JSON.stringify(tableOk.roles) === JSON.stringify({
+        "security-review": "high", "correctness-review": "high", "load-bearing-author": "high",
+        "bounded-bugfix": "medium", "routine-implementation": "medium", "explore-search": "medium",
+        "mechanical-receipt": "low", extraction: "low", "codex-seat": "medium",
+      }),
+    JSON.stringify(tableOk), "edit a role's level in the table");
+  check("E02", "the level vocabulary is exactly {low, medium, high, xhigh, max}",
+    ER && JSON.stringify(ER.LEVELS) === JSON.stringify(["low", "medium", "high", "xhigh", "max"]),
+    JSON.stringify(ER && ER.LEVELS));
+  const validate = (o) => (has("validateRoutingTable") ? ER.validateRoutingTable(o) : { ok: "<missing>" });
+  const base = { schema_version: 1, roles: { "security-review": "high" } };
+  check("E03", "an UNKNOWN top-level key makes the table INVALID",
+    validate({ ...base, extra: true }).ok === false, JSON.stringify(validate({ ...base, extra: true })),
+    "drop the unknown-key check");
+  check("E04", "an UNKNOWN effort value makes the table INVALID",
+    validate({ schema_version: 1, roles: { a: "ultra" } }).ok === false, "", "drop the level check");
+  check("E05", "a wrong schema_version makes the table INVALID",
+    validate({ ...base, schema_version: 2 }).ok === false, "", "drop the version check");
+  check("E06", "an empty roles map, a non-object roles map, and a malformed role name are each INVALID",
+    validate({ schema_version: 1, roles: {} }).ok === false &&
+      validate({ schema_version: 1, roles: ["high"] }).ok === false &&
+      validate({ schema_version: 1, roles: { "Bad Role": "high" } }).ok === false, "");
+  check("E07", "the accept pole: a minimal well-formed table (with a _doc array) is VALID",
+    validate({ ...base, _doc: ["why"] }).ok === true, JSON.stringify(validate({ ...base, _doc: ["why"] })),
+    "a validator that rejects everything");
+  const missingFile = has("loadRoutingTable") ? ER.loadRoutingTable(path.join(TMP_REAL, `absent-${process.pid}.json`)) : null;
+  check("E08", "an ABSENT table file is INVALID (fail-closed), with a reason, never a default table",
+    missingFile?.ok === false && typeof missingFile.reason === "string" && missingFile.reason.length > 0,
+    JSON.stringify(missingFile), "fall back to a built-in default table");
+
+  // -- the ROLE line and the override line are PARSED fields at fixed positions --
+  const hdr = (t) => (has("parseBriefHeader") ? ER.parseBriefHeader(t) : {});
+  check("E09", "the FIRST non-empty line `ROLE: x` is the role; leading blank lines are skipped",
+    hdr("\n\n  ROLE: security-review  \nbody").role === "security-review", JSON.stringify(hdr("\n\nROLE: security-review\nbody")));
+  check("E10", "a ROLE line that is NOT first is no role (it is prose, not the field)",
+    hdr("Please review.\nROLE: security-review").role === null, "", "search every line for ROLE:");
+  check("E11", "the override is the NEXT non-empty line, level + em-dash + non-empty reason",
+    JSON.stringify(hdr("ROLE: extraction\nEFFORT-OVERRIDE: high — the table is wrong for this one").override) ===
+      JSON.stringify({ level: "high", reason: "the table is wrong for this one" }),
+    JSON.stringify(hdr("ROLE: extraction\nEFFORT-OVERRIDE: high — the table is wrong for this one")));
+  check("E12", "an override with an EMPTY reason or an unknown level is MALFORMED, never honoured",
+    hdr("ROLE: extraction\nEFFORT-OVERRIDE: high —   ").overrideError &&
+      hdr("ROLE: extraction\nEFFORT-OVERRIDE: turbo — reason").overrideError &&
+      hdr("ROLE: extraction\nEFFORT-OVERRIDE: high — x").override?.level === "high", "");
+
+  // -- the launch decision (library) --
+  const launch = (prompt, effort) => (has("decideLaunch")
+    ? ER.decideLaunch(effort === undefined ? { prompt } : { prompt, effort }, tableOk)
+    : null);
+  check("E13", "CONTROL: a correct launch (role line + the table's effort) yields NO finding",
+    JSON.stringify(codes(launch("ROLE: security-review\nAudit the diff.", "high"))) === "[]",
+    JSON.stringify(codes(launch("ROLE: security-review\nAudit the diff.", "high"))), "a decider that always blocks");
+  check("E14", "NO ROLE line BLOCKS (ROLE_MISSING), naming every valid role",
+    JSON.stringify(codes(launch("Audit the diff.", "high"))) === '["block:ROLE_MISSING"]' &&
+      launch("Audit the diff.", "high").findings[0].evidence.includes("security-review (high)") &&
+      launch("Audit the diff.", "high").findings[0].evidence.includes("mechanical-receipt (low)"),
+    JSON.stringify(codes(launch("Audit the diff.", "high"))), "pass a launch with no role");
+  check("E15", "an UNKNOWN role BLOCKS (ROLE_UNKNOWN), naming the valid roles",
+    JSON.stringify(codes(launch("ROLE: wizard\nx", "high"))) === '["block:ROLE_UNKNOWN"]' &&
+      launch("ROLE: wizard\nx", "high").findings[0].evidence.includes("codex-seat (medium)"),
+    JSON.stringify(codes(launch("ROLE: wizard\nx", "high"))), "accept any role string");
+  check("E16", "a MISSING effort BLOCKS (EFFORT_MISSING), naming the required level",
+    JSON.stringify(codes(launch("ROLE: extraction\nx"))) === '["block:EFFORT_MISSING"]' &&
+      launch("ROLE: extraction\nx").findings[0].evidence.includes("effort: low"),
+    JSON.stringify(codes(launch("ROLE: extraction\nx"))), "treat a missing effort as the default");
+  check("E17", "an effort that differs from the table BLOCKS (EFFORT_MISMATCH), naming the required level",
+    JSON.stringify(codes(launch("ROLE: extraction\nx", "high"))) === '["block:EFFORT_MISMATCH"]' &&
+      launch("ROLE: extraction\nx", "high").findings[0].evidence.includes("effort: low"),
+    JSON.stringify(codes(launch("ROLE: extraction\nx", "high"))), "drop the equality test");
+  const ov = launch("ROLE: extraction\nEFFORT-OVERRIDE: high — needs the deeper pass\nx", "high");
+  check("E18", "a valid override whose level IS the dispatched effort passes, as an ADVISORY honour carrying the override",
+    JSON.stringify(codes(ov)) === '["advisory:OVERRIDE_HONOURED"]' && ov.override?.level === "high" &&
+      ov.override?.required === "low" && ov.override?.reason === "needs the deeper pass",
+    JSON.stringify({ c: codes(ov), o: ov && ov.override }), "ignore the override line");
+  check("E19", "an override whose level is NOT the dispatched effort still BLOCKS",
+    JSON.stringify(codes(launch("ROLE: extraction\nEFFORT-OVERRIDE: high — reason\nx", "medium"))) === '["block:EFFORT_MISMATCH"]', "");
+  check("E20", "a MALFORMED override line BLOCKS (OVERRIDE_MALFORMED) even when the effort matches the table",
+    JSON.stringify(codes(launch("ROLE: extraction\nEFFORT-OVERRIDE: low\nx", "low"))) === '["block:OVERRIDE_MALFORMED"]', "");
+  const invalidTable = has("validateRoutingTable") ? ER.validateRoutingTable({ schema_version: 1, roles: { a: "ultra" } }) : null;
+  const viaInvalid = has("decideLaunch") ? ER.decideLaunch({ prompt: "ROLE: a\nx", effort: "high" }, invalidTable) : null;
+  check("E21", "an INVALID table BLOCKS every launch with a `routing table invalid` reason",
+    JSON.stringify(codes(viaInvalid)) === '["block:TABLE_INVALID"]' &&
+      viaInvalid.findings[0].evidence.includes("routing table invalid"),
+    JSON.stringify(codes(viaInvalid)), "evaluate against an invalid table");
+
+  // -- the RE-TASKING decision (library) --
+  const retask = (message, launchState) => (has("decideRetask")
+    ? ER.decideRetask({ to: "lane-r", message }, tableOk, launchState)
+    : null);
+  const KNOWN_HIGH = { state: "known", effort: "high" };
+  check("E22", "re-tasking a HIGH-launched agent with a LOW role BLOCKS: dispatch a fresh agent at low",
+    JSON.stringify(codes(retask("ROLE: mechanical-receipt\nWrite the receipt.", KNOWN_HIGH))) === '["block:RETASK_EFFORT_MISMATCH"]' &&
+      retask("ROLE: mechanical-receipt\nWrite the receipt.", KNOWN_HIGH).findings[0].evidence.includes("dispatch a fresh agent at low"),
+    JSON.stringify(codes(retask("ROLE: mechanical-receipt\nx", KNOWN_HIGH))), "drop the re-task comparison");
+  check("E23", "CONTROL: re-tasking with a role of the SAME effort passes untouched",
+    JSON.stringify(codes(retask("ROLE: correctness-review\nNow check the tests.", KNOWN_HIGH))) === "[]", "");
+  check("E24", "a follow-up with NO ROLE line is not a re-tasking declaration and passes untouched",
+    JSON.stringify(codes(retask("thanks — also look at line 40", KNOWN_HIGH))) === "[]", "");
+  check("E25", "an UNKNOWN launch effort is ADVISORY only, never a block",
+    JSON.stringify(codes(retask("ROLE: mechanical-receipt\nx", { state: "unknown", reason: "no launch row" }))) ===
+      '["advisory:RETASK_LAUNCH_UNKNOWN"]', "", "block on missing history");
+  const lf = (rows, to, gen) => (has("launchEffortFor") ? ER.launchEffortFor(rows, to, gen) : { state: "<missing>" });
+  const row = (name, effort, generation = "(main-agent)") => ({ kind: "launch", launch_id: `${name}-${effort}-${Math.random()}`, dispatch_name: name, generation, effort });
+  check("E26", "launch effort resolves from the ledger rows of THIS generation, by dispatch name",
+    JSON.stringify(lf([row("lane-r", "high"), row("other", "low")], "lane-r", "(main-agent)")) === JSON.stringify({ state: "known", effort: "high" }), "");
+  check("E27", "rows that DISAGREE, rows with no effort, and a name never launched are each UNKNOWN",
+    lf([row("lane-r", "high"), row("lane-r", "low")], "lane-r", "(main-agent)").state === "unknown" &&
+      lf([row("lane-r", undefined)], "lane-r", "(main-agent)").state === "unknown" &&
+      lf([row("lane-r", "high", "other-gen")], "lane-r", "(main-agent)").state === "unknown" &&
+      lf([], "lane-r", "(main-agent)").state === "unknown", "");
+
+  // -- the REAL hook boundary --
+  const sbE = makeHookSandbox("effort");
+  // SendMessage goes to the RE-TASK entry (`dispatch-retask-guard.js`), as the registry routes it;
+  // every launch goes to the launch entry. `opts.hook` pins one entry explicitly.
+  const fireE = (tool_name, tool_input, extra = {}, env = {}, opts = {}) => {
+    const hook = opts.hook || (tool_name === "SendMessage" ? RETASK_HOOK : HOOK);
+    const r = spawnHook(sbE, JSON.stringify({ hook_event_name: "PreToolUse", tool_name, session_id: "s-effort", tool_input, ...extra }), env, { raw: true, hook });
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch {}
+    return { status: r.status, json, stderr: r.stderr || "",
+      ctx: json?.hookSpecificOutput?.additionalContext || "",
+      reason: json?.hookSpecificOutput?.permissionDecisionReason || "" };
+  };
+  const good = fireE("Agent", { subagent_type: "general-purpose", prompt: "ROLE: security-review\nAudit the diff.", effort: "high" });
+  check("E30", "END-TO-END CONTROL: a correct launch passes UNTOUCHED (exit 0, no context)",
+    good.status === 0 && good.json?.continue === true && good.ctx === "", `exit=${good.status} ctx=${good.ctx.length}`);
+  const noRole = fireE("Agent", { subagent_type: "general-purpose", prompt: "Audit the diff.", effort: "high" });
+  check("E31", "END-TO-END: a launch with NO ROLE line is BLOCKED (exit 2, deny), naming the valid roles",
+    noRole.status === 2 && noRole.json?.hookSpecificOutput?.permissionDecision === "deny" &&
+      noRole.reason.includes("agents/effort-routing") && noRole.reason.includes("ROLE_MISSING") && noRole.reason.includes("security-review (high)"),
+    `exit=${noRole.status}`, "the guard never consults the routing arm");
+  const mism = fireE("Task", { subagent_type: "general-purpose", prompt: "ROLE: mechanical-receipt\nWrite it.", effort: "high" });
+  check("E32", "END-TO-END: an effort that differs from the table is BLOCKED, naming the required effort",
+    mism.status === 2 && mism.reason.includes("effort: low"), `exit=${mism.status}`);
+  const noEffort = fireE("Agent", { subagent_type: "general-purpose", prompt: "ROLE: explore-search\nFind the callers." });
+  check("E33", "END-TO-END: a launch with NO effort is BLOCKED, naming the required effort",
+    noEffort.status === 2 && noEffort.reason.includes("EFFORT_MISSING") && noEffort.reason.includes("effort: medium"), `exit=${noEffort.status}`);
+  const OV_REASON = "one-off: the receipt needs judgement this time";
+  const overridden = fireE("Agent",
+    { subagent_type: "general-purpose", prompt: `ROLE: mechanical-receipt\nEFFORT-OVERRIDE: high — ${OV_REASON}\nWrite it.`, effort: "high" },
+    { agent_id: "aorch-0123456789abcdef", tool_use_id: "toolu-ov" });
+  const useLedger = path.join(sbE.dir, ".claude", "learning", "override-receipt-uses.jsonl");
+  let ovRows = [];
+  try { ovRows = fs.readFileSync(useLedger, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)); } catch { ovRows = []; }
+  const reasonSha = crypto.createHash("sha256").update(OV_REASON, "utf8").digest("hex");
+  check("E34", "END-TO-END: the override PASSES (exit 0) and says it was honoured",
+    overridden.status === 0 && overridden.json?.continue === true && overridden.ctx.includes("OVERRIDE_HONOURED"),
+    `exit=${overridden.status}`);
+  check("E35", "END-TO-END: the honoured override is LOGGED — one use-ledger row with the reason HASH, the levels and the consumer",
+    ovRows.length === 1 && ovRows[0].channel === "agents/effort-routing/EFFORT-OVERRIDE" &&
+      ovRows[0].reason_sha256 === reasonSha && ovRows[0].detail?.required === "low" &&
+      ovRows[0].detail?.applied === "high" && ovRows[0].detail?.role === "mechanical-receipt" &&
+      ovRows[0].consumer?.tool_use_id === "toolu-ov" && !JSON.stringify(ovRows[0]).includes(OV_REASON),
+    JSON.stringify(ovRows), "honour the override without recording it");
+
+  // RE-TASKING through SendMessage: the launch effort comes from the T1 dispatch ledger.
+  const DL = require(path.join(REPO, ".claude/hooks/lib/dispatch-ledger.js"));
+  const seeded = DL.appendRecord({ repoDir: sbE.dir, record: Object.assign(
+    DL.buildLaunchRecord({ sessionId: "s-effort", generation: DL.MAIN_GENERATION, dispatchName: "lane-r", subagentType: "general-purpose", nowIso: new Date().toISOString() }),
+    { effort: "high", role: "security-review" }) });
+  const reHigh = fireE("SendMessage", { to: "lane-r", message: "ROLE: mechanical-receipt\nNow write the receipt." });
+  check("E36", "END-TO-END RE-TASK: a LOW role sent to a HIGH-launched agent is BLOCKED: dispatch a fresh agent at low",
+    seeded.ok === true && reHigh.status === 2 && reHigh.reason.includes("dispatch a fresh agent at low"),
+    `seeded=${seeded.ok} exit=${reHigh.status}`, "the guard ignores SendMessage");
+  const reSame = fireE("SendMessage", { to: "lane-r", message: "ROLE: correctness-review\nNow check the tests." });
+  check("E37", "END-TO-END RE-TASK CONTROL: a role of the SAME effort passes untouched",
+    reSame.status === 0 && reSame.ctx === "", `exit=${reSame.status}`);
+  const reUnknown = fireE("SendMessage", { to: "never-launched", message: "ROLE: mechanical-receipt\nx" });
+  check("E38", "END-TO-END RE-TASK: an agent with no recorded launch effort is ADVISORY only (exit 0)",
+    reUnknown.status === 0 && reUnknown.ctx.includes("RETASK_LAUNCH_UNKNOWN"), `exit=${reUnknown.status}`, "block on missing history");
+  const rePlain = fireE("SendMessage", { to: "lane-r", message: "also check line 40" });
+  check("E39", "END-TO-END RE-TASK: a follow-up with no ROLE line passes untouched",
+    rePlain.status === 0 && rePlain.ctx === "", `exit=${rePlain.status}`);
+
+  // The TABLE at the hook boundary: a COPY of the hook tree inside a sandbox, with its table broken.
+  const sbT = makeHookSandbox("table");
+  fs.cpSync(path.join(REPO, ".claude", "hooks"), path.join(sbT.dir, ".claude", "hooks"), { recursive: true });
+  const tablePath = path.join(sbT.dir, ".claude", "hooks", "lib", "effort-routing-policy.json");
+  const copyHook = path.join(sbT.dir, ".claude", "hooks", "dispatch-contract-guard.js");
+  const fireT = () => {
+    const r = spawnHook(sbT, JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Agent",
+      tool_input: { subagent_type: "general-purpose", prompt: "ROLE: security-review\nAudit.", effort: "high" } }), {}, { raw: true, hook: copyHook });
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch {}
+    return { status: r.status, reason: json?.hookSpecificOutput?.permissionDecisionReason || "" };
+  };
+  const copyOk = fireT();
+  check("E40", "END-TO-END TABLE CONTROL: the copied hook tree with the INTACT table passes a correct launch",
+    copyOk.status === 0, `exit=${copyOk.status}`);
+  fs.writeFileSync(tablePath, JSON.stringify({ schema_version: 1, roles: { "security-review": "ultra" } }));
+  const badValue = fireT();
+  fs.writeFileSync(tablePath, JSON.stringify({ schema_version: 1, roles: { "security-review": "high" }, surprise: 1 }));
+  const badKey = fireT();
+  fs.rmSync(tablePath, { force: true });
+  const noTable = fireT();
+  check("E41", "END-TO-END TABLE: an unknown value, an unknown key, and an ABSENT table each BLOCK with `routing table invalid`",
+    [badValue, badKey, noTable].every((x) => x.status === 2 && x.reason.includes("routing table invalid")),
+    `exits=${[badValue, badKey, noTable].map((x) => x.status).join(",")}`, "fall back to a default table");
+  // FAIL-CLOSED on the LIBRARY too: a launch the arm cannot evaluate is a launch it cannot route.
+  fs.rmSync(path.join(sbT.dir, ".claude", "hooks", "lib", "effort-routing.js"), { force: true });
+  const noLib = fireT();
+  check("E43", "END-TO-END: an UNLOADABLE effort-routing library BLOCKS a launch (UNEVALUABLE), never passes it",
+    noLib.status === 2 && noLib.reason.includes("UNEVALUABLE"), `exit=${noLib.status}`,
+    "fail open when the routing library will not load");
+
+  // HONOURED ⇔ RECORDED: an override whose ledger row cannot be written is NOT honoured.
+  const sbU = makeHookSandbox("unrecorded");
+  fs.mkdirSync(path.join(sbU.dir, ".claude", "learning", "override-receipt-uses.jsonl"), { recursive: true });
+  const rU = spawnHook(sbU, JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Agent", tool_input:
+    { subagent_type: "general-purpose", prompt: "ROLE: mechanical-receipt\nEFFORT-OVERRIDE: high — needs judgement\nWrite it.", effort: "high" } }), {}, { raw: true });
+  let jU = null;
+  try { jU = JSON.parse(rU.stdout); } catch {}
+  const reasonU = jU?.hookSpecificOutput?.permissionDecisionReason || "";
+  check("E42", "END-TO-END: an override that CANNOT be recorded is refused — BLOCK (OVERRIDE_UNRECORDED), never a silent pass",
+    rU.status === 2 && reasonU.includes("OVERRIDE_UNRECORDED"), `exit=${rU.status}`,
+    "honour the override without its ledger row");
+
+  // ── R1 fix batch (2026-10-12) ─────────────────────────────────────────────────────────────
+  // RE-TASK ORDERING (correctness F1): the launch is resolved FIRST. With a KNOWN launch a bad ROLE,
+  // a malformed override or an invalid table BLOCKS; with an UNKNOWN launch each is ADVISORY; a
+  // message to `main` is never a re-task. Both poles, library level.
+  const UNKNOWN_L = { state: "unknown", reason: "no launch row" };
+  const rt = (to, message, launchState, table = tableOk) => (has("decideRetask")
+    ? ER.decideRetask({ to, message }, table, launchState) : null);
+  const badTable = has("validateRoutingTable") ? ER.validateRoutingTable({ schema_version: 2, roles: {} }) : null;
+  check("E44", "RE-TASK, KNOWN launch: an unknown role, a malformed override and an invalid table each BLOCK",
+    JSON.stringify(codes(rt("lane-r", "ROLE: wizard\nx", KNOWN_HIGH))) === '["block:ROLE_UNKNOWN"]' &&
+      JSON.stringify(codes(rt("lane-r", "ROLE: extraction\nEFFORT-OVERRIDE: low\nx", KNOWN_HIGH))) === '["block:OVERRIDE_MALFORMED"]' &&
+      JSON.stringify(codes(rt("lane-r", "ROLE: extraction\nx", KNOWN_HIGH, badTable))) === '["block:TABLE_INVALID"]',
+    JSON.stringify([codes(rt("lane-r", "ROLE: wizard\nx", KNOWN_HIGH)), codes(rt("lane-r", "ROLE: extraction\nx", KNOWN_HIGH, badTable))]),
+    "M-RT-ADVISE-ALL: make every re-task finding advisory");
+  check("E45", "RE-TASK, UNKNOWN launch: the same three are ADVISORY only, never a block",
+    JSON.stringify(codes(rt("peer", "ROLE: wizard\nx", UNKNOWN_L))) === '["advisory:ROLE_UNKNOWN"]' &&
+      JSON.stringify(codes(rt("peer", "ROLE: extraction\nEFFORT-OVERRIDE: low\nx", UNKNOWN_L))) === '["advisory:OVERRIDE_MALFORMED"]' &&
+      JSON.stringify(codes(rt("peer", "ROLE: extraction\nx", UNKNOWN_L, badTable))) === '["advisory:TABLE_INVALID"]',
+    JSON.stringify([codes(rt("peer", "ROLE: wizard\nx", UNKNOWN_L)), codes(rt("peer", "ROLE: extraction\nx", UNKNOWN_L, badTable))]),
+    "M-RT-ORDER: restore the role/override/table blocks BEFORE the launch-known check");
+  check("E46", "RE-TASK: a message to `main` is never a re-task — no finding, whatever its ROLE line says",
+    JSON.stringify(codes(rt("main", "ROLE: security-reviewer\nSECURITY: CLEAN", UNKNOWN_L))) === "[]" &&
+      JSON.stringify(codes(rt("main", "ROLE: security-review\nreport", UNKNOWN_L))) === "[]",
+    JSON.stringify(codes(rt("main", "ROLE: security-reviewer\nx", UNKNOWN_L))), "M-RT-MAIN: drop the lead-recipient skip");
+
+  // ONE CODE FOR ONE INPUT (correctness F8): a present-but-unparseable ROLE line is ROLE_MALFORMED on
+  // BOTH paths; an absent one stays ROLE_MISSING.
+  check("E47", "ROLE_MALFORMED on BOTH paths for `ROLE: x (high)`; ROLE_MISSING stays for no ROLE line",
+    JSON.stringify(codes(launch("ROLE: security-review (high)\nx", "high"))) === '["block:ROLE_MALFORMED"]' &&
+      JSON.stringify(codes(rt("lane-r", "ROLE: security-review (high)\nx", KNOWN_HIGH))) === '["block:ROLE_MALFORMED"]' &&
+      JSON.stringify(codes(launch("no role here", "high"))) === '["block:ROLE_MISSING"]',
+    JSON.stringify([codes(launch("ROLE: security-review (high)\nx", "high")), codes(rt("lane-r", "ROLE: security-review (high)\nx", KNOWN_HIGH))]),
+    "M-RT-CODE: hardcode ROLE_UNKNOWN on the re-task path");
+
+  // FORK (security F1): a fork runs at its parent's effort, so it cannot satisfy the gate by
+  // declaring one; it passes only under a recorded override.
+  const forkLaunch = (prompt, effort) => (has("decideLaunch")
+    ? ER.decideLaunch({ subagent_type: "fork", prompt, ...(effort === undefined ? {} : { effort }) }, tableOk) : null);
+  check("E48", "FORK: a fork carrying the routed effort is BLOCKED (EFFORT_INAPPLICABLE); a fork with an override is honoured",
+    JSON.stringify(codes(forkLaunch("ROLE: security-review\nx", "high"))) === '["block:EFFORT_INAPPLICABLE"]' &&
+      JSON.stringify(codes(forkLaunch("ROLE: security-review\nEFFORT-OVERRIDE: medium — parent runs at medium\nx"))) === '["advisory:OVERRIDE_HONOURED"]' &&
+      forkLaunch("ROLE: security-review\nEFFORT-OVERRIDE: medium — parent runs at medium\nx").override?.fork === true &&
+      JSON.stringify(codes(launch("ROLE: security-review\nx", "high"))) === "[]",
+    JSON.stringify(codes(forkLaunch("ROLE: security-review\nx", "high"))), "M-FORK: drop the fork branch");
+
+  // ESCAPED DUPLICATE KEY (security F4): a key spelled with a JSON escape is refused.
+  const escRaw = '{"schema_version":1,"roles":{"security-review":"high","\\u0073ecurity-review":"medium"}}';
+  const escRes = has("validateRoutingTable") ? ER.validateRoutingTable(JSON.parse(escRaw), escRaw) : null;
+  const docRaw = '{"schema_version":1,"_doc":["a \\"quoted\\" word"],"roles":{"security-review":"high"}}';
+  const docRes = has("validateRoutingTable") ? ER.validateRoutingTable(JSON.parse(docRaw), docRaw) : null;
+  check("E49", "TABLE: an escape-spelled duplicate key is INVALID; an escape inside a _doc VALUE is not",
+    escRes?.ok === false && /JSON escape/.test(escRes.reason) && docRes?.ok === true,
+    JSON.stringify({ escRes, docRes }), "M-ESC: drop the escaped-key refusal");
+
+  // LEDGER PREFERENCE (security F7): a blocked launch and its corrected retry resolve to the retry.
+  const rrow = (effort, routed) => ({ kind: "launch", launch_id: `lb-${effort}-${routed}`, dispatch_name: "lane-b", generation: "(main-agent)", effort, ...(routed === undefined ? {} : { effort_routed: routed }) });
+  check("E50", "LEDGER: rows tagged effort_routed:true are preferred — a blocked launch + corrected retry is KNOWN",
+    JSON.stringify(lf([rrow("medium", false), rrow("high", true)], "lane-b", "(main-agent)")) === JSON.stringify({ state: "known", effort: "high" }) &&
+      lf([rrow("medium", undefined), rrow("high", undefined)], "lane-b", "(main-agent)").state === "unknown",
+    JSON.stringify(lf([rrow("medium", false), rrow("high", true)], "lane-b", "(main-agent)")), "M-ROUTED: read every row");
+  let EDL = null;
+  try { EDL = require(path.join(REPO, ".claude/hooks/emit-dispatch-ledger.js")); } catch { EDL = null; }
+  const dOk = EDL ? EDL.declaredEffortOf({ subagent_type: "general-purpose", prompt: "ROLE: security-review\nx", effort: "high" }) : null;
+  const dBad = EDL ? EDL.declaredEffortOf({ subagent_type: "general-purpose", prompt: "ROLE: security-review\nx", effort: "low" }) : null;
+  const dFork = EDL ? EDL.declaredEffortOf({ subagent_type: "fork", prompt: "ROLE: security-review\nx", effort: "high" }) : null;
+  check("E51", "LEDGER PRODUCER: tags the routing verdict, and records a fork's effort as null",
+    dOk?.effortRouted === true && dOk?.effort === "high" && dBad?.effortRouted === false && dFork?.effort === null,
+    JSON.stringify({ dOk, dBad, dFork }), "M-FORKNULL: record the fork's declared effort");
+
+  // END-TO-END re-task poles through the RE-TASK ENTRY (lane-r is seeded HIGH above).
+  const toMain = fireE("SendMessage", { to: "main", message: "ROLE: security-reviewer\nSECURITY: CLEAN" });
+  const toPeer = fireE("SendMessage", { to: "peer-x", message: "ROLE: wizard\nreport" });
+  const toKnownBad = fireE("SendMessage", { to: "lane-r", message: "ROLE: wizard\nNow do it." });
+  check("E52", "END-TO-END RE-TASK: an unknown ROLE to `main` passes untouched, to an unlaunched peer is advisory, to a KNOWN launch blocks",
+    toMain.status === 0 && toMain.ctx === "" &&
+      toPeer.status === 0 && toPeer.ctx.includes("ROLE_UNKNOWN") && toPeer.ctx.includes("follow-up") &&
+      toKnownBad.status === 2 && toKnownBad.reason.includes("ROLE_UNKNOWN"),
+    `main=${toMain.status} peer=${toPeer.status} known=${toKnownBad.status}`, "M-RT-ORDER / M-RT-MAIN");
+  const advCtx = toPeer.ctx;
+  check("E53", "NON-BLOCK RENDER for effort advisories: says follow-up, explains the effort tier, not the prose-cap rationale",
+    advCtx.includes("This SendMessage follow-up has NOT been issued yet") && advCtx.includes("launch effort is UNKNOWN") &&
+      !advCtx.includes("agent-definition-shadowing"),
+    advCtx.slice(0, 160), "M-RENDER: restore the dispatch-contract-only rationale");
+  // Each entry acts ONLY on its own tools: the launch entry passes a SendMessage, the re-task entry
+  // passes a launch — so the two registrations never judge one call twice.
+  const launchEntryOnSend = fireE("SendMessage", { to: "lane-r", message: "ROLE: mechanical-receipt\nx" }, {}, {}, { hook: HOOK });
+  const retaskEntryOnLaunch = fireE("Agent", { subagent_type: "general-purpose", prompt: "no role" }, {}, {}, { hook: RETASK_HOOK });
+  check("E54", "SCOPE: the launch entry ignores SendMessage and the re-task entry ignores a launch (each exit 0, no context)",
+    launchEntryOnSend.status === 0 && launchEntryOnSend.ctx === "" && retaskEntryOnLaunch.status === 0 && retaskEntryOnLaunch.ctx === "",
+    `launch-on-send=${launchEntryOnSend.status} retask-on-launch=${retaskEntryOnLaunch.status}`, "M-SCOPE: accept both tool sets in both entries");
+
+  // REGISTRATION (correctness F2): the re-task entry is its own SendMessage row declaring continue;
+  // the launch entry keeps Task|Agent at deny. Read from the registry the dispatcher reads.
+  const regJ = JSON.parse(fs.readFileSync(path.join(REPO, ".claude/hooks/dispatch-registry.json"), "utf8"));
+  const rowsOf = (base) => regJ.events.PreToolUse.groups.flatMap((g) => g.hooks.filter((h) => h.command.includes(`/${base}`)).map((h) => ({ matcher: g.matcher, on: h.on_incomplete })));
+  check("E55", "REGISTRY: dispatch-retask-guard.js = SendMessage/continue; dispatch-contract-guard.js = Task|Agent|Workflow/deny only",
+    JSON.stringify(rowsOf("dispatch-retask-guard.js")) === JSON.stringify([{ matcher: "SendMessage", on: "continue" }]) &&
+      JSON.stringify(rowsOf("dispatch-contract-guard.js")) === JSON.stringify([{ matcher: "Task|Agent|Workflow", on: "deny" }]),
+    JSON.stringify({ retask: rowsOf("dispatch-retask-guard.js"), contract: rowsOf("dispatch-contract-guard.js") }));
+
+  // FORK END-TO-END + its ledger row (security F1).
+  const forkBlocked = fireE("Agent", { subagent_type: "fork", prompt: "ROLE: security-review\nAudit.", effort: "high" });
+  const forkOv = fireE("Agent", { subagent_type: "fork", prompt: "ROLE: security-review\nEFFORT-OVERRIDE: medium — parent session runs at medium\nAudit.", effort: "high" }, { tool_use_id: "toolu-fork" });
+  let fRows = [];
+  try { fRows = fs.readFileSync(useLedger, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)); } catch { fRows = []; }
+  const forkRow = fRows.find((r) => r.consumer?.tool_use_id === "toolu-fork");
+  check("E56", "END-TO-END FORK: blocked without an override; with one it passes and the ledger row says the PARENT's effort applied",
+    forkBlocked.status === 2 && forkBlocked.reason.includes("EFFORT_INAPPLICABLE") &&
+      forkOv.status === 0 && forkRow?.detail?.applied === "parent (fork)" && forkRow?.detail?.declared === "medium",
+    `blocked=${forkBlocked.status} ov=${forkOv.status} row=${JSON.stringify(forkRow?.detail)}`, "M-FORK");
+
+  // ENV CHANNEL (security F2): the session-wide env lift does NOT lift an effort block, and says so.
+  const envMism = fireE("Agent", { subagent_type: "general-purpose", prompt: "ROLE: security-review\nAudit.", effort: "low" }, {}, { [L.OVERRIDE_ENV]: "1" });
+  check("E57", "END-TO-END ENV: COC_ALLOW_DISPATCH_CONTRACT=1 does NOT lift an effort block, and the block says only a recorded override can",
+    envMism.status === 2 && envMism.reason.includes("EFFORT_MISMATCH") &&
+      (envMism.reason + envMism.stderr).includes("environment channel does NOT lift"),
+    `exit=${envMism.status}`, "M-ENV: consult process.env for effort blocks again");
+
+  // RECEIPT DIGEST BINDS EFFORT (security F6): a receipt for the brief at effort "low" does not lift
+  // it at "medium", and does lift it at "low", recording the applied effort on the receipt row.
+  const RB_PROMPT = "ROLE: security-review\nAudit the receipt-binding case.";
+  const rbPayload = (effort) => ({ hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: { subagent_type: "general-purpose", prompt: RB_PROMPT, effort } });
+  const rbDigestLow = documentedDigest(rbPayload("low"), ["agents/effort-routing@low"]);
+  fs.mkdirSync(path.dirname(sbE.receipt), { recursive: true });
+  fs.writeFileSync(sbE.receipt, receiptLine(rbDigestLow, "approved at low for this one audit") + "\n");
+  const rbMedium = fireE("Agent", rbPayload("medium").tool_input);
+  const rbStillThere = fs.existsSync(sbE.receipt);
+  const rbLow = fireE("Agent", rbPayload("low").tool_input, { tool_use_id: "toolu-rb" });
+  let rbRows = [];
+  try { rbRows = fs.readFileSync(useLedger, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)); } catch { rbRows = []; }
+  const rbRow = rbRows.find((r) => r.consumer?.tool_use_id === "toolu-rb");
+  check("E58", "END-TO-END RECEIPT: a receipt bound at effort low does not lift effort medium, lifts low, and records applied=low",
+    rbMedium.status === 2 && rbStillThere && rbLow.status === 0 && !fs.existsSync(sbE.receipt) &&
+      rbRow?.detail?.applied === "low" && rbRow?.channel === ".claude/dispatch-authz/dispatch-contract-allow",
+    `medium=${rbMedium.status} kept=${rbStillThere} low=${rbLow.status} row=${JSON.stringify(rbRow?.detail)}`,
+    "M-DIGEST-EFFORT: bind effort findings by the bare rule id");
+  try { fs.rmSync(sbE.receipt, { force: true }); } catch {}
+
+  // MISSING SIBLING LIBRARIES (security F3): an effort block still BLOCKS with any of the guard's
+  // other libraries gone; a copied hook tree per library, mismatch launch each time.
+  const sbL = makeHookSandbox("libs");
+  const libsFire = (removed) => {
+    const root = path.join(sbL.dir, `tree-${removed.replace(/\W/g, "_")}`);
+    fs.cpSync(path.join(REPO, ".claude", "hooks"), path.join(root, ".claude", "hooks"), { recursive: true });
+    fs.rmSync(path.join(root, ".claude", "hooks", "lib", removed), { force: true });
+    const r = spawnHook(sbL, JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Agent",
+      tool_input: { subagent_type: "general-purpose", prompt: "ROLE: security-review\nAudit.", effort: "medium" } }), {}, { raw: true, hook: path.join(root, ".claude", "hooks", "dispatch-contract-guard.js") });
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch {}
+    return { status: r.status, reason: json?.hookSpecificOutput?.permissionDecisionReason || "", decision: json?.hookSpecificOutput?.permissionDecision };
+  };
+  const noContract = libsFire("dispatch-contract.js");
+  const noOverride = libsFire("override-receipt.js");
+  const noRenderer = libsFire("instruct-and-wait.js");
+  check("E59", "FAIL-CLOSED: with lib/dispatch-contract.js, lib/override-receipt.js or lib/instruct-and-wait.js gone, an effort mismatch still BLOCKS (deny, EFFORT_MISMATCH)",
+    [noContract, noOverride, noRenderer].every((x) => x.status === 2 && x.decision === "deny" && x.reason.includes("EFFORT_MISMATCH")),
+    `exits=${[noContract, noOverride, noRenderer].map((x) => x.status).join(",")}`, "M-LIBS: return passthrough when a sibling library will not load");
+
+  // SYMLINKED TABLE (security F5): a table that is a symlink is never followed.
+  const sbS = makeHookSandbox("symlink");
+  fs.cpSync(path.join(REPO, ".claude", "hooks"), path.join(sbS.dir, ".claude", "hooks"), { recursive: true });
+  const sTable = path.join(sbS.dir, ".claude", "hooks", "lib", "effort-routing-policy.json");
+  const permissive = path.join(sbS.dir, "permissive-table.json");
+  fs.writeFileSync(permissive, JSON.stringify({ schema_version: 1, roles: { "security-review": "medium" } }));
+  fs.rmSync(sTable, { force: true });
+  fs.symlinkSync(permissive, sTable);
+  const sRes = has("loadRoutingTable") ? ER.loadRoutingTable(sTable) : null;
+  const sReal = has("loadRoutingTable") ? ER.loadRoutingTable(permissive) : null;
+  check("E60", "TABLE: a symlinked table is INVALID (never followed), while the file it points at loads VALID",
+    sRes?.ok === false && /symlink/.test(sRes.reason) && sReal?.ok === true,
+    JSON.stringify({ sRes, sReal: sReal?.ok }), "M-SYMLINK: read the table with statSync/readFileSync again");
+
+  // ── SELF-CORRECTION (owner ruling on correctness #4, 2026-10-12: "a block that main agents can see
+  // and correct … not a block that requires human intervention"). Every effort-routing block names
+  // the exact corrected first line, every valid role from the SHIPPED table, the required effort and
+  // how to pass it on both runtimes, and the roles a generic launch can pick — and a relaunch built
+  // from ONLY the deny text is ALLOWED, through the real guard, on Claude AND on the Codex projection.
+  const shippedRoles = Object.entries(JSON.parse(fs.readFileSync(path.join(REPO, ".claude/hooks/lib/effort-routing-policy.json"), "utf8")).roles);
+  const namesEveryRole = (t) => shippedRoles.every(([r, l]) => t.includes(`${r} (${l})`));
+  const namesBothParams = (t) => t.includes("`effort") && t.includes("`reasoning_effort");
+  const namesGeneric = (t) => t.includes("A generic launch") && t.includes("`ROLE: explore-search`") && t.includes("`ROLE: routine-implementation`");
+  const selfCorrect = (t) => t.includes("SELF-CORRECT (no human step needed)") && namesEveryRole(t) && namesBothParams(t) && namesGeneric(t);
+  /** The corrected `{line, effort}` a deny text names for a KNOWN role, or the generic pick for an unknown one. */
+  const correctionOf = (t) => {
+    const m = String(t).match(/FIRST line exactly `(ROLE: [a-z0-9-]+)` and pass effort ([a-z]+) /);
+    if (m) return { line: m[1], effort: m[2] };
+    const g = String(t).match(/A generic launch[^`]*`(ROLE: [a-z0-9-]+)` \(effort ([a-z]+)\)/);
+    return g ? { line: g[1], effort: g[2] } : null;
+  };
+  const libBlocks = has("decideLaunch") && has("decideRetask") ? [
+    ["ROLE_MISSING", ER.decideLaunch({ prompt: "Audit.", effort: "high" }, tableOk), null],
+    ["ROLE_MALFORMED", ER.decideLaunch({ prompt: "ROLE: security-review (high)\nAudit.", effort: "high" }, tableOk), null],
+    ["ROLE_UNKNOWN", ER.decideLaunch({ prompt: "ROLE: wizard\nx", effort: "high" }, tableOk), null],
+    ["OVERRIDE_MALFORMED", ER.decideLaunch({ prompt: "ROLE: extraction\nEFFORT-OVERRIDE: low\nx", effort: "low" }, tableOk), ["ROLE: extraction", "low"]],
+    ["EFFORT_MISSING", ER.decideLaunch({ prompt: "ROLE: extraction\nx" }, tableOk), ["ROLE: extraction", "low"]],
+    ["EFFORT_MISMATCH", ER.decideLaunch({ prompt: "ROLE: extraction\nx", effort: "high" }, tableOk), ["ROLE: extraction", "low"]],
+    ["EFFORT_MISMATCH(override)", ER.decideLaunch({ prompt: "ROLE: extraction\nEFFORT-OVERRIDE: high — r\nx", effort: "medium" }, tableOk), ["ROLE: extraction", "low"]],
+    ["EFFORT_INAPPLICABLE", ER.decideLaunch({ subagent_type: "fork", prompt: "ROLE: security-review\nx", effort: "high" }, tableOk), ["ROLE: security-review", "high"]],
+    ["RETASK ROLE_MISSING-shape", ER.decideRetask({ to: "lane-r", message: "ROLE:\nx" }, tableOk, KNOWN_HIGH), null],
+    ["RETASK ROLE_UNKNOWN", ER.decideRetask({ to: "lane-r", message: "ROLE: wizard\nx" }, tableOk, KNOWN_HIGH), null],
+    ["RETASK OVERRIDE_MALFORMED", ER.decideRetask({ to: "lane-r", message: "ROLE: extraction\nEFFORT-OVERRIDE: low\nx" }, tableOk, KNOWN_HIGH), ["ROLE: extraction", "low"]],
+    ["RETASK_EFFORT_MISMATCH", ER.decideRetask({ to: "lane-r", message: "ROLE: mechanical-receipt\nx" }, tableOk, KNOWN_HIGH), ["ROLE: mechanical-receipt", "low"]],
+  ] : [];
+  const libBad = libBlocks.filter(([, r, want]) => {
+    const f = r?.findings?.[0];
+    if (!f || f.severity !== "block" || !selfCorrect(f.evidence)) return true;
+    if (!want) return false;
+    const c = correctionOf(f.evidence);
+    return !(c && c.line === want[0] && c.effort === want[1]);
+  }).map(([n]) => n);
+  check("E61", "SELF-CORRECT: every effort block (launch + re-task) names the corrected `ROLE:` line + effort, every shipped role, both effort params, and the generic roles",
+    libBlocks.length === 12 && libBad.length === 0, `bad=${JSON.stringify(libBad)} n=${libBlocks.length}`,
+    "M-REMEDY-ROLES / M-REMEDY-GENERIC / M-REMEDY-LINE / M-REMEDY-CODEX");
+
+  // F9 — no deny path needs a human: an INVALID table and an unloadable library each name the
+  // restore the agent can run itself, and the library-less remedy still lists the shipped roles.
+  const invEv = has("decideLaunch") ? ER.decideLaunch({ prompt: "ROLE: a\nx", effort: "high" }, invalidTable).findings[0].evidence : "";
+  const sbUv = makeHookSandbox("uneval");
+  const uRoot = path.join(sbUv.dir, "tree");
+  fs.cpSync(path.join(REPO, ".claude", "hooks"), path.join(uRoot, ".claude", "hooks"), { recursive: true });
+  const uLib = path.join(uRoot, ".claude", "hooks", "lib", "effort-routing.js");
+  const uHook = path.join(uRoot, ".claude", "hooks", "dispatch-contract-guard.js");
+  const uFire = (ti) => {
+    const r = spawnHook(sbUv, JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Agent", session_id: "s-uneval", tool_input: ti }), {}, { raw: true, hook: uHook });
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch {}
+    return { status: r.status, reason: json?.hookSpecificOutput?.permissionDecisionReason || "" };
+  };
+  const uBytes = fs.readFileSync(uLib);
+  fs.rmSync(uLib, { force: true });
+  const uDenied = uFire({ subagent_type: "general-purpose", prompt: "Audit.", effort: "high" });
+  // The agent's own remedy: restore the shipped library, then relaunch with a line the deny text named.
+  fs.writeFileSync(uLib, uBytes);
+  const uLine = (uDenied.reason.match(/`(ROLE: explore-search)` \(effort ([a-z]+)\)/) || []);
+  const uRelaunch = uLine[1] ? uFire({ subagent_type: "general-purpose", prompt: `${uLine[1]}\nFind the callers.`, effort: uLine[2] }) : { status: -1 };
+  check("E62", "NO HUMAN EXIT NEEDED: TABLE_INVALID and UNEVALUABLE each name the self-run restore; the library-less deny still lists every shipped role, and restore + relaunch from it is ALLOWED",
+    invEv.includes("SELF-CORRECT (no human step needed)") && invEv.includes("git checkout HEAD -- .claude/hooks/lib/effort-routing-policy.json") &&
+      uDenied.status === 2 && uDenied.reason.includes("UNEVALUABLE") &&
+      uDenied.reason.includes("git checkout HEAD -- .claude/hooks/lib/effort-routing.js") &&
+      shippedRoles.every(([r, l]) => uDenied.reason.includes(`\`ROLE: ${r}\` (effort ${l})`)) && uRelaunch.status === 0,
+    `uneval=${uDenied.status} relaunch=${uRelaunch.status}`, "M-TABLE-RESTORE / M-UNEVAL-ROLES");
+
+  // END-TO-END on CLAUDE: a mismatched launch and a role-less launch, each relaunched with EXACTLY the
+  // corrected line and effort parsed out of its own deny text, and nothing else changed.
+  const BODY = "Find every caller of the routing table.";
+  const c1 = fireE("Agent", { subagent_type: "general-purpose", prompt: `ROLE: bounded-bugfix\n${BODY}`, effort: "low" });
+  const k1 = correctionOf(c1.reason);
+  const r1 = k1 ? fireE("Agent", { subagent_type: "general-purpose", prompt: `${k1.line}\n${BODY}`, effort: k1.effort }) : { status: -1, ctx: "x" };
+  const c2 = fireE("Agent", { subagent_type: "Explore", prompt: BODY, effort: "high" });
+  const k2 = correctionOf(c2.reason);
+  const r2 = k2 ? fireE("Agent", { subagent_type: "Explore", prompt: `${k2.line}\n${BODY}`, effort: k2.effort }) : { status: -1, ctx: "x" };
+  check("E63", "END-TO-END CLAUDE: relaunching with exactly the corrected line + effort named in the deny is ALLOWED (mismatch, and a generic role-less Explore launch)",
+    c1.status === 2 && selfCorrect(c1.reason) && k1?.line === "ROLE: bounded-bugfix" && k1?.effort === "medium" && r1.status === 0 && r1.ctx === "" &&
+      c2.status === 2 && selfCorrect(c2.reason) && k2?.line === "ROLE: explore-search" && r2.status === 0 && r2.ctx === "",
+    `deny1=${c1.status} relaunch1=${r1.status} deny2=${c2.status} relaunch2=${r2.status} k2=${JSON.stringify(k2)}`,
+    "M-REMEDY-LINE / M-REMEDY-GENERIC");
+
+  // END-TO-END on CODEX: a NATIVE spawn_agent payload (`message`, `agent_type`, `reasoning_effort`)
+  // projected by the real adapter projection (`lib/codex-native-policy.js::projectPayloads`, which
+  // normalizes `reasoning_effort` -> `effort`), fired at the real guard; the deny names the Codex
+  // parameter, and a native relaunch built from it is ALLOWED. This drives the projection + guard,
+  // not a whole `--native-policy` run (that writes adapter state into the checkout).
+  let CNP = null;
+  try { CNP = require(path.join(REPO, ".claude/hooks/lib/codex-native-policy.js")); } catch { CNP = null; }
+  const fireCodex = (input) => {
+    if (!CNP) return { status: -1, reason: "", ctx: "x" };
+    const [proj] = CNP.projectPayloads({ hook_event_name: "PreToolUse", tool_name: "spawn_agent", session_id: "s-effort", tool_input: input });
+    return fireE(proj.tool_name, proj.tool_input);
+  };
+  const x1 = fireCodex({ agent_type: "worker", message: `ROLE: security-review\n${BODY}`, reasoning_effort: "low" });
+  const kx = correctionOf(x1.reason);
+  const xr = kx ? fireCodex({ agent_type: "worker", message: `${kx.line}\n${BODY}`, reasoning_effort: kx.effort }) : { status: -1, ctx: "x" };
+  check("E64", "END-TO-END CODEX: a native spawn_agent deny names `reasoning_effort`, and a native relaunch with exactly the corrected line + effort is ALLOWED",
+    x1.status === 2 && x1.reason.includes(`reasoning_effort: "high"`) && kx?.line === "ROLE: security-review" && kx?.effort === "high" &&
+      xr.status === 0 && xr.ctx === "",
+    `deny=${x1.status} relaunch=${xr.status} k=${JSON.stringify(kx)}`, "M-REMEDY-CODEX / M-REMEDY-LINE");
+
+  // RE-TASK END-TO-END: the re-task deny names the fresh launch, and that launch is ALLOWED.
+  const rtD = fireE("SendMessage", { to: "lane-r", message: "ROLE: mechanical-receipt\nWrite the receipt." });
+  const kr = correctionOf(rtD.reason);
+  const rtFresh = kr ? fireE("Agent", { subagent_type: "general-purpose", prompt: `${kr.line}\nWrite the receipt.`, effort: kr.effort }) : { status: -1, ctx: "x" };
+  check("E65", "END-TO-END RE-TASK: the deny names a FRESH launch's corrected line + effort, and that launch is ALLOWED",
+    rtD.status === 2 && rtD.reason.includes("RETASK_EFFORT_MISMATCH") && rtD.reason.includes("FRESH (non-fork)") &&
+      kr?.line === "ROLE: mechanical-receipt" && kr?.effort === "low" && rtFresh.status === 0 && rtFresh.ctx === "",
+    `deny=${rtD.status} fresh=${rtFresh.status}`, "M-REMEDY-LINE");
+
+  // ── ROOT-W1 (2026-10-12): a Workflow script's agent() launches fire no PreToolUse Task|Agent, so the
+  // launch entry judges the Workflow call itself — each literal agent() call exactly as a launch.
+  let WS = null;
+  try { WS = require(path.join(REPO, ".claude/hooks/lib/workflow-launch-scan.js")); } catch { WS = null; }
+  const WF_SCRIPT = [
+    "export const meta = { name: 'probe', description: 'probe' }",
+    "// agent('commented out', {effort: 'low'})",
+    "const re = /agent\\(/g; const half = n / 2;",
+    "const a = await agent('ROLE: explore-search\\nFind it', {effort: 'medium', schema: S})",
+    "const b = await agent(`ROLE: security-review\\nAudit ${f}`, {effort: \"high\"})",
+    "const c = await parallel(xs.map(x => () => agent(x.prompt, {effort: 'high'})))",
+    "const d = await agent('ROLE: extraction\\nx', {...base})",
+    "tool.agent('a member named agent — not provably the hook, so it is reported')",
+    "await workflow('child', {})",
+    "const e = await agent(`ROLE: extraction\\nEFFORT-OVERRIDE: high — needs the deep pass\\n${body}`, {effort: 'high'})",
+  ].join("\n");
+  const wscan = WS ? WS.scanWorkflowScript(WF_SCRIPT) : null;
+  const wsum = wscan && wscan.ok ? wscan.calls.map((c) => [c.line, c.prompt.evaluable, c.options.evaluable, c.options.effort]) : null;
+  check("E66", "WORKFLOW SCANNER: finds each direct agent() call with its line, reads literal prompts/efforts, flags non-literal ones, skips comments and regex literals, reports a member named `agent` as INDIRECT, counts nested workflow()",
+    JSON.stringify(wsum) === JSON.stringify([[4, true, true, "medium"], [5, true, true, "high"], [6, false, true, "high"], [7, true, false, null], [10, true, true, "high"]]) &&
+      wscan.nested.length === 1 && wscan.nested[0].line === 9 && wscan.calls[1].prompt.text === "ROLE: security-review\n" &&
+      wscan.calls[4].prompt.overrideUnknown === false && wscan.calls[4].prompt.text.includes("EFFORT-OVERRIDE: high") &&
+      wscan.indirect.length === 1 && wscan.indirect[0].line === 8 && wscan.indirect[0].why.includes("member name"),
+    JSON.stringify({ wsum, nested: wscan && wscan.nested, indirect: wscan && wscan.indirect }), "M-WFP-OCCURRENCE / M-WS-TPL");
+
+  const fireW = (tool_input, extra = {}) => fireE("Workflow", tool_input, extra);
+  const wfOf = (...calls) => ["export const meta = { name: 'w', description: 'w' }", ...calls].join("\n");
+  const wPass = fireW({ script: wfOf("await agent('ROLE: explore-search\\nFind the callers.', {effort: 'medium'})") });
+  check("E67", "END-TO-END WORKFLOW: a script whose literal agent() calls are routed correctly passes UNTOUCHED (exit 0, no context)",
+    wPass.status === 0 && wPass.ctx === "" && wPass.reason === "", `exit=${wPass.status} ctx=${wPass.ctx.slice(0, 120)}`, "M-WF-ALWAYS-BLOCK");
+  const wNoRole = fireW({ script: wfOf("const x = 1", "await agent('Find the callers.', {effort: 'medium'})") });
+  const kw = correctionOf(wNoRole.reason);
+  const wFixed = kw ? fireW({ script: wfOf("const x = 1", `await agent('${kw.line}\\nFind the callers.', {effort: '${kw.effort}'})`) }) : { status: -1, ctx: "x" };
+  check("E68", "END-TO-END WORKFLOW: a literal agent() prompt with no ROLE line BLOCKS the Workflow, naming its script line and the self-correction; the script rewritten from the deny passes",
+    wNoRole.status === 2 && wNoRole.reason.includes("ROLE_MISSING") && wNoRole.reason.includes("script line 3") &&
+      selfCorrect(wNoRole.reason) && wNoRole.reason.includes("agent(prompt, {effort") && wFixed.status === 0 && wFixed.ctx === "",
+    `deny=${wNoRole.status} fixed=${wFixed.status} k=${JSON.stringify(kw)}`, "M-WF-SKIP / M-WF-LINE");
+  const wWrong = fireW({ script: wfOf("await agent('ROLE: security-review\\nAudit.', {effort: 'low'})") });
+  const wNone = fireW({ script: wfOf("await agent('ROLE: security-review\\nAudit.')") });
+  const kww = correctionOf(wWrong.reason);
+  check("E69", "END-TO-END WORKFLOW: a literal effort that differs from the table BLOCKS (EFFORT_MISMATCH, effort high), and an agent() with no effort option BLOCKS (EFFORT_MISSING)",
+    wWrong.status === 2 && wWrong.reason.includes("EFFORT_MISMATCH") && kww?.line === "ROLE: security-review" && kww?.effort === "high" &&
+      wNone.status === 2 && wNone.reason.includes("EFFORT_MISSING"),
+    `wrong=${wWrong.status} none=${wNone.status}`, "M-WF-EFFORT");
+  // FAIL-CLOSED (root ruling 2026-10-12, overriding the first ROOT-W1 wording): an agent() whose ROLE or
+  // effort cannot be read literally DENIES, with the make-it-literal remedy, the role list and — where the
+  // role is known — the required effort; a script rewritten literally from the deny passes.
+  const wNonLit = fireW({ script: wfOf(
+    "await agent(task.prompt, {effort: 'high'})",
+    "await agent('ROLE: extraction\\nx', {...opts})",
+    "await workflow('child')",
+    "await agent(`ROLE: extraction\\n${body}`, {effort: 'high'})") });
+  const wLitFixed = fireW({ script: wfOf(
+    "await agent('ROLE: explore-search\\nFind it.', {effort: 'medium'})",
+    "await agent('ROLE: extraction\\nx', {effort: 'low'})",
+    "await agent(`ROLE: extraction\\n${body}`, {effort: 'low'})") });
+  check("E70", "END-TO-END WORKFLOW FAIL-CLOSED: a non-literal prompt, a non-literal effort, a nested workflow() and a hidden-override mismatch each DENY with the make-it-literal remedy; the literal rewrite passes",
+    wNonLit.status === 2 && (wNonLit.reason.match(/WORKFLOW_UNEVALUATED/g) || []).length === 2 &&
+      wNonLit.reason.includes("WORKFLOW_NESTED_UNRESOLVED") && wNonLit.reason.includes("script line 5: EFFORT_MISMATCH") &&
+      wNonLit.reason.includes("script line 2") && wNonLit.reason.includes("script line 3") &&
+      wNonLit.reason.includes("make the ROLE line and the effort literal in this agent() call") &&
+      wNonLit.reason.includes("Role `extraction` requires effort: low") && namesEveryRole(wNonLit.reason) &&
+      wLitFixed.status === 0 && wLitFixed.ctx === "",
+    `exit=${wNonLit.status} fixed=${wLitFixed.status} reason=${wNonLit.reason.slice(0, 160)}`,
+    "M-WF-NONLIT-ADVISORY / M-WF-NESTED-ADVISORY / M-WF-HIDDEN-SOFT");
+  // Each construct ALONE: in E70's combined script any one of them softened to advisory is still denied by
+  // the other three, so only a one-construct script shows that construct itself fails closed.
+  const wAlone = {
+    prompt: fireW({ script: wfOf("await agent(task.prompt, {effort: 'high'})") }),
+    options: fireW({ script: wfOf("await agent('ROLE: extraction\\nx', {...opts})") }),
+    nested: fireW({ script: wfOf("await workflow('child')") }),
+    hidden: fireW({ script: wfOf("await agent(`ROLE: extraction\\n${body}`, {effort: 'high'})") }),
+  };
+  check("E70a", "END-TO-END WORKFLOW FAIL-CLOSED, ONE CONSTRUCT PER SCRIPT: a non-literal prompt, a non-literal effort, a nested workflow() and a hidden-override mismatch EACH deny on their own",
+    wAlone.prompt.status === 2 && wAlone.prompt.reason.includes("WORKFLOW_UNEVALUATED") &&
+      wAlone.options.status === 2 && wAlone.options.reason.includes("WORKFLOW_UNEVALUATED") &&
+      wAlone.options.reason.includes("Role `extraction` requires effort: low") &&
+      [wAlone.prompt, wAlone.options].every((r) => r.reason.includes("make the ROLE line and the effort literal")) &&
+      wAlone.nested.status === 2 && wAlone.nested.reason.includes("WORKFLOW_NESTED_UNRESOLVED") &&
+      wAlone.nested.reason.includes("inline the child's agent() calls") &&
+      wAlone.hidden.status === 2 && wAlone.hidden.reason.includes("EFFORT_MISMATCH") &&
+      wAlone.hidden.reason.includes("write the override line literally") &&
+      Object.values(wAlone).every((r) => selfCorrect(r.reason) && namesEveryRole(r.reason)),
+    Object.entries(wAlone).map(([k, r]) => `${k}=${r.status}`).join(" "),
+    "M-WF-NONLIT-ADVISORY / M-WF-OPTS-ADVISORY / M-WF-NESTED-ADVISORY / M-WF-HIDDEN-SOFT");
+  const wName = fireW({ name: "no-such-saved-workflow" });
+  const wsTarget = path.join(sbE.dir, "real-script.js");
+  fs.writeFileSync(wsTarget, wfOf("await agent('no role', {effort: 'low'})"));
+  const wsLink = path.join(sbE.dir, "linked-script.js");
+  fs.symlinkSync(wsTarget, wsLink);
+  const wLink = fireW({ scriptPath: wsLink });
+  const wPath = fireW({ scriptPath: wsTarget });
+  const wUnscannable = fireW({ script: wfOf("await agent('ROLE: explore-search\\nunterminated, {effort: 'medium'})") });
+  check("E71", "END-TO-END WORKFLOW FAIL-CLOSED: an unresolvable saved name, a symlinked scriptPath and an unscannable script DENY (WORKFLOW_UNRESOLVED, the link never followed) with the inline-the-script remedy; the real scriptPath IS read",
+    wName.status === 2 && wName.reason.includes("WORKFLOW_UNRESOLVED") && wName.reason.includes("inline the script") &&
+      wLink.status === 2 && wLink.reason.includes("WORKFLOW_UNRESOLVED") && wLink.reason.includes("symlink") && !wLink.reason.includes("ROLE_MISSING") &&
+      wPath.status === 2 && wPath.reason.includes("ROLE_MISSING") &&
+      wUnscannable.status === 2 && wUnscannable.reason.includes("could not be scanned"),
+    `name=${wName.status} link=${wLink.status} path=${wPath.status} unscannable=${wUnscannable.status}`, "M-WF-FOLLOW / M-WF-UNRESOLVED-ADVISORY / M-WF-SCAN-ADVISORY");
+
+  // E3 A5 F1 (2026-10-13): the runtime resolves a Workflow `name` by the `meta.name` declared INSIDE each
+  // `*.js` file across the user, project, plugin and built-in registries — never by FILENAME, and never
+  // from a `.mjs`. A guard that looked a name up by filename judged a different file than the one that
+  // runs, so the `name` source is refused outright: whatever the saved directory holds, a name DENIES.
+  const savedDir = path.join(sbE.dir, ".claude", "workflows");
+  fs.mkdirSync(savedDir, { recursive: true });
+  // A decoy whose FILENAME stem is the name asked for but which declares another meta.name and launches nothing…
+  fs.writeFileSync(path.join(savedDir, "decoy-n.js"),
+    ["export const meta = { name: 'some-other-name', description: 'decoy' }", "const x = 1"].join("\n"));
+  // …beside the file the runtime would actually run for that name: a high-routed role launched at low.
+  fs.writeFileSync(path.join(savedDir, "the-real-one.js"),
+    ["export const meta = { name: 'decoy-n', description: 'runs' }", "await agent('ROLE: security-review\\nAudit.', {effort: 'low'})"].join("\n"));
+  // A filename that matches AND whose one call is correctly routed: still a name, still refused.
+  fs.writeFileSync(path.join(savedDir, "routed-n.js"),
+    ["export const meta = { name: 'routed-n', description: 'routed' }", "await agent('ROLE: explore-search\\nFind it.', {effort: 'medium'})"].join("\n"));
+  const nDecoy = fireW({ name: "decoy-n" });
+  const nRouted = fireW({ name: "routed-n" });
+  const nameDenied = (r) => r.status === 2 && r.reason.includes("WORKFLOW_UNRESOLVED") && r.reason.includes("`name`") &&
+    r.reason.includes("inline the script") && r.reason.includes("absolute") && r.reason.includes("scriptPath");
+  check("E71b", "F1 NAME SOURCE REFUSED: a Workflow launched by `name` DENIES (WORKFLOW_UNRESOLVED, inline-or-absolute-scriptPath remedy) when a file of that FILENAME holds no agent() call, and when the matching file is correctly routed — the guard never judges a file by name",
+    nameDenied(nDecoy) && nameDenied(nRouted) && !nDecoy.reason.includes("EFFORT_MISMATCH"),
+    `decoy=${nDecoy.status} routed=${nRouted.status} reason=${nDecoy.reason.slice(0, 160)}`, "M-F1-NAME-LOOKUP");
+  // The `.mjs` variant: the runtime never loads one, so a guard reading it judges a file that cannot run.
+  fs.writeFileSync(path.join(savedDir, "decoy-m.mjs"),
+    ["export const meta = { name: 'decoy-m', description: 'never loaded' }", "const x = 1"].join("\n"));
+  const nMjs = fireW({ name: "decoy-m" });
+  check("E71c", "F1 NAME SOURCE REFUSED (.mjs decoy): a `name` whose only file is a `.mjs` with no agent() call DENIES rather than passing on the file the runtime never loads",
+    nameDenied(nMjs), `mjs=${nMjs.status} reason=${nMjs.reason.slice(0, 160)}`, "M-F1-NAME-LOOKUP");
+
+  // E3 A5 F2 (2026-10-13): a computed member access or computed key reaches a property whose NAME is built
+  // at run time, so no identifier token names it and the reflective-token check never fires. Every one
+  // whose key is not a single number literal makes the script unscannable — fail-closed.
+  const ROUTED_CALL = "await agent('ROLE: explore-search\\nFind it.', {effort: 'medium'})";
+  const COMPUTED = {
+    "identifier-key": ["const k = 'na' + 'me'", "const v = meta[k]"],
+    "concatenated-key": ["const v = meta['na' + 'me']"],
+    "string-literal-key": ["const v = meta['name']"],
+    "optional-computed": ["const v = meta?.['name']"],
+    "in-substitution": ["const v = `${meta['na' + 'me']}`"],
+    "pattern-key": ["const { ['na' + 'me']: v } = meta"],
+    "class-computed-key": ["class C { ['na' + 'me']() { return 1 } }"],
+  };
+  const computedRuns = Object.entries(COMPUTED).map(([variant, lines]) => {
+    const src = wfOf(...lines, ROUTED_CALL);
+    const scan = WS ? WS.scanWorkflowScript(src) : null;
+    const r = fireW({ script: src });
+    return { variant, scanOk: scan ? scan.ok : null, why: scan && !scan.ok ? scan.reason : "", status: r.status,
+      denied: r.status === 2 && r.reason.includes("WORKFLOW_UNRESOLVED") && r.reason.includes("could not be scanned") && r.reason.includes("computed") };
+  });
+  check("E71d", "F2 COMPUTED KEY REFUSED: a computed member access or computed key whose key is not a number literal — identifier, concatenated string, string literal, optional, inside a substitution, in a destructuring pattern, in a class body — makes the script UNSCANNABLE and the Workflow DENIES",
+    computedRuns.every((x) => x.scanOk === false && x.why.includes("computed") && x.denied),
+    JSON.stringify(computedRuns.map(({ variant, scanOk, status }) => [variant, scanOk, status])), "M-F2-COMPUTED-OPEN");
+  // The named prototype and property-descriptor readers reach a property by a string name with no `[`.
+  const reflRuns = ["getPrototypeOf", "getOwnPropertyDescriptor", "getOwnPropertyDescriptors", "__lookupGetter__"].map((id) => {
+    const r = fireW({ script: wfOf(`const v = Object.${id}(meta)`, ROUTED_CALL) });
+    return { id, status: r.status, denied: r.status === 2 && r.reason.includes("WORKFLOW_INDIRECT") && r.reason.includes(id) };
+  });
+  check("E71e", "F2 STRING-NAMED REFLECTION REFUSED: the prototype and property-descriptor readers each DENY as WORKFLOW_INDIRECT",
+    reflRuns.every((x) => x.denied), JSON.stringify(reflRuns.map(({ id, status }) => [id, status])), "M-F2-DESCRIPTOR-IDS");
+  // A QUOTED property key names a property with no identifier token and no `[`, so before the fix each of
+  // these scanned as "no launches" and the Workflow was ALLOWED (E3 R1 security HIGH, 2026-10-15): the
+  // string-keyed destructuring reaches `Function` (or aliases the hook) exactly as `.constructor` does.
+  const QUOTED_KEYS = {
+    "ctor-destructure": "const {\"constructor\": F} = parallel",
+    "ctor-chain": "const {'constructor': G} = parallel; const {'constructor': F} = G",
+    "hook-alias": "const {\"agent\": a} = globals",
+    "proto": "const {'__proto__': P} = parallel",
+    "object-literal-key": "const o = {'eval': parallel}",
+  };
+  const quotedRuns = Object.entries(QUOTED_KEYS).map(([variant, line]) => {
+    const src = wfOf(line, ROUTED_CALL);
+    const scan = WS ? WS.scanWorkflowScript(src) : null;
+    const r = fireW({ script: src });
+    return { variant, flagged: !!(scan && scan.ok && scan.indirect.some((x) => x.why.includes("quoted key"))), status: r.status,
+      denied: r.status === 2 && r.reason.includes("WORKFLOW_INDIRECT") && r.reason.includes("quoted key") };
+  });
+  check("E71g", "QUOTED REFLECTIVE KEY REFUSED: a string-literal property key naming a reflective identifier or a launch hook — `{\"constructor\": F}`, a chained constructor, `{\"agent\": a}`, `__proto__`, an object-literal key — is reported indirect and the Workflow DENIES (WORKFLOW_INDIRECT)",
+    quotedRuns.every((x) => x.flagged && x.denied), JSON.stringify(quotedRuns.map(({ variant, flagged, status }) => [variant, flagged, status])), "M-QUOTED-KEY");
+  // ALLOW pole for E71g: quoted keys that name no reflective identifier or hook — including the routed
+  // call's own quoted option keys — still pass, so the fix cannot be satisfied by refusing every quoted key.
+  const QUOTED_OK = wfOf("const o = {\"name\": 'x', 'list': [1, 2]}",
+    "await agent('ROLE: explore-search\\nFind it.', {\"effort\": 'medium'})", ROUTED_CALL);
+  const qScan = WS ? WS.scanWorkflowScript(QUOTED_OK) : null;
+  const qOk = fireW({ script: QUOTED_OK });
+  check("E71h", "ALLOW POLE (quoted keys): ordinary quoted keys and quoted option keys PASS untouched, both calls proved",
+    qScan && qScan.ok === true && qScan.calls.length === 2 && qScan.indirect.length === 0 && qOk.status === 0 && qOk.reason === "",
+    `scan=${qScan && (qScan.ok ? `calls=${qScan.calls.length} indirect=${qScan.indirect.length}` : qScan.reason)} status=${qOk.status} ${qOk.reason.slice(0, 120)}`,
+    "M-QUOTED-KEY-OVERBLOCK");
+  // A quoted key holding ANY backslash is UNSCANNABLE, never decoded: the hand decoder disagreed with the
+  // engine on a lone-CR continuation and on legacy octal (E3 R2 security HIGH, 2026-10-15), each of which
+  // spelled `constructor` / `agent` and was ALLOWED. Each row must DENY; the plain benign key must ALLOW.
+  const ESCAPED_KEYS = {
+    "lone-cr-continuation": "const {\"constr\\\ructor\": F} = parallel",
+    "crlf-continuation": "const {\"constr\\\r\nuctor\": F} = parallel",
+    "octal-constructor": "const {\"\\143onstructor\": F} = parallel",
+    "octal-agent": "const {\"\\141gent\": a} = globals",
+    "unicode-constructor": "const {\"\\u0063onstructor\": F} = parallel",
+    "out-of-range-codepoint": "const {\"\\u{110000}\": F} = parallel",
+  };
+  const escRuns = Object.entries(ESCAPED_KEYS).map(([variant, line]) => {
+    const src = wfOf(line, ROUTED_CALL);
+    let scanOk = null;
+    try { scanOk = WS ? WS.scanWorkflowScript(src).ok : null; } catch { scanOk = "threw"; }
+    const r = fireW({ script: src });
+    return { variant, scanOk, status: r.status, denied: r.status === 2 && r.reason.includes("WORKFLOW_UNRESOLVED") };
+  });
+  const plainKey = fireW({ script: wfOf("const o = {\"name\": 'x'}", ROUTED_CALL) });
+  check("E71i", "ESCAPED QUOTED KEY UNSCANNABLE: a quoted key with a lone-CR or CRLF continuation, a legacy octal escape (constructor, agent), a unicode escape, or an out-of-range code point makes the script UNSCANNABLE and the Workflow DENIES; the same script with a plain benign key ALLOWS",
+    escRuns.every((x) => x.scanOk === false && x.denied) && plainKey.status === 0 && plainKey.reason === "",
+    JSON.stringify(escRuns.map(({ variant, scanOk, status }) => [variant, scanOk, status])) + ` plain=${plainKey.status}`,
+    "M-ESCAPED-KEY");
+
+  // The ALLOW pole for both fixes: inline and absolute-scriptPath launches still pass, including a script
+  // that uses array literals, array destructuring, for-of over an array literal, a numeric index and a
+  // numeric computed key — none of which can name a property by a run-time string.
+  const ALLOWED_SHAPES = wfOf(
+    "const xs = ['a', 'b']",
+    "const [first, second] = xs",
+    "const one = xs[0]",
+    "for (const x of ['c', 'd']) { void x }",
+    "const o = { [0]: one, list: [1, 2], pair: [first, second] }",
+    "const all = await Promise.all([1, 2].map((n) => n * 2))",
+    ROUTED_CALL);
+  const allowScan = WS ? WS.scanWorkflowScript(ALLOWED_SHAPES) : null;
+  const aInline = fireW({ script: ALLOWED_SHAPES });
+  const routedPath = path.join(sbE.dir, "routed-script.js");
+  fs.writeFileSync(routedPath, ALLOWED_SHAPES);
+  const aPath = fireW({ scriptPath: routedPath });
+  check("E71f", "ALLOW POLE: an inline script and the same script by absolute scriptPath both PASS untouched — array literals, array destructuring, for-of over an array literal, a numeric index and a numeric computed key are not refused",
+    allowScan && allowScan.ok === true && allowScan.calls.length === 1 && allowScan.indirect.length === 0 &&
+      aInline.status === 0 && aInline.ctx === "" && aInline.reason === "" && aPath.status === 0 && aPath.ctx === "" && aPath.reason === "",
+    `scan=${allowScan && (allowScan.ok ? "ok" : allowScan.reason)} inline=${aInline.status} path=${aPath.status} ${aInline.reason.slice(0, 120)}`,
+    "M-F2-OVERBLOCK");
+
+  // The ledger row: one workflow-launch row per Workflow call — agents found + unresolved count.
+  const wfPayload = { hook_event_name: "PreToolUse", tool_name: "Workflow", session_id: "s-wf",
+    tool_input: { script: wfOf("await agent('ROLE: explore-search\\nx', {effort: 'medium'})", "await agent(p, {effort: 'low'})", "await workflow('c')") } };
+  const wfCls = EDL ? EDL.classifyDispatchEvent(wfPayload, DL) : null;
+  const wfRec = typeof DL.buildWorkflowLaunchRecord === "function"
+    ? DL.buildWorkflowLaunchRecord({ sessionId: "s-wf", generation: null, agentsFound: wfCls?.agentsFound, unresolved: wfCls?.unresolved, scriptSource: wfCls?.scriptSource, nowIso: "2026-10-12T00:00:00.000Z" })
+    : null;
+  check("E72", "LEDGER: a Workflow call yields ONE workflow-launch row (agents_found 2, unresolved 2 = a non-literal call + a nested workflow), a kind the sink accepts",
+    wfCls?.kind === "workflow-launch" && wfRec?.kind === "workflow-launch" && wfRec.agents_found === 2 && wfRec.unresolved === 2 &&
+      wfRec.script_source === "script" && DL.RECORD_KINDS.includes("workflow-launch"),
+    JSON.stringify({ wfCls, wfRec }), "M-WF-LEDGER");
+  const wReg = JSON.parse(fs.readFileSync(path.join(REPO, ".claude/hooks/dispatch-registry.json"), "utf8"));
+  const ledgerMatchers = wReg.events.PreToolUse.groups.filter((g) => g.hooks.some((h) => h.command.includes("/emit-dispatch-ledger.js"))).map((g) => g.matcher);
+  check("E73", "REGISTRY: the ledger producer's PreToolUse matcher includes Workflow",
+    JSON.stringify(ledgerMatchers) === JSON.stringify(["Task|Agent|SendMessage|Workflow"]), JSON.stringify(ledgerMatchers), "M-WF-REG");
+
+  // FAIL-CLOSED: the scanner library missing BLOCKS a Workflow with the self-run restore text.
+  const sbW = makeHookSandbox("wf-libs");
+  const wRoot = path.join(sbW.dir, "tree");
+  fs.cpSync(path.join(REPO, ".claude", "hooks"), path.join(wRoot, ".claude", "hooks"), { recursive: true });
+  fs.rmSync(path.join(wRoot, ".claude", "hooks", "lib", "workflow-launch-scan.js"), { force: true });
+  const wNoLib = spawnHook(sbW, JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Workflow", session_id: "s-wfl",
+    tool_input: { script: wfOf("await agent('ROLE: explore-search\\nx', {effort: 'medium'})") } }), {}, { raw: true, hook: path.join(wRoot, ".claude", "hooks", "dispatch-contract-guard.js") });
+  let wNoLibJson = null;
+  try { wNoLibJson = JSON.parse(wNoLib.stdout); } catch {}
+  const wNoLibReason = wNoLibJson?.hookSpecificOutput?.permissionDecisionReason || "";
+  check("E74", "FAIL-CLOSED WORKFLOW: with lib/workflow-launch-scan.js gone a Workflow is DENIED (UNEVALUABLE) with the self-run restore of THAT library",
+    wNoLib.status === 2 && wNoLibReason.includes("UNEVALUABLE") && wNoLibReason.includes("git checkout HEAD -- .claude/hooks/lib/workflow-launch-scan.js"),
+    `exit=${wNoLib.status}`, "M-WF-FAILOPEN");
+
+  // RECEIPT DIGEST BINDS THE RESOLVED SCRIPT: a receipt written for a scriptPath's CONTENT does not
+  // lift the same path once its content changes, and does lift the content it names.
+  const rwFile = path.join(sbE.dir, "receipt-script.js");
+  const rwA = wfOf("await agent('Audit A.', {effort: 'high'})");
+  const rwB = wfOf("await agent('Audit B.', {effort: 'high'})");
+  fs.writeFileSync(rwFile, rwA);
+  const rwDigest = documentedDigest({ tool_name: "Workflow", tool_input: { subagent_type: "", prompt: rwA } }, ["agents/effort-routing"]);
+  fs.mkdirSync(path.dirname(sbE.receipt), { recursive: true });
+  fs.writeFileSync(sbE.receipt, receiptLine(rwDigest, "approved for script A only") + "\n");
+  fs.writeFileSync(rwFile, rwB);
+  const rwOnB = fireW({ scriptPath: rwFile });
+  const rwKept = fs.existsSync(sbE.receipt);
+  fs.writeFileSync(rwFile, rwA);
+  const rwOnA = fireW({ scriptPath: rwFile });
+  check("E75", "WORKFLOW RECEIPT: a receipt bound to a scriptPath's content does not lift the same path with other content, and lifts the content it names",
+    rwOnB.status === 2 && rwKept && rwOnA.status === 0 && !fs.existsSync(sbE.receipt),
+    `B=${rwOnB.status} kept=${rwKept} A=${rwOnA.status}`, "M-WF-DIGEST: digest the raw tool_input");
+
+  // CODEX RE-TASK (measured on Codex CLI 0.162.1: `collaboration.followup_task({target, message})`
+  // re-activates a finished child). Each plausible host spelling projects into the re-task class, so the
+  // re-task entry judges it: a bad ROLE to the HIGH-launched lane-r is DENIED, and the in-place re-task
+  // the deny names is ALLOWED. Driven through the real projection (`projectPayloads`), not a full run.
+  const inPlaceOf = (t) => {
+    const m = String(t).match(/in place instead, the follow-up's FIRST line must name a role at the effort it was launched with \(([a-z]+)\): `(ROLE: [a-z0-9-]+)`/);
+    return m ? { effort: m[1], line: m[2] } : null;
+  };
+  const fireFollowup = (tool_name, message) => {
+    if (!CNP) return { status: -1, reason: "", ctx: "x", projected: null };
+    const [proj] = CNP.projectPayloads({ hook_event_name: "PreToolUse", tool_name, session_id: "s-effort", tool_input: { target: "lane-r", message } });
+    return { ...fireE(proj.tool_name, proj.tool_input), projected: proj.tool_name };
+  };
+  const FOLLOWUP_SPELLINGS = ["collaboration.followup_task", "collaborationfollowup_task", "followup_task"];
+  const fu = FOLLOWUP_SPELLINGS.map((name) => {
+    const denied = fireFollowup(name, "ROLE: wizard\nPick the next item.");
+    const k = inPlaceOf(denied.reason);
+    const allowed = k ? fireFollowup(name, `${k.line}\nPick the next item.`) : { status: -1, ctx: "x" };
+    return { name, projected: denied.projected, denied: denied.status, code: /ROLE_UNKNOWN/.test(denied.reason), self: selfCorrect(denied.reason), k, allowed: allowed.status, ctx: allowed.ctx };
+  });
+  check("E76", "CODEX RE-TASK: followup_task in all three spellings projects to the re-task class, is DENIED on a bad ROLE (self-correctable), and the in-place re-task named by the deny is ALLOWED",
+    fu.every((x) => x.projected === "SendMessage" && x.denied === 2 && x.code && x.self && x.k?.effort === "high" && x.allowed === 0 && x.ctx === ""),
+    JSON.stringify(fu.map((x) => [x.name, x.projected, x.denied, x.k?.line, x.allowed])), "M-FU-PROJECT / M-RT-INPLACE");
+
+  // NESTED SPAWN (measured 2026-10-12: a subagent's own Agent call DOES fire PreToolUse Agent, the ledger
+  // recording generation = that subagent's id). The guard judges it exactly as a top-level launch.
+  const NEST = { agent_id: "a0123456789abcdefsub", agent_type: "general-purpose", tool_use_id: "toolu-nested" };
+  const nDenied = fireE("Agent", { subagent_type: "general-purpose", prompt: BODY, effort: "medium" }, NEST);
+  const kn = correctionOf(nDenied.reason);
+  const nRelaunch = kn ? fireE("Agent", { subagent_type: "general-purpose", prompt: `${kn.line}\n${BODY}`, effort: kn.effort }, NEST) : { status: -1, ctx: "x" };
+  check("E77", "NESTED SPAWN: a subagent's own launch (agent_id set) with no ROLE line is DENIED with the same self-correction, and the relaunch from the deny is ALLOWED",
+    nDenied.status === 2 && nDenied.reason.includes("ROLE_MISSING") && selfCorrect(nDenied.reason) && nRelaunch.status === 0 && nRelaunch.ctx === "",
+    `deny=${nDenied.status} relaunch=${nRelaunch.status} k=${JSON.stringify(kn)}`, "M-NEST-SKIP");
+
+  // ── E3 R2 security (2026-10-12): the Workflow scanner must PROVE a script holds nothing but direct, fully
+  // literal agent()/workflow() calls. Each script below hides a launch (or its effort) from a scanner that
+  // only FINDS calls; each must DENY, self-correctably, and never pass as a script with nothing to judge.
+  const denies = (r) => r.status === 2 && selfCorrect(r.reason) && namesEveryRole(r.reason);
+  const statusesOf = (o) => Object.entries(o).map(([k, r]) => `${k}=${r.status}`).join(" ");
+  const NOROLE = "'Do it.', {effort: 'medium'}";
+  const h1 = {
+    alias: fireW({ script: wfOf(`const launch = agent; await launch(${NOROLE})`) }),
+    map: fireW({ script: wfOf("const prompts = ['Do it.']", "await Promise.all(prompts.map(agent))") }),
+    optional: fireW({ script: wfOf(`await agent?.(${NOROLE})`) }),
+    member: fireW({ script: wfOf(`await agent.call(null, ${NOROLE})`) }),
+    comma: fireW({ script: wfOf(`await (0, agent)(${NOROLE})`) }),
+    array: fireW({ script: wfOf(`await [agent][0](${NOROLE})`) }),
+    tagged: fireW({ script: wfOf("await agent`ROLE: explore-search\\nFind it.`") }),
+    ctxMember: fireW({ script: wfOf(`await ctx.agent(${NOROLE})`) }),
+    paren: fireW({ script: wfOf(`await (agent)(${NOROLE})`) }),
+    escaped: fireW({ script: wfOf(`await \\u0061gent(${NOROLE})`) }),
+    nbsp: fireW({ script: wfOf("await agent\u00a0('ROLE: explore-search\\nFind it.', {effort: 'medium'})") }),
+    lsep: fireW({ script: wfOf(`// note\u2028await agent(${NOROLE})`) }),
+    cr: fireW({ script: wfOf(`// note\rawait agent(${NOROLE})`) }),
+    global: fireW({ script: wfOf(`await globalThis['ag' + 'ent'](${NOROLE})`) }),
+    evaled: fireW({ script: wfOf(`await eval("ag" + "ent")(${NOROLE})`) }),
+    workflowAlias: fireW({ script: wfOf("const w = workflow; await w('child')") }),
+  };
+  check("E78", "WORKFLOW PROOF (H1): an aliased, mapped, optional, member, comma, indexed, tagged-template, `ctx.agent`, parenthesized, escaped, non-ASCII-spaced, line-separator-hidden, reflective or aliased-workflow launch DENIES, self-correctably — none passes as a script with nothing to judge",
+    Object.values(h1).every(denies) && h1.escaped.reason.includes("an identifier escape or stray backslash"),
+    statusesOf(h1), "M-WFP-OCCURRENCE / M-WFP-CHARSET / M-WFP-COMMENT-END / M-WFP-REFLECT / M-WFP-ESCAPE-START");
+  const h2 = {
+    inPrompt: fireW({ script: wfOf("await agent(`ROLE: explore-search\\nFind it. ${await agent('Do it.', {effort: 'low'})}`, {effort: 'medium'})") }),
+    bare: fireW({ script: wfOf("const s = `${agent('Do it.', {effort: 'low'})}`") }),
+  };
+  check("E79", "WORKFLOW PROOF (H2): an agent() call inside a template substitution DENIES — substitutions are tokenized, never skipped",
+    Object.values(h2).every(denies), statusesOf(h2), "M-WFP-SUBST-SKIP");
+  const h3 = {
+    afterBrace: fireW({ script: wfOf(`const x = {}/1; await agent(${NOROLE})//`) }),
+    afterIncrement: fireW({ script: wfOf(`let i = 0; i++ /1; await agent(${NOROLE})//`) }),
+    afterOf: fireW({ script: wfOf(`const of = 4; const q = of /2; await agent(${NOROLE})//`) }),
+  };
+  const h3Divide = fireW({ script: wfOf("const half = (4 + 2) / 2", "await agent('ROLE: explore-search\\nFind it.', {effort: 'medium'})") });
+  const h3Regex = fireW({ script: wfOf("const s = 'x'", "if (s) /agent\\(/.test(s)", "await agent('ROLE: explore-search\\nFind it.', {effort: 'medium'})") });
+  check("E80", "WORKFLOW PROOF (H3): a `/` whose regex-or-divide reading is ambiguous (after `}`, `++` or a contextual word like `of`) DENIES; an unambiguous divide after `)` and a regex after `if (…)` still pass a correct script",
+    Object.values(h3).every(denies) && h3Divide.status === 0 && h3Divide.ctx === "" && h3Regex.status === 0 && h3Regex.ctx === "",
+    `${statusesOf(h3)} divide=${h3Divide.status} regexAfterIf=${h3Regex.status}`, "M-WFP-REGEX-GUESS / M-WFP-CONTEXTUAL / M-WFP-PAREN-HEAD");
+  const ROUTED = "'ROLE: explore-search\\nFind it.'";
+  const h4 = {
+    spreadAfter: fireW({ script: wfOf("const o = {effort: 'high'}", `await agent(${ROUTED}, {effort: 'medium', ...o})`) }),
+    getter: fireW({ script: wfOf(`await agent(${ROUTED}, {effort: 'medium', get effort() { return 'high' }})`) }),
+    escapedKey: fireW({ script: wfOf(`await agent(${ROUTED}, {effort: 'medium', eff\\u006frt: 'high'})`) }),
+    duplicate: fireW({ script: wfOf(`await agent(${ROUTED}, {effort: 'medium', 'effort': 'high'})`) }),
+  };
+  check("E81", "WORKFLOW PROOF (H4): a spread, a getter, an escaped or a duplicate key anywhere in agent()'s options DENIES, even after a literal routed effort",
+    Object.values(h4).every(denies) && h4.escapedKey.reason.includes("an identifier written with an escape"),
+    statusesOf(h4), "M-WFP-OPTIONS / M-WFP-ESCAPE-MID / M-WFP-DUP+FIRSTWINS");
+  const okScript = wfOf(`await agent(${ROUTED}, {effort: 'medium'})`);
+  const h5 = {
+    scriptAndPath: fireW({ script: okScript, scriptPath: path.join(sbE.dir, "no-such.js") }),
+    scriptAndName: fireW({ script: okScript, name: "other" }),
+    empty: fireW({ script: "" }),
+    blank: fireW({ script: " \n " }),
+  };
+  check("E82", "WORKFLOW PROOF (H5): more than one of script/scriptPath/name, or an empty script, DENIES",
+    Object.values(h5).every(denies), statusesOf(h5), "M-WFP-SOURCES");
+  fs.writeFileSync(path.join(sbE.dir, "rel-script.js"), okScript);
+  const m1 = fireW({ scriptPath: "rel-script.js" });
+  const m1Abs = fireW({ scriptPath: path.join(sbE.dir, "rel-script.js") });
+  check("E83", "WORKFLOW PROOF (M1): a RELATIVE scriptPath DENIES (the hook and the runtime may resolve it against different roots); the same script by absolute path passes",
+    denies(m1) && m1.reason.includes("a relative scriptPath is not resolved here") && m1Abs.status === 0 && m1Abs.ctx === "", `rel=${m1.status} abs=${m1Abs.status}`, "M-WFP-RELATIVE");
+  const fireSpawn = (tool_name, input) => {
+    if (!CNP) return { status: -1, reason: "", ctx: "x", projected: null };
+    const [proj] = CNP.projectPayloads({ hook_event_name: "PreToolUse", tool_name, session_id: "s-effort", tool_input: input });
+    return { ...fireE(proj.tool_name, proj.tool_input), projected: proj.tool_name };
+  };
+  const m2 = fireSpawn("collaboration.spawn_agent", { agent_type: "worker", message: BODY, reasoning_effort: "medium" });
+  const km2 = correctionOf(m2.reason);
+  const m2Fixed = km2 ? fireSpawn("collaboration.spawn_agent", { agent_type: "worker", message: `${km2.line}\n${BODY}`, reasoning_effort: km2.effort }) : { status: -1, ctx: "x" };
+  check("E84", "CODEX SPAWN (M2): `collaboration.spawn_agent` projects to the launch class — no ROLE is DENIED, and the relaunch from the deny is ALLOWED",
+    m2.projected === "Agent" && m2.status === 2 && m2.reason.includes("ROLE_MISSING") && m2Fixed.status === 0 && m2Fixed.ctx === "",
+    `projected=${m2.projected} deny=${m2.status} fixed=${m2Fixed.status}`, "M-SPAWN-DOTTED");
+  const m3 = {
+    lead: fireE("Agent", { subagent_type: "general-purpose", prompt: "ROLE: security-review\nAudit.", effort: " high" }),
+    trail: fireE("Agent", { subagent_type: "general-purpose", prompt: "ROLE: security-review\nAudit.", effort: "high\n" }),
+    wf: fireW({ script: wfOf("await agent('ROLE: security-review\\nAudit.', {effort: ' high'})") }),
+  };
+  check("E85", "RAW EFFORT (M3): an effort carrying whitespace is compared RAW and DENIED — the gate never judges a level the host was not given",
+    Object.values(m3).every((r) => r.status === 2 && r.reason.includes("EFFORT_MISMATCH")), statusesOf(m3), "M-EFFORT-TRIM");
+  // L4: a guard that THROWS mid-launch denies; a payload it cannot read (no launch identified) still passes.
+  const sbThr = makeHookSandbox("throws");
+  const tRoot = path.join(sbThr.dir, "tree");
+  fs.cpSync(path.join(REPO, ".claude", "hooks"), path.join(tRoot, ".claude", "hooks"), { recursive: true });
+  fs.writeFileSync(path.join(tRoot, ".claude", "hooks", "lib", "instruct-and-wait.js"),
+    "module.exports = { emit() { throw new Error('renderer exploded'); } };\n");
+  const tHook = path.join(tRoot, ".claude", "hooks", "dispatch-contract-guard.js");
+  const tRun = spawnHook(sbThr, JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Agent", session_id: "s-thr",
+    tool_input: { subagent_type: "general-purpose", prompt: "Do it.", effort: "medium" } }), {}, { raw: true, hook: tHook });
+  const tJunk = spawnHook(sbThr, "not json at all", {}, { raw: true, hook: tHook });
+  // The throw reaches `lib/guard-runner.js::runGuard`, the one refusal authority for an ending that is
+  // not a verdict: exit 2 naming the guard and the thrown error. (The guard's own hand-built
+  // UNEVALUABLE refusal for this ending is gone; in the engine the DISPATCHER refuses the crashed row.)
+  check("E86", "FAIL-CLOSED (L4): a guard that THROWS while judging a launch is REFUSED by the run boundary, and an unreadable payload is REFUSED too",
+    tRun.status === 2 && tRun.stderr.includes("[guard-runner] DENY dispatch-contract-guard: dispatch-contract-guard crashed before reaching a verdict") &&
+      tRun.stderr.includes("renderer exploded") && !/"continue"\s*:\s*true/.test(tRun.stdout) &&
+      tJunk.status === 2 && tJunk.stderr.includes("could not read its hook payload"),
+    `throw=${tRun.status} junk=${tJunk.status}`, "M-CATCH-OPEN (unwrap runGuard → the throw and the junk pass)");
+
+  // ── E3 R2 correctness addenda (2026-10-12) ─────────────────────────────────────────────────
+  /** Fire one hook entry living in a sandbox tree, timing the run (a stall's reach proof). */
+  const fireIn = (sb, hook, tool_name, tool_input, extra = {}) => {
+    const t0 = Date.now();
+    const r = spawnHook(sb, JSON.stringify({ hook_event_name: "PreToolUse", tool_name, session_id: "s-add", tool_input, ...extra }), {}, { raw: true, hook });
+    const ms = Date.now() - t0;
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch {}
+    return { status: r.status, json, ms, ctx: json?.hookSpecificOutput?.additionalContext || "",
+      reason: json?.hookSpecificOutput?.permissionDecisionReason || "" };
+  };
+  /** A sandbox holding a COMMITTED copy of the shipped hooks, so a deny's own `git checkout HEAD -- …` restores it. */
+  const gitTree = (label) => {
+    const sb = makeHookSandbox(label);
+    fs.cpSync(path.join(REPO, ".claude", "hooks"), path.join(sb.dir, ".claude", "hooks"), { recursive: true });
+    spawnSync("git", ["add", "-A"], { cwd: sb.dir, stdio: "ignore" });
+    const c = spawnSync("git", ["commit", "-q", "-m", "shipped hooks"], { cwd: sb.dir, encoding: "utf8" });
+    return { sb, committed: c.status === 0, launch: path.join(sb.dir, ".claude", "hooks", "dispatch-contract-guard.js"),
+      retask: path.join(sb.dir, ".claude", "hooks", "dispatch-retask-guard.js"), lib: (f) => path.join(sb.dir, ".claude", "hooks", "lib", f) };
+  };
+  /** The agent's restore: run exactly the `git checkout HEAD -- <path>` the deny text names, in the tree. */
+  const restoreFrom = (tree, text) => {
+    const m = String(text).match(/`git checkout HEAD -- ([^`\s]+)`/);
+    if (!m) return false;
+    return spawnSync("git", ["checkout", "HEAD", "--", m[1]], { cwd: tree.sb.dir, stdio: "ignore" }).status === 0;
+  };
+  /** The relaunch a deny text dictates for a Task/Agent launch: its corrected header, the brief body unchanged. */
+  const bodyOf = (prompt) => {
+    const ls = String(prompt).split("\n");
+    while (ls.length > 0 && /^\s*(ROLE:|EFFORT-OVERRIDE:)/.test(ls[0])) ls.shift();
+    return ls.join("\n");
+  };
+  const relaunchOf = (text, ti) => {
+    const k = correctionOf(text);
+    if (!k) return null;
+    const out = { ...ti, prompt: `${k.line}\n${bodyOf(ti.prompt)}`, effort: k.effort };
+    if (ti.subagent_type === "fork" && text.includes("Launch a non-fork subagent")) out.subagent_type = "general-purpose";
+    return out;
+  };
+  /** The script a Workflow deny dictates: ONE direct, literal agent() call built from the deny's own role + effort. */
+  const scriptFrom = (text) => {
+    const k = correctionOf(text);
+    return k ? wfOf(`await agent('${k.line}\\nFind it.', {effort: '${k.effort}'})`) : null;
+  };
+  const passed = (r) => r.status === 0 && r.ctx === "" && r.reason === "";
+
+  // E76b — the Codex re-task spellings (follow-up AND message, dotted included) each reach RETASK_EFFORT_MISMATCH.
+  const RETASK_SPELLINGS = ["collaboration.followup_task", "collaborationfollowup_task", "followup_task",
+    "send_message", "collaborationsend_message", "collaboration.send_message"];
+  const fuMis = RETASK_SPELLINGS.map((name) => {
+    const r = fireFollowup(name, "ROLE: mechanical-receipt\nWrite it.");
+    return { name, projected: r.projected, status: r.status, code: r.reason.includes("RETASK_EFFORT_MISMATCH") };
+  });
+  check("E76b", "CODEX RE-TASK EFFORT: every follow-up and message spelling (dotted, concatenated, bare) projects to SendMessage and a LOW role to a HIGH-launched agent DENIES with RETASK_EFFORT_MISMATCH",
+    fuMis.every((x) => x.projected === "SendMessage" && x.status === 2 && x.code),
+    JSON.stringify(fuMis.map((x) => [x.name, x.projected, x.status, x.code])), "M-SEND-DOTTED / M-FU-PROJECT");
+
+  // E86b — the RE-TASK scope keeps `on_incomplete: continue`: a guard that throws mid-follow-up passes it.
+  const tRetask = fireIn(sbThr, path.join(tRoot, ".claude", "hooks", "dispatch-retask-guard.js"), "SendMessage",
+    { to: "never-launched-peer", message: "ROLE: wizard\nPick the next item." });
+  check("E86b", "RE-TASK FAIL-OPEN KEPT: a guard that THROWS while judging a ROLE-declaring follow-up still PASSES it (exit 0, continue) — only the launch scope fails closed",
+    tRetask.status === 0 && tRetask.json?.continue === true, `retask=${tRetask.status}`, "M-RETASK-CATCH-DENY");
+
+  // E87 — the LAUNCH run past its 4000ms budget is a budget REFUSAL from `lib/guard-runner.js::runGuard`;
+  // the re-task scope's own fail-open timer PASSES. The launch reads its payload through the runner, so its
+  // stall is a stdin that never ends (openStdin); the re-task entry keeps its bounded reader, stalled here
+  // with a live handle so its own 4000ms timer is the only thing that can end that run.
+  const STALLED_READER = "module.exports = { readStdinBounded: () => new Promise(() => { setInterval(() => {}, 1000); }) };\n";
+  const toTree = gitTree("timeout");
+  fs.writeFileSync(toTree.lib("read-stdin-bounded.js"), STALLED_READER);
+  const OK_TI = { subagent_type: "general-purpose", prompt: "ROLE: explore-search\nFind the callers.", effort: "medium" };
+  /** Start an entry with its payload written but stdin NEVER closed, timing the run. */
+  const fireStalled = (tree, hook, tool_name, tool_input) => {
+    const t0 = Date.now();
+    const r = spawnHook(tree.sb, JSON.stringify({ hook_event_name: "PreToolUse", tool_name, session_id: "s-open", tool_input }),
+      {}, { raw: true, hook, openStdin: true });
+    const ms = Date.now() - t0;
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch {}
+    return { status: r.status, json, ms, stdout: r.stdout || "", stderr: r.stderr || "" };
+  };
+  /** The runner's budget refusal: exit 2, the guard named, both verbatim budget sentences, no allow. */
+  const budgetRefused = (r) => r.status === 2 &&
+    r.stderr.includes("[guard-runner] DENY dispatch-contract-guard: dispatch-contract-guard did not reach a verdict within its budget") &&
+    r.stderr.includes("a guard time-out under load is a budget refusal, not a deny") &&
+    r.stderr.includes("Retry once; if it recurs, report dispatch-contract-guard's budget and wait for the user") &&
+    !/"continue"\s*:\s*true/.test(r.stdout);
+  const toDeny = fireStalled(toTree, toTree.launch, "Agent", OK_TI);
+  const toRetask = fireIn(toTree.sb, toTree.retask, "SendMessage", { to: "lane-r", message: "ROLE: wizard\nx" });
+  check("E87", "FAIL-CLOSED BUDGET: a launch run past its 4000ms budget is REFUSED by the run boundary (exit 2, budget text, Retry); the re-task scope's own timer still PASSES",
+    toTree.committed && budgetRefused(toDeny) && toDeny.ms >= 4000 &&
+      toRetask.status === 0 && toRetask.json?.continue === true && toRetask.ms >= 4000,
+    `launch=${toDeny.status}/${toDeny.ms}ms retask=${toRetask.status}/${toRetask.ms}ms`, "M-TIMEOUT-OPEN (unwrap runGuard → the stalled launch waits for the host kill)");
+
+  // E88 — the security reviewer's claim, measured: `main` awaits only the stdin read, so a SYNCHRONOUS stall
+  // after it (4500ms, past TIMEOUT_MS) cannot be preempted by the timer — the launch is judged and passes.
+  const stTree = gitTree("sync-stall");
+  fs.renameSync(stTree.lib("effort-routing.js"), stTree.lib("effort-routing-real.js"));
+  fs.writeFileSync(stTree.lib("effort-routing.js"),
+    "const t0 = Date.now(); while (Date.now() - t0 < 4500) {}\nmodule.exports = require('./effort-routing-real.js');\n");
+  const stRun = fireIn(stTree.sb, stTree.launch, "Agent", OK_TI);
+  check("E88", "TIMER REACH: a synchronous 4500ms stall AFTER the stdin read runs to a normal verdict — the 4000ms timer cannot fire there (a correct launch exits 0, untouched)",
+    stRun.ms >= 4500 && passed(stRun), `exit=${stRun.status} ms=${stRun.ms} reason=${stRun.reason.slice(0, 80)}`, "(none — a measurement)");
+
+  // E89 — with an INVALID table, a Workflow script holding only a nested workflow() or only an indirect launch
+  // still reports TABLE_INVALID (the check counts every launch kind, not only direct calls).
+  const m9Tree = gitTree("m9");
+  fs.writeFileSync(m9Tree.lib("effort-routing-policy.json"), JSON.stringify({ schema_version: 1, roles: { "security-review": "ultra" } }));
+  const m9 = {
+    nested: fireIn(m9Tree.sb, m9Tree.launch, "Workflow", { script: wfOf("await workflow('child')") }),
+    indirect: fireIn(m9Tree.sb, m9Tree.launch, "Workflow", { script: wfOf(`const launch = agent; await launch(${NOROLE})`) }),
+  };
+  check("E89", "TABLE_INVALID ON EVERY LAUNCH KIND: with the table invalid, a nested-only and an indirect-only Workflow script each DENY with TABLE_INVALID",
+    Object.values(m9).every((r) => r.status === 2 && r.reason.includes("TABLE_INVALID")), statusesOf(m9), "M9-CALLS-ONLY");
+
+  // E90 — a stdin that never ends: the LAUNCH entry reads through the run boundary, which has no
+  // reader timer of its own and refuses at its 4000ms budget; the re-task entry's REAL reader resolves its
+  // open-no-EOF timer (2000ms) and still PASSES; and a payload that arrives whole but does not parse is
+  // REFUSED at the launch (the fail-closed migration inverted it: no verdict, never a pass).
+  // spawnHook's openStdin producer writes the FULL payload bytes and never closes stdin.
+  const rtTree = gitTree("read-timeout");
+  const fireOpen = (hook, tool_name, tool_input) => {
+    const t0 = Date.now();
+    const r = spawnHook(rtTree.sb, JSON.stringify({ hook_event_name: "PreToolUse", tool_name, session_id: "s-open", tool_input }),
+      {}, { raw: true, hook, openStdin: true });
+    const ms = Date.now() - t0;
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch {}
+    return { status: r.status, json, ms, ctx: json?.hookSpecificOutput?.additionalContext || "",
+      reason: json?.hookSpecificOutput?.permissionDecisionReason || "", stdout: r.stdout || "", stderr: r.stderr || "" };
+  };
+  const rtDeny = fireOpen(rtTree.launch, "Agent", OK_TI);
+  const rtRetask = fireOpen(rtTree.retask, "SendMessage", { to: "lane-r", message: "ROLE: wizard\nx" });
+  const rtWhole = fireIn(rtTree.sb, rtTree.launch, "Agent", OK_TI, {});
+  const junkRun = spawnHook(rtTree.sb, '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":', {}, { raw: true, hook: rtTree.launch });
+  check("E90", "FAIL-CLOSED OPEN STDIN: a launch whose stdin never ends is REFUSED at the 4000ms run budget; the re-task scope's reader timer still PASSES it; a whole-but-unparseable launch payload is REFUSED; a whole payload passes",
+    rtTree.committed && rtDeny.status === 2 && rtDeny.stderr.includes("dispatch-contract-guard did not reach a verdict within its budget") &&
+      rtDeny.stderr.includes("Retry once; if it recurs, report") && rtDeny.ms >= 4000 &&
+      rtRetask.status === 0 && rtRetask.json?.continue === true && rtRetask.ms >= 2000 &&
+      junkRun.status === 2 && (junkRun.stderr || "").includes("dispatch-contract-guard could not read its hook payload") && passed(rtWhole),
+    `launch=${rtDeny.status}/${rtDeny.ms}ms retask=${rtRetask.status}/${rtRetask.ms}ms junk=${junkRun.status} whole=${rtWhole.status}`, "M-READ-TIMEOUT-OPEN");
+
+  // ── A-1: EVERY effort-routing deny code relaunches successfully from its OWN deny text alone. Each relaunch
+  // is built only from what the text names (corrected line + effort, the restore command, the remedy shape).
+  const a1 = (code, variant, deny, relaunch, extra = true) => check(`A1-${code}-${variant}`,
+    `SELF-CORRECT ${code} (${variant}): the deny names its correction and the relaunch built from that text alone is ALLOWED`,
+    deny.status === 2 && deny.reason.includes(code) && extra && relaunch && passed(relaunch),
+    `deny=${deny.status} relaunch=${relaunch ? relaunch.status : "none"} ${relaunch ? relaunch.reason.slice(0, 80) : ""}`);
+  const launchA1 = (code, variant, ti) => {
+    const d = fireE("Agent", ti);
+    const fixed = relaunchOf(d.reason, ti);
+    a1(code, variant, d, fixed ? fireE("Agent", fixed) : null, selfCorrect(d.reason));
+  };
+  launchA1("ROLE_MISSING", "no-role-line", { subagent_type: "general-purpose", prompt: BODY, effort: "high" });
+  launchA1("ROLE_MALFORMED", "level-in-line", { subagent_type: "general-purpose", prompt: `ROLE: security-review (high)\n${BODY}`, effort: "high" });
+  launchA1("ROLE_UNKNOWN", "not-in-table", { subagent_type: "general-purpose", prompt: `ROLE: wizard\n${BODY}`, effort: "high" });
+  launchA1("EFFORT_MISSING", "no-effort", { subagent_type: "general-purpose", prompt: `ROLE: extraction\n${BODY}` });
+  launchA1("EFFORT_MISMATCH", "plain", { subagent_type: "general-purpose", prompt: `ROLE: extraction\n${BODY}`, effort: "high" });
+  launchA1("EFFORT_MISMATCH", "override", { subagent_type: "general-purpose", prompt: `ROLE: extraction\nEFFORT-OVERRIDE: high — r\n${BODY}`, effort: "medium" });
+  launchA1("EFFORT_INAPPLICABLE", "fork", { subagent_type: "fork", prompt: `ROLE: security-review\n${BODY}`, effort: "high" });
+  launchA1("OVERRIDE_MALFORMED", "no-reason", { subagent_type: "general-purpose", prompt: `ROLE: extraction\nEFFORT-OVERRIDE: low\n${BODY}`, effort: "low" });
+  // OVERRIDE_UNRECORDED — the use ledger is unwritable (a directory), so the override is refused.
+  {
+    const ti = { subagent_type: "general-purpose", prompt: `ROLE: mechanical-receipt\nEFFORT-OVERRIDE: high — needs judgement\n${BODY}`, effort: "high" };
+    const d = fireIn(sbU, HOOK, "Agent", ti);
+    const fixed = relaunchOf(d.reason, ti);
+    a1("OVERRIDE_UNRECORDED", "ledger-unwritable", d, fixed ? fireIn(sbU, HOOK, "Agent", fixed) : null,
+      d.reason.includes("SELF-CORRECT (no human step needed)"));
+  }
+  // TABLE_INVALID and UNEVALUABLE (library missing): restore from the deny's own command, then relaunch.
+  {
+    const tr = gitTree("a1-table");
+    fs.writeFileSync(tr.lib("effort-routing-policy.json"), JSON.stringify({ schema_version: 1, roles: { "security-review": "ultra" } }));
+    const d = fireIn(tr.sb, tr.launch, "Agent", OK_TI);
+    a1("TABLE_INVALID", "bad-value", d, restoreFrom(tr, d.reason) ? fireIn(tr.sb, tr.launch, "Agent", OK_TI) : null);
+  }
+  {
+    const tr = gitTree("a1-nolib");
+    fs.rmSync(tr.lib("effort-routing.js"), { force: true });
+    const d = fireIn(tr.sb, tr.launch, "Agent", OK_TI);
+    a1("UNEVALUABLE", "library-missing", d, restoreFrom(tr, d.reason) ? fireIn(tr.sb, tr.launch, "Agent", OK_TI) : null);
+  }
+  // RUN-BOUNDARY REFUSALS (fail-closed migration). A throw, a run past budget and a stdin that never
+  // ends are no longer refused by this guard's own hand-built UNEVALUABLE text: they reach
+  // `lib/guard-runner.js::runGuard`, the one refusal authority for an ending that is not a verdict (in the
+  // engine, the DISPATCHER's refusal — which also carries the restore line for a dirty guard). Each pole
+  // below is a standalone run, and each recovery is the one that refusal names or implies.
+  // (a) guard threw: refused, guard + error named; restoring the shipped hooks returns the normal
+  //     ROLE_MISSING deny, whose own corrected line relaunches ALLOWED.
+  {
+    const tr = gitTree("a1-threw");
+    fs.writeFileSync(tr.lib("instruct-and-wait.js"), "module.exports = { emit() { throw new Error('renderer exploded'); } };\n");
+    const ti = { subagent_type: "general-purpose", prompt: BODY, effort: "medium" };
+    const t0 = spawnHook(tr.sb, JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Agent", session_id: "s-add", tool_input: ti }), {}, { raw: true, hook: tr.launch });
+    const crashed = t0.status === 2 && (t0.stderr || "").includes("dispatch-contract-guard crashed before reaching a verdict") && (t0.stderr || "").includes("renderer exploded");
+    const restored = crashed && spawnSync("git", ["checkout", "HEAD", "--", ".claude/hooks/"], { cwd: tr.sb.dir, stdio: "ignore" }).status === 0;
+    const d3 = restored ? fireIn(tr.sb, tr.launch, "Agent", ti) : null;
+    const fixed = d3 && d3.reason.includes("ROLE_MISSING") ? relaunchOf(d3.reason, ti) : null;
+    const allowed = fixed ? fireIn(tr.sb, tr.launch, "Agent", fixed) : null;
+    check("A1-RUNNER-guard-threw", "RUN BOUNDARY (throw): refused exit 2 naming the guard and the error; after the hooks are restored the normal deny's own correction relaunches ALLOWED",
+      crashed && restored && allowed && passed(allowed), `refused=${t0.status} restored=${restored} relaunch=${allowed ? allowed.status : "none"}`);
+  }
+  // (b) internal budget: the refusal says "Retry once; if it recurs, report" — the same launch, its payload delivered whole, is ALLOWED.
+  {
+    const retried = fireIn(toTree.sb, toTree.launch, "Agent", OK_TI);
+    check("A1-RUNNER-internal-budget", "RUN BOUNDARY (budget): refused with the verbatim budget sentences and Retry; the retried launch is ALLOWED",
+      budgetRefused(toDeny) && passed(retried), `refused=${toDeny.status} retry=${retried.status}`);
+  }
+  // (c) stdin that never ends: the same refusal, the same Retry; the retry with the payload whole is ALLOWED.
+  {
+    const retried = fireIn(rtTree.sb, rtTree.launch, "Agent", OK_TI);
+    check("A1-RUNNER-open-stdin", "RUN BOUNDARY (open stdin): refused at the budget with Retry; the retried launch is ALLOWED",
+      rtDeny.status === 2 && rtDeny.stderr.includes("Retry once; if it recurs, report") && passed(retried), `refused=${rtDeny.status} retry=${retried.status}`);
+  }
+  // Every Workflow deny: the relaunch is the one-direct-literal-call script the deny's remedy shape asks for.
+  const wfA1 = (code, variant, tool_input, shape) => {
+    const d = fireW(tool_input);
+    const s = scriptFrom(d.reason);
+    a1(code, variant, d, s ? fireW({ script: s }) : null, d.reason.includes(shape));
+  };
+  wfA1("WORKFLOW_UNRESOLVED", "saved-name", { name: "no-such-saved-workflow" }, "inline the script");
+  wfA1("WORKFLOW_UNRESOLVED", "unscannable", { script: wfOf("await agent('ROLE: explore-search\\nunterminated, {effort: 'medium'})") }, "inline the script");
+  wfA1("WORKFLOW_UNRESOLVED", "two-sources", { script: okScript, name: "other" }, "pass exactly one");
+  wfA1("WORKFLOW_UNRESOLVED", "relative-path", { scriptPath: "rel-script.js" }, "absolute");
+  wfA1("WORKFLOW_UNRESOLVED", "empty-script", { script: " \n " }, "pass exactly one");
+  wfA1("WORKFLOW_UNEVALUATED", "non-literal-prompt", { script: wfOf("await agent(task.prompt, {effort: 'high'})") }, "make the ROLE line and the effort literal");
+  wfA1("WORKFLOW_UNEVALUATED", "non-literal-options", { script: wfOf("await agent('ROLE: extraction\\nx', {...opts})") }, "make the ROLE line and the effort literal");
+  wfA1("WORKFLOW_NESTED_UNRESOLVED", "child-workflow", { script: wfOf("await workflow('child')") }, "inline the child's agent() calls");
+  wfA1("WORKFLOW_INDIRECT", "alias", { script: wfOf(`const launch = agent; await launch(${NOROLE})`) }, "call `agent(...)` directly");
+  wfA1("WORKFLOW_INDIRECT", "tagged-template", { script: wfOf("await agent`ROLE: explore-search\\nFind it.`") }, "call `agent(...)` directly");
+  wfA1("ROLE_MISSING", "workflow-call", { script: wfOf("await agent('Find the callers.', {effort: 'medium'})") }, "agent(prompt, {effort");
+  wfA1("EFFORT_MISMATCH", "workflow-call", { script: wfOf("await agent('ROLE: security-review\\nAudit.', {effort: 'low'})") }, "agent(prompt, {effort");
+  wfA1("EFFORT_MISSING", "workflow-call", { script: wfOf("await agent('ROLE: security-review\\nAudit.')") }, "agent(prompt, {effort");
+  wfA1("EFFORT_MISMATCH", "workflow-hidden-override", { script: wfOf("await agent(`ROLE: extraction\\n${body}`, {effort: 'high'})") }, "write the override line literally");
+  {
+    // Restore, relaunch unchanged, then follow the nested-workflow deny that the restored table now returns.
+    const wti = { script: wfOf("await workflow('child')") };
+    const d = fireIn(m9Tree.sb, m9Tree.launch, "Workflow", wti);
+    const d2 = restoreFrom(m9Tree, d.reason) ? fireIn(m9Tree.sb, m9Tree.launch, "Workflow", wti) : null;
+    const s = d2 && d2.reason.includes("WORKFLOW_NESTED_UNRESOLVED") ? scriptFrom(d2.reason) : null;
+    a1("TABLE_INVALID", "workflow", d, s ? fireIn(m9Tree.sb, m9Tree.launch, "Workflow", { script: s }) : null);
+  }
+  {
+    const tr = gitTree("a1-noscan");
+    fs.rmSync(tr.lib("workflow-launch-scan.js"), { force: true });
+    const okWf = { script: wfOf("await agent('ROLE: explore-search\\nFind it.', {effort: 'medium'})") };
+    const d = fireIn(tr.sb, tr.launch, "Workflow", okWf);
+    a1("UNEVALUABLE", "workflow-scanner-missing", d, restoreFrom(tr, d.reason) ? fireIn(tr.sb, tr.launch, "Workflow", okWf) : null);
+  }
+  // RE-TASK denies to the HIGH-launched lane-r: a fresh launch (RETASK_EFFORT_MISMATCH) or the in-place line.
+  {
+    const d = fireE("SendMessage", { to: "lane-r", message: "ROLE: mechanical-receipt\nWrite it." });
+    const k = correctionOf(d.reason);
+    a1("RETASK_EFFORT_MISMATCH", "fresh-launch", d,
+      k ? fireE("Agent", { subagent_type: "general-purpose", prompt: `${k.line}\nWrite it.`, effort: k.effort }) : null,
+      d.reason.includes("FRESH (non-fork)"));
+    const ip = inPlaceOf(d.reason);
+    a1("RETASK_EFFORT_MISMATCH", "in-place", d, ip ? fireE("SendMessage", { to: "lane-r", message: `${ip.line}\nWrite it.` }) : null);
+  }
+  for (const [code, variant, message] of [
+    ["ROLE_UNKNOWN", "retask", "ROLE: wizard\nPick the next item."],
+    ["ROLE_MALFORMED", "retask", "ROLE: security-review (high)\nPick the next item."],
+    ["OVERRIDE_MALFORMED", "retask", "ROLE: extraction\nEFFORT-OVERRIDE: low\nPick the next item."],
+  ]) {
+    const d = fireE("SendMessage", { to: "lane-r", message });
+    const ip = inPlaceOf(d.reason);
+    a1(code, variant, d, ip ? fireE("SendMessage", { to: "lane-r", message: `${ip.line}\nPick the next item.` }) : null);
+  }
+  try { fs.rmSync(sbE.receipt, { force: true }); } catch {}
 }
 
 let failed = 0;

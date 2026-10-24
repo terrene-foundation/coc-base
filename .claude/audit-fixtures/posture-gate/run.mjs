@@ -96,7 +96,9 @@ function drive(payload) {
   // what carry the IDENTITY; `blocked` alone is a quantity.
   const what = (ctx.match(/^WHAT HAPPENED: (.*)$/m) || [, ""])[1];
   const why = (ctx.match(/^WHY: (.*)$/m) || [, ""])[1];
-  return { blocked, denied, reported: blocked || ctx.length > 0, what, why, exit: r.status };
+  // `ctx` travels too: after the posture anchor, a BLOCK outranks the R6-C-02 surface and the
+  // SAME coverage rides the block's extra reporting row instead of the surface's `why`.
+  return { blocked, denied, reported: blocked || ctx.length > 0, what, why, ctx, exit: r.status };
 }
 
 /**
@@ -122,11 +124,21 @@ function firedVerbFence(r, verb) {
  * one the hook's own comment says it declines to promote.
  */
 function firedR6C02(r) {
-  return (
+  // CHANNEL 1 — where the gate does NOT block (L3 and up): the surface itself.
+  const surface =
     /R6-C-02/.test(r.why) &&
     /writes are reserved for hooks/.test(r.why) &&
-    /^Defense-in-depth:/.test(r.what)
-  );
+    /^Defense-in-depth:/.test(r.what);
+  // CHANNEL 2 — where the gate BLOCKS (L1/L2): a block outranks the surface (I6), and the
+  // SAME coverage travels as one extra reporting row naming what the call targeted. Reading
+  // only channel 1 pinned the PRE-anchor precedence and went red the moment a block could
+  // outrank the surface; the clean rows below still discriminate, because a block on an
+  // UNPROTECTED path carries no such row.
+  const blockCarried =
+    r.blocked &&
+    r.denied &&
+    /State the (protected|uncanonicalizable) path this call targeted:/.test(r.ctx || "");
+  return surface || blockCarried;
 }
 
 function check(name, got, want, note) {

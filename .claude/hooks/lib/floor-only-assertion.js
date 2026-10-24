@@ -146,7 +146,15 @@ const FALLBACK_RULE_GLOBS = [
   ".github/workflows/**",
   ".claude/bin/check-*.mjs",
   ".claude/hooks/**",
-  ".claude/test-harness/**",
+  // 2026-10-10: `.claude/test-harness/**` narrowed to the tracked subtrees, so gitignored
+  // run reports under `results/` (read at pickup) are neither inspected nor a load trigger.
+  ".claude/test-harness/*",
+  ".claude/test-harness/tests/**",
+  ".claude/test-harness/lib/**",
+  ".claude/test-harness/fixtures/**",
+  ".claude/test-harness/probes/**",
+  ".claude/test-harness/foundation-corpus/**",
+  ".claude/test-harness/trust-posture-poc/**",
   ".claude/audit-fixtures/**",
 ];
 
@@ -162,7 +170,8 @@ const FALLBACK_RULE_GLOBS = [
 //     .github/workflows/**       8 vs 2      float-only 6   (75% over-match)
 //     .claude/bin/check-*.mjs   36 vs 36     float-only 0
 //     .claude/hooks/**         302 vs 266    float-only 36
-//     .claude/test-harness/**  452 vs 435    float-only 17
+//     .claude/test-harness/**  452 vs 435    float-only 17   (measured on the PRE-2026-10-10 glob;
+//                                               narrowed since to tracked subtrees: NOT re-measured)
 //     .claude/audit-fixtures/** 4879 vs 4879 float-only 0
 // Those float-only files are authored to CONTAIN a planted pattern for some OTHER detector, so
 // inspecting them manufactures findings true of the fixture and false of the repo.

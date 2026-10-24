@@ -238,11 +238,21 @@ export function runEmitDryRun(repoRoot, { langs = [null] } = {}) {
       };
     }
     const scriptRel = join(".claude", "bin", "emit.mjs");
-    // Reviewer R1 M3: 30s timeout per subprocess (loud failure beats hang).
+    // Reviewer R1 M3: a timeout per subprocess, so a HANG fails loudly rather
+    // than waiting indefinitely. RAISED 30s -> 120s (2026-10-08): 30s was
+    // written as a hang fence but behaved as a performance assertion —
+    // MEASURED on a loaded host (load ~105/16 cores), the temp-repo emit takes
+    // 45.6s and exits 0, while the SAME spawn at timeout:30000 returned
+    // ETIMEDOUT at 30.16s, which this function reports as exit_code 2 and the
+    // coverage floor then reads as "no lanes" (the exact way
+    // validate-proximity-band redded CI). testing.md § Never Assert An UPPER
+    // Bound On Real Elapsed Time — a gate must not fail because the HOST is
+    // slow. 120s keeps the fence (a true hang is unbounded) with ~2.6x
+    // headroom over the measured worst case.
     const result = spawnSync("node", [scriptRel, ...args], {
       cwd: repoRoot,
       encoding: "utf8",
-      timeout: 30000,
+      timeout: 120000,
     });
     if (result.error) {
       return {

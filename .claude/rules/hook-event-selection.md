@@ -2,9 +2,13 @@
 priority: 10
 scope: path-scoped
 paths:
-  - "**/.claude/hooks/**"
-  - "**/.claude/variants/**/hooks/**"
+  - "**/.claude/hooks/*.js"
+  - "**/.claude/hooks/*.json"
+  - "**/.claude/hooks/lib/tool-classes.js"
+  - "**/.claude/variants/*/hooks/*.js"
   - "**/.claude/settings.json"
+  - "**/.claude/audit-fixtures/hook-event-selection/**"
+  - "**/.claude/test-harness/probes/hook-event-selection.probes.json"
 ---
 
 # Hook Event Selection — The Event Is A Deliberated Choice

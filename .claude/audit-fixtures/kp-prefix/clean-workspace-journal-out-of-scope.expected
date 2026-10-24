@@ -1,0 +1,7 @@
+{
+  "path": "workspaces/churn/journal/0001-DECISION-feature-store.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "scope gate — path (workspace journal, reject pole)",
+  "defeats": "the same re-widened `workspaces/` pattern as `clean-workspace-note-out-of-scope`, on a second workspace surface that is not a spec, plan, brief or todo. Body is BYTE-IDENTICAL to `flag-bare-table-name-body`."
+}

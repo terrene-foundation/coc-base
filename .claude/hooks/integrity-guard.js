@@ -5,6 +5,16 @@
  * integrity-guard.js — §2.3 + §4.3 pre-tool-use hook for Edit|Write
  * on the integrity-critical artifact set.
  *
+ * @coc-codex-edit-gate — coordination-substrate mutation fence. The policy
+ *   extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). Its inputs are repo-local, not
+ *   payload-carried beyond the projected target path: `file_path` names the
+ *   pending write, and the branch / codify-lease verdict is read from
+ *   `git rev-parse` plus the folded coordination log. Where coordination is
+ *   OFF (a solo / unenrolled repo) the whole fence is already a passthrough
+ *   (MO-OPT W1-b, below), so a Codex consumer without the substrate sees no
+ *   new refusals.
+ *
  * Shard B3a (workspaces/multi-operator-coc/02-plans/01-architecture.md
  * §2.3 + §4.3 hook-table row).
  *
@@ -33,16 +43,16 @@
  *                               is recorded at the branch itself)
  *             silent           (branch + lease both pass; OR unwatched
  *                               path; OR outside repo)
- *   Budget:   ≤5s. The setTimeout fallback is TWO-DIRECTIONAL (loom#1849b):
- *             fail-OPEN ({continue: true}) per cc-artifacts.md Rule 7 until the
- *             call is established as a mutation of a watched integrity-critical
- *             path on a coordination-ENABLED repo — and fail-CLOSED (block)
- *             thereafter, because past that point the only outstanding question
- *             is the AUTHORIZATION verdict, and "I could not determine" must not
- *             resolve to "yes". See `authPhase` / `denyIndeterminate`.
- *             The ≤5s PRE-authorization half is fixed and NOT env-reachable;
- *             only the authorization half is (loom#1855 F-A). See
- *             AUTH_BUDGET_MS / `enterAuthPhase`.
+ *   Budget:   ≤5s, FAIL-CLOSED end to end. The run is bounded by
+ *             guard-runner.js::runGuard at the FIXED DEFAULT_TIMEOUT_MS (not
+ *             env-reachable): a crash, a hang past it or an unreadable payload
+ *             REFUSES, before or after the call is known to be integrity-
+ *             critical (cc-artifacts.md Rule 7, deny-capable rows). It was
+ *             TWO-DIRECTIONAL (loom#1849b) — fail-OPEN before the authorization
+ *             phase — and the open half is gone. Inside the authorization phase
+ *             an expiry still renders `denyIndeterminate` (the lease is UNKNOWN),
+ *             and only that phase's deadline is env-reachable, tighten-only
+ *             (loom#1855 F-A). See AUTH_BUDGET_MS / `enterAuthPhase`.
  *
  * Why codify-branch gating:
  *   Per architecture v11 §6.4 + §7.1, integrity-critical artifacts
@@ -76,6 +86,24 @@
  */
 
 "use strict";
+
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       "<os.tmpdir()>/coc-sign-ssh-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-vfy-<rand>/",
+ *       "<os.tmpdir()>/coc-sign-gpg-fold-<rand>/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes (lib/state-resolver.js, lib/guard-path-scope.js, lib/operator-id.js) plus ssh-keygen / gpg signature verification across the codify-lease fold (lib/coordination-log.js -> lib/coc-sign.js). Writes: the per-call / per-fold verify homedirs lib/coc-sign.js mkdtemps under the OS temp root and rmSyncs before returning. The coordination log and lease records are READ only — M7 E writes them; the target file is never written by this hook."
+ * }
+ */
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const PROCESS_STARTED_AT = Date.now();
@@ -168,6 +196,9 @@ const { spawnSync } = require("child_process");
 const { emit, instructAndWait } = require(
   path.join(__dirname, "lib", "instruct-and-wait.js"),
 );
+// The fail-closed run boundary: it reads the payload, bounds the run at
+// DEFAULT_TIMEOUT_MS, and refuses on a crash, a hang or an unreadable payload.
+const { runGuard } = require(path.join(__dirname, "lib", "guard-runner.js"));
 const { resolveIdentity } = require(
   path.join(__dirname, "lib", "operator-id.js"),
 );
@@ -180,9 +211,10 @@ const { createFilesystemTransport } = require(
 const { requireMainCheckout } = require(
   path.join(__dirname, "lib", "state-resolver.js"),
 );
-const { isMutationTool, MUTATION_TOOLS } = require(
+const { isMutationTool, MUTATION_TOOLS, classifyTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
+const { logObservation } = require(path.join(__dirname, "lib", "learning-utils.js"));
 // loom#1896 § THE CONFLATION — this guard fences THE AGENT (the codify-branch
 // + lease fence over integrity-critical state files), not a sibling human, so
 // it asks the GOVERNANCE question, not the COORDINATION one. See
@@ -212,17 +244,19 @@ const { resolveRepoDirBound } = require(
  * that moment the only remaining question is "is this write authorized?", and
  * an indeterminate answer to THAT question must not resolve to "yes".
  *
- * Before it is set, cc-artifacts.md Rule 7 fail-OPEN is preserved verbatim:
- * the guard does not yet know the call is relevant, and blocking every Edit in
- * the repo because stdin or `git` was slow is a far worse failure than the one
- * being closed. Both directions are pinned by tests (C4 / C5 in
+ * Before it is set the guard does not yet know the call is relevant, so it has
+ * no lease to call UNKNOWN; a run that cannot finish there is refused by the
+ * runner's budget (guard-runner.js::runGuard), which is NOT env-reachable — the
+ * env knob governs only the deadline armed when this is set, so it can never
+ * refuse an unwatched path (C4 / C5 / F1 in
  * tests/integration/multi-operator/lease-binding-drop-1849b.test.js).
  */
 let authPhase = null;
 
 /**
- * Fail CLOSED. Used by the budget expiry and the catch-all, which are the two
- * paths that reach a verdict of "could not determine".
+ * Fail CLOSED. Used by the authorization-phase deadline and the fold deadline,
+ * the two paths that reach a verdict of "could not determine" (an internal
+ * error anywhere reaches guard-runner.js::runGuard instead, which refuses).
  *
  * Rendered through instructAndWait rather than a hand-built object so the deny
  * body is the SAME shape every other block branch emits — and the exit code
@@ -257,6 +291,7 @@ function denyIndeterminate(reason, detail) {
 
 function _denyIndeterminate(reason, detail) {
   const out = instructAndWait({
+    escalate: "security",
     hookEvent: authPhase.hookEvent,
     severity: "block",
     what_happened:
@@ -270,10 +305,9 @@ function _denyIndeterminate(reason, detail) {
       '{"continue":true}, i.e. the write RAN with authorization undetermined, ' +
       "which is a fail-OPEN on a mutation fence and the same shape as this " +
       "guard's already-closed unreadable-log and unidentifiable-tree branches. " +
-      "cc-artifacts.md Rule 7 fail-open is PRESERVED for everything upstream of " +
-      "this point (unwatched paths, coordination-disabled repos, and any budget " +
-      "expiry before the call was known to be integrity-critical); what changes " +
-      "is only the AUTHORIZATION verdict. The signal is process-state (a budget " +
+      "Unwatched paths and coordination-disabled repos still pass through; a run " +
+      "that cannot finish anywhere is refused by guard-runner.js::runGuard " +
+      "(cc-artifacts.md Rule 7, deny-capable rows). The signal is process-state (a budget " +
       "the process itself measured), the structural class " +
       "hook-output-discipline.md MUST-2 accepts for `block`.",
     agent_must_report: [
@@ -295,16 +329,234 @@ function _denyIndeterminate(reason, detail) {
   process.exit(out.exitCode);
 }
 
-// setTimeout fallback per cc-artifacts.md Rule 7 — fail-OPEN before the
-// authorization phase, fail-CLOSED inside it.
-//
-// Armed at DEFAULT_TIMEOUT_MS, NEVER at the env knob (loom#1855 F-A). This
-// timer's handler can still reach `denyIndeterminate` — that is the no-knob
-// case, where one timer spans both phases and the disposition is chosen by
-// `authPhase` at fire time. What is no longer possible is for the ENV to shrink
-// the window that ends before `authPhase` is set, which is what turned the knob
-// into a fence bypass. See AUTH_BUDGET_MS above and `enterAuthPhase` below.
-let fallback = null;
+/**
+ * B7 — refuse an UNKNOWN tool (effects-incomplete semantics). Same emission
+ * discipline as `denyIndeterminate`: instructAndWait renders the deny body,
+ * best-effort stdout, and the EXIT CODE (out.exitCode, 2) is the authoritative
+ * teeth — never a bare `continue: false`.
+ */
+function denyUnknownTool(toolName, hookEvent) {
+  try {
+    const out = instructAndWait({
+      escalate: "security",
+      hookEvent: hookEvent || "PreToolUse",
+      severity: "block",
+      what_happened:
+        `Tool '${toolName}' is not in the tool inventory ` +
+        `(lib/tool-classes.js::classifyTool) AND its payload names a path that ` +
+        `resolves into this repository: an unclassifiable tool aimed at the ` +
+        `repo refuses rather than passing through.`,
+      why:
+        "multi-operator-coc/integrity-guard (B7, 2026-10-08 orchestrator security " +
+        "call; AMENDED the same day — compliance blocker via csq: the rule was " +
+        "narrowed from 'refuse every unknown tool' to 'refuse an unknown tool " +
+        "that can mutate the repo', because the strict form breaks MCP " +
+        "integrations whose payloads name no repo path). This guard answers ONE " +
+        "question about a mutation: is it covered by the checks this fence owns? " +
+        "For a tool the inventory does not classify it cannot even answer " +
+        "whether the call IS a mutation, or which payload field names the " +
+        "target — and THIS payload names a repo path, so the call can mutate " +
+        "it. UNKNOWN aimed at the repo is not clean. MEASURED before this " +
+        "branch, PreToolUse payloads on this tree: `Patch` on " +
+        "`.claude/operators.roster.json` returned continue:true where `Write` " +
+        "on the SAME path denied — 'not in the mutation set' was read as " +
+        "'cannot mutate'. A path-LESS unknown tool is NOT refused on " +
+        "unknown-ness alone (advisory + recorded UNKNOWN effect; see " +
+        "handleUnknownTool). Recovery is one edit in the SSOT: classify the " +
+        "tool in lib/tool-classes.js (NON_MUTATION_TOOLS if provably benign; " +
+        "MUTATION_TOOLS or EXTRA_MUTATION_CAPABLE_TOOLS if mutant).",
+      agent_must_report: [
+        `Refused tool: ${toolName}`,
+        "The tool is UNKNOWN to the classification SSOT — NOT established as harmless.",
+        "This refusal is per-tool; other tools in the same call are unaffected.",
+      ],
+      agent_must_wait:
+        `Do not retry the '${toolName}' call until the tool is classified in ` +
+        `lib/tool-classes.js, or the work is done through a known tool.`,
+      user_summary:
+        `integrity-guard — unknown tool '${toolName}' refused ` +
+        `(not in the tool inventory; effects cannot be bounded)`,
+    });
+    try {
+      process.stdout.write(JSON.stringify(out.json) + "\n");
+    } catch {
+      // best-effort; the exit code below is the authoritative refusal
+    }
+    process.exit(out.exitCode);
+  } catch {
+    try {
+      process.stdout.write(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: hookEvent || "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason:
+              `integrity-guard: tool '${toolName}' is not in the tool inventory; ` +
+              `refusing rather than passing through.`,
+          },
+        }) + "\n",
+      );
+    } catch {
+      // best-effort; exit 2 below is the authoritative refusal
+    }
+    process.exit(2);
+  }
+}
+
+/**
+ * B7 (amended) — the payload path scan for an UNKNOWN tool. An unknown tool
+ * has no known schema, so this reads the STRING values under path-shaped keys
+ * (file / path / notebook / dir / target, case-insensitive), PLUS every string
+ * reached as an array element (see the entry-collection note below), and asks
+ * one question: does any of them resolve INTO this repository? A RELATIVE
+ * value resolves AGAINST THE REPO ROOT (so `../x` correctly counts as OUTSIDE
+ * it); an ABSOLUTE one must fall under the repo root.
+ *
+ * BOUNDS, stated (corrected 2026-10-08 per the security verdict's doc nits):
+ *   - NO CANDIDATE CAP. The first cut carried a `<=16 candidates` recursion
+ *     gate; delta-(4) re-measured that it is not a throttle but a BYPASS: 16
+ *     matched out-of-repo candidates exhaust it, and the real in-repo path
+ *     behind them is never inspected (rc 0 + row). REMOVED (2026-10-08,
+ *     red-first: the padding case in this guard's suite reds the moment the
+ *     gate returns). No total cap replaces it for the SAME reason — any
+ *     finite cap lets a hostile payload pad with innocent path-shaped strings
+ *     and push the real one past — and the gate bought little anyway (the top
+ *     level was unbounded regardless). Recursion stays bounded by DEPTH, and
+ *     payloads are finite;
+ *   - string values inside an object under a key the pattern does not match
+ *     are NOT collected (array elements are the exception: they are collected
+ *     without key context) — under-detection degrades to the advisory arm,
+ *     never to a fabricated refusal;
+ *   - NO PERCENT-DECODING: `%2e%2e` (an encoded `..`) is treated literally, so
+ *     an encoded traversal can read as INSIDE where a decoder elsewhere would
+ *     resolve it outside — a declared degradation on the under-detection side.
+ */
+const UNKNOWN_PATH_KEY_RX = /(file|path|notebook|dir|target)/i;
+
+function collectUnknownPathCandidates(value, depth, out, keyIsPath) {
+  if (depth < 0) return out;
+  // ARRAY-HOLE FIX (security verdict registry-security-2, 2026-10-08): a
+  // STRING reached at FUNCTION ENTRY — i.e. an array element — is collected,
+  // before the array/object split. The first cut tested strings only under
+  // path-shaped OBJECT keys, so array elements were never inspected and
+  // `{files:["notes.txt"]}` (a common MCP batch-file schema) read as
+  // path-less: measured rc 0 + advisory on every batch shape while the
+  // payload named a repo path.
+  //
+  // KEY CONTEXT IS THREADED (`keyIsPath`), and that is the second half of the
+  // fix, not a refinement: a plain entry-collection collects the elements of
+  // ANY array, so `{tags:["build","release"]}` — relative words under a
+  // non-path key — resolves INTO the repo and over-refuses a payload that
+  // names no file at all (measured red in this suite's over-refusal
+  // controls). An array element inherits the context of the key the ARRAY sat
+  // under: `{files:[…]}`, `{file:[…]}`, `{paths:[…]}` and
+  // `{target:{files:[…]}}` all collect; `{tags:[…]}` does not. The top-level
+  // call passes `true`, so a bare-array or bare-string tool_input (no key to
+  // inherit) is still inspected — fail-closed where a schema cannot exist.
+  if (typeof value === "string") {
+    if (keyIsPath && value.length > 0) out.push(value);
+    return out;
+  }
+  if (value === null || typeof value !== "object") return out;
+  if (Array.isArray(value)) {
+    for (const v of value) collectUnknownPathCandidates(v, depth - 1, out, keyIsPath);
+    return out;
+  }
+  for (const [k, v] of Object.entries(value)) {
+    const isPathKey = UNKNOWN_PATH_KEY_RX.test(k);
+    if (typeof v === "string") {
+      if (isPathKey && v.length > 0) out.push(v);
+    } else if (v && typeof v === "object") {
+      collectUnknownPathCandidates(v, depth - 1, out, isPathKey);
+    }
+  }
+  return out;
+}
+
+function unknownToolTouchesRepo(payload) {
+  const input = (payload && payload.tool_input) || {};
+  let repoRoot;
+  try {
+    repoRoot = path.resolve(resolveRepoDir(payload) || process.cwd());
+  } catch {
+    repoRoot = process.cwd();
+  }
+  for (const candidate of collectUnknownPathCandidates(input, 3, [], true)) {
+    const abs = path.resolve(repoRoot, candidate);
+    const rel = path.relative(repoRoot, abs);
+    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return true;
+  }
+  return false;
+}
+
+/**
+ * B7 (amended, 2026-10-08 compliance blocker) — the unknown-tool disposition.
+ *
+ *   path-bearing, resolving into the repo  ⇒ REFUSE (denyUnknownTool): the
+ *     call can mutate the repo and the tool is unclassifiable.
+ *   otherwise (path-less, or paths outside the repo) ⇒ ADVISORY + a RECORDED
+ *     UNKNOWN effect: halt-and-report (the call RUNS), with the UNKNOWN effect
+ *     stated on the surface AND recorded durably (learning-utils observations,
+ *     `unknown_tool_effect`). This is the arm that keeps MCP integrations
+ *     (csq messaging, docs, search) working.
+ */
+function handleUnknownTool(payload, toolName, hookEvent) {
+  if (unknownToolTouchesRepo(payload)) {
+    return denyUnknownTool(toolName, hookEvent);
+  }
+  try {
+    logObservation(resolveRepoDir(payload), "unknown_tool_effect", {
+      tool: toolName,
+      effect: "unknown",
+      repo_touching: false,
+    });
+  } catch {
+    // Recording is best-effort; the advisory emission below is the surface
+    // record, and this arm is non-blocking by design.
+  }
+  // A renderer failure here THROWS to the runner, which refuses: it once degraded
+  // to an exit-0 pass, which made an unclassifiable tool's error path an allow.
+  {
+    const out = instructAndWait({
+      escalate: "security",
+      hookEvent: hookEvent || "PreToolUse",
+      severity: "halt-and-report",
+      what_happened:
+        `Tool '${toolName}' is not in the tool inventory ` +
+        `(lib/tool-classes.js::classifyTool), and its payload names no path ` +
+        `inside this repository: its effect is UNKNOWN (recorded) and the call ` +
+        `proceeds.`,
+      why:
+        "multi-operator-coc/integrity-guard (B7 amended, 2026-10-08) — an " +
+        "unknown tool that cannot reach repo files is NOT refused on " +
+        "unknown-ness alone: refusing every unclassified MCP tool would break " +
+        "every MCP integration (csq sessions' messaging tools write only csq's " +
+        "own store). The UNKNOWN effect is RECORDED rather than silently " +
+        "passed: a durable `unknown_tool_effect` row lands in the learning " +
+        "store and this surface states it, so the gap is visible to review " +
+        "instead of reading as a clean classification.",
+      agent_must_report: [
+        `Unclassified tool observed: ${toolName} — effect UNKNOWN (recorded).`,
+        "If this tool can mutate files, classify it in lib/tool-classes.js so the fence can bound it.",
+      ],
+      agent_must_wait: "No wait required — the call proceeds.",
+      user_summary:
+        `integrity-guard — unknown tool '${toolName}' proceeds with a RECORDED ` +
+        `UNKNOWN effect (path-less; not refused on unknown-ness alone)`,
+    });
+    process.stdout.write(JSON.stringify(out.json) + "\n");
+    return process.exit(out.exitCode);
+  }
+}
+
+// THE AUTHORIZATION-PHASE DEADLINE — the ONE timer this guard arms, and a DENY-only
+// one: its handler is `denyIndeterminate`, never a pass. The run's own budget
+// (DEFAULT_TIMEOUT_MS, refusing on expiry) belongs to guard-runner.js::runGuard and
+// is NOT env-reachable (loom#1855 F-A: the env knob once shrank a window that ended
+// before `authPhase` was set, and that window's handler passed). This one exists
+// only while the knob TIGHTENS the authorization phase below the run budget, and is
+// cleared before every verdict so it can never fire into a later run.
+let authDeadline = null;
 
 /**
  * Enter the authorization phase, and re-arm the budget onto it (loom#1855 F-A).
@@ -324,24 +576,23 @@ let fallback = null;
 function enterAuthPhase(hookEvent, rel) {
   authPhase = { hookEvent, rel };
   if (AUTH_BUDGET_MS >= DEFAULT_TIMEOUT_MS) return;
-  clearTimeout(fallback);
+  clearTimeout(authDeadline);
   const remaining = Math.max(
     0,
     AUTH_BUDGET_MS - (Date.now() - PROCESS_STARTED_AT),
   );
-  fallback = setTimeout(
+  authDeadline = setTimeout(
     () => denyIndeterminate(`the ${AUTH_BUDGET_MS}ms hook budget expired`),
     remaining,
   );
 }
 
 function passthrough() {
-  clearTimeout(fallback);
+  clearTimeout(authDeadline);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
 
-const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function resolveRepoDir(payload) {
   // loom#1871 HIGH-1 — the override is bound to the SESSION REPOSITORY here
@@ -481,6 +732,46 @@ const WATCHED_TOOLS = MUTATION_TOOLS;
 
 function isWatchedTool(payload) {
   const tool = payload && payload.tool_name;
+  // B7 (2026-10-08, orchestrator security call) — THE THIRD VALUE. `watched:
+  // false` used to be emitted for two different worlds: "this tool cannot
+  // mutate the watched surface" (a pass) and "this tool is not in ANY set I
+  // know" (an unknown), which is the missing-fact-becomes-false shape this
+  // corpus bans everywhere else. MEASURED, this worktree, PreToolUse payloads:
+  //
+  //   Write on .claude/operators.roster.json -> status 2, deny     (the fence)
+  //   Patch on the SAME path                 -> status 0, continue <- SAILED
+  //
+  // A guard that must BOUND a mutation's effect cannot bound the effect of a
+  // tool it does not recognize — it does not know whether the tool mutates, or
+  // which payload field names the target. The verdict for that is UNKNOWN, and
+  // unknown is not clean.
+  //
+  // AMENDED (compliance blocker, 2026-10-08, csq via the orchestrator): the
+  // first shipped rule refused EVERY unknown tool, which breaks MCP
+  // integrations (csq sessions' mcp__csq-messaging__* calls write only csq's
+  // own message store, never repo files). The rule is NARROWED to what it was
+  // protecting: an unknown tool REFUSES only when its payload names a path
+  // resolving into this repository (it can mutate the repo); a path-less
+  // unknown tool proceeds with an ADVISORY plus a RECORDED UNKNOWN effect
+  // (`handleUnknownTool`). The classification itself lives in the ONE SSOT
+  // (lib/tool-classes.js::classifyTool) — a second local tool table here is
+  // the drift class that module exists to close.
+  //
+  // NAME ABSENCE IS NOT AN UNKNOWN TOOL. A payload with no tool_name is not
+  // tool-shaped at all (a non-tool event delivered to this process); refusing
+  // it would over-block outside this guard's declared event. Only a NAMED tool
+  // the inventory cannot classify refuses.
+  if (typeof tool !== "string" || tool.length === 0) return { watched: false };
+  const toolClass = classifyTool(tool);
+  if (toolClass === "unknown") {
+    return { watched: false, unknownTool: tool };
+  }
+  if (toolClass === "non-mutation") return { watched: false };
+  // Recognized MUTATION-CAPABLE but outside MUTATION_TOOLS: apply_patch, whose
+  // target extraction is the Codex lane's job and whose payload carries no
+  // file_path this guard could read. Classification must not turn a KNOWN tool
+  // into a refusal; behavior for it is unchanged (falls through to the same
+  // empty-filePath passthrough below).
   if (!isMutationTool(tool)) return { watched: false };
   const input = (payload && payload.tool_input) || {};
   // loom#1549 F4, third site of the same class. WATCHED_TOOLS is MUTATION_TOOLS
@@ -1145,480 +1436,470 @@ function findCoveringLease(
 
 // ---- main -------------------------------------------------------------------
 
-// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
-// did at load time happens here instead, so a require() has no side effects.
-function hookMain() {
-  fallback = setTimeout(() => {
-    if (authPhase)
-      denyIndeterminate(`the ${AUTH_BUDGET_MS}ms hook budget expired`);
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, DEFAULT_TIMEOUT_MS);
-  return main();
-}
+async function main(payload) {
+  const hookEvent = payload.hook_event_name || "PreToolUse";
 
-async function main() {
-  try {
-    const payload = await readStdinBounded();
-    const hookEvent = payload.hook_event_name || "PreToolUse";
+  const watch = isWatchedTool(payload);
+  // B7 (amended) — an UNKNOWN tool gets its disposition BEFORE any
+  // passthrough arm (see isWatchedTool's third value and handleUnknownTool):
+  // refuse if its payload names a repo path, else advisory + recorded
+  // UNKNOWN effect. (No authorization deadline is armed yet at this point;
+  // the clear is kept so every terminal verdict clears it uniformly.)
+  if (watch.unknownTool) {
+    clearTimeout(authDeadline);
+    return handleUnknownTool(payload, watch.unknownTool, hookEvent);
+  }
+  if (!watch.watched) {
+    return passthrough();
+  }
 
-    const watch = isWatchedTool(payload);
-    if (!watch.watched) {
-      passthrough();
-    }
-
-    // M3 MED-5 / F-11: resolve main-checkout root for the registry-level
-    // operations (fold + lease resolution). When the hook is invoked
-    // from a worktree, the underlying coordination-log + roster live
-    // in the MAIN checkout per trust-posture.md MUST-1. We still use
-    // the worktree's cwd for the branch check (a worktree has its own
-    // HEAD) but route registry I/O through the main checkout.
-    const sessionCwd = resolveRepoDir(payload);
-    // Captured BEFORE any gate reads it, so the corroboration pass below and the
-    // primary resolution above agree on whether the env was steering at all.
-    const envOverrideActive = envRepoDirOverrideActive(payload);
-    // loom#1471 F7b — the former `resolveMainCheckout(sessionCwd) || sessionCwd`
-    // could not fail closed: the legacy accessor returns `startCwd` (never a
-    // falsy value) when git could not identify a main checkout, so the `||` was
-    // unreachable. That `repoDir` then fed `isCoordinationEnabled` below, which
-    // reads false against a directory holding no roster and no genesis — and the
-    // OFF branch calls `passthrough()`, so THIS ENTIRE FENCE disabled itself on
-    // any host where git cannot answer (a differently-owned checkout fatals with
-    // `detected dubious ownership`; `gitEnv()` discards `safe.directory`).
-    // Measured: CONTROL (real worktree) enabled=true → fence runs; PROBE (git
-    // cannot answer) enabled=false → passthrough().
-    const mainRes = requireMainCheckout(sessionCwd);
-    if (!mainRes.ok) {
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: `Edit/Write on an integrity-critical path, but the MAIN checkout could not be identified: ${mainRes.reason}`,
-        why: "multi-operator-coc/integrity-guard — every check below (coordination-enabled, roster, genesis, codify-lease) is read RELATIVE to the main checkout. With the root unidentified those reads answer about some other directory, and the coordination-enabled read in particular comes back false, whose branch is `passthrough()` — the fence would silently disable itself exactly when it cannot tell where it is. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity). Severity is block — the same disposition, on the same reasoning, as signing-mutation-guard.js on this same predicate: the signal is process-state (git exited non-zero), the structural grounding hook-output-discipline.md MUST-2 requires — a lexical match would not qualify. MUST-2 PERMITS block here; what REQUIRES it is that halt-and-report maps to continue:true and the Edit/Write RUNS (lib/instruct-and-wait.js), so on a mutation fence it is not a softer refusal but no refusal at all, leaving exactly the fail-open described above. The operator's recovery path is CLAUDE_TRUST_STATE_DIR, named in the report below.",
-        agent_must_report: [
-          `Session cwd: ${sessionCwd}`,
-          `Resolver reason: ${mainRes.reason}`,
-          "The integrity fence did NOT run — its result is UNKNOWN, not clean.",
-          "If this is a differently-owned checkout, `git` reports `detected dubious ownership`; take ownership of the checkout, or set CLAUDE_TRUST_STATE_DIR to pin the trust-state root explicitly.",
-        ],
-        agent_must_wait:
-          "Do not retry the Edit/Write until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
-        user_summary:
-          "integrity-guard — main checkout unidentifiable; fence refused rather than passed through",
-      });
-      // emit() exits
-    }
-    let repoDir = mainRes.repoDir;
-    let scope = {};
-    let wp = isWatchedPath(watch.targetPath, repoDir, scope);
-    // loom#1871 HIGH-1 — CORROBORATE AN ENV-SUPPLIED JURISDICTION BEFORE ANY
-    // PASSTHROUGH. Both remaining pre-auth passthrough arms (unwatched path,
-    // coordination disabled) read the SAME `repoDir`, and `resolveRepoDir`
-    // accepts `COC_OPERATOR_REPO_DIR` on the sole evidence that the directory
-    // exists. This is evaluated ONCE, here, covering both arms — see
-    // `corroborateOverride` for the two-pole measurement and why the arm the
-    // review named is not the arm control actually takes.
-    const govAfterOverride = wp.watched && isGovernanceEnabled(repoDir);
-    const corroborated = corroborateOverride(
-      watch.targetPath,
-      { watched: wp.watched, governanceEnabled: govAfterOverride },
-      payload,
-      { overrideActive: envOverrideActive },
-    );
-    if (corroborated && corroborated.uncorroborated) {
-      // The override produced a PASSTHROUGH and the override-free root could not
-      // be resolved, so whether the override is WIDENING the fence is UNKNOWN —
-      // and UNKNOWN is not clean on a mutation fence.
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: `Edit/Write on '${watch.targetPath}' with COC_OPERATOR_REPO_DIR steering the fence to '${sessionCwd}', which yields a PASSTHROUGH — but the override-free root could not be resolved, so the override could not be corroborated: ${corroborated.reason}`,
-        why: "multi-operator-coc/integrity-guard (loom#1871 HIGH-1) — an env-supplied jurisdiction may NARROW this fence but never WIDEN it, and that is checked by re-running the watched-path and coordination predicates against the override-FREE root. Here that root could not be resolved, so the check could not answer. Honouring the override on that basis would mean the corroboration is defeated by making its own baseline unreadable — a cheaper attack than the one it closes. Severity is block on the same signal and the same reasoning as this guard's unidentifiable-main-checkout arm: git exited non-zero, which is the process-state class hook-output-discipline.md MUST-2 accepts, and halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal at all.",
-        agent_must_report: [
-          `Target path: ${watch.targetPath}`,
-          `COC_OPERATOR_REPO_DIR: ${sessionCwd}`,
-          `Override-free root consulted: ${unoverriddenRepoDir(payload)}`,
-          `Why it could not be resolved: ${corroborated.reason}`,
-          "The fence did NOT run — its result is UNKNOWN, not clean.",
-          "Remediation: unset COC_OPERATOR_REPO_DIR (it is test injection, not an operator setting), or run from a session cwd inside a resolvable checkout of this repository.",
-        ],
-        agent_must_wait:
-          "Do not retry the Edit/Write until COC_OPERATOR_REPO_DIR is unset, or the session cwd resolves to a real main checkout.",
-        user_summary: `integrity-guard — COC_OPERATOR_REPO_DIR override UNCORROBORATED for ${watch.targetPath}; refused rather than passed through`,
-      });
-      // emit() exits
-    }
-    if (corroborated) {
-      repoDir = corroborated.repoDir;
-      scope = corroborated.scope;
-      wp = corroborated.wp;
-    }
-    if (!wp.watched) {
-      // Unwatched path — silent passthrough.
-      passthrough();
-    }
-
-    // MO-OPT W1-b — opt-in gate (workspaces/multi-operator-optional, journal/0330).
-    // When the coordination substrate is DISABLED (a solo / fresh repo that
-    // never enrolled — no roster+genesis, no explicit switch), the entire
-    // codify-branch + lease fence is a no-op: a watched path is editable from
-    // any branch, exactly as on a single-writer repo. This fixes THE worst
-    // disruption (analysis §A): integrity-guard otherwise blocks every
-    // Edit/Write to journal/team-memory/learning/roster on main/feat/* with no
-    // coordination precondition. When ENABLED, everything below is byte-unchanged
-    // (the S6 invariant — this adds one early branch on the OFF path only).
-    // isGovernanceEnabled is synchronous and never throws into the guard.
-    //
-    // loom#1896 — this reads GOVERNANCE, not COORDINATION. The protected case
-    // is a never-enrolled repo (no roster, no genesis), and governance is OFF
-    // there, so the MO-OPT W1-b disruption fix above is preserved byte-for-byte.
-    // What changes is the enrolled-SOLO repo: it keeps this fence, because one
-    // human is not evidence that an AGENT may rewrite the roster off-lease.
-    if (!isGovernanceEnabled(repoDir)) {
-      passthrough();
-    }
-
-    // loom#1849b — ENTER THE AUTHORIZATION PHASE. Everything established: this
-    // is a mutation tool, on a watched integrity-critical path, on a
-    // coordination-ENABLED repo. The only question left is whether the write is
-    // authorized, so from here an indeterminate answer refuses instead of
-    // passing through. See `denyIndeterminate` for why this line and not an
-    // earlier one, and `enterAuthPhase` for why the budget is re-armed here.
-    enterAuthPhase(hookEvent, wp.rel);
-
-    // Resolve identity. Even un-rostered keys get past this gate (the
-    // codify-branch + lease checks fire equally). We need display_id
-    // for the branch-name predicate AND verified_id + person_id for
-    // HIGH-6 lease-ownership matching.
-    const explicitKey = process.env.COC_OPERATOR_KEY_PATH;
-    const identity = resolveIdentity(repoDir, {
-      signingKeyPath: explicitKey || undefined,
-      keyType: explicitKey ? "ssh" : undefined,
+  // M3 MED-5 / F-11: resolve main-checkout root for the registry-level
+  // operations (fold + lease resolution). When the hook is invoked
+  // from a worktree, the underlying coordination-log + roster live
+  // in the MAIN checkout per trust-posture.md MUST-1. We still use
+  // the worktree's cwd for the branch check (a worktree has its own
+  // HEAD) but route registry I/O through the main checkout.
+  const sessionCwd = resolveRepoDir(payload);
+  // Captured BEFORE any gate reads it, so the corroboration pass below and the
+  // primary resolution above agree on whether the env was steering at all.
+  const envOverrideActive = envRepoDirOverrideActive(payload);
+  // loom#1471 F7b — the former `resolveMainCheckout(sessionCwd) || sessionCwd`
+  // could not fail closed: the legacy accessor returns `startCwd` (never a
+  // falsy value) when git could not identify a main checkout, so the `||` was
+  // unreachable. That `repoDir` then fed `isCoordinationEnabled` below, which
+  // reads false against a directory holding no roster and no genesis — and the
+  // OFF branch calls `passthrough()`, so THIS ENTIRE FENCE disabled itself on
+  // any host where git cannot answer (a differently-owned checkout fatals with
+  // `detected dubious ownership`; `gitEnv()` discards `safe.directory`).
+  // Measured: CONTROL (real worktree) enabled=true → fence runs; PROBE (git
+  // cannot answer) enabled=false → passthrough().
+  const mainRes = requireMainCheckout(sessionCwd);
+  if (!mainRes.ok) {
+    clearTimeout(authDeadline);
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: `Edit/Write on an integrity-critical path, but the MAIN checkout could not be identified: ${mainRes.reason}`,
+      why: "multi-operator-coc/integrity-guard — every check below (coordination-enabled, roster, genesis, codify-lease) is read RELATIVE to the main checkout. With the root unidentified those reads answer about some other directory, and the coordination-enabled read in particular comes back false, whose branch is `passthrough()` — the fence would silently disable itself exactly when it cannot tell where it is. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity). Severity is block — the same disposition, on the same reasoning, as signing-mutation-guard.js on this same predicate: the signal is process-state (git exited non-zero), the structural grounding hook-output-discipline.md MUST-2 requires — a lexical match would not qualify. MUST-2 PERMITS block here; what REQUIRES it is that halt-and-report maps to continue:true and the Edit/Write RUNS (lib/instruct-and-wait.js), so on a mutation fence it is not a softer refusal but no refusal at all, leaving exactly the fail-open described above. The operator's recovery path is CLAUDE_TRUST_STATE_DIR, named in the report below.",
+      agent_must_report: [
+        `Session cwd: ${sessionCwd}`,
+        `Resolver reason: ${mainRes.reason}`,
+        "The integrity fence did NOT run — its result is UNKNOWN, not clean.",
+        "If this is a differently-owned checkout, `git` reports `detected dubious ownership`; take ownership of the checkout, or set CLAUDE_TRUST_STATE_DIR to pin the trust-state root explicitly.",
+      ],
+      agent_must_wait:
+        "Do not retry the Edit/Write until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+      user_summary:
+        "integrity-guard — main checkout unidentifiable; fence refused rather than passed through",
     });
-    const displayId = (identity && identity.display_id) || null;
-    const selfVerifiedId = (identity && identity.verified_id) || null;
-    const selfPersonId = (identity && identity.person_id) || null;
+  }
+  let repoDir = mainRes.repoDir;
+  let scope = {};
+  let wp = isWatchedPath(watch.targetPath, repoDir, scope);
+  // loom#1871 HIGH-1 — CORROBORATE AN ENV-SUPPLIED JURISDICTION BEFORE ANY
+  // PASSTHROUGH. Both remaining pre-auth passthrough arms (unwatched path,
+  // coordination disabled) read the SAME `repoDir`, and `resolveRepoDir`
+  // accepts `COC_OPERATOR_REPO_DIR` on the sole evidence that the directory
+  // exists. This is evaluated ONCE, here, covering both arms — see
+  // `corroborateOverride` for the two-pole measurement and why the arm the
+  // review named is not the arm control actually takes.
+  const govAfterOverride = wp.watched && isGovernanceEnabled(repoDir);
+  const corroborated = corroborateOverride(
+    watch.targetPath,
+    { watched: wp.watched, governanceEnabled: govAfterOverride },
+    payload,
+    { overrideActive: envOverrideActive },
+  );
+  if (corroborated && corroborated.uncorroborated) {
+    // The override produced a PASSTHROUGH and the override-free root could not
+    // be resolved, so whether the override is WIDENING the fence is UNKNOWN —
+    // and UNKNOWN is not clean on a mutation fence.
+    clearTimeout(authDeadline);
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: `Edit/Write on '${watch.targetPath}' with COC_OPERATOR_REPO_DIR steering the fence to '${sessionCwd}', which yields a PASSTHROUGH — but the override-free root could not be resolved, so the override could not be corroborated: ${corroborated.reason}`,
+      why: "multi-operator-coc/integrity-guard (loom#1871 HIGH-1) — an env-supplied jurisdiction may NARROW this fence but never WIDEN it, and that is checked by re-running the watched-path and coordination predicates against the override-FREE root. Here that root could not be resolved, so the check could not answer. Honouring the override on that basis would mean the corroboration is defeated by making its own baseline unreadable — a cheaper attack than the one it closes. Severity is block on the same signal and the same reasoning as this guard's unidentifiable-main-checkout arm: git exited non-zero, which is the process-state class hook-output-discipline.md MUST-2 accepts, and halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal at all.",
+      agent_must_report: [
+        `Target path: ${watch.targetPath}`,
+        `COC_OPERATOR_REPO_DIR: ${sessionCwd}`,
+        `Override-free root consulted: ${unoverriddenRepoDir(payload)}`,
+        `Why it could not be resolved: ${corroborated.reason}`,
+        "The fence did NOT run — its result is UNKNOWN, not clean.",
+        "Remediation: unset COC_OPERATOR_REPO_DIR (it is test injection, not an operator setting), or run from a session cwd inside a resolvable checkout of this repository.",
+      ],
+      agent_must_wait:
+        "Do not retry the Edit/Write until COC_OPERATOR_REPO_DIR is unset, or the session cwd resolves to a real main checkout.",
+      user_summary: `integrity-guard — COC_OPERATOR_REPO_DIR override UNCORROBORATED for ${watch.targetPath}; refused rather than passed through`,
+    });
+  }
+  if (corroborated) {
+    repoDir = corroborated.repoDir;
+    scope = corroborated.scope;
+    wp = corroborated.wp;
+  }
+  if (!wp.watched) {
+    // Unwatched path — silent passthrough.
+    return passthrough();
+  }
 
-    // (1) Structural branch predicate — `git rev-parse --abbrev-ref HEAD`, run
-    // against THE TREE THAT OWNS THE TARGET PATH.
-    //
-    // NOT repoDir (the main checkout) and — since loom#1656 — NOT sessionCwd
-    // either. Routing registry I/O through the main checkout (repoDir, below) is
-    // correct and unchanged; what the BRANCH predicate must answer is "what
-    // branch is the file being written on", and in a forest of linked worktrees
-    // that is a property of the TARGET, never of wherever the session's cwd
-    // happens to sit.
-    //
-    // #1414 fixed this once, from repoDir to sessionCwd, on the reasoning that
-    // "a worktree has its OWN HEAD". True, and insufficient: the harness reports
-    // the SESSION's cwd, which for an agent dispatched from the primary checkout
-    // is the primary checkout, while the Edit/Write carries an ABSOLUTE path into
-    // a lane's worktree. So the two are routinely different trees and the fence
-    // judged the wrong one. Measured on the fixture, primary on codify/*, the
-    // lane's worktree on feat/*, writing `<worktree>/journal/0002.md`:
-    //
-    //   pre-fix   exit 0  "continue":true   "Branch: codify/primary-2026-08-12"
-    //   post-fix  exit 2  [BLOCK]           "Active branch: feat/lane-work"
-    //
-    // The pre-fix row is a FAIL-OPEN, not a cosmetic mislabel: halt-and-report
-    // maps to continue:true (lib/instruct-and-wait.js), so the write RAN. Any
-    // session with the primary parked on a codify branch — the ordinary state
-    // during a /codify — disabled the fence for every one of the ~30 linked
-    // worktrees at once. #1471 pinned WHICH ENVIRONMENT answers this predicate;
-    // this pins WHICH WORKING TREE, the adjacent axis of the same clause.
-    //
-    // `scope.matchedRoot` is the root whose rel matched in isWatchedPath above,
-    // so the branch predicate and the watched-path predicate now answer about
-    // ONE tree by construction rather than by coincidence.
-    // loom#1664 — a RELATIVE target names no owning tree that can be
-    // established from the payload, so it cannot answer the BRANCH question
-    // however well it answers the watched-path one. The resolver reads a
-    // non-escaping rel as repoDir-relative and reports `matchedRoot` = the MAIN
-    // CHECKOUT; taking that as the branch tree makes the fence judge the primary
-    // while the write lands wherever the tool resolves the relative path — the
-    // #1656 failure mode surviving in a second spelling. Measured A/B on the
-    // #1664 fixture (primary on codify/*, session in a lane worktree on feat/*,
-    // `file_path: "journal/0002-rel.md"`):
-    //
-    //   pre-#1656   exit 2  [BLOCK]        branch=feat/lane-work
-    //   post-#1656  exit 0  continue:true  branch=codify/primary-2026-08-12  <- RAN
-    //
-    // i.e. this PR WIDENED the refused-write set on that path. Fail closed
-    // instead, matching this hook's disposition for a detached or unresolvable
-    // owning tree. The resolver's repoDir-relative convention is deliberately
-    // NOT changed — it is house-wide (journal-write-guard.js,
-    // signing-mutation-guard.js, adjacency-leasecheck.js) and correct for the
-    // WATCHED question; only the BRANCH question, which needs a real tree with a
-    // readable HEAD, refuses here.
-    const targetIsAbsolute = path.isAbsolute(watch.targetPath);
-    const branchTree = targetIsAbsolute ? scope.matchedRoot : null;
-    if (!branchTree) {
-      // FAIL CLOSED. Either the target is relative (loom#1664 — no owning tree
-      // is derivable from the payload at all), or the resolver matched it only
-      // through its fail-closed SUFFIX branch, which names no owning tree
-      // (guard-path-scope.js) — so there is no HEAD to read. Substituting
-      // sessionCwd here is exactly the #1656 defect with an extra step, and it
-      // would substitute it precisely on the paths whose jurisdiction is already
-      // indeterminate.
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: targetIsAbsolute
-          ? `Edit/Write on integrity-critical path '${wp.rel}', but the working tree that OWNS that path could not be identified.`
-          : `Edit/Write on integrity-critical path '${wp.rel}' given as a RELATIVE path, which names no working tree whose branch can be checked.`,
-        why: targetIsAbsolute
-          ? "multi-operator-coc/integrity-guard — the codify-branch fence reads `git rev-parse --abbrev-ref HEAD` in the tree the TARGET lives in. That path matched only through the resolver's fail-closed suffix branch, which names no owning tree, so there is no HEAD to read and the branch verdict is UNKNOWN — not clean. Falling back to the session's cwd is loom#1656 itself: in a linked-worktree forest that is routinely a DIFFERENT tree, and the fence would judge a branch nobody is writing from. Severity is block for the same reason as the unidentifiable-main-checkout branch above: halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal at all and the write would land with the branch contract unverified."
-          : "multi-operator-coc/integrity-guard (loom#1664) — the codify-branch fence reads `git rev-parse --abbrev-ref HEAD` in the tree the TARGET lives in, and a relative path does not name one. The resolver reads a non-escaping rel as MAIN-CHECKOUT-relative, so treating its root as the branch tree would judge the primary's HEAD while the write lands wherever the writing tool resolves the path — routinely a different worktree, which is loom#1656 in a second spelling. The branch verdict is therefore UNKNOWN, and UNKNOWN is not clean on a mutation fence.",
-        agent_must_report: [
-          `Target path: ${wp.rel}`,
-          `Session cwd: ${sessionCwd}`,
-          "The codify-branch fence did NOT run — its result is UNKNOWN, not clean.",
-          targetIsAbsolute
-            ? "This usually means the target is not inside a resolvable git working tree (git absent or errored), or a tree resolved but produced no usable repo-relative path."
-            : "The Edit/Write supplied a RELATIVE file_path. Which working tree it lands in depends on the writing tool's cwd, so the fence cannot establish which branch would receive it.",
-          targetIsAbsolute
-            ? "Remediation: run the Edit/Write against a path inside a resolvable working tree of this repository."
-            : "Remediation: re-issue the Edit/Write with an ABSOLUTE file_path naming the intended working tree.",
-        ],
-        agent_must_wait: targetIsAbsolute
-          ? "Do not retry the Edit/Write until the target path resolves inside a working tree whose HEAD can be read."
-          : "Do not retry the Edit/Write until it names an ABSOLUTE path inside a working tree whose HEAD can be read.",
-        user_summary: `integrity-guard — owning worktree unidentifiable for ${wp.rel}; fence refused rather than passed through`,
-      });
-      // emit() exits
+  // MO-OPT W1-b — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+  // When the coordination substrate is DISABLED (a solo / fresh repo that
+  // never enrolled — no roster+genesis, no explicit switch), the entire
+  // codify-branch + lease fence is a no-op: a watched path is editable from
+  // any branch, exactly as on a single-writer repo. This fixes THE worst
+  // disruption (analysis §A): integrity-guard otherwise blocks every
+  // Edit/Write to journal/team-memory/learning/roster on main/feat/* with no
+  // coordination precondition. When ENABLED, everything below is byte-unchanged
+  // (the S6 invariant — this adds one early branch on the OFF path only).
+  // isGovernanceEnabled is synchronous and never throws into the guard.
+  //
+  // loom#1896 — this reads GOVERNANCE, not COORDINATION. The protected case
+  // is a never-enrolled repo (no roster, no genesis), and governance is OFF
+  // there, so the MO-OPT W1-b disruption fix above is preserved byte-for-byte.
+  // What changes is the enrolled-SOLO repo: it keeps this fence, because one
+  // human is not evidence that an AGENT may rewrite the roster off-lease.
+  if (!isGovernanceEnabled(repoDir)) {
+    return passthrough();
+  }
+
+  // loom#1849b — ENTER THE AUTHORIZATION PHASE. Everything established: this
+  // is a mutation tool, on a watched integrity-critical path, on a
+  // coordination-ENABLED repo. The only question left is whether the write is
+  // authorized, so from here an indeterminate answer refuses instead of
+  // passing through. See `denyIndeterminate` for why this line and not an
+  // earlier one, and `enterAuthPhase` for why the budget is re-armed here.
+  enterAuthPhase(hookEvent, wp.rel);
+
+  // Resolve identity. Even un-rostered keys get past this gate (the
+  // codify-branch + lease checks fire equally). We need display_id
+  // for the branch-name predicate AND verified_id + person_id for
+  // HIGH-6 lease-ownership matching.
+  const explicitKey = process.env.COC_OPERATOR_KEY_PATH;
+  const identity = resolveIdentity(repoDir, {
+    signingKeyPath: explicitKey || undefined,
+    keyType: explicitKey ? "ssh" : undefined,
+  });
+  const displayId = (identity && identity.display_id) || null;
+  const selfVerifiedId = (identity && identity.verified_id) || null;
+  const selfPersonId = (identity && identity.person_id) || null;
+
+  // (1) Structural branch predicate — `git rev-parse --abbrev-ref HEAD`, run
+  // against THE TREE THAT OWNS THE TARGET PATH.
+  //
+  // NOT repoDir (the main checkout) and — since loom#1656 — NOT sessionCwd
+  // either. Routing registry I/O through the main checkout (repoDir, below) is
+  // correct and unchanged; what the BRANCH predicate must answer is "what
+  // branch is the file being written on", and in a forest of linked worktrees
+  // that is a property of the TARGET, never of wherever the session's cwd
+  // happens to sit.
+  //
+  // #1414 fixed this once, from repoDir to sessionCwd, on the reasoning that
+  // "a worktree has its OWN HEAD". True, and insufficient: the harness reports
+  // the SESSION's cwd, which for an agent dispatched from the primary checkout
+  // is the primary checkout, while the Edit/Write carries an ABSOLUTE path into
+  // a lane's worktree. So the two are routinely different trees and the fence
+  // judged the wrong one. Measured on the fixture, primary on codify/*, the
+  // lane's worktree on feat/*, writing `<worktree>/journal/0002.md`:
+  //
+  //   pre-fix   exit 0  "continue":true   "Branch: codify/primary-2026-08-12"
+  //   post-fix  exit 2  [BLOCK]           "Active branch: feat/lane-work"
+  //
+  // The pre-fix row is a FAIL-OPEN, not a cosmetic mislabel: halt-and-report
+  // maps to continue:true (lib/instruct-and-wait.js), so the write RAN. Any
+  // session with the primary parked on a codify branch — the ordinary state
+  // during a /codify — disabled the fence for every one of the ~30 linked
+  // worktrees at once. #1471 pinned WHICH ENVIRONMENT answers this predicate;
+  // this pins WHICH WORKING TREE, the adjacent axis of the same clause.
+  //
+  // `scope.matchedRoot` is the root whose rel matched in isWatchedPath above,
+  // so the branch predicate and the watched-path predicate now answer about
+  // ONE tree by construction rather than by coincidence.
+  // loom#1664 — a RELATIVE target names no owning tree that can be
+  // established from the payload, so it cannot answer the BRANCH question
+  // however well it answers the watched-path one. The resolver reads a
+  // non-escaping rel as repoDir-relative and reports `matchedRoot` = the MAIN
+  // CHECKOUT; taking that as the branch tree makes the fence judge the primary
+  // while the write lands wherever the tool resolves the relative path — the
+  // #1656 failure mode surviving in a second spelling. Measured A/B on the
+  // #1664 fixture (primary on codify/*, session in a lane worktree on feat/*,
+  // `file_path: "journal/0002-rel.md"`):
+  //
+  //   pre-#1656   exit 2  [BLOCK]        branch=feat/lane-work
+  //   post-#1656  exit 0  continue:true  branch=codify/primary-2026-08-12  <- RAN
+  //
+  // i.e. this PR WIDENED the refused-write set on that path. Fail closed
+  // instead, matching this hook's disposition for a detached or unresolvable
+  // owning tree. The resolver's repoDir-relative convention is deliberately
+  // NOT changed — it is house-wide (journal-write-guard.js,
+  // signing-mutation-guard.js, adjacency-leasecheck.js) and correct for the
+  // WATCHED question; only the BRANCH question, which needs a real tree with a
+  // readable HEAD, refuses here.
+  const targetIsAbsolute = path.isAbsolute(watch.targetPath);
+  const branchTree = targetIsAbsolute ? scope.matchedRoot : null;
+  if (!branchTree) {
+    // FAIL CLOSED. Either the target is relative (loom#1664 — no owning tree
+    // is derivable from the payload at all), or the resolver matched it only
+    // through its fail-closed SUFFIX branch, which names no owning tree
+    // (guard-path-scope.js) — so there is no HEAD to read. Substituting
+    // sessionCwd here is exactly the #1656 defect with an extra step, and it
+    // would substitute it precisely on the paths whose jurisdiction is already
+    // indeterminate.
+    clearTimeout(authDeadline);
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: targetIsAbsolute
+        ? `Edit/Write on integrity-critical path '${wp.rel}', but the working tree that OWNS that path could not be identified.`
+        : `Edit/Write on integrity-critical path '${wp.rel}' given as a RELATIVE path, which names no working tree whose branch can be checked.`,
+      why: targetIsAbsolute
+        ? "multi-operator-coc/integrity-guard — the codify-branch fence reads `git rev-parse --abbrev-ref HEAD` in the tree the TARGET lives in. That path matched only through the resolver's fail-closed suffix branch, which names no owning tree, so there is no HEAD to read and the branch verdict is UNKNOWN — not clean. Falling back to the session's cwd is loom#1656 itself: in a linked-worktree forest that is routinely a DIFFERENT tree, and the fence would judge a branch nobody is writing from. Severity is block for the same reason as the unidentifiable-main-checkout branch above: halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal at all and the write would land with the branch contract unverified."
+        : "multi-operator-coc/integrity-guard (loom#1664) — the codify-branch fence reads `git rev-parse --abbrev-ref HEAD` in the tree the TARGET lives in, and a relative path does not name one. The resolver reads a non-escaping rel as MAIN-CHECKOUT-relative, so treating its root as the branch tree would judge the primary's HEAD while the write lands wherever the writing tool resolves the path — routinely a different worktree, which is loom#1656 in a second spelling. The branch verdict is therefore UNKNOWN, and UNKNOWN is not clean on a mutation fence.",
+      agent_must_report: [
+        `Target path: ${wp.rel}`,
+        `Session cwd: ${sessionCwd}`,
+        "The codify-branch fence did NOT run — its result is UNKNOWN, not clean.",
+        targetIsAbsolute
+          ? "This usually means the target is not inside a resolvable git working tree (git absent or errored), or a tree resolved but produced no usable repo-relative path."
+          : "The Edit/Write supplied a RELATIVE file_path. Which working tree it lands in depends on the writing tool's cwd, so the fence cannot establish which branch would receive it.",
+        targetIsAbsolute
+          ? "Remediation: run the Edit/Write against a path inside a resolvable working tree of this repository."
+          : "Remediation: re-issue the Edit/Write with an ABSOLUTE file_path naming the intended working tree.",
+      ],
+      agent_must_wait: targetIsAbsolute
+        ? "Do not retry the Edit/Write until the target path resolves inside a working tree whose HEAD can be read."
+        : "Do not retry the Edit/Write until it names an ABSOLUTE path inside a working tree whose HEAD can be read.",
+      user_summary: `integrity-guard — owning worktree unidentifiable for ${wp.rel}; fence refused rather than passed through`,
+    });
+  }
+  const branch = resolveActiveBranch(branchTree);
+  // loom#1481 — the roster is read HERE, not only inside the fold below,
+  // because the branch fence needs it when OUR display_id did not resolve
+  // (isCodifyBranch's § "WHEN display_id DOES NOT RESOLVE"). Same `loadRoster`
+  // call the fold uses, hoisted and reused, so the two surfaces cannot answer
+  // from different roster reads.
+  const roster = loadRoster(repoDir);
+  const branchVerdict = isCodifyBranch(branch, displayId, roster);
+
+  if (!branchVerdict.match) {
+    // BLOCK — structural signal (process-local git invocation).
+    clearTimeout(authDeadline);
+    // loom#1871 F4a — when OUR identity did not resolve, the headline must
+    // name THAT, not the branch's operator name. The two are different
+    // propositions: "this branch belongs to someone else" is a claim about
+    // the world; "I cannot tell who you are" is a claim about the
+    // INSTRUMENT. The verdict already carries `identityUnresolved`, and the
+    // remediation line below already said the right thing — but
+    // `what_happened` is the sentence the operator actually reads, and it
+    // announced a foreign branch, which is the derived conclusion standing
+    // in for the unanswered question (`instrument-discipline.md` MUST-1,
+    // `probe-driven-verification.md` MUST-7: not-having-run must not be
+    // spelled the same as a substantive answer).
+    const identityNote = branchVerdict.identityUnresolved
+      ? `, but THE OPERATOR'S IDENTITY COULD NOT BE RESOLVED — so the fence cannot establish whether this branch is yours. The operator name in the branch is NOT a claim about who you are`
+      : null;
+    const foreignNote =
+      branchVerdict.foreign && !branchVerdict.identityUnresolved
+        ? ` (foreign codify-branch for operator ${branchVerdict.foreignDisplayId})`
+        : "";
+    // Same idiom the identity-unresolved lease branch below uses, so the two
+    // surfaces name the consulted source identically rather than drifting.
+    const keySource = explicitKey
+      ? `COC_OPERATOR_KEY_PATH=${explicitKey}`
+      : "git config user.signingkey / the default key locations";
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: identityNote
+        ? `Edit/Write on integrity-critical path '${wp.rel}' from branch '${branch || "<unknown>"}'${identityNote}.`
+        : `Edit/Write on integrity-critical path '${wp.rel}' from branch '${branch || "<unknown>"}'${foreignNote}.`,
+      why: "multi-operator-coc/integrity-guard §2.3 — integrity-critical artifacts (operators.roster.json, coordination-log.jsonl, posture.json, journal/, team-memory/) MUST be edited only through the /codify flow per architecture v11 §6.4 + §7.1 (Step 0 acquireCodifyLease → codify/<display_id>-<date> branch → PR → admin-merge). Branch resolution via `git rev-parse --abbrev-ref HEAD` IS the structural primitive (hook-output-discipline.md MUST-2): process-local deterministic, not lexical match.",
+      agent_must_report: [
+        `Target path: ${wp.rel}`,
+        `Active branch: ${branch || "<unresolved>"}`,
+        `Expected branch shape: codify/${displayId || "<your-display_id>"}-YYYY-MM-DD[-<lane>]`,
+        "The optional -<lane> suffix is how two concurrent sessions of the SAME operator on the SAME date get distinct branches, and therefore distinct working trees. Pick a lane name; one lease covers them all.",
+        "Run /codify to acquire a lease + open a codify branch before retrying the edit.",
+        ...(branchVerdict.identityUnresolved
+          ? [
+              `Identity source consulted: ${keySource}${
+                explicitKey && !fs.existsSync(explicitKey)
+                  ? " — THIS PATH DOES NOT EXIST, which is very likely the whole cause"
+                  : ""
+              }. Without naming the source, the operator cannot act on this refusal.`,
+            ]
+          : []),
+        branchVerdict.identityUnresolved
+          ? `YOUR display_id did not resolve, and this branch names the ROSTERED operator '${branchVerdict.foreignDisplayId}' — so the fence cannot establish that the branch is yours, and refuses rather than skipping the check (loom#1481). This is NOT a claim that you are a different operator. Run /whoami: if it reports no display_id, fix identity resolution (roster entry, signing key, COC_OPERATOR_KEY_PATH) before retrying. An ad-hoc lane token that names no rostered operator is not refused here.`
+          : branchVerdict.foreign
+            ? `Foreign codify branch detected (operator ${branchVerdict.foreignDisplayId}) — coordinate with that operator OR open your own codify branch.`
+            : "If the edit is genuinely outside /codify scope (e.g. a developer-facing comment), state that and ask the user before proceeding.",
+      ],
+      agent_must_wait:
+        "Do not retry the Edit/Write off-codify. Acquire a codify lease via /codify, switch to the codify/<display_id>-<date> branch, then retry.",
+      user_summary: `integrity-guard — BLOCK on ${wp.rel} off-codify-branch (${branch || "<unknown>"})`,
+    });
+  }
+
+  // (2) Codify-lease verification against the fold.
+  const transport = createFilesystemTransport(repoDir);
+  let accepted = [];
+  let readIndeterminate = null;
+  let foldDeadline = null;
+  // loom#1881 HIGH-2. This was a COUNT, and a count is a GLOBAL fact about
+  // the log: `n > 0` denied EVERY lease in the repo, including leases
+  // acquired long after the offending record and leases it could never have
+  // referred to. Measured on the commit that introduced it: one appended
+  // `codify-lease-release` carrying `lease_id: 123` denied every codify write
+  // repo-wide, and the remediation its own source comment named —
+  // "re-acquire a fresh lease" — did NOT clear it, because the fresh lease
+  // was denied by the same global predicate. That is a permanent, one-line,
+  // repo-wide denial of service, and it did not exist before the hardening.
+  //
+  // It is now a POSITION: the file line of the LAST unreadable record. An
+  // unreadable record can only be the erased release for a lease that was
+  // already in the log when it was appended, so it implicates leases ABOVE
+  // it and nothing below. That keeps the fail-closed direction where the
+  // evidence actually points, and makes "acquire a fresh lease" work — a
+  // record appended now sits below all existing damage.
+  let lastUnreadablePos = -1;
+  // FILE line of each record, keyed by signature. `fold.accepted` is not in
+  // file order (the engine groups by emitter), so the ordering axis has to
+  // be carried in rather than inferred from array position.
+  let posBySig = new Map();
+  try {
+    const detailed = await transport.readAllRecordsDetailed();
+    const records = detailed.records;
+    for (let k = 0; k < records.length; k++) {
+      const s = records[k] && records[k].sig;
+      if (typeof s === "string" && s)
+        posBySig.set(s, detailed.lineIndices[k]);
     }
-    const branch = resolveActiveBranch(branchTree);
-    // loom#1481 — the roster is read HERE, not only inside the fold below,
-    // because the branch fence needs it when OUR display_id did not resolve
-    // (isCodifyBranch's § "WHEN display_id DOES NOT RESOLVE"). Same `loadRoster`
-    // call the fold uses, hoisted and reused, so the two surfaces cannot answer
-    // from different roster reads.
-    const roster = loadRoster(repoDir);
-    const branchVerdict = isCodifyBranch(branch, displayId, roster);
-
-    if (!branchVerdict.match) {
-      // BLOCK — structural signal (process-local git invocation).
-      clearTimeout(fallback);
-      // loom#1871 F4a — when OUR identity did not resolve, the headline must
-      // name THAT, not the branch's operator name. The two are different
-      // propositions: "this branch belongs to someone else" is a claim about
-      // the world; "I cannot tell who you are" is a claim about the
-      // INSTRUMENT. The verdict already carries `identityUnresolved`, and the
-      // remediation line below already said the right thing — but
-      // `what_happened` is the sentence the operator actually reads, and it
-      // announced a foreign branch, which is the derived conclusion standing
-      // in for the unanswered question (`instrument-discipline.md` MUST-1,
-      // `probe-driven-verification.md` MUST-7: not-having-run must not be
-      // spelled the same as a substantive answer).
-      const identityNote = branchVerdict.identityUnresolved
-        ? `, but THE OPERATOR'S IDENTITY COULD NOT BE RESOLVED — so the fence cannot establish whether this branch is yours. The operator name in the branch is NOT a claim about who you are`
-        : null;
-      const foreignNote =
-        branchVerdict.foreign && !branchVerdict.identityUnresolved
-          ? ` (foreign codify-branch for operator ${branchVerdict.foreignDisplayId})`
-          : "";
-      // Same idiom the identity-unresolved lease branch below uses, so the two
-      // surfaces name the consulted source identically rather than drifting.
-      const keySource = explicitKey
-        ? `COC_OPERATOR_KEY_PATH=${explicitKey}`
-        : "git config user.signingkey / the default key locations";
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: identityNote
-          ? `Edit/Write on integrity-critical path '${wp.rel}' from branch '${branch || "<unknown>"}'${identityNote}.`
-          : `Edit/Write on integrity-critical path '${wp.rel}' from branch '${branch || "<unknown>"}'${foreignNote}.`,
-        why: "multi-operator-coc/integrity-guard §2.3 — integrity-critical artifacts (operators.roster.json, coordination-log.jsonl, posture.json, journal/, team-memory/) MUST be edited only through the /codify flow per architecture v11 §6.4 + §7.1 (Step 0 acquireCodifyLease → codify/<display_id>-<date> branch → PR → admin-merge). Branch resolution via `git rev-parse --abbrev-ref HEAD` IS the structural primitive (hook-output-discipline.md MUST-2): process-local deterministic, not lexical match.",
-        agent_must_report: [
-          `Target path: ${wp.rel}`,
-          `Active branch: ${branch || "<unresolved>"}`,
-          `Expected branch shape: codify/${displayId || "<your-display_id>"}-YYYY-MM-DD[-<lane>]`,
-          "The optional -<lane> suffix is how two concurrent sessions of the SAME operator on the SAME date get distinct branches, and therefore distinct working trees. Pick a lane name; one lease covers them all.",
-          "Run /codify to acquire a lease + open a codify branch before retrying the edit.",
-          ...(branchVerdict.identityUnresolved
-            ? [
-                `Identity source consulted: ${keySource}${
-                  explicitKey && !fs.existsSync(explicitKey)
-                    ? " — THIS PATH DOES NOT EXIST, which is very likely the whole cause"
-                    : ""
-                }. Without naming the source, the operator cannot act on this refusal.`,
-              ]
-            : []),
-          branchVerdict.identityUnresolved
-            ? `YOUR display_id did not resolve, and this branch names the ROSTERED operator '${branchVerdict.foreignDisplayId}' — so the fence cannot establish that the branch is yours, and refuses rather than skipping the check (loom#1481). This is NOT a claim that you are a different operator. Run /whoami: if it reports no display_id, fix identity resolution (roster entry, signing key, COC_OPERATOR_KEY_PATH) before retrying. An ad-hoc lane token that names no rostered operator is not refused here.`
-            : branchVerdict.foreign
-              ? `Foreign codify branch detected (operator ${branchVerdict.foreignDisplayId}) — coordinate with that operator OR open your own codify branch.`
-              : "If the edit is genuinely outside /codify scope (e.g. a developer-facing comment), state that and ask the user before proceeding.",
-        ],
-        agent_must_wait:
-          "Do not retry the Edit/Write off-codify. Acquire a codify lease via /codify, switch to the codify/<display_id>-<date> branch, then retry.",
-        user_summary: `integrity-guard — BLOCK on ${wp.rel} off-codify-branch (${branch || "<unknown>"})`,
-      });
-      // emit() exits
+    // ERASURE CLASS 1 — a line that did not parse at all. It is dropped
+    // BEFORE the fold (transport-filesystem.js::readAllRecordsDetailed), so
+    // no fold-level counter has ever been able to see it. Measured:
+    // corrupting a release line to junk turned a DENY back into a GRANT.
+    for (const line of detailed.parseDropLines) {
+      if (line > lastUnreadablePos) lastUnreadablePos = line;
     }
-
-    // (2) Codify-lease verification against the fold.
-    const transport = createFilesystemTransport(repoDir);
-    let accepted = [];
-    let readIndeterminate = null;
-    // loom#1881 HIGH-2. This was a COUNT, and a count is a GLOBAL fact about
-    // the log: `n > 0` denied EVERY lease in the repo, including leases
-    // acquired long after the offending record and leases it could never have
-    // referred to. Measured on the commit that introduced it: one appended
-    // `codify-lease-release` carrying `lease_id: 123` denied every codify write
-    // repo-wide, and the remediation its own source comment named —
-    // "re-acquire a fresh lease" — did NOT clear it, because the fresh lease
-    // was denied by the same global predicate. That is a permanent, one-line,
-    // repo-wide denial of service, and it did not exist before the hardening.
+    // loom#1481 — `roster` is the SAME read the branch fence above used
+    // (hoisted there), not a second one: two reads could disagree if the file
+    // changed between them, and the branch verdict and the fold must answer
+    // from one roster.
+    // Sandboxed engine: register the codify-lease predicate. M7 E writes
+    // the record; B3a reads it. Sandboxed (createEngine) so the
+    // module-default registry is unmodified for parallel callers.
+    const engine = createEngine();
+    // BOTH halves of the lease lifecycle, with the SAME checkpoint exemption.
+    // The module default is `checkpoint_exempt: false` for each, on the
+    // reasoning that "a released lease has no post-checkpoint value" — true
+    // while the record was pure cross-clone VISIBILITY, and FALSE as of the
+    // 2026-08-21 fix that made the release an AUTHORIZATION REVOCATION.
+    // Exempting the acquire alone is the fail-open asymmetry: a checkpoint
+    // that prunes the release while keeping its acquire resurrects a
+    // released lease as a live grant for the remainder of the TTL, and
+    // acquire -> release -> checkpoint inside 12h is the NORMAL /codify
+    // shape, not an exotic one. Latent today (no consumer prunes on
+    // `up_to_seq`), fixed here because it is the same enforcement-surface
+    // -parity class as the rest of this change (rules/security.md).
+    for (const leaseType of ["codify-lease", "codify-lease-release"]) {
+      engine.registerFoldPredicate(
+        leaseType,
+        (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+        {
+          checkpoint_exempt: true,
+          authoritative_for_record: true,
+          authoritative_for_aggregate: false,
+        },
+      );
+    }
+    // THE BUDGET IS HANDED TO THE FOLD, because the timer cannot reach it
+    // (loom s49 P5).
     //
-    // It is now a POSITION: the file line of the LAST unreadable record. An
-    // unreadable record can only be the erased release for a lease that was
-    // already in the log when it was appended, so it implicates leases ABOVE
-    // it and nothing below. That keeps the fail-closed direction where the
-    // evidence actually points, and makes "acquire a fresh lease" work — a
-    // record appended now sits below all existing damage.
-    let lastUnreadablePos = -1;
-    // FILE line of each record, keyed by signature. `fold.accepted` is not in
-    // file order (the engine groups by emitter), so the ordering axis has to
-    // be carried in rather than inferred from array position.
-    let posBySig = new Map();
-    try {
-      const detailed = await transport.readAllRecordsDetailed();
-      const records = detailed.records;
-      for (let k = 0; k < records.length; k++) {
-        const s = records[k] && records[k].sig;
-        if (typeof s === "string" && s)
-          posBySig.set(s, detailed.lineIndices[k]);
-      }
-      // ERASURE CLASS 1 — a line that did not parse at all. It is dropped
-      // BEFORE the fold (transport-filesystem.js::readAllRecordsDetailed), so
-      // no fold-level counter has ever been able to see it. Measured:
-      // corrupting a release line to junk turned a DENY back into a GRANT.
-      for (const line of detailed.parseDropLines) {
-        if (line > lastUnreadablePos) lastUnreadablePos = line;
-      }
-      // loom#1481 — `roster` is the SAME read the branch fence above used
-      // (hoisted there), not a second one: two reads could disagree if the file
-      // changed between them, and the branch verdict and the fold must answer
-      // from one roster.
-      // Sandboxed engine: register the codify-lease predicate. M7 E writes
-      // the record; B3a reads it. Sandboxed (createEngine) so the
-      // module-default registry is unmodified for parallel callers.
-      const engine = createEngine();
-      // BOTH halves of the lease lifecycle, with the SAME checkpoint exemption.
-      // The module default is `checkpoint_exempt: false` for each, on the
-      // reasoning that "a released lease has no post-checkpoint value" — true
-      // while the record was pure cross-clone VISIBILITY, and FALSE as of the
-      // 2026-08-21 fix that made the release an AUTHORIZATION REVOCATION.
-      // Exempting the acquire alone is the fail-open asymmetry: a checkpoint
-      // that prunes the release while keeping its acquire resurrects a
-      // released lease as a live grant for the remainder of the TTL, and
-      // acquire -> release -> checkpoint inside 12h is the NORMAL /codify
-      // shape, not an exotic one. Latent today (no consumer prunes on
-      // `up_to_seq`), fixed here because it is the same enforcement-surface
-      // -parity class as the rest of this change (rules/security.md).
-      for (const leaseType of ["codify-lease", "codify-lease-release"]) {
-        engine.registerFoldPredicate(
-          leaseType,
-          (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
-          {
-            checkpoint_exempt: true,
-            authoritative_for_record: true,
-            authoritative_for_aggregate: false,
-          },
-        );
-      }
-      // THE BUDGET IS HANDED TO THE FOLD, because the timer cannot reach it
-      // (loom s49 P5).
-      //
-      // `enterAuthPhase` above arms `AUTH_BUDGET_MS` on a setTimeout whose
-      // handler is `denyIndeterminate`, and the comment there states that from
-      // that point the ONLY disposition on expiry is a refusal. That is true of
-      // the TIMER. It was NOT true of this call, and the gap was measured
-      // rather than reasoned about (2026-08-21, loom's own 919-record log):
-      //
-      //   COC_INTEGRITY_GUARD_TIMEOUT_MS=1     -> exit 2, "budget expired",  110ms
-      //   COC_INTEGRITY_GUARD_TIMEOUT_MS=1000  -> exit 2, DETERMINED verdict, 9175ms
-      //
-      // The first pole is the known-answer control: it shows the process CAN
-      // print the budget refusal, so the second pole's silence is evidence and
-      // not merely an absent signal. A 1000ms budget yielding a 9175ms hook is
-      // the whole finding — `foldLog` is synchronous, so its handler could not
-      // run until the fold had already finished and the guard had emitted. The
-      // arm was reachable only during the async log read, i.e. everywhere
-      // except where the time is actually spent. A fail-closed guarantee that
-      // cannot fire on the path that exhausts the budget reads as coverage
-      // while providing none.
-      //
-      // Passing an absolute deadline makes the fold check it in its own loop,
-      // which is the one thing that CAN preempt a synchronous loop. On expiry
-      // foldLog throws FOLD_DEADLINE_EXCEEDED, caught below and routed to
-      // `denyIndeterminate` — the same disposition the timer documents, now
-      // actually reachable from the phase that consumes the budget.
-      const fold = engine.foldLog(records, roster, {
-        deadlineAtMs: PROCESS_STARTED_AT + FOLD_BUDGET_MS,
-      });
-      accepted = fold && Array.isArray(fold.accepted) ? fold.accepted : [];
-      // A PARTIAL fold is not a clean fold. `foldLog` returns a `rejected`
-      // array (rule-1 unverified sig / roster-absent key, rule-2 prev_hash
-      // mismatch, rule-4), and DISCARDING it made a rejected release
-      // indistinguishable from NO release: `releasedLeaseIds` is built from
-      // `accepted` alone, so `Set.has()` returning false is consistent with
-      // BOTH "no release exists" AND "the release was rejected" — and the only
-      // instrument that discriminates was thrown away one line above
-      // (rules/instrument-discipline.md MUST-1). The live shape is ordinary:
-      // acquire -> chain breaks (re-clone with a fresh seed, unfetched sibling
-      // record, partial ref fetch — coordination-log.js:2227 documents it) ->
-      // release is rule-2 rejected -> the released lease keeps authorizing for
-      // the rest of the TTL. The audit trail says released; the fence said
-      // granted. TOTAL fold failure already routes to readIndeterminate; this
-      // is the PARTIAL arm, which had none.
-      //
-      // ERASURE CLASS 2 — a record the fold REJECTED. The prior form filtered
-      // these by `type === "codify-lease-release"`, which is the bug HIGH-1
-      // names: `type` is INSIDE the signed content, so a record whose type was
-      // renamed is rejected (rule 1) AND no longer matches the filter — the
-      // tamper that erases a release also erases the evidence that it was one.
-      // Measured: renaming `codify-lease-release` to `codify-lease-releasX`
-      // turned a DENY back into a GRANT. A rejected record's self-declared
-      // type is unverified by construction, so the only sound reading is that
-      // ANY rejected record may be an erased release. Widening this is safe
-      // ONLY because the indeterminacy is now position-scoped: without that,
-      // one rejected record of any type would brick the repo.
-      for (const r of fold && Array.isArray(fold.rejected)
-        ? fold.rejected
-        : []) {
-        const rec = r && r.record ? r.record : r;
-        const s = rec && rec.sig;
-        const line = typeof s === "string" ? posBySig.get(s) : undefined;
-        // A rejected record whose position cannot be resolved is treated as
-        // being at the END of the log — the fail-closed reading, since an
-        // unlocatable record cannot be shown to predate anything.
-        const at = typeof line === "number" ? line : Number.MAX_SAFE_INTEGER;
-        if (at > lastUnreadablePos) lastUnreadablePos = at;
-      }
-    } catch (err) {
-      // BUDGET EXPIRY GETS ITS OWN DISPOSITION, not the unreadable-log one.
-      // Both refuse, but they are DIFFERENT FACTS with different remediation:
-      // the log here was perfectly readable and the fold simply did not finish
-      // in time. Reporting "the coordination log could not be read" would send
-      // an operator to check file permissions on a file with nothing wrong
-      // with it — the same assert-one-state-on-evidence-for-another error this
-      // guard carries three prior corrections for. `denyIndeterminate` is the
-      // disposition `enterAuthPhase` already documents for budget expiry; this
-      // is the path that finally reaches it.
-      if (err && err.code === "FOLD_DEADLINE_EXCEEDED") {
-        denyIndeterminate(
-          `the ${FOLD_BUDGET_MS}ms fold budget expired during the coordination-log fold`,
-          `folded ${err.recordsFolded} of ${err.recordsTotal} records before the deadline. ` +
-            `Signature verification runs once per record, so fold cost grows with log length; ` +
-            `a log that has outgrown the budget needs a checkpoint, not a retry.`,
-        );
-        // denyIndeterminate exits
-      }
+    // `enterAuthPhase` above arms `AUTH_BUDGET_MS` on a setTimeout whose
+    // handler is `denyIndeterminate`, and the comment there states that from
+    // that point the ONLY disposition on expiry is a refusal. That is true of
+    // the TIMER. It was NOT true of this call, and the gap was measured
+    // rather than reasoned about (2026-08-21, loom's own 919-record log):
+    //
+    //   COC_INTEGRITY_GUARD_TIMEOUT_MS=1     -> exit 2, "budget expired",  110ms
+    //   COC_INTEGRITY_GUARD_TIMEOUT_MS=1000  -> exit 2, DETERMINED verdict, 9175ms
+    //
+    // The first pole is the known-answer control: it shows the process CAN
+    // print the budget refusal, so the second pole's silence is evidence and
+    // not merely an absent signal. A 1000ms budget yielding a 9175ms hook is
+    // the whole finding — `foldLog` is synchronous, so its handler could not
+    // run until the fold had already finished and the guard had emitted. The
+    // arm was reachable only during the async log read, i.e. everywhere
+    // except where the time is actually spent. A fail-closed guarantee that
+    // cannot fire on the path that exhausts the budget reads as coverage
+    // while providing none.
+    //
+    // Passing an absolute deadline makes the fold check it in its own loop,
+    // which is the one thing that CAN preempt a synchronous loop. On expiry
+    // foldLog throws FOLD_DEADLINE_EXCEEDED, caught below and routed to
+    // `denyIndeterminate` — the same disposition the timer documents, now
+    // actually reachable from the phase that consumes the budget.
+    const fold = engine.foldLog(records, roster, {
+      deadlineAtMs: PROCESS_STARTED_AT + FOLD_BUDGET_MS,
+    });
+    accepted = fold && Array.isArray(fold.accepted) ? fold.accepted : [];
+    // A PARTIAL fold is not a clean fold. `foldLog` returns a `rejected`
+    // array (rule-1 unverified sig / roster-absent key, rule-2 prev_hash
+    // mismatch, rule-4), and DISCARDING it made a rejected release
+    // indistinguishable from NO release: `releasedLeaseIds` is built from
+    // `accepted` alone, so `Set.has()` returning false is consistent with
+    // BOTH "no release exists" AND "the release was rejected" — and the only
+    // instrument that discriminates was thrown away one line above
+    // (rules/instrument-discipline.md MUST-1). The live shape is ordinary:
+    // acquire -> chain breaks (re-clone with a fresh seed, unfetched sibling
+    // record, partial ref fetch — coordination-log.js:2227 documents it) ->
+    // release is rule-2 rejected -> the released lease keeps authorizing for
+    // the rest of the TTL. The audit trail says released; the fence said
+    // granted. TOTAL fold failure already routes to readIndeterminate; this
+    // is the PARTIAL arm, which had none.
+    //
+    // ERASURE CLASS 2 — a record the fold REJECTED. The prior form filtered
+    // these by `type === "codify-lease-release"`, which is the bug HIGH-1
+    // names: `type` is INSIDE the signed content, so a record whose type was
+    // renamed is rejected (rule 1) AND no longer matches the filter — the
+    // tamper that erases a release also erases the evidence that it was one.
+    // Measured: renaming `codify-lease-release` to `codify-lease-releasX`
+    // turned a DENY back into a GRANT. A rejected record's self-declared
+    // type is unverified by construction, so the only sound reading is that
+    // ANY rejected record may be an erased release. Widening this is safe
+    // ONLY because the indeterminacy is now position-scoped: without that,
+    // one rejected record of any type would brick the repo.
+    for (const r of fold && Array.isArray(fold.rejected)
+      ? fold.rejected
+      : []) {
+      const rec = r && r.record ? r.record : r;
+      const s = rec && rec.sig;
+      const line = typeof s === "string" ? posBySig.get(s) : undefined;
+      // A rejected record whose position cannot be resolved is treated as
+      // being at the END of the log — the fail-closed reading, since an
+      // unlocatable record cannot be shown to predate anything.
+      const at = typeof line === "number" ? line : Number.MAX_SAFE_INTEGER;
+      if (at > lastUnreadablePos) lastUnreadablePos = at;
+    }
+  } catch (err) {
+    // BUDGET EXPIRY GETS ITS OWN DISPOSITION, not the unreadable-log one.
+    // Both refuse, but they are DIFFERENT FACTS with different remediation:
+    // the log here was perfectly readable and the fold simply did not finish
+    // in time. Reporting "the coordination log could not be read" would send
+    // an operator to check file permissions on a file with nothing wrong
+    // with it — the same assert-one-state-on-evidence-for-another error this
+    // guard carries three prior corrections for. `denyIndeterminate` is the
+    // disposition `enterAuthPhase` already documents for budget expiry; this
+    // is the path that finally reaches it.
+    // The catch only RECORDS the expiry; the refusal is rendered below, outside it.
+    if (err && err.code === "FOLD_DEADLINE_EXCEEDED") {
+      foldDeadline = err;
+    } else {
       // INDETERMINATE — the log could not be read or folded. This is NOT an
       // empty log. Rebuilding `[]` here and falling through would hand
       // findCoveringLease the exact input a genuinely lease-less log produces,
@@ -1627,255 +1908,229 @@ async function main() {
       // read" (rules/instrument-discipline.md MUST-1: a result consistent with
       // both branches of the hypothesis is not evidence for either).
       readIndeterminate = err && err.message ? err.message : String(err);
-      accepted = [];
     }
-
-    if (readIndeterminate) {
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: `Edit/Write on integrity-critical path '${wp.rel}', but the coordination log could not be read or folded: ${readIndeterminate}`,
-        why: "multi-operator-coc/integrity-guard — the codify-lease check reads the folded coordination log, and that read FAILED. The lease is therefore UNKNOWN, not absent: this branch must not reuse the lease-absent message below, which asserts the log was read and held no covering record. Severity is block, matching this guard's own indeterminate-ROOT branch above and for the same reason: halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal at all and the Edit/Write on an integrity-critical path would land with authorization unverified. The signal is distinct from the lease-absent case one layer down — that one is registry-level, which hook-output-discipline.md MUST-2 holds BELOW block; this one is a filesystem/process-state failure (EACCES/EISDIR/EIO on the log), the structural class MUST-2 accepts.",
-        agent_must_report: [
-          `Target path: ${wp.rel}`,
-          `Branch: ${branch}`,
-          `Why the check could not answer: ${readIndeterminate}`,
-          "State explicitly that the codify-lease is UNKNOWN for this path — NOT that it is missing.",
-          "Remediation: make .claude/learning/coordination-log.jsonl readable (check permissions, and that it is a regular file), then retry.",
-        ],
-        agent_must_wait:
-          "Do not retry the Edit/Write until the coordination log is readable and the lease can actually be verified.",
-        user_summary: `integrity-guard — coordination log UNREADABLE; lease INDETERMINATE for ${wp.rel} (not a clean result)`,
-      });
-      // emit() exits
-    }
-
-    // loom#1871 HIGH-2 — AN UNRESOLVED IDENTITY IS ITS OWN VERDICT, NOT A
-    // MISSING LEASE.
-    //
-    // `findCoveringLease` accepts a record only on
-    // `(selfVerifiedId && rec.verified_id === selfVerifiedId) ||
-    //  (selfPersonId && rec.person_id === selfPersonId)`. With BOTH null every
-    // record is skipped, the function returns null, and control reaches the
-    // DETERMINED-NO branch — which #1871 raised from halt-and-report to block.
-    // Before that raise this was a report and the session continued; after it,
-    // an operator whose signing key is absent, unreadable, or mis-pointed by
-    // COC_OPERATOR_KEY_PATH is refused on EVERY watched path at once, and the
-    // message tells them to "run /codify Step 0 (acquireCodifyLease)" — which
-    // signs the lease record with the identity that is precisely what could not
-    // be resolved. The stated remediation cannot clear the state it is offered
-    // for. That is a LOCKOUT WITH WRONG INSTRUCTIONS, and it is a strictly worse
-    // failure mode than the fail-open #1871 replaced, because the operator has
-    // no readable path out.
-    //
-    // DENY OR REPORT — the judgment, argued rather than assumed. It DENIES.
-    // Reporting would make "make your identity unresolvable" the cheapest
-    // disable of this entire fence: unset one env var, or point
-    // COC_OPERATOR_KEY_PATH at a nonexistent file, and every integrity-critical
-    // write passes. That is the same ordinary-looking-config-edit vector as
-    // HIGH-1 above, so a fail-open here would reopen by a second door what this
-    // PR closes at the first. What makes the deny legitimate is that it is
-    // RECOVERABLE WITHOUT A LEASE: every remediation below (point the key path
-    // at a real file, fix its permissions, start the agent, run /whoami) is an
-    // ENVIRONMENT action, not a write to a watched path, so none of them is
-    // fenced by this guard. The unrecoverable half of the finding is what is
-    // fixed; the refusal itself is correct and is kept.
-    //
-    // The verdict class is INDETERMINATE, not a determined no: the guard is not
-    // saying this operator holds no lease, it is saying it cannot tell WHO is
-    // asking. Severity `block` on the same two-part reading the arms above
-    // record — PERMITTED because the signal is filesystem/process state (a key
-    // file that does not exist or will not read, an ssh-keygen that failed), the
-    // structural class hook-output-discipline.md MUST-2 accepts, and not a
-    // lexical match over prose; REQUIRED because halt-and-report maps to
-    // {"continue":true} (lib/instruct-and-wait.js), which on a mutation fence is
-    // no refusal at all.
-    //
-    // Narrow by construction: an UN-ROSTERED key still yields
-    // `verified_id = <fingerprint>` (operator-id.js Tier 2), and a
-    // coordination-OFF repo never reaches this line, so this branch fires ONLY
-    // where no fingerprint could be derived at all.
-    if (!selfVerifiedId && !selfPersonId) {
-      const keySource = explicitKey
-        ? `COC_OPERATOR_KEY_PATH=${explicitKey}`
-        : "git config user.signingkey / the default key locations";
-      const keyExists = explicitKey ? fs.existsSync(explicitKey) : null;
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: `Edit/Write on integrity-critical path '${wp.rel}', but THE OPERATOR'S IDENTITY COULD NOT BE RESOLVED (no verified_id and no person_id) — so no lease can be matched to anyone, and whether one exists is UNKNOWN.`,
-        why: "multi-operator-coc/integrity-guard (loom#1871 HIGH-2) — lease ownership is matched on verified_id / person_id. With neither resolved, findCoveringLease skips EVERY record and returns null, which is indistinguishable at that layer from a genuinely lease-less log. Reporting it as 'no covering codify-lease record found' is a POSITIVE claim on evidence that supports only 'cannot tell who is asking' (rules/instrument-discipline.md MUST-1), and its remediation — /codify Step 0 — SIGNS the lease with the identity that just failed to resolve, so it cannot clear the state it is offered for. This branch names the actual cause and emits a remediation that can. It refuses rather than reports because a fail-open here would make an unresolvable identity the cheapest disable of the whole fence; the refusal is recoverable because every remediation below is an ENVIRONMENT action, not a write this guard fences.",
-        agent_must_report: [
-          `Target path: ${wp.rel}`,
-          `Branch: ${branch}`,
-          "CAUSE: operator identity is UNRESOLVED. This is NOT 'you have no lease' — the lease check never ran, because there is no identity to match a lease to.",
-          `Signing key consulted: ${keySource}${keyExists === false ? " (THAT PATH DOES NOT EXIST)" : ""}`,
-          "Do NOT report this as a missing lease, and do NOT run /codify Step 0 first — acquiring a lease signs it with this same unresolved identity and will fail the same way.",
-          "Remediation, in order — all of these are ENVIRONMENT changes, none is a write this guard fences:",
-          "  1. Run /whoami to see how identity resolution is failing.",
-          "  2. If COC_OPERATOR_KEY_PATH is set, confirm it points at an existing, readable signing key; if it is wrong, unset or correct it.",
-          "  3. If the key is agent-held, confirm the signing agent is running and the key is loaded.",
-          `  4. If this operator is genuinely not enrolled, run ${(identity && identity.blocked_into) || "/whoami --register"} — enrollment is PR-gated and does not need a lease.`,
-          "  5. Only once /whoami reports a verified_id, run /codify Step 0 and retry the write.",
-        ],
-        agent_must_wait:
-          "Do not retry the Edit/Write until /whoami reports a resolved verified_id. Retrying, or acquiring a lease first, will fail identically.",
-        user_summary: `integrity-guard — operator identity UNRESOLVED for ${wp.rel}; lease ownership unmatchable (not a missing lease)`,
-      });
-      // emit() exits
-    }
-
-    // `branch` is deliberately NOT passed: the codify-branch SHAPE gate above
-    // (isCodifyBranch) is a separate, retained fence; what is gone is comparing
-    // the lease's RECORDED branch to it. See findCoveringLease's header.
-    const coverage = findCoveringLease(
-      accepted,
-      wp.rel,
-      selfVerifiedId,
-      selfPersonId,
-      undefined,
-      { posBySig, lastUnreadablePos },
-    );
-    const lease = coverage.lease;
-    if (!lease) {
-      // WHICH determined-no this is. All three refuse identically — the
-      // severity argument below is the same for each — but they are DIFFERENT
-      // FACTS and the remediation differs, so the message must not flatten
-      // them. "no covering record" tells an operator whose lease merely
-      // EXPIRED to widen their scope_files, which is not the problem and will
-      // not fix it. This guard has twice been corrected for asserting one
-      // state on evidence that only supported another
-      // (rules/instrument-discipline.md MUST-1); reporting a released or
-      // expired lease as ABSENT would be the third instance.
-      const stateLine =
-        coverage.reason === "released"
-          ? `A covering codify-lease record EXISTS but was RELEASED: ${coverage.detail}. A released lease is not a grant.`
-          : coverage.reason === "expired"
-            ? `A covering codify-lease record EXISTS but has EXPIRED: ${coverage.detail}. An expired lease is not a grant.`
-            : coverage.reason === "indeterminate-age"
-              ? `A covering codify-lease record EXISTS but its AGE cannot be determined: ${coverage.detail}. Fail-closed: a lease whose age is unknown is not a grant. NOTE this is NOT a claim that the lease is old — only that elapsed time cannot be read from it.`
-              : coverage.reason === "revocation-indeterminate"
-                ? `A covering codify-lease record EXISTS and is within its TTL, but whether it was RELEASED is UNKNOWN: ${coverage.detail}. Fail-closed: unverifiable revocation state is not a grant.`
-                : coverage.reason === "scope-unreadable"
-                  ? `A codify-lease record signed by you EXISTS, but whether its scope covers this path CANNOT BE EVALUATED: ${coverage.detail}. Fail-closed: an unreadable scope is not a grant.`
-                  : coverage.reason === "unpairable"
-                    ? `A covering codify-lease record EXISTS but its state is UNKNOWN: ${coverage.detail}. Fail-closed: an unverifiable lease is not a grant.`
-                    : "No covering codify-lease record was found in the folded coordination log.";
-      const headline =
-        coverage.reason === "none"
-          ? `Edit/Write on '${wp.rel}' from codify branch '${branch}', but no covering codify-lease record found in the folded coordination log.`
-          : `Edit/Write on '${wp.rel}' from codify branch '${branch}', but the covering codify-lease is NO LONGER VALID (${coverage.reason}).`;
-      // THE DETERMINED NO (loom#1855 review, F-C). The log was READ and folded
-      // successfully; it simply holds no covering record. Severity was
-      // halt-and-report until this review, on the reading that a
-      // "registry-record" signal sits BELOW block under
-      // hook-output-discipline.md MUST-2. That reading is withdrawn on two
-      // grounds, and the severity was RAISED, never a test loosened to fit it:
-      //
-      //   PERMITTED. MUST-2's line is structural / behavioral / AST /
-      //   process-state on one side and LEXICAL REGEX on the other — its own
-      //   worked examples are `git status --porcelain` non-empty and a non-zero
-      //   pre-commit exit, i.e. deterministic reads of repository state. This
-      //   verdict is a fold over a signature-verified append-only log read from
-      //   disk. It is not a regex over prose or a shell string, and no surface
-      //   rewrite evades it, so MUST-2's false-positive concern does not reach
-      //   it. MUST-2 permits block here.
-      //
-      //   REQUIRED. halt-and-report maps to {"continue":true} + exit 0
-      //   (lib/instruct-and-wait.js), so on a PreToolUse MUTATION fence it is
-      //   not a softer refusal but NO refusal — the Edit/Write RAN. That left
-      //   this guard refusing HARDER where it could NOT tell (budget expiry,
-      //   unreadable log, unidentifiable tree — all block) than where it COULD
-      //   tell the answer was no: incoherent as a fence, and the same fail-OPEN
-      //   loom#1849b's own denyIndeterminate rationale names. The identical
-      //   argument is already recorded twice above, at the unidentifiable-root
-      //   and unreadable-log arms.
-      //
-      // It also closes the review's F-B. #1849b dropped the lease-to-branch
-      // binding, which left the codify-branch SHAPE gate as the only hard gate
-      // on this write path — a second lane on its own codify branch, under a
-      // lease scoped elsewhere, was silently authorized. This restores a hard
-      // gate at exactly that point, on #1849b's own thesis that authorization
-      // is by lease COVERAGE.
-      //
-      // Pinned bipolar by F2 in
-      // tests/integration/multi-operator/lease-binding-drop-1849b.test.js.
-      clearTimeout(fallback);
-      emit({
-        hookEvent,
-        severity: "block",
-        what_happened: headline,
-        why: "multi-operator-coc/integrity-guard — the codify-branch name is necessary but not sufficient. The signed `codify-lease` record (M7 E writes it via /codify Step 0) cryptographically binds the scope_files list to a verified operator identity (architecture v11 §6.4 + §7.1). Without it, the branch could be any ad-hoc codify/* rename. This is a DETERMINED no — the log was read and folded, and holds no covering record — so it refuses harder than the indeterminate arms above, not softer: severity is block. The signal is a fold over a signature-verified append-only log read from disk, which is the process-state class hook-output-discipline.md MUST-2 accepts (its own examples are `git status --porcelain` and a non-zero pre-commit exit), not a lexical match. block is REQUIRED rather than merely permitted because halt-and-report maps to continue:true (lib/instruct-and-wait.js): on a mutation fence that is not a softer refusal but no refusal, and the Edit/Write lands unauthorized. The full withdrawal of the prior halt-and-report reading is recorded at this branch in the source.",
-        agent_must_report: [
-          `Target path: ${wp.rel}`,
-          `Branch: ${branch}`,
-          stateLine,
-          coverage.reason === "none"
-            ? "Run /codify Step 0 (acquireCodifyLease) to append the signed lease record. The lease scope_files MUST include this target path."
-            : "Run /codify Step 0 (acquireCodifyLease) to acquire a FRESH lease covering this path. Do NOT widen scope_files — the scope already covered this path; it is the lease's STATE that no longer grants.",
-          "If the lease was JUST written and the log is stale, run a log fetch and retry.",
-        ],
-        agent_must_wait:
-          "Do not retry the Edit/Write until a LIVE covering codify-lease record (un-released, within the lease TTL) lands in the folded log.",
-        user_summary:
-          coverage.reason === "none"
-            ? `integrity-guard — codify-lease unverifiable for ${wp.rel}`
-            : `integrity-guard — codify-lease ${coverage.reason.toUpperCase()} for ${wp.rel}; a lease that is no longer valid is not a grant`,
-      });
-      // emit() exits
-    }
-
-    // Both branch + lease pass → passthrough.
-    passthrough();
-  } catch (err) {
-    const msg = err && err.message ? err.message : String(err);
-    clearTimeout(fallback);
-    // loom#1849b — the SAME verdict as the budget expiry, reached a different
-    // way: inside the authorization phase the guard knows the call mutates an
-    // integrity-critical path and has NOT established a covering lease. Emitting
-    // {"continue":true} here is the identical fail-OPEN the budget carried, and
-    // leaving it would have been a symptom patch on the timer alone. Outside the
-    // phase this stays the Rule-7 structural-NULL fallback, byte-for-byte.
-    //
-    // Reachability, stated rather than assumed: every determinable failure in
-    // this phase is ALREADY routed to an explicit `block` branch above (the fold
-    // read, the tree resolution, the main-checkout resolution). This arm is
-    // REACHABLE, and the prior claim here that "findCoveringLease is pure, so
-    // this arm is near-unreachable" is FALSE as of the 2026-08-21 expiry fix:
-    // that function now `require()`s ./lib/codify-lease.js lazily and THROWS
-    // explicitly when LEASE_TTL_MS is missing or non-finite. A module-resolution
-    // failure or a bad export lands exactly here. The routing is unchanged and
-    // still correct — inside the authorization phase this denies — but the
-    // reachability argument had to be corrected rather than left for a future
-    // reader to rely on.
-    if (authPhase) {
-      try {
-        process.stderr.write(
-          `[BLOCK] integrity-guard internal error inside the authorization phase: ${msg}\n`,
-        );
-      } catch {
-        // best-effort; denyIndeterminate carries the full body
-      }
-      denyIndeterminate("the guard errored before reaching a verdict", msg);
-    }
-    // Defense-in-depth: structural-NULL fallback.
-    try {
-      process.stderr.write(
-        `[ADVISORY] integrity-guard internal error: ${msg}\n`,
-      );
-    } catch {
-      // best-effort
-    }
-    try {
-      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    } catch {
-      // best-effort
-    }
-    process.exit(0);
+    accepted = [];
   }
+
+  if (foldDeadline) {
+    clearTimeout(authDeadline);
+    return denyIndeterminate(
+      `the ${FOLD_BUDGET_MS}ms fold budget expired during the coordination-log fold`,
+      `folded ${foldDeadline.recordsFolded} of ${foldDeadline.recordsTotal} records before the deadline. ` +
+        `Signature verification runs once per record, so fold cost grows with log length; ` +
+        `a log that has outgrown the budget needs a checkpoint, not a retry.`,
+    );
+  }
+
+  if (readIndeterminate) {
+    clearTimeout(authDeadline);
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: `Edit/Write on integrity-critical path '${wp.rel}', but the coordination log could not be read or folded: ${readIndeterminate}`,
+      why: "multi-operator-coc/integrity-guard — the codify-lease check reads the folded coordination log, and that read FAILED. The lease is therefore UNKNOWN, not absent: this branch must not reuse the lease-absent message below, which asserts the log was read and held no covering record. Severity is block, matching this guard's own indeterminate-ROOT branch above and for the same reason: halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal at all and the Edit/Write on an integrity-critical path would land with authorization unverified. The signal is distinct from the lease-absent case one layer down — that one is registry-level, which hook-output-discipline.md MUST-2 holds BELOW block; this one is a filesystem/process-state failure (EACCES/EISDIR/EIO on the log), the structural class MUST-2 accepts.",
+      agent_must_report: [
+        `Target path: ${wp.rel}`,
+        `Branch: ${branch}`,
+        `Why the check could not answer: ${readIndeterminate}`,
+        "State explicitly that the codify-lease is UNKNOWN for this path — NOT that it is missing.",
+        "Remediation: make .claude/learning/coordination-log.jsonl readable (check permissions, and that it is a regular file), then retry.",
+      ],
+      agent_must_wait:
+        "Do not retry the Edit/Write until the coordination log is readable and the lease can actually be verified.",
+      user_summary: `integrity-guard — coordination log UNREADABLE; lease INDETERMINATE for ${wp.rel} (not a clean result)`,
+    });
+  }
+
+  // loom#1871 HIGH-2 — AN UNRESOLVED IDENTITY IS ITS OWN VERDICT, NOT A
+  // MISSING LEASE.
+  //
+  // `findCoveringLease` accepts a record only on
+  // `(selfVerifiedId && rec.verified_id === selfVerifiedId) ||
+  //  (selfPersonId && rec.person_id === selfPersonId)`. With BOTH null every
+  // record is skipped, the function returns null, and control reaches the
+  // DETERMINED-NO branch — which #1871 raised from halt-and-report to block.
+  // Before that raise this was a report and the session continued; after it,
+  // an operator whose signing key is absent, unreadable, or mis-pointed by
+  // COC_OPERATOR_KEY_PATH is refused on EVERY watched path at once, and the
+  // message tells them to "run /codify Step 0 (acquireCodifyLease)" — which
+  // signs the lease record with the identity that is precisely what could not
+  // be resolved. The stated remediation cannot clear the state it is offered
+  // for. That is a LOCKOUT WITH WRONG INSTRUCTIONS, and it is a strictly worse
+  // failure mode than the fail-open #1871 replaced, because the operator has
+  // no readable path out.
+  //
+  // DENY OR REPORT — the judgment, argued rather than assumed. It DENIES.
+  // Reporting would make "make your identity unresolvable" the cheapest
+  // disable of this entire fence: unset one env var, or point
+  // COC_OPERATOR_KEY_PATH at a nonexistent file, and every integrity-critical
+  // write passes. That is the same ordinary-looking-config-edit vector as
+  // HIGH-1 above, so a fail-open here would reopen by a second door what this
+  // PR closes at the first. What makes the deny legitimate is that it is
+  // RECOVERABLE WITHOUT A LEASE: every remediation below (point the key path
+  // at a real file, fix its permissions, start the agent, run /whoami) is an
+  // ENVIRONMENT action, not a write to a watched path, so none of them is
+  // fenced by this guard. The unrecoverable half of the finding is what is
+  // fixed; the refusal itself is correct and is kept.
+  //
+  // The verdict class is INDETERMINATE, not a determined no: the guard is not
+  // saying this operator holds no lease, it is saying it cannot tell WHO is
+  // asking. Severity `block` on the same two-part reading the arms above
+  // record — PERMITTED because the signal is filesystem/process state (a key
+  // file that does not exist or will not read, an ssh-keygen that failed), the
+  // structural class hook-output-discipline.md MUST-2 accepts, and not a
+  // lexical match over prose; REQUIRED because halt-and-report maps to
+  // {"continue":true} (lib/instruct-and-wait.js), which on a mutation fence is
+  // no refusal at all.
+  //
+  // Narrow by construction: an UN-ROSTERED key still yields
+  // `verified_id = <fingerprint>` (operator-id.js Tier 2), and a
+  // coordination-OFF repo never reaches this line, so this branch fires ONLY
+  // where no fingerprint could be derived at all.
+  if (!selfVerifiedId && !selfPersonId) {
+    const keySource = explicitKey
+      ? `COC_OPERATOR_KEY_PATH=${explicitKey}`
+      : "git config user.signingkey / the default key locations";
+    const keyExists = explicitKey ? fs.existsSync(explicitKey) : null;
+    clearTimeout(authDeadline);
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: `Edit/Write on integrity-critical path '${wp.rel}', but THE OPERATOR'S IDENTITY COULD NOT BE RESOLVED (no verified_id and no person_id) — so no lease can be matched to anyone, and whether one exists is UNKNOWN.`,
+      why: "multi-operator-coc/integrity-guard (loom#1871 HIGH-2) — lease ownership is matched on verified_id / person_id. With neither resolved, findCoveringLease skips EVERY record and returns null, which is indistinguishable at that layer from a genuinely lease-less log. Reporting it as 'no covering codify-lease record found' is a POSITIVE claim on evidence that supports only 'cannot tell who is asking' (rules/instrument-discipline.md MUST-1), and its remediation — /codify Step 0 — SIGNS the lease with the identity that just failed to resolve, so it cannot clear the state it is offered for. This branch names the actual cause and emits a remediation that can. It refuses rather than reports because a fail-open here would make an unresolvable identity the cheapest disable of the whole fence; the refusal is recoverable because every remediation below is an ENVIRONMENT action, not a write this guard fences.",
+      agent_must_report: [
+        `Target path: ${wp.rel}`,
+        `Branch: ${branch}`,
+        "CAUSE: operator identity is UNRESOLVED. This is NOT 'you have no lease' — the lease check never ran, because there is no identity to match a lease to.",
+        `Signing key consulted: ${keySource}${keyExists === false ? " (THAT PATH DOES NOT EXIST)" : ""}`,
+        "Do NOT report this as a missing lease, and do NOT run /codify Step 0 first — acquiring a lease signs it with this same unresolved identity and will fail the same way.",
+        "Remediation, in order — all of these are ENVIRONMENT changes, none is a write this guard fences:",
+        "  1. Run /whoami to see how identity resolution is failing.",
+        "  2. If COC_OPERATOR_KEY_PATH is set, confirm it points at an existing, readable signing key; if it is wrong, unset or correct it.",
+        "  3. If the key is agent-held, confirm the signing agent is running and the key is loaded.",
+        `  4. If this operator is genuinely not enrolled, run ${(identity && identity.blocked_into) || "/whoami --register"} — enrollment is PR-gated and does not need a lease.`,
+        "  5. Only once /whoami reports a verified_id, run /codify Step 0 and retry the write.",
+      ],
+      agent_must_wait:
+        "Do not retry the Edit/Write until /whoami reports a resolved verified_id. Retrying, or acquiring a lease first, will fail identically.",
+      user_summary: `integrity-guard — operator identity UNRESOLVED for ${wp.rel}; lease ownership unmatchable (not a missing lease)`,
+    });
+  }
+
+  // `branch` is deliberately NOT passed: the codify-branch SHAPE gate above
+  // (isCodifyBranch) is a separate, retained fence; what is gone is comparing
+  // the lease's RECORDED branch to it. See findCoveringLease's header.
+  const coverage = findCoveringLease(
+    accepted,
+    wp.rel,
+    selfVerifiedId,
+    selfPersonId,
+    undefined,
+    { posBySig, lastUnreadablePos },
+  );
+  const lease = coverage.lease;
+  if (!lease) {
+    // WHICH determined-no this is. All three refuse identically — the
+    // severity argument below is the same for each — but they are DIFFERENT
+    // FACTS and the remediation differs, so the message must not flatten
+    // them. "no covering record" tells an operator whose lease merely
+    // EXPIRED to widen their scope_files, which is not the problem and will
+    // not fix it. This guard has twice been corrected for asserting one
+    // state on evidence that only supported another
+    // (rules/instrument-discipline.md MUST-1); reporting a released or
+    // expired lease as ABSENT would be the third instance.
+    const stateLine =
+      coverage.reason === "released"
+        ? `A covering codify-lease record EXISTS but was RELEASED: ${coverage.detail}. A released lease is not a grant.`
+        : coverage.reason === "expired"
+          ? `A covering codify-lease record EXISTS but has EXPIRED: ${coverage.detail}. An expired lease is not a grant.`
+          : coverage.reason === "indeterminate-age"
+            ? `A covering codify-lease record EXISTS but its AGE cannot be determined: ${coverage.detail}. Fail-closed: a lease whose age is unknown is not a grant. NOTE this is NOT a claim that the lease is old — only that elapsed time cannot be read from it.`
+            : coverage.reason === "revocation-indeterminate"
+              ? `A covering codify-lease record EXISTS and is within its TTL, but whether it was RELEASED is UNKNOWN: ${coverage.detail}. Fail-closed: unverifiable revocation state is not a grant.`
+              : coverage.reason === "scope-unreadable"
+                ? `A codify-lease record signed by you EXISTS, but whether its scope covers this path CANNOT BE EVALUATED: ${coverage.detail}. Fail-closed: an unreadable scope is not a grant.`
+                : coverage.reason === "unpairable"
+                  ? `A covering codify-lease record EXISTS but its state is UNKNOWN: ${coverage.detail}. Fail-closed: an unverifiable lease is not a grant.`
+                  : "No covering codify-lease record was found in the folded coordination log.";
+    const headline =
+      coverage.reason === "none"
+        ? `Edit/Write on '${wp.rel}' from codify branch '${branch}', but no covering codify-lease record found in the folded coordination log.`
+        : `Edit/Write on '${wp.rel}' from codify branch '${branch}', but the covering codify-lease is NO LONGER VALID (${coverage.reason}).`;
+    // THE DETERMINED NO (loom#1855 review, F-C). The log was READ and folded
+    // successfully; it simply holds no covering record. Severity was
+    // halt-and-report until this review, on the reading that a
+    // "registry-record" signal sits BELOW block under
+    // hook-output-discipline.md MUST-2. That reading is withdrawn on two
+    // grounds, and the severity was RAISED, never a test loosened to fit it:
+    //
+    //   PERMITTED. MUST-2's line is structural / behavioral / AST /
+    //   process-state on one side and LEXICAL REGEX on the other — its own
+    //   worked examples are `git status --porcelain` non-empty and a non-zero
+    //   pre-commit exit, i.e. deterministic reads of repository state. This
+    //   verdict is a fold over a signature-verified append-only log read from
+    //   disk. It is not a regex over prose or a shell string, and no surface
+    //   rewrite evades it, so MUST-2's false-positive concern does not reach
+    //   it. MUST-2 permits block here.
+    //
+    //   REQUIRED. halt-and-report maps to {"continue":true} + exit 0
+    //   (lib/instruct-and-wait.js), so on a PreToolUse MUTATION fence it is
+    //   not a softer refusal but NO refusal — the Edit/Write RAN. That left
+    //   this guard refusing HARDER where it could NOT tell (budget expiry,
+    //   unreadable log, unidentifiable tree — all block) than where it COULD
+    //   tell the answer was no: incoherent as a fence, and the same fail-OPEN
+    //   loom#1849b's own denyIndeterminate rationale names. The identical
+    //   argument is already recorded twice above, at the unidentifiable-root
+    //   and unreadable-log arms.
+    //
+    // It also closes the review's F-B. #1849b dropped the lease-to-branch
+    // binding, which left the codify-branch SHAPE gate as the only hard gate
+    // on this write path — a second lane on its own codify branch, under a
+    // lease scoped elsewhere, was silently authorized. This restores a hard
+    // gate at exactly that point, on #1849b's own thesis that authorization
+    // is by lease COVERAGE.
+    //
+    // Pinned bipolar by F2 in
+    // tests/integration/multi-operator/lease-binding-drop-1849b.test.js.
+    clearTimeout(authDeadline);
+    return emit({
+      escalate: "security",
+      hookEvent,
+      severity: "block",
+      what_happened: headline,
+      why: "multi-operator-coc/integrity-guard — the codify-branch name is necessary but not sufficient. The signed `codify-lease` record (M7 E writes it via /codify Step 0) cryptographically binds the scope_files list to a verified operator identity (architecture v11 §6.4 + §7.1). Without it, the branch could be any ad-hoc codify/* rename. This is a DETERMINED no — the log was read and folded, and holds no covering record — so it refuses harder than the indeterminate arms above, not softer: severity is block. The signal is a fold over a signature-verified append-only log read from disk, which is the process-state class hook-output-discipline.md MUST-2 accepts (its own examples are `git status --porcelain` and a non-zero pre-commit exit), not a lexical match. block is REQUIRED rather than merely permitted because halt-and-report maps to continue:true (lib/instruct-and-wait.js): on a mutation fence that is not a softer refusal but no refusal, and the Edit/Write lands unauthorized. The full withdrawal of the prior halt-and-report reading is recorded at this branch in the source.",
+      agent_must_report: [
+        `Target path: ${wp.rel}`,
+        `Branch: ${branch}`,
+        stateLine,
+        coverage.reason === "none"
+          ? "Run /codify Step 0 (acquireCodifyLease) to append the signed lease record. The lease scope_files MUST include this target path."
+          : "Run /codify Step 0 (acquireCodifyLease) to acquire a FRESH lease covering this path. Do NOT widen scope_files — the scope already covered this path; it is the lease's STATE that no longer grants.",
+        "If the lease was JUST written and the log is stale, run a log fetch and retry.",
+      ],
+      agent_must_wait:
+        "Do not retry the Edit/Write until a LIVE covering codify-lease record (un-released, within the lease TTL) lands in the folded log.",
+      user_summary:
+        coverage.reason === "none"
+          ? `integrity-guard — codify-lease unverifiable for ${wp.rel}`
+          : `integrity-guard — codify-lease ${coverage.reason.toUpperCase()} for ${wp.rel}; a lease that is no longer valid is not a grant`,
+    });
+  }
+
+  // Both branch + lease pass → passthrough.
+  return passthrough();
 }
+
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Built by the fail-closed runner:
+// it reads the payload, bounds the run at the FIXED DEFAULT_TIMEOUT_MS, and
+// refuses on a crash, a hang or an unreadable payload — in EITHER phase. The
+// catch-all that stood here failed OPEN for an internal error before the
+// authorization phase (a `{continue:true}` exit 0) and is gone; a require() still
+// has no side effects.
+const hookMain = runGuard("integrity-guard", main, { budgetMs: DEFAULT_TIMEOUT_MS });
 
 module.exports = { hookMain };
 

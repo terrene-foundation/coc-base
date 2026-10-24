@@ -15,7 +15,11 @@
  *   AFTER the write, which is only knowable once the bytes are on disk. PreToolUse
  *   cannot see the post-write length of an Edit (it holds a replacement string, not the
  *   resulting file), and blocking the write would strand the content being organised —
- *   so this arm is deliberately post-hoc and advisory.
+ *   so this arm is deliberately post-hoc and advisory. The same arm advises (context-
+ *   budget S5/S6) when a HISTORY file lands in a root `.session-notes.d/` (its home is
+ *   `.session-notes.archive/<owner>/`) and when `.wave-tracker.d/<id>.md` passes its
+ *   300-line ceiling. `.session-notes.archive/**` is NOT a continuity artifact: never
+ *   classified, so reading it neither satisfies MUST-1 nor is truncation-blocked.
  *
  * SEVERITY SPLIT, and why it is not uniform (`hook-output-discipline.md` MUST-2):
  *   MUST-2 → `block`. `tool_input.limit` / a non-zero `tool_input.offset` is read
@@ -30,9 +34,11 @@
  *     not from the call, so it is judgment-bearing and MUST NOT block.
  *   MUST-3 → `advisory`. Blocking a write would strand content.
  *
- * FAIL-OPEN ON EVERY PATH. No identity, no session id, an unreadable marker, an
- * unclassifiable path, a malformed payload, an exception — all resolve to
- * `{continue:true}`. A `cc-artifacts.md` Rule 7 timer bounds a hang.
+ * PASSES WHEN THE QUESTION IS UNANSWERABLE. No identity, no session id, an unreadable
+ * marker, an unclassifiable path — all resolve to `{continue:true}`. But this row is
+ * deny-capable (MUST-2 blocks), so a run that cannot FINISH — a crash, a hang past the
+ * budget, an unreadable or malformed payload — REFUSES: `guard-runner.js::runGuard`
+ * reads the payload and bounds the run (`cc-artifacts.md` Rule 7, fail-closed rows).
  *
  * ORDERING STATE lives in `os.tmpdir()`, keyed by (repo root hash, sanitized
  * session_id) — NEVER in the repo. A repo-side marker would be a new tracked/ignored
@@ -50,17 +56,31 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": ["<os.tmpdir()>/coc-notes-order-<repo-root-sha12>-<session-id>"],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The only durable write is the per-session ordering marker under os.tmpdir() (never the repo), rewritten with a fresh timestamp on each root-surface read; the second run of a narrative-before-directive payload sees the marker and returns a different decision, so the repeat is not a no-op. lib/instruct-and-wait.js emits to stdout only."
+ * }
+ */
+
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 
-// cc-artifacts.md Rule 7 — fail-open timer. Exit 1 (not 0) marks a timeout-FIRED
-// passthrough as distinguishable from a normal one in exit-code logs (parity with
-// session-notes-incorporation-guard.js). Armed only inside `hookMain()`, so a
-// `require()` of this module for fixtures has ZERO side effects.
+// The run budget outside the engine (guard-runner.js::runGuard; the registry row's
+// own timeout bounds it inside). A hang past it is a budget REFUSAL, never a pass.
+// The runner arms nothing at require time, so a `require()` of this module for
+// fixtures still has ZERO side effects.
 const TIMEOUT_MS = 5000;
-let _timeout = null;
+const { runGuard } = require("./lib/guard-runner.js");
 
 /** `rules/session-notes-continuity.md` MUST-3 bounds. Target is surfaced as the goal;
  *  only the CEILING fires, because advising at 151 lines would fire on every /wrapup. */
@@ -262,6 +282,86 @@ function decideCeilingAdvisory(opts) {
   return { action: "pass", reason: "within-ceiling", rel: cls.rel, lineCount: o.lineCount };
 }
 
+/**
+ * PURE — context-budget S5. A Write/Edit that lands a HISTORY file (overflow,
+ * handoff, next-session, traps — anything not a CURRENT fragment name) inside a
+ * ROOT `.session-notes.d/`. History there is read by every reader that enumerates
+ * the fragment dir; its destination is `.session-notes.archive/<owner>/`.
+ */
+function decideHistoryPlacement(opts) {
+  const o = opts || {};
+  const cls = classifyNotesPath(o.repoDir, o.filePath);
+  if (!cls || cls.kind !== "fragment" || cls.surface !== "root") {
+    return { action: "pass", reason: "not-a-root-fragment" };
+  }
+  const base = cls.rel.split("/").pop();
+  let layout;
+  try {
+    layout = require(path.join(__dirname, "lib", "session-notes-layout.js"));
+  } catch {
+    return { action: "pass", reason: "layout-lib-unavailable", rel: cls.rel };
+  }
+  const classification = layout.classifyFragmentName(base, o.content);
+  if (classification.advisory) return { action: "advise", reason: "uncertain-current-fragment", rel: cls.rel, advisory: classification.advisory };
+  if (classification.current) {
+    return { action: "pass", reason: "current-fragment", rel: cls.rel };
+  }
+  return {
+    action: "advise",
+    reason: "history-in-fragment-dir",
+    rel: cls.rel,
+    archiveRel: path
+      .relative(path.resolve(o.repoDir), layout.archivePathFor(path.resolve(o.repoDir), base, o.content))
+      .split(path.sep)
+      .join("/"),
+  };
+}
+
+/**
+ * Root wave tracker `.wave-tracker.d/<id>.md` (top level only — the
+ * `archive/` subdirectory is history and is not ceilinged). Lexical, like
+ * classifyNotesPath. Returns `{rel, id}` or null.
+ */
+function classifyWaveTrackerPath(repoDir, filePath) {
+  const rel = toRepoRel(repoDir, filePath);
+  if (!rel) return null;
+  const segs = rel.split("/");
+  if (segs.length !== 2 || segs[0] !== ".wave-tracker.d" || !segs[1].endsWith(".md")) return null;
+  return { rel, id: segs[1].slice(0, -3) };
+}
+
+/**
+ * PURE — context-budget S6. Ceiling advisory for the wave tracker, sharing the
+ * archiver's own decision (wave-tracker-layout.js::decideWaveTrackerCeiling) so
+ * the guard and the writer cannot disagree about where the line is.
+ */
+function decideWaveTrackerAdvisory(opts) {
+  const o = opts || {};
+  const cls = classifyWaveTrackerPath(o.repoDir, o.filePath);
+  if (!cls) return { action: "pass", reason: "not-a-wave-tracker" };
+  if (typeof o.content !== "string") {
+    return { action: "pass", reason: "content-unavailable", rel: cls.rel };
+  }
+  let waves;
+  try {
+    waves = require(path.join(__dirname, "lib", "wave-tracker-layout.js"));
+  } catch {
+    return { action: "pass", reason: "wave-lib-unavailable", rel: cls.rel };
+  }
+  const d = waves.decideWaveTrackerCeiling(o.content);
+  if (!d.over) return { action: "pass", reason: "within-ceiling", rel: cls.rel, lineCount: d.lines };
+  const parts = waves.partitionWaves(o.content);
+  return {
+    action: "advise",
+    reason: "wave-tracker-over-ceiling",
+    rel: cls.rel,
+    id: cls.id,
+    lineCount: d.lines,
+    ceiling: d.ceiling,
+    closedSections: parts.sections.filter((s) => s.closed).length,
+  };
+}
+
 // ---- per-session ordering marker (os.tmpdir(), never the repo) ---------------
 
 /**
@@ -312,7 +412,6 @@ function markRootNotesSeen(markerPath) {
 // ---- CLI entry (only when invoked directly, never on require) ----------------
 
 function passthrough() {
-  if (_timeout) clearTimeout(_timeout);
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
@@ -336,7 +435,6 @@ function _readArm(payload, repoDir, hookEvent) {
   const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 
   if (decision.action === "block") {
-    if (_timeout) clearTimeout(_timeout);
     emit({
       hookEvent,
       severity: "block",
@@ -345,7 +443,7 @@ function _readArm(payload, repoDir, hookEvent) {
       agent_must_report: [
         `Blocked read: ${decision.rel} (${decision.truncation})`,
         "Re-issue the SAME Read with no `limit` and no non-zero `offset` — continuity artifacts are read whole.",
-        `If the file is too large to read whole, that is a MUST-3 breach (ceiling ${NOTES_CEILING_LINES} lines): move the overflow to a NAMED file and leave a pointer, then read the bounded notes.`,
+        `If the file is too large to read whole, that is a MUST-3 breach (ceiling ${NOTES_CEILING_LINES} lines): move the overflow to a NAMED file under .session-notes.archive/<display_id>/ and leave a pointer, then read the bounded notes.`,
       ],
       agent_must_wait:
         "Do not proceed on a partial continuity read. Re-issue the read whole, or bound the artifact first.",
@@ -358,7 +456,6 @@ function _readArm(payload, repoDir, hookEvent) {
     // Mark BEFORE emitting so the advisory fires at most once per session — a guard
     // that repeats on every subsequent narrative read trains the operator to ignore it.
     markRootNotesSeen(markerPath);
-    if (_timeout) clearTimeout(_timeout);
     emit({
       hookEvent,
       severity: "halt-and-report",
@@ -366,7 +463,7 @@ function _readArm(payload, repoDir, hookEvent) {
       why: "session-notes-continuity.md MUST-1 — the per-operator fragment carries standing DIRECTIVES and the workspace notes carry project NARRATIVE. The narrative never cites the directive it omits, so an agent that reads it first and acts has no signal that anything is missing.",
       agent_must_report: [
         `Narrative read: ${decision.rel}`,
-        "Read the ROOT continuity surface first — .session-notes.aggregate.md (the regenerated view of every fragment), or your own .session-notes.d/<display_id>.md.",
+        "Read the ROOT continuity surface first — .session-notes.aggregate.md (the regenerated view of every CURRENT fragment), or your own .session-notes.d/<display_id>.md.",
         "Where the two disagree, the fragment's directives govern; the narrative is STALE until reconciled.",
       ],
       agent_must_wait:
@@ -380,33 +477,82 @@ function _readArm(payload, repoDir, hookEvent) {
   return passthrough();
 }
 
-function _writeArm(payload, repoDir, hookEvent) {
-  const ti = payload.tool_input || {};
-  const filePath = ti.file_path || ti.path || "";
-  const cls = classifyNotesPath(repoDir, filePath);
-  if (!cls) return passthrough();
-
-  // Route the read through the SINGLE guarded chokepoint every session-notes reader
-  // uses (symlink / non-regular / oversize refusal BEFORE the bytes are loaded).
-  let lineCount = NaN;
+// Guarded read of the just-written bytes through the SINGLE chokepoint every
+// session-notes reader uses (symlink / non-regular / oversize refusal BEFORE the
+// bytes are loaded). null ⇒ unavailable ⇒ every decision suppresses.
+function _readWritten(repoDir, filePath) {
   try {
     const { readNotesFileGuarded } = require(
       path.join(__dirname, "lib", "session-notes-layout.js"),
     );
-    const abs = path.isAbsolute(filePath)
-      ? filePath
-      : path.resolve(repoDir, filePath);
+    const abs = path.isAbsolute(filePath) ? filePath : path.resolve(repoDir, filePath);
     const g = readNotesFileGuarded(abs);
-    if (g.ok) lineCount = countLines(g.content);
+    return g.ok ? g.content : null;
   } catch {
-    // fall through with NaN → suppress (an unavailable measurement is zero evidence)
+    return null;
+  }
+}
+
+function _writeArm(payload, repoDir, hookEvent) {
+  const ti = payload.tool_input || {};
+  const filePath = ti.file_path || ti.path || "";
+
+  // S6 — the wave tracker is ceilinged by the same decision its archiver uses.
+  if (classifyWaveTrackerPath(repoDir, filePath)) {
+    const wd = decideWaveTrackerAdvisory({ repoDir, filePath, content: _readWritten(repoDir, filePath) });
+    if (wd.action !== "advise") return passthrough();
+    const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+    emit({
+      hookEvent,
+      severity: "advisory",
+      what_happened: `Wave tracker ${wd.rel} is ${wd.lineCount} lines — past the ${wd.ceiling}-line ceiling (${wd.closedSections} section(s) already declared closed).`,
+      why: "session-notes-continuity.md MUST-3 — the tracker keeps CURRENT waves only; closed waves are history and move to .wave-tracker.d/archive/<id>.md, read on demand.",
+      agent_must_report: [
+        `${wd.rel}: ${wd.lineCount} lines (ceiling ${wd.ceiling})`,
+        "Declare finished waves closed (end the `## ` heading with ` — CLOSED`, ` — LANDED`, or ` — DONE`, or use a first non-empty line `Status: closed`; lib/wave-tracker-layout.js:25-28), then run wave-tracker-layout.js::archiveClosedWaves(repoRoot, \"" + wd.id + "\", {apply:true}).",
+      ],
+      agent_must_wait: "Advisory — the write stands. Archive closed waves before the next session reads the tracker.",
+      user_summary: `wave tracker ${wd.rel} at ${wd.lineCount} lines exceeds the ${wd.ceiling}-line ceiling`,
+    });
+    return;
   }
 
+  const cls = classifyNotesPath(repoDir, filePath);
+  if (!cls) return passthrough();
+
+  const content = _readWritten(repoDir, filePath);
+
+  // S5 — history written into the fragment dir re-enters every enumerating reader.
+  const hd = decideHistoryPlacement({ repoDir, filePath, content });
+  if (hd.action === "advise") {
+    const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+    if (hd.advisory) {
+      emit({ hookEvent, severity: "advisory", what_happened: hd.advisory,
+        why: "Fragment ownership is not parseable; preserve visibility and bytes until its owner repairs the declaration.",
+        agent_must_report: [hd.advisory], agent_must_wait: "Advisory — keep the fragment in place; do not archive uncertain ownership.",
+        user_summary: hd.advisory });
+      return;
+    }
+    emit({
+      hookEvent,
+      severity: "advisory",
+      what_happened: `History file written into the fragment directory: ${hd.rel}.`,
+      why: "session-notes-continuity.md MUST-3 — .session-notes.d/ holds CURRENT fragments only; overflow, handoff and next-session files are history and live in .session-notes.archive/<owner>/, which is never aggregated.",
+      agent_must_report: [
+        `${hd.rel} is not a current fragment name`,
+        `Move it to ${hd.archiveRel} and leave a pointer from your fragment (session-notes-layout.js::archiveHistoryFragments moves every history file, content-verified).`,
+      ],
+      agent_must_wait: "Advisory — the write stands. Move the history out before the next session reads the fragment directory.",
+      user_summary: `session-notes-continuity MUST-3 — history file ${hd.rel} sits in the fragment directory`,
+    });
+    return;
+  }
+
+  const lineCount = content === null ? NaN : countLines(content);
   const decision = decideCeilingAdvisory({ repoDir, filePath, lineCount });
   if (decision.action !== "advise") return passthrough();
 
   const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
-  if (_timeout) clearTimeout(_timeout);
   emit({
     hookEvent,
     severity: "advisory",
@@ -414,7 +560,7 @@ function _writeArm(payload, repoDir, hookEvent) {
     why: "session-notes-continuity.md MUST-3 — a no-truncate rule over an unbounded file only relocates the failure: the next reader must either violate MUST-2 or spend the context budget the work needed. Bounding is what makes the whole-read affordable.",
     agent_must_report: [
       `${decision.rel}: ${decision.lineCount} lines (ceiling ${decision.ceiling}, target ${decision.target})`,
-      "Move the overflow into a NAMED file and leave an explicit pointer from the notes — not a silent truncation.",
+      "Move the overflow into a NAMED file under .session-notes.archive/<display_id>/ and leave an explicit pointer from the notes — not a silent truncation.",
     ],
     agent_must_wait:
       "Advisory — the write stands. Bound the artifact before the next session reads it.",
@@ -425,56 +571,32 @@ function _writeArm(payload, repoDir, hookEvent) {
 const READ_TOOLS = new Set(["Read"]);
 const WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
+async function main(payload) {
+  const toolName = payload.tool_name;
+  const hookEvent = payload.hook_event_name || "PreToolUse";
+  // loom#1871 HIGH-1 — this was the WEAKEST of the eight readers: it took
+  // COC_OPERATOR_REPO_DIR with no existence check at all, so a nonexistent
+  // path became the repo root outright. CLAUDE_PROJECT_DIR is dropped from
+  // the chain for the same reason it cannot serve as a baseline: an attacker
+  // able to add one env var to a `settings.json` env: block can add the
+  // other, so corroborating either against the other is no corroboration.
+  // Required lazily, matching this file's zero-side-effect require style.
+  const { resolveRepoDirBound } = require(
+    path.join(__dirname, "lib", "repo-dir-override.js"),
+  );
+  const repoDir = resolveRepoDirBound(payload, {
+    hookName: "session-notes-guard",
+  }).repoDir;
+
+  if (READ_TOOLS.has(toolName)) return _readArm(payload, repoDir, hookEvent);
+  if (WRITE_TOOLS.has(toolName)) return _writeArm(payload, repoDir, hookEvent);
+  return passthrough();
+}
+
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js).
-function hookMain() {
-  _timeout = setTimeout(() => {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    process.exit(1);
-  }, TIMEOUT_MS);
-  _timeout.unref?.();
-
-  return new Promise((resolve, reject) => {
-    let input = "";
-    process.stdin.on("error", passthrough);
-    process.stdin.on("data", (d) => (input += d));
-    process.stdin.on("end", () => {
-      try {
-        _onStdinEnd(input);
-      } catch (e) {
-        return reject(e);
-      }
-      resolve();
-    });
-  });
-}
-
-function _onStdinEnd(input) {
-    try {
-      const payload = JSON.parse(input || "{}");
-      const toolName = payload.tool_name;
-      const hookEvent = payload.hook_event_name || "PreToolUse";
-      // loom#1871 HIGH-1 — this was the WEAKEST of the eight readers: it took
-      // COC_OPERATOR_REPO_DIR with no existence check at all, so a nonexistent
-      // path became the repo root outright. CLAUDE_PROJECT_DIR is dropped from
-      // the chain for the same reason it cannot serve as a baseline: an attacker
-      // able to add one env var to a `settings.json` env: block can add the
-      // other, so corroborating either against the other is no corroboration.
-      // Required lazily, matching this file's zero-side-effect require style.
-      const { resolveRepoDirBound } = require(
-        path.join(__dirname, "lib", "repo-dir-override.js"),
-      );
-      const repoDir = resolveRepoDirBound(payload, {
-        hookName: "session-notes-guard",
-      }).repoDir;
-
-      if (READ_TOOLS.has(toolName)) return _readArm(payload, repoDir, hookEvent);
-      if (WRITE_TOOLS.has(toolName)) return _writeArm(payload, repoDir, hookEvent);
-      return passthrough();
-    } catch {
-      return passthrough();
-    }
-}
+// in-process by lib/hook-engine.js (dispatch.js). Built by the fail-closed runner,
+// which reads the payload and refuses on a crash, a hang or an unreadable payload.
+const hookMain = runGuard("session-notes-guard", main, { budgetMs: TIMEOUT_MS });
 
 module.exports = {
   NOTES_TARGET_LINES,
@@ -485,6 +607,9 @@ module.exports = {
   decideReadGate,
   countLines,
   decideCeilingAdvisory,
+  decideHistoryPlacement,
+  classifyWaveTrackerPath,
+  decideWaveTrackerAdvisory,
   markerPathFor,
   readRootNotesSeen,
   markRootNotesSeen,

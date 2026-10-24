@@ -285,7 +285,7 @@ Every defect that THIS wave's `/redteam` OR any PRIOR wave's `/redteam` surfaced
 
 ### USE — run the full corpus each round; a failing probe is HIGH
 
-Run the entire accreted corpus every `/redteam` round (per wave at G1, and at the terminal redteam). A failing probe is a HIGH finding that blocks convergence (`commands/redteam.md` Convergence Criterion 7). "Tier-1/2/3 pass" is INSUFFICIENT to convergence — the eval-harness is an independent criterion. Offline-CI (no LLM judge) degrades to STRUCTURAL probes (AST / file / exit-code) per Rule 3, NEVER a regex fallback labelled "best-effort".
+Run the entire accreted corpus every `/redteam` round (per wave at G1, and at the terminal redteam). A failing probe is a HIGH finding, so it blocks a clean round (`commands/redteam.md` § Convergence Criteria). "Tier-1/2/3 pass" is INSUFFICIENT for a clean round — the eval-harness is an independent criterion. Offline-CI (no LLM judge) degrades to STRUCTURAL probes (AST / file / exit-code) per Rule 3, NEVER a regex fallback labelled "best-effort".
 
 ### Authoring-side vs project-side
 

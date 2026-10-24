@@ -1,0 +1,12 @@
+{
+  "_fixture": "check-deny-row-fail-closed.mjs CONFORMANT host surface: ok-guard.js has NO standalone and is reached only THROUGH the Gemini adapter (a registrar, not direct); advise-hook.js is direct but is neither a deny row nor built on runGuard; the mcpServers command is not a hook registration",
+  "mcpServers": { "codex-mcp-guard": { "command": "node .claude/hooks/ok-guard.js" } },
+  "hooks": {
+    "BeforeTool": [
+      { "matcher": "run_shell_command", "hooks": [{ "type": "command", "command": "node $GEMINI_PROJECT_DIR/.claude/hooks/lib/gemini-hook-runtime.js --guard .claude/hooks/ok-guard.js" }] }
+    ],
+    "AfterTool": [
+      { "matcher": "write_file", "hooks": [{ "type": "command", "command": "node $GEMINI_PROJECT_DIR/.claude/hooks/advise-hook.js" }] }
+    ]
+  }
+}

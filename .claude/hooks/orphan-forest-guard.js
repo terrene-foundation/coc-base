@@ -80,6 +80,22 @@
  * that can wedge a session is worse than the leak it reports.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/orphan-reap-refusals.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["lsof","node","ps","sysctl"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The one fs target is written by the DELEGATED reaper (.claude/bin/orphan-reap.mjs, which appends through lib/append-sink.js): one row per refused floor, appended per invocation. spawns: the SessionEnd reap child plus the in-process ps / lsof / sysctl probes in lib/orphan-forest.js, which run at BOTH events. At SessionEnd the reap also signals host processes — an irreversible host side effect, though not an fs write."
+ * }
+ */
+
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
@@ -431,8 +447,7 @@ function run(payload) {
   // Swap exhaustion is reported even when load is calm and nothing leaked: the
   // two axes are independent, and it is the one that kills rather than slows.
   const notableMem = memoryIsNotable(mem);
-  if (m.counts.candidates === 0 && !notableLoad && !notableMem)
-    return passthrough();
+  if (isZeroFinding(m.counts, notableMem)) return passthrough();
 
   const lines = reportLines({ ...m, load, mem });
   const reapOff = event === "SessionEnd" && !autoReap.enabled;
@@ -476,6 +491,20 @@ function run(payload) {
 // run(), whose every path ends in process.exit (passthrough / emit). In-engine
 // that exit throws a sentinel the catch receives; the catch does output and exit
 // ONLY, both of which the engine discards once the detector has exited.
+/**
+ * ZERO-FINDING ⇒ SILENT (journal/0661 hook output economy, owner directive 2026-10-10).
+ *
+ * A finding here is an ORPHAN (candidates > 0) or EXHAUSTED SWAP — the axis that kills.
+ * High load with NO orphan is not a finding this guard can attribute or act on: the
+ * advisory's own body says "this load is NOT explained by a leaked burner". MEASURED:
+ * that zero-orphan load report was the bulk of 62 SessionStart advisories (59 KB) in the
+ * loom transcripts, each ~1 KB of report-and-wait boilerplate, with no remedy for anyone.
+ * Load still RIDES ALONG as a stated line whenever there IS a finding (orphans or swap).
+ */
+function isZeroFinding(counts, notableMem) {
+  return !!counts && counts.candidates === 0 && !notableMem;
+}
+
 function hookMain() {
   const _timeout = setTimeout(() => {
     process.stdout.write(JSON.stringify({ continue: true }) + "\n");
@@ -514,7 +543,7 @@ function hookMain() {
   });
 }
 
-module.exports = { hookMain };
+module.exports = { hookMain, isZeroFinding };
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The

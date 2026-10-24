@@ -37,4 +37,4 @@ which the quote mask is skipped. That path is shared with two other detectors an
 already carried by their own cases; a fourth copy here would pin the same code twice
 and drift.
 
-Run from `/Users/me/repos/loom`; four cases, all green.
+Run from `{{FIXTURE_HOME_V1:MAC}}me/repos/loom`; four cases, all green.

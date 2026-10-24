@@ -386,6 +386,44 @@
  * for the same reason M-o was nearly invisible: a library-level case supplies its own arguments and
  * therefore cannot observe what the single production call site supplies.
  *
+ * ── the ENOENT-ONLY presence walk + one resolver (loom B1 durable-io lane, cases 187-190).
+ *    MEASURED 2026-10-13 against lane commit 607bb2b26 (tree 1eb56b2215d7), on a git-archive
+ *    COPY — never the worktree — via `trestle run` on a remote fleet host as uid 1001 (so 189 ran its
+ *    real mode-000 branch, not the root branch). Unmutated baseline in the same battery: this set
+ *    197/197, override-receipt 63/63, append-sink-hardening 36/36, transport-filesystem 17/17.
+ *    Reach proof per mutation: the exact-string replacement matched ONCE and the file's sha256
+ *    changed; a non-empty red-set then proves the changed line executed. Cross-suite reds are
+ *    recorded because the node suites carry no `redsUnder` labels of their own.
+ *
+ *   M-P1  `_lexistsSync` swallows every lstat failure (`return false`)   -> 187, 188, 189
+ *         + append-sink-hardening: the three ENOENT-ONLY ENOTDIR/ELOOP/EACCES tests
+ *         + transport-filesystem: all three ancestor-channel cases — MEASURED, no longer
+ *           inferred: re-run 2026-10-13 at lane commit 80ce4b821 on a scratch CLONE via
+ *           `trestle run`, that suite's own harness printed `14 passed, 3 failed` naming
+ *           `transport_append_enotdir_ancestor_throws_ECOCSINK`,
+ *           `transport_append_eacces_ancestor_throws_ECOCSINK` and
+ *           `transport_append_eloop_ancestor_is_a_typed_rejection_not_a_throw`
+ *   M-P4  drop the non-ENOENT return on the late `lstat(sinkDir)`        -> 190 (and nothing else)
+ *   M-P6  `_canonicalPath` back to the JS `fs.realpathSync`              -> 115, 122, 190
+ *         These three red because their lying-resolver SEAMS sit on `fs.realpathSync.native`
+ *         and are no longer reached — the seam's reach proof doing its job, not new coverage.
+ *         The behaviour itself is pinned in append-sink-hardening. RE-MEASURED at lane commit
+ *         a9ed825d5 (B1 round-2 fix batch), because that batch moved which case pins it: a `..`
+ *         SEGMENT is now refused before any resolver runs, so the three `<link>/..` shapes stay
+ *         GREEN under this mutation (the segment check absorbs them) and the old in-root `..`
+ *         pole is now a refusal. What reds instead: the three ONE RESOLVER (link target) cases —
+ *         an in-root link whose TARGET is `<link>/..`, so the sink path carries no dot segment —
+ *         plus the fail-closed case (4 of 47).
+ *   M-P7  `_presenceFailureTag` always `containment failed`              -> 187, 189
+ *         + append-sink-hardening: ENOTDIR and EACCES tests
+ *         + transport-filesystem: the ENOTDIR and EACCES `throws_ECOCSINK` cases
+ *   M-P7b `_presenceFailureTag` always `lstat failed`                    -> 188
+ *         + append-sink-hardening: the ELOOP test
+ *         + transport-filesystem: the ELOOP typed-rejection case
+ *   M-P3 (walk past in `readSinkFile`'s catch) is NOT listed and no longer cited: it cannot be
+ *         built on its own, because under M-P1 that catch is unreachable (B1 round-1 F4).
+ *   No M-P2 label is cited anywhere in this tree; the gap in the lettering is not a mutation.
+ *
  * Case 04 is deliberately NOT a regression lock and reds under none of the mutations: it is the
  * POSITIVE CONTROL on the coupling assertion itself, driving a stub reconciler whose rider never
  * goes live and asserting that `assertFloorMatchesReconciler` REJECTS it. Without it, case 03's
@@ -1595,9 +1633,10 @@ check("29", "SIGNATURE quiet pole: the SAME measured pair produces the same sign
           // A link planted BETWEEN the ancestor resolve and the sink-directory resolve is not
           // reproducible by racing, so it is driven deterministically — the same lying-instrument
           // technique case 101 uses for the stat.
-          const realRp = fs.realpathSync, realLs = fs.lstatSync, realRl = fs.readlinkSync;
+          // Seam on `fs.realpathSync.native`: that is the resolver the module uses.
+          const realRp = fs.realpathSync.native, realLs = fs.lstatSync, realRl = fs.readlinkSync;
           let seen = 0;
-          fs.realpathSync = (q, ...rest) => {
+          fs.realpathSync.native = (q, ...rest) => {
             if (String(q) === dir && ++seen >= 2) { const e = new Error("ENOENT: raced"); e.code = "ENOENT"; throw e; }
             return realRp.call(fs, q, ...rest);
           };
@@ -1605,12 +1644,113 @@ check("29", "SIGNATURE quiet pole: the SAME measured pair produces the same sign
           fs.readlinkSync = (q, ...rest) => realRl.call(fs, String(q) === dir ? evil : q, ...rest);
           let r;
           try { r = AS.readSinkFile({ repoDir: tmp, sinkPath: p, maxBytes: 4096 }); }
-          finally { fs.realpathSync = realRp; fs.lstatSync = realLs; fs.readlinkSync = realRl; }
+          finally { fs.realpathSync.native = realRp; fs.lstatSync = realLs; fs.readlinkSync = realRl; }
           fs.unlinkSync(evil);
           return r.ok === false && r.absent === false && /DANGLING symlink/.test(r.reason);
         })(),
         "narrow, but the difference between refusing the race and laundering it",
         "M-B2: restore the bare `absent:true` on the sink-directory ENOENT branch");
+
+      // ── ENOENT-ONLY presence (loom B1 durable-io lane) ──────────────────
+      //
+      // `_lexistsSync` used to swallow EVERY lstat failure as "not present" — EACCES, ELOOP,
+      // ENOTDIR exactly as `existsSync` does — so the ancestor WALK stepped past a component
+      // whose presence it could not decide. The VERDICT was not wrong: in every shape measured
+      // (B1 round-1 correctness review, old vs new lib side by side) the later sink-directory
+      // resolve still refused, with `absent:false`. So 187-189 PIN THE MECHANISM — that the
+      // refusal now happens AT the walk, is NAMED, and carries an errno-chosen tag — and do NOT
+      // cover a live containment bypass; do not read them as one. The verdict-level changes are
+      // 190 (the late `lstat(sinkDir)` must not launder a failed check into `absent:true`), the
+      // receipt probe (override-receipt 58, 59, 92, 93) and the tag channel (transport-filesystem
+      // ECOCSINK cases). 113 is the quiet pole that stops these passing against "refuse always".
+      const ENOENT_ONLY_DIR = path.join(tmp, ".claude", "learning", "fx-enoent-only");
+      fs.mkdirSync(ENOENT_ONLY_DIR, { recursive: true });
+
+      check("187", "PRESENCE: ENOTDIR at an ancestor component is a NAMED walk refusal, not absence",
+        (() => {
+          const plain = path.join(ENOENT_ONLY_DIR, "plain-file");
+          fs.writeFileSync(plain, "file\n");
+          const r = AS.readSinkFile({ repoDir: tmp, sinkPath: path.join(plain, "beneath", "s.jsonl"), maxBytes: 4096 });
+          fs.unlinkSync(plain);
+          // `lstat failed`, NOT `containment failed`: a non-directory ancestor is a tree-shape
+          // (substrate) fault — `append-sink.js::_presenceFailureTag` records why.
+          return r.ok === false && r.absent === false && r.error === "lstat failed" &&
+            /ancestry walk/.test(r.reason) && /ENOTDIR/.test(r.reason);
+        })(),
+        "presence at that component is UNKNOWN, so the walk must not step past it",
+        "M-P1: swallow every lstat failure in `_lexistsSync` · M-P7: tag every walk refusal `containment failed`");
+
+      check("188", "PRESENCE: ELOOP at an ancestor component is a NAMED walk refusal, not absence",
+        (() => {
+          const loop = path.join(ENOENT_ONLY_DIR, "loop");
+          fs.symlinkSync(loop, loop);
+          const r = AS.readSinkFile({ repoDir: tmp, sinkPath: path.join(loop, "beneath", "s.jsonl"), maxBytes: 4096 });
+          fs.unlinkSync(loop);
+          // ELOOP keeps `containment failed`: a link loop is the attack shape, a refusal.
+          return r.ok === false && r.absent === false && r.error === "containment failed" &&
+            /ancestry walk/.test(r.reason) && /ELOOP/.test(r.reason);
+        })(),
+        "a self-referential link beneath the walk is undecidable, not missing",
+        "M-P1 · M-P7b: tag every walk refusal `lstat failed`");
+
+      {
+        const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+        if (isRoot) {
+          check("189", "PRESENCE: EACCES case not exercised — running as root, mode 000 does not deny", true,
+            "root bypasses DAC; ENOTDIR (187) and ELOOP (188) carry the class", "n/a under root");
+        } else {
+          check("189", "PRESENCE: EACCES at an ancestor component is a NAMED walk refusal, not absence",
+            (() => {
+              const sealed = path.join(ENOENT_ONLY_DIR, "sealed");
+              fs.mkdirSync(sealed, { mode: 0o700 });
+              fs.chmodSync(sealed, 0o000);
+              let r;
+              try {
+                r = AS.readSinkFile({ repoDir: tmp, sinkPath: path.join(sealed, "beneath", "s.jsonl"), maxBytes: 4096 });
+              } finally {
+                fs.chmodSync(sealed, 0o700);
+                fs.rmdirSync(sealed);
+              }
+              return r.ok === false && r.absent === false && r.error === "lstat failed" &&
+                /ancestry walk/.test(r.reason) && /EACCES/.test(r.reason);
+            })(),
+            "an unsearchable directory hides presence; it does not prove absence",
+            "M-P1 · M-P7");
+        }
+      }
+
+      check("190", "PRESENCE late branch: realpath-ENOENT on the sink dir with a NON-ENOENT lstat is a refusal, never absent",
+        (() => {
+          // The directory is GENUINELY missing, so the walk's lstat and the late realpath both see a
+          // real ENOENT. Only the LATE lstat — the one after `realpathSync(sinkDir)` failed — is made
+          // to fail EACCES, which is the state a real fs reaches when a component's permissions
+          // change between the two calls. Not reproducible by racing, so driven deterministically,
+          // the same lying-instrument technique 115 uses.
+          const dir = path.join(ENOENT_ONLY_DIR, "late-missing");
+          // The module resolves through `fs.realpathSync.native` (the kernel's resolver), so the
+          // seam sits THERE; `rpFired` doubles as the proof that it does.
+          const realRp = fs.realpathSync.native, realLs = fs.lstatSync;
+          let rpFired = false, lateLstat = 0;
+          fs.realpathSync.native = (q, ...rest) => {
+            if (String(q) === dir) rpFired = true;
+            return realRp.call(fs, q, ...rest);
+          };
+          fs.lstatSync = (q, ...rest) => {
+            if (String(q) === dir && rpFired) {
+              lateLstat++;
+              const e = new Error("EACCES: fixture"); e.code = "EACCES"; throw e;
+            }
+            return realLs.call(fs, q, ...rest);
+          };
+          let r;
+          try { r = AS.readSinkFile({ repoDir: tmp, sinkPath: path.join(dir, "s.jsonl"), maxBytes: 4096 }); }
+          finally { fs.realpathSync.native = realRp; fs.lstatSync = realLs; }
+          // `lateLstat === 1` proves the seam reached the late branch rather than passing vacuously.
+          return lateLstat === 1 && r.ok === false && r.absent === false &&
+            /could not be checked for presence/.test(r.reason) && /EACCES/.test(r.reason);
+        })(),
+        "the `absent:true` return is the disposition callers stay SILENT about — a failed check must not reach it",
+        "M-P4: drop the non-ENOENT return on the late `lstat(sinkDir)`");
 
       // ── the ALLOCATION regression the first read-half fix introduced ──────
       //
@@ -1754,14 +1894,15 @@ check("29", "SIGNATURE quiet pole: the SAME measured pair produces the same sign
       // RACE — a swap landing between the two resolves — which is driven deterministically by a
       // lying resolver, the same technique cases 101 and 115 use, because racing it is not
       // reproducible.
+      // Seam on `fs.realpathSync.native` — the module's one resolver (`_canonicalPath`).
       const lyingSecondResolve = (dir, out) => {
-        const real = fs.realpathSync;
+        const real = fs.realpathSync.native;
         let seen = 0;
-        fs.realpathSync = (q, ...rest) => {
+        fs.realpathSync.native = (q, ...rest) => {
           if (String(q) === dir && ++seen >= 2) return out;
           return real.call(fs, q, ...rest);
         };
-        return () => { fs.realpathSync = real; };
+        return () => { fs.realpathSync.native = real; };
       };
 
       check("122", "SINK-DIR CONTAINMENT firing pole: a directory swapped BETWEEN the two resolves is refused by the SECOND check",

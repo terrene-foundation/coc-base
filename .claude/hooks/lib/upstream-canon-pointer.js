@@ -34,10 +34,11 @@
 const fs = require("fs");
 const path = require("path");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 const {
   emitSignedRecord,
+  snapshotPlainOpts,
   MAX_LINE_BYTES,
   makeValidateFold,
 } = require("./coc-emit.js");
@@ -114,26 +115,34 @@ function _appendToPointer(repoDir, record) {
   // loom#1349 R1 F3 — routed through the shared hardened primitive (structural twin of
   // capability-ledger). The cap check above stays HERE, before signing.
   const p = resolveUpstreamCanonPath(repoDir);
-  const w = appendSinkLine({ repoDir, sinkPath: p, line });
+  const w = appendSinkLine({
+    repoDir,
+    additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+    sinkPath: p,
+    line,
+  });
   if (!w.ok)
     return { ok: false, error: `upstream-canon append refused: ${w.error} — ${w.reason}` };
   return { ok: true };
 }
 
+// `opts` is the public entry points' snapshot (`snapshotPlainOpts`), so every read
+// below is the caller's OWN data, never a polluted Object.prototype (sigcov
+// R2-C1). Spread defines own properties; a [[Set]] copy would run a setter
+// planted on Object.prototype (the sigcov R2-3 class).
 function _emit(repoDir, content, opts) {
-  return emitSignedRecord(
-    Object.assign({}, opts, {
-      repoDir,
-      type: TYPE_UPSTREAM_CANON,
-      content,
-      readChainHead:
-        opts.readChainHead || ((args) => _readPointerChainHead(repoDir, args)),
-      append:
-        opts.append || ((_rd, record) => _appendToPointer(repoDir, record)),
-      // COC-CHAIN guard, upstream-canon chain: validate against THIS log.
-      validateFold: opts.validateFold || makeValidateFold(readUpstreamCanonLog),
-    }),
-  );
+  return emitSignedRecord({
+    ...opts,
+    repoDir,
+    type: TYPE_UPSTREAM_CANON,
+    content,
+    readChainHead:
+      opts.readChainHead || ((args) => _readPointerChainHead(repoDir, args)),
+    append:
+      opts.append || ((_rd, record) => _appendToPointer(repoDir, record)),
+    // COC-CHAIN guard, upstream-canon chain: validate against THIS log.
+    validateFold: opts.validateFold || makeValidateFold(readUpstreamCanonLog),
+  });
 }
 
 /**
@@ -143,7 +152,10 @@ function _emit(repoDir, content, opts) {
  * result contract as emitSignedRecord.
  */
 function emitUpstreamCanonPointer(opts) {
-  const o = opts || {};
+  // Read opts only through the emitter's own snapshot (sigcov R2-C1): see `_emit`.
+  const snapshot = snapshotPlainOpts(opts);
+  if (snapshot.refusal) return snapshot.refusal;
+  const o = snapshot.o;
   if (!o.repoDir || typeof o.repoDir !== "string") {
     return {
       ok: false,
@@ -170,7 +182,10 @@ function emitUpstreamCanonPointer(opts) {
  * direction).
  */
 function emitUpstreamCanonWithdrawal(opts) {
-  const o = opts || {};
+  // Read opts only through the emitter's own snapshot (sigcov R2-C1): see `_emit`.
+  const snapshot = snapshotPlainOpts(opts);
+  if (snapshot.refusal) return snapshot.refusal;
+  const o = snapshot.o;
   if (!o.repoDir || typeof o.repoDir !== "string") {
     return {
       ok: false,

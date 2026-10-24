@@ -35,10 +35,30 @@
 "use strict";
 
 const path = require("path");
+const { resolveGitTargetContext, gitTargetContextIsUnknown } = require("./git-target-context.js");
+
 const { dequote } = require(path.join(__dirname, "git-command-parse.js"));
-const { resolveGitBinary, gitEnv } = require(
-  path.join(__dirname, "git-subprocess-env.js"),
-);
+// THE TARGET-REPO ENVELOPE (lib/target-repo-git.js): both probes below run git AGAINST
+// the repository the judged command names (`git -C <repo> stash push`), whose
+// `.git/config` the agent writes. `gitEnv()` closes only global and system config, so
+// without the envelope that repo's own config chooses programs git runs inside this
+// hook: MEASURED on git 2.54.0, a `stash list` there ran a planted `gpg.program` (with
+// `log.showSignature=true` and a gpgsig-carrying entry). `worktree list` ran no planted
+// program in the same measurement; it goes through the envelope anyway, so neither probe
+// depends on that staying true. The repository is resolved ONCE from the judged
+// command's own selectors and both probes run against that canonical pair. A repository
+// that will not resolve, or a call the envelope refuses, reads as NOT MEASURED, the
+// existing silent answer.
+const { resolveTargetRepo, targetGit } = require(path.join(__dirname, "target-repo-git.js"));
+
+/** The judged command's repository, resolved through the envelope; null = not measured. */
+function resolveContextRepo(context) {
+  const res = resolveTargetRepo(
+    { cwd: context.cwd, gitDir: context.gitDir || undefined, workTree: context.workTree || undefined },
+    { timeout: 2000 },
+  );
+  return res.ok ? res.repo : null;
+}
 
 // Read-only stash subcommands. A guard that trips on INSPECTING the stack is
 // noise and gets switched off by the first person it interrupts, so these are
@@ -174,10 +194,10 @@ function selectStashHazard(invocations) {
     // can produce, so no probe could answer "does THAT repo have linked
     // worktrees?". Skipped rather than failed closed — see the hook's call site
     // for why this lane does not take the destructive-op fences' disposition.
-    if (g.unresolvable === "dir") continue;
+    if (gitTargetContextIsUnknown(g)) continue;
     const c = classifyStashArgs(g.argv);
     if (!c.mutating) continue;
-    return { form: c.form, why: c.why, dir: g.dir || null };
+    return { form: c.form, why: c.why, dir: g.dir || null, invocation: g };
   }
   return null;
 }
@@ -192,37 +212,22 @@ function selectStashHazard(invocations) {
  * @returns {{ok: boolean, count: number}} `ok:false` = not measured. The caller
  *   MUST treat that as silent, never as a hit.
  */
-function countWorkingTrees(dir, cwd, spawn) {
+function countWorkingTrees(dir, cwd, spawn, invocation) {
+  // `context.cwd` is the payload cwd with any `-C` already resolved against it
+  // (lib/git-target-context.js), so a RELATIVE `-C` (`git -C . stash pop`) answers
+  // about the operator's tree, never the CLI host's: measured while writing ARM 3 of
+  // this detector's fixtures, the bare-cwd form answered about the loom checkout the
+  // runner was launched from.
+  const context = resolveGitTargetContext(invocation || { dir }, cwd || process.cwd());
+  if (!context.known) return { ok: false, count: 0 };
   try {
-    const spawnSync = spawn || require("child_process").spawnSync;
-    const gitBin = resolveGitBinary();
-    if (!gitBin) return { ok: false, count: 0 };
-    const r = spawnSync(
-      gitBin,
-      ["-C", dir || cwd || ".", "worktree", "list", "--porcelain"],
-      {
-        // The SPAWN CWD, not just `-C`. A `-C` value may be RELATIVE
-        // (`git -C . stash pop`, `git -C sub stash pop`), and git resolves it
-        // against the process's own cwd — which for a hook is wherever the CLI
-        // host happens to be, NOT the session's repo. Measured while writing
-        // ARM 3 of this detector's fixtures: `git -C . stash pop` issued in a
-        // ONE-worktree throwaway repo FIRED, because the probe answered about
-        // the loom checkout the runner was launched from. Pinning the spawn cwd
-        // to the session cwd makes the relative form resolve where the operator
-        // meant it.
-        cwd: cwd || undefined,
-        encoding: "utf8",
-        // Bounded well inside the hook's own 5000ms budget, and deliberately
-        // below the 2500ms the destructive-op porcelain probe uses: this lane
-        // is advisory, so a slow answer must cost the session nothing.
-        timeout: 2000,
-        stdio: ["ignore", "pipe", "ignore"],
-        env: gitEnv(),
-      },
-    );
-    if (r.status !== 0 || typeof r.stdout !== "string") {
-      return { ok: false, count: 0 };
-    }
+    const repo = resolveContextRepo(context);
+    if (!repo) return { ok: false, count: 0 };
+    // Bounded well inside the hook's own 5000ms budget, and deliberately below the
+    // 2500ms the destructive-op porcelain probe uses: this lane is advisory, so a
+    // slow answer must cost the session nothing.
+    const r = targetGit(repo, ["worktree", "list", "--porcelain"], { timeout: 2000, spawn });
+    if (!r.ok) return { ok: false, count: 0 };
     const count = r.stdout
       .split("\n")
       .filter((l) => /^worktree /.test(l)).length;
@@ -246,22 +251,14 @@ function countWorkingTrees(dir, cwd, spawn) {
  *
  * @returns {{ok: boolean, depth: number}}
  */
-function countStashEntries(dir, cwd, spawn) {
+function countStashEntries(dir, cwd, spawn, invocation) {
+  const context = resolveGitTargetContext(invocation || { dir }, cwd || process.cwd());
+  if (!context.known) return { ok: false, depth: 0 };
   try {
-    const spawnSync = spawn || require("child_process").spawnSync;
-    const gitBin = resolveGitBinary();
-    if (!gitBin) return { ok: false, depth: 0 };
-    const r = spawnSync(gitBin, ["-C", dir || cwd || ".", "stash", "list"], {
-      // Same relative-`-C` resolution contract as countWorkingTrees above.
-      cwd: cwd || undefined,
-      encoding: "utf8",
-      timeout: 2000,
-      stdio: ["ignore", "pipe", "ignore"],
-      env: gitEnv(),
-    });
-    if (r.status !== 0 || typeof r.stdout !== "string") {
-      return { ok: false, depth: 0 };
-    }
+    const repo = resolveContextRepo(context);
+    if (!repo) return { ok: false, depth: 0 };
+    const r = targetGit(repo, ["stash", "list"], { timeout: 2000, spawn });
+    if (!r.ok) return { ok: false, depth: 0 };
     return {
       ok: true,
       depth: r.stdout.split("\n").filter((l) => l.trim() !== "").length,

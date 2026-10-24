@@ -20,10 +20,10 @@ commits, and if they collide the second push just rebases onto the first.
 The immediate problem is that W3-codec's local branch and origin diverged while it
 was paused:
 
-    git -C /Users/me/repos/.example-repo-wt/codec push origin feat/codec-b
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec push origin feat/codec-b
     ! [rejected]        feat/codec-b -> feat/codec-b (non-fast-forward)
 
-    git -C /Users/me/repos/.example-repo-wt/codec push --force-with-lease origin feat/codec-b
+    git -C {{FIXTURE_HOME_V1:MAC}}me/repos/.example-repo-wt/codec push --force-with-lease origin feat/codec-b
     + 3f19ab2...c40e871 feat/codec-b -> feat/codec-b (forced update)
 
 Accepted, so the lease held and the ref moved cleanly; the branch is consistent

@@ -133,3 +133,8 @@ Use `browser_navigate` → `browser_snapshot` (read accessibility tree for subst
 
 - **analyst**: Escalate when value gaps require architectural investigation
 - **reviewer**: Hand off specific UI/UX issues found during audit
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Bash, Grep, Glob. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Bash: exec_command and write_stdin; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command. These are role instructions, not a native tool permission boundary. Parent policy still applies.

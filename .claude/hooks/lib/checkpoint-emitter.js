@@ -21,16 +21,23 @@
  * ---------------------------------------------------------------------------
  *
  * Trigger: the number of records ABOVE the last valid checkpoint reaches
- * `CHECKPOINT_INTERVAL` (200). Fired at the SessionEnd/Stop session boundary,
- * never on the per-tool-call path and never at SessionStart.
+ * `CHECKPOINT_INTERVAL` (DERIVED in fold-verification-checkpoint.js from the
+ * measured per-record verify cost and the fold's tail budget — 25 at the
+ * 2026-10-08 measurements, and the derivation, not this number, is the
+ * contract). Fired at the SessionEnd/Stop session boundary, never on the
+ * per-tool-call path and never at SessionStart.
  *
  * Chosen on the measurement, and the alternatives are rejected on it too:
  *
  *   - RECORD COUNT is the trigger because record count is what the cost is
- *     linear in. Per-record fold cost measured at 8257 ms / 919 records =
- *     8.98 ms, essentially all subprocess spawn. 200 uncovered records is
- *     ~1.8 s of tail verification, inside the 5-second PreToolUse hook timeout
- *     with >3 s of headroom for the rest of the hook's work.
+ *     linear in. Its cost model lives WITH the constant that encodes it, in
+ *     `fold-verification-checkpoint.js` — where a stale cost model is exactly
+ *     what let the trigger stop firing while the log outgrew the fold budget:
+ *     the 200 this file used to name was derived from an 8.98 ms per-record
+ *     verify, and the live per-record cost had risen to ~30 ms (an ssh-rsa tail
+ *     signing key the in-process SSHSIG path does not cover) — 6.0 s of tail
+ *     verification against a 5.75 s row budget, so the uncovered tail sat at
+ *     150 records and every guarded write was refused at the fold.
  *   - BYTE SIZE was rejected: cost tracks the number of signatures, not their
  *     length. A log of 200 large records costs the same as 200 small ones.
  *   - AGE was rejected: an idle repo accrues no records and needs no
@@ -138,10 +145,19 @@ function _r9s02Gate(repoDir, roster, foldResult) {
  * @returns {{emitted: boolean, reason: string, record?: object}}
  */
 function maybeEmitCheckpoint(args) {
-  const a = args || {};
   const skip = (reason) => ({ emitted: false, reason });
 
   try {
+    // Read args, and the emit opts forwarded from them, only through the
+    // emitter's own snapshot: an `emit` or seam the caller left out must read
+    // `undefined`, never a value planted on a polluted Object.prototype
+    // (sigcov R2-C1, the R1 S2 class at the wrapper).
+    const { snapshotPlainOpts } = require(path.join(__dirname, "coc-emit.js"));
+    const argsSnapshot = snapshotPlainOpts(args);
+    if (argsSnapshot.refusal) return skip(`args refused: ${argsSnapshot.refusal.reason}`);
+    const a = argsSnapshot.o;
+    const emitOptsSnapshot = snapshotPlainOpts(a.emitOpts);
+    if (emitOptsSnapshot.refusal) return skip(`emitOpts refused: ${emitOptsSnapshot.refusal.reason}`);
     const { repoDir, records, foldResult, roster, identity } = a;
     if (!repoDir) return skip("no repoDir");
     if (!Array.isArray(records) || records.length === 0) return skip("no records");
@@ -299,17 +315,15 @@ function maybeEmitCheckpoint(args) {
       typeof a.emit === "function"
         ? a.emit
         : require(path.join(__dirname, "coc-emit.js")).emitSignedRecord;
-    const result = emitFn(
-      Object.assign(
-        {
-          repoDir,
-          type: fvc.CHECKPOINT_TYPE,
-          content: built.content,
-          identity: { verified_id: identity.verified_id, person_id: resolvedPersonId },
-        },
-        a.emitOpts || {},
-      ),
-    );
+    // Spread defines own properties; a [[Set]] copy would run a setter planted
+    // on Object.prototype (the sigcov R2-3 class).
+    const result = emitFn({
+      repoDir,
+      type: fvc.CHECKPOINT_TYPE,
+      content: built.content,
+      identity: { verified_id: identity.verified_id, person_id: resolvedPersonId },
+      ...emitOptsSnapshot.o,
+    });
     if (!result || !result.ok) {
       return skip(
         `emit refused at step '${(result && result.step) || "unknown"}': ${(result && result.reason) || "unknown"}`,

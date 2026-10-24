@@ -118,6 +118,12 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 // THE shared git-subprocess allowlist (loom#1462 F1) — see ./git-subprocess-env.js.
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
+const { askOnce, eventGitKey } = require("./event-git.js");
+
+// Canonical common-dir argv; sharing requires the complete question key:
+// binary, cwd, argv and envelope (.claude/hooks/lib/event-git.js:53-56).
+// Matching argv alone does not share answers across environment profiles.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 // THE shared COHERENCE rule (loom#1586) — see ./git-checkout-proof.js. It was a
 // LOCAL copy here; `provenCheckoutRoot` needed the same rule, and two copies of
 // "does this toplevel actually root this repository" is the drift shape
@@ -346,10 +352,12 @@ function _deepestExistingDir(absPath) {
  * updating the count on a legitimate removal is the documented maintenance path,
  * not a violation. The obstacle is scope, not the ratchet.
  *
- * `--show-toplevel --git-common-dir` prints toplevel first, common-dir
- * second; for a linked worktree the common dir is absolute (<main>/.git),
- * for a plain checkout it is the relative `.git`, resolved here against
- * the query dir.
+ * Asked through the ONE canonical argv (`CANONICAL_COMMON_DIR_ARGS`), so the
+ * answer is shared with every other common-dir asker of this tree in the same
+ * event. Output order follows argv: toplevel first, common-dir LAST, and
+ * `--path-format=absolute` makes the common dir absolute in every shape (it
+ * used to be the relative `.git` at a plain work-tree root); the
+ * `path.isAbsolute` guard is retained for any non-canonical asker.
  */
 function _gitTreeInfo(dir) {
   let r;
@@ -370,19 +378,30 @@ function _gitTreeInfo(dir) {
   // other git failure does, which every caller here already treats as fail-closed.
   const bin = resolveGitBinary();
   if (!bin) return null;
-  try {
-    r = spawnSync(bin, ["rev-parse", "--show-toplevel", "--git-common-dir"], {
-      cwd: dir,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
-      timeout: GIT_TIMEOUT_MS,
-      env: gitEnv(), // NOTHING inherited — GIT_DIR & family cannot reach this
-    });
-  } catch {
-    return null;
-  }
-  if (!r || r.status !== 0) return null;
-  const lines = String(r.stdout || "")
+  // ONE answer per distinct question per hook event (lib/event-git.js). Outside
+  // an event scope `askOnce` runs the probe directly — a standalone caller is
+  // unchanged; a recorded FAILURE stays a failure for the event and every
+  // branch below already treats it as fail-CLOSED (null).
+  const probe = askOnce(
+    eventGitKey({ gitBin: bin, cwd: dir, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+    () => {
+      try {
+        r = spawnSync(bin, CANONICAL_COMMON_DIR_ARGS, {
+          cwd: dir,
+          stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf8",
+          timeout: GIT_TIMEOUT_MS,
+          env: gitEnv(), // NOTHING inherited — GIT_DIR & family cannot reach this
+        });
+      } catch (e) {
+        return { ok: false, reason: String((e && e.message) || e) };
+      }
+      if (!r || r.status !== 0) return { ok: false, reason: "git rev-parse failed" };
+      return { ok: true, value: String(r.stdout || "") };
+    },
+  );
+  if (!probe.ok) return null;
+  const lines = String(probe.value || "")
     .split("\n")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
@@ -1120,13 +1139,17 @@ function matchFirstCandidate(absPath, repoDir, match, opts, out) {
  * (`p.replace(/\\/g, "/")`) and does NOT collapse a `..`. Neither is exploitable
  * today, but the safety is their CALLER'S, not theirs.
  *
- * `posture-gate.js` passes `_bestEffortRealpath(mutationPath)`, and BOTH of its
- * branches collapse `..`, not just the happy one: the success branch returns
- * `path.join(real, ...segments)` (kernel-resolved), and the ancestor-walk
- * FAILURE branch falls back to `path.normalize(filePath)` — which is lexical,
- * but still collapses. So that caller has no un-normalized exit at all. An
- * earlier revision of this paragraph credited only the kernel-resolved branch;
- * the margin is larger than it said.
+ * `posture-gate.js` passes `_bestEffortRealpath(mutationPath, data.cwd)`. That
+ * resolver takes the SESSION's cwd from the payload as the anchor for a relative
+ * path and returns NULL — never a lexical fallback — for anything it cannot
+ * resolve (relative with no absolute anchor, dangling link, EACCES, ELOOP); the
+ * caller treats null as "cannot be shown to be outside the protected set" and
+ * surfaces it. Its success branch returns `path.join(real, ...segments)`, which
+ * is kernel-resolved. The ONE lexical collapse left in that caller applies to an
+ * already-refused path and feeds only the message/protected-path test, so no
+ * un-normalized spelling reaches a containment DECISION. An earlier revision of
+ * this paragraph credited only the kernel-resolved branch and described a
+ * lexical fallback that no longer exists.
  *
  * `multi-operator-sessionstart.js` feeds paths straight out of
  * `git status --porcelain`, whose v1 format is documented repo-root-relative and
@@ -1197,6 +1220,13 @@ function _rowRel(row) {
  */
 const PROTECTED_PATHS = Object.freeze(
   [
+    {
+      id: "fleet-state",
+      segments: [".claude", "learning", "fleet"],
+      suffix: "(?:[/\\\\].*)?",
+      surfaces: { bash: true, layer3: true, direct: true },
+      subtree: true,
+    },
     {
       id: "posture.json",
       segments: [".claude", "learning", "posture.json"],
@@ -1305,6 +1335,38 @@ const PROTECTED_PATHS = Object.freeze(
       // #1399 — the repo-CLASS root of trust.
       id: "VERSION",
       segments: [".claude", "VERSION"],
+      surfaces: { bash: true, layer3: true },
+    },
+    {
+      // B4 (2026-10-08, orchestrator security call) — the HOOK REGISTRY's data
+      // file. settings.json pins this file's sha256 in every dispatcher command,
+      // so a bash write here silently changes WHICH DETECTORS RUN while the pin
+      // goes stale (the mid-session-change refusal in dispatch-registry.js
+      // speaks on the NEXT session start, not at the write). MEASURED before
+      // this row, against a control that fires in the same harness:
+      //   PASSED   echo x > .claude/hooks/dispatch-registry.json
+      //   PASSED   echo x > .claude/hooks/Dispatch-Registry.json   (case variant)
+      //   FLAGGED  echo x > .claude/learning/posture.json          <- CONTROL
+      // BASH + LAYER3 only, deliberately NOT `direct`: the registry is
+      // legitimately MAINTAINED with file tools (add a detector row, then run
+      // `hook-dispatch-migrate.mjs --repin --apply`), so a file-tool fence would
+      // refuse the sanctioned maintenance path — the same asymmetry
+      // settings.json / settings.local.json / VERSION document.
+      id: "hooks/dispatch-registry.json",
+      segments: [".claude", "hooks", "dispatch-registry.json"],
+      surfaces: { bash: true, layer3: true },
+    },
+    {
+      // B4 (same call) — the DERIVED TRUST ROOT: signer pubkeys + root commit,
+      // built from the roster by build-trust-root.mjs and authored by enrollment
+      // at consumers. A bash write forges the signer set. Its SOURCE
+      // (operators.roster.json) and its CONTRACT (operators.roster.schema.json)
+      // are already rows — the derived artifact was the missing member of the
+      // same authority class. MEASURED before this row: canonical AND
+      // case-variant writes both PASSED. BASH + LAYER3 only — see the
+      // dispatch-registry row above.
+      id: "trust-root.json",
+      segments: [".claude", "trust-root.json"],
       surfaces: { bash: true, layer3: true },
     },
     {

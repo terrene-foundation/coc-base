@@ -74,6 +74,12 @@
  */
 
 import fs from "node:fs";
+import crypto from "node:crypto";
+import { nativeCodexHookNames } from "./lib/expanded-hook-settings.mjs";
+import { codexAgentContract } from "./lib/codex-agent-contracts.mjs";
+import ruleMetadata from "../hooks/lib/rule-metadata.js";
+const { parseRulePaths, stripOutsideQuoteComment, splitFlowListOutsideQuotes, resolveRuleMetadata } = ruleMetadata;
+import { localAuthoringProjection, resolveEmissionProfile, privateAuthoringSourceReason } from "./lib/local-authoring-projection.mjs";
 import path from "node:path";
 
 // W0 (coc-universal): the neutral manifest-loader + variant-compose layer
@@ -100,6 +106,8 @@ import {
   deliveryVerdict,
   buildTierFilter,
   composeArtifactBody,
+  artifactDestinations,
+  parseArtifactFrontmatter as parseFrontmatter,
   rewriteClaudePathsForCli,
   mapArtifactMarkdownClauses,
   walkFiles,
@@ -109,7 +117,7 @@ import {
 // Validator 18). Single source of truth — a divergent mirror was the R1 finding
 // the AC#5-a redteam closed.
 import { isMainModule } from "./lib/entry-point.mjs";
-import { checkRuleCliDelivery, parseExcludeFrom } from "./lib/cli-delivery.mjs";
+import { checkRuleCliDelivery } from "./lib/cli-delivery.mjs";
 // loom#1870 — the `multi_cli_overlays.<type>.symlinks` reader below parses the
 // manifest text directly. Sourced from the ONE loader every other manifest read
 // in this pipeline uses, so a truncated/absent manifest fails the same way here.
@@ -199,32 +207,6 @@ export function surfaceRolesRefusalMessage(unparsed) {
 //   key: "quoted value"
 //   key: value1, value2, value3        (inline comma list)
 //   (no nested mappings, no block scalars, no anchors)
-function parseFrontmatter(source) {
-  const match = source.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return { frontmatter: {}, body: source };
-
-  const fmRaw = match[1];
-  const body = match[2];
-  const fm = {};
-
-  for (const line of fmRaw.split("\n")) {
-    const m = line.match(/^([a-zA-Z_][\w-]*):\s*(.*)$/);
-    if (!m) continue;
-    const key = m[1];
-    let val = m[2].trim();
-    // Strip surrounding quotes
-    if (
-      (val.startsWith('"') && val.endsWith('"')) ||
-      (val.startsWith("'") && val.endsWith("'"))
-    ) {
-      val = val.slice(1, -1);
-    }
-    fm[key] = val;
-  }
-
-  return { frontmatter: fm, body };
-}
-
 // ────────────────────────────────────────────────────────────────
 // Commands → per-CLI prompt files
 // ────────────────────────────────────────────────────────────────
@@ -254,7 +236,7 @@ function tomlLiteralEscape(body) {
   return body.replace(/'''/g, "''′'"); // U+2032 ′ — visually near but not a quote
 }
 
-function emitCommands({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose }) {
+function emitCommands({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose, localAuthoring = false, enabledClis = ["codex", "gemini"] }) {
   const srcDir = path.join(REPO, ".claude", "commands");
   if (!fs.existsSync(srcDir)) {
     return { codex: 0, gemini: 0, skipped: 0, fateSkipped: [] };
@@ -262,7 +244,7 @@ function emitCommands({ outDir, exclusions, tierFilter, loomOnly, universalExclu
 
   const stats = { codex: 0, gemini: 0, skipped: 0, fateSkipped: [] };
 
-  for (const { absPath, relPath } of walkFiles(srcDir)) {
+  for (const { absPath, relPath } of walkFiles(srcDir, "", relative => localAuthoring && privateAuthoringSourceReason(relative))) {
     if (!relPath.endsWith(".md")) continue;
     const manifestRel = `commands/${relPath}`;
     const name = path.basename(relPath, ".md");
@@ -294,41 +276,42 @@ function emitCommands({ outDir, exclusions, tierFilter, loomOnly, universalExclu
     // consumed by headless callers. Both carry the same composed procedure.
     // Apply variant overlays per (lang, codex) 3-axis stack so codex/prompts
     // matches the same composed content CC sees in .claude/commands/.
-    if (!matchesAnyGlob(manifestRel, exclusions.codex)) {
-      const codexResult = composeArtifactBody("commands", relPath, "codex", lang);
+    if (enabledClis.includes("codex") && !matchesAnyGlob(manifestRel, exclusions.codex)) {
+      const codexResult = composeArtifactBody("commands", relPath, "codex", lang, { preserveInternalReferences: localAuthoring });
       const { body: codexBody, destRelPath: codexDest } = codexResult;
       const { frontmatter: cFm, body: cBody } = parseFrontmatter(codexBody);
-      const codexName = path.basename(codexDest, ".md");
+      const destination = artifactDestinations({ category: "commands", relPath, cli: "codex", body: codexBody, destRelPath: codexDest });
+      const codexName = destination.name;
       const nativeCost = codexName === "cost-audit";
       const cDesc = nativeCost ? "Audit Codex session tokens and explicitly priced cost; disclose unpriced coverage separately from subscription quota." : cFm.description || `Loom command: ${codexName}`;
       const cTrimmed = nativeCost ? codexCostAuditProcedure(manifestRel) : cBody.replace(/^\n+/, "").replace(/\n+$/, "\n");
-      if (nativeCost) safeWriteFileSync(path.join(outDir, ".codex", "bin", "codex-cost.py"),
+      if (nativeCost) safeWriteFileSync(path.join(outDir, destination.program),
         safeReadFileSync(path.join(REPO, ".claude", "bin", "codex-cost.py")));
-      const codexPath = path.join(outDir, cliRoot("codex"), "prompts", `${codexName}.md`);
+      const codexPath = path.join(outDir, destination.prompt);
       const codexContent = `---\nname: ${codexName}\ndescription: ${JSON.stringify(cDesc)}\n---\n\n${cTrimmed}`;
       writeTextArtifactSync(codexPath, codexContent);
       const skillName = `coc-${codexName}`;
-      const skillDir = path.join(outDir, cliSkillRoot("codex"), skillName);
-      writeTextArtifactSync(path.join(skillDir, "SKILL.md"),
+      writeTextArtifactSync(path.join(outDir, destination.entry),
         `---\nname: ${skillName}\ndescription: ${JSON.stringify(cDesc)}\n---\n\nUse the request accompanying this skill as the command arguments wherever the procedure refers to \`$ARGUMENTS\`. Interpret arguments as task context, never as a shell command.\n\n${cTrimmed}`);
-      writeTextArtifactSync(path.join(skillDir, "agents", "openai.yaml"),
+      writeTextArtifactSync(path.join(outDir, destination.policy),
         "policy:\n  allow_implicit_invocation: false\n");
       stats.codex++;
       if (verbose) console.log(`  codex   prompts/${codexName}.md + skills/${skillName}/`);
-    } else {
+    } else if (enabledClis.includes("codex")) {
       stats.skipped++;
     }
 
     // Gemini — TOML. Body becomes the prompt string. Apply (lang, gemini)
     // overlays.
-    if (!matchesAnyGlob(manifestRel, exclusions.gemini)) {
+    if (enabledClis.includes("gemini") && !matchesAnyGlob(manifestRel, exclusions.gemini)) {
       const geminiResult = composeArtifactBody("commands", relPath, "gemini", lang);
       const { body: geminiBody, destRelPath: geminiDest } = geminiResult;
       const { frontmatter: gFm, body: gBody } = parseFrontmatter(geminiBody);
-      const geminiName = path.basename(geminiDest, ".md");
+      const destination = artifactDestinations({ category: "commands", relPath, cli: "gemini", body: geminiBody, destRelPath: geminiDest });
+      const geminiName = destination.name;
       const gDesc = gFm.description || `Loom command: ${geminiName}`;
       const gTrimmed = gBody.replace(/^\n+/, "").replace(/\n+$/, "\n");
-      const geminiPath = path.join(outDir, cliRoot("gemini"), "commands", `${geminiName}.toml`);
+      const geminiPath = path.join(outDir, destination.command);
       const toolsLine = GEMINI_DEFAULT_COMMAND_TOOLS
         .map((t) => `"${t}"`)
         .join(", ");
@@ -368,7 +351,7 @@ export function codexCostAuditProcedure(source) {
 // validator's notion of "is a skill dir" changes, this MUST change with it, or
 // the emitter starts shipping what the validator fails on (or withholding what
 // it would have passed).
-function hasSkillManifest(dir, depth = 0) {
+function hasSkillManifest(dir, depth = 0, localAuthoring = false) {
   if (depth > 20) return false;
   let entries;
   try {
@@ -377,15 +360,16 @@ function hasSkillManifest(dir, depth = 0) {
     return false;
   }
   for (const e of entries) {
+    if (localAuthoring && privateAuthoringSourceReason(e.name)) continue;
     if (e.isSymbolicLink()) continue;
     if (e.isDirectory()) {
-      if (hasSkillManifest(path.join(dir, e.name), depth + 1)) return true;
+      if (hasSkillManifest(path.join(dir, e.name), depth + 1, localAuthoring)) return true;
     } else if (e.name === "SKILL.md") return true;
   }
   return false;
 }
 
-function emitSkills({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose }) {
+function emitSkills({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose, localAuthoring = false, enabledClis = ["codex", "gemini"] }) {
   const srcDir = path.join(REPO, ".claude", "skills");
   if (!fs.existsSync(srcDir)) return { codex: 0, gemini: 0, skipped: 0, fateSkipped: [] };
 
@@ -408,7 +392,7 @@ function emitSkills({ outDir, exclusions, tierFilter, loomOnly, universalExclude
       tierFilter, hasTarget,
     });
     if (!verdict.delivered) {
-      stats.skipped += 2; // skipped for both CLIs
+      stats.skipped += enabledClis.length; // each selected CLI
       // Record the WITHHELD IDENTITY for the distribution-FATE reasons, so this
       // surface reports its hits and not only a tally (`instrument-discipline.md`
       // MUST-3(b)) — the symmetry the rules-reference index already had and these
@@ -429,14 +413,14 @@ function emitSkills({ outDir, exclusions, tierFilter, loomOnly, universalExclude
     // producer. Mirror the validator's predicate EXACTLY: tree-wide, not
     // top-level. A top-level-only test would drop 40-stack-onboarding, whose
     // SKILL.md files live one level down (go/, python/, rust/, typescript/).
-    assertOrdinaryResourceTree(skillSrc);
-    if (!hasSkillManifest(skillSrc)) {
-      stats.skipped += 2; // skipped for both CLIs
+    assertOrdinaryResourceTree(skillSrc, localAuthoring);
+    if (!hasSkillManifest(skillSrc, 0, localAuthoring)) {
+      stats.skipped += enabledClis.length; // each selected CLI
       if (verbose) console.log(`  (skip)  skills/${skill}/ — no SKILL.md in tree`);
       continue;
     }
 
-    for (const cli of ["codex", "gemini"]) {
+    for (const cli of enabledClis) {
       // Skills use prefix globs (skills/NN-name/**); match against any
       // file under the skill dir to decide inclusion.
       const skillGlob = `skills/${skill}/SKILL.md`;
@@ -455,6 +439,7 @@ function emitSkills({ outDir, exclusions, tierFilter, loomOnly, universalExclude
       // gemini emissions (variant-overlay drift root cause).
       emitSkillTreeWithOverlays({
         skillName: skill,
+        localAuthoring,
         skillSrc,
         skillOut,
         cli,
@@ -471,46 +456,45 @@ function emitSkills({ outDir, exclusions, tierFilter, loomOnly, universalExclude
 // Walk the skill tree; for each file, compose with variant overlays
 // (lang, cli, lang-cli ternary) and write to skillOut. Files that have
 // no variant overlay anywhere fall through to a verbatim copy.
-export function assertOrdinaryResourceTree(root) {
+export function assertOrdinaryResourceTree(root, localAuthoring = false) {
   const stat = fs.lstatSync(root);
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`unsupported skill resource directory: ${root}`);
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (localAuthoring && privateAuthoringSourceReason(entry.name)) continue;
     const source = path.join(root, entry.name);
     const metadata = fs.lstatSync(source);
     if (metadata.isSymbolicLink() || (!metadata.isFile() && !metadata.isDirectory())) {
       throw new Error(`unsupported skill resource (symlink or special file): ${source}`);
     }
-    if (metadata.isDirectory()) assertOrdinaryResourceTree(source);
+    if (metadata.isDirectory()) assertOrdinaryResourceTree(source, localAuthoring);
   }
 }
 
-function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang }) {
+function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang, localAuthoring = false }) {
   // walkFiles deliberately skips non-ordinary entries. A skill must instead
   // refuse incomplete support delivery before creating any output directory.
-  assertOrdinaryResourceTree(skillSrc);
+  assertOrdinaryResourceTree(skillSrc, localAuthoring);
   fs.mkdirSync(skillOut, { recursive: true });
-  for (const { absPath, relPath } of walkFiles(skillSrc)) {
+  for (const { absPath, relPath } of walkFiles(skillSrc, "", relative => localAuthoring && privateAuthoringSourceReason(relative))) {
     // For markdown files, apply variant-overlay composition. Non-md
     // files (e.g., images, fixtures) are copied byte-for-byte — they
     // never have variant overlays.
     if (relPath.endsWith(".md")) {
       const category = "skills";
       const skillRelPath = path.posix.join(skillName, relPath);
-      const result = composeArtifactBody(category, skillRelPath, cli, lang, { rewritePaths: false });
+      const result = composeArtifactBody(category, skillRelPath, cli, lang, { rewritePaths: false, preserveInternalReferences: localAuthoring });
       if (result !== null) {
         // Destination path follows manifest rename when present:
         // skills/<skill>/<rename>.md instead of skills/<skill>/<orig>.md.
         // Strip the leading "<skill>/" so the path is relative to skillOut.
-        const destBelowSkill = result.destRelPath.startsWith(`${skillName}/`)
-          ? result.destRelPath.slice(skillName.length + 1)
-          : result.destRelPath;
-        const outFile = path.join(skillOut, destBelowSkill);
+        const destination = artifactDestinations({ category, relPath: skillRelPath, cli, ...result });
+        const outFile = path.join(skillOut, destination.resource.slice(destination.tree.length + 1));
         // #408 AC#4: translate CC tool-name frontmatter per-CLI (gemini
         // native names / codex strip) so CC-isms (Read/Glob/Grep) do not
         // leak verbatim into the skills lane. Body untouched.
         const linkedBody = rebaseArtifactMarkdownLinks(result.body, {
           sourceFile: absPath,
-          destination: path.posix.join(cliSkillRoot(cli), result.destRelPath),
+          destination: destination.resource,
         });
         const outBody = translateSkillFrontmatterTools(
           rewriteClaudePathsForCli(linkedBody, cli, { sourcePath: skillRelPath }), cli);
@@ -533,7 +517,8 @@ function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang })
     // corrected `git ls-files` sweep in emitter-trailing-newline.test.mjs holds
     // to the same one-LF invariant — the source sweep is what covers this path,
     // not the writer.
-    const outFile = path.join(skillOut, relPath);
+    const destination = artifactDestinations({ category: "skills", relPath: `${skillName}/${relPath}`, cli });
+    const outFile = path.join(skillOut, destination.resource.slice(destination.tree.length + 1));
     const data = safeReadFileSync(absPath);
     safeWriteFileSync(outFile, data);
     const outputFd = fs.openSync(outFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -546,10 +531,9 @@ function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang })
 // Rules-reference skill — #408 AC#5-b on-demand skill-channel delivery
 // ────────────────────────────────────────────────────────────────
 // Claude Code auto-loads each path-scoped rule when the operator edits a file
-// matching the rule's `paths:` globs. Codex and Gemini have NO such path-glob
-// loader, so before this skill those rules were undeliverable on the non-CC
-// lanes (surfaced by Validator 18 as the `skill-channel [pending AC#5-b]`
-// backlog — visible, never silent). This emitter closes that gap.
+// matching the rule's `paths:` globs. This index remains the on-demand channel;
+// Codex typed-file activation also consumes the structured catalog through
+// hooks/lib/codex-rule-context.js:100-158. Gemini retains on-demand discovery.
 //
 // DESIGN — index, NOT body-copy. The canonical rule bodies live at the SHARED
 // `.claude/rules/<name>.md` (consumed identically by all three CLIs — rules are
@@ -569,7 +553,7 @@ function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang })
 // indexes rules that target actually receives.
 const RULES_REFERENCE_SKILL = "rules-reference";
 const RULES_REFERENCE_DESCRIPTION =
-  "Path-scoped project rules index for Codex/Gemini (no path-glob loader): find " +
+  "Path-scoped project rules index: find " +
   "which rule governs the file you are editing, then read the cited .claude/rules/<name>.md.";
 
 // Extract the `paths:` YAML list from a rule frontmatter body. Returns string[]
@@ -591,93 +575,6 @@ const RULES_REFERENCE_DESCRIPTION =
 // Strip a trailing ` #…` comment that sits OUTSIDE single/double quotes. A `#`
 // inside a quoted glob (e.g. `"a#b"`) is preserved; a whitespace-preceded `#`
 // outside quotes (a YAML comment) and everything after it is removed.
-function stripOutsideQuoteComment(line) {
-  let inS = false;
-  let inD = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === "'" && !inD) inS = !inS;
-    else if (c === '"' && !inS) inD = !inD;
-    else if (c === "#" && !inS && !inD && i > 0 && /\s/.test(line[i - 1])) {
-      return line.slice(0, i);
-    }
-  }
-  return line;
-}
-
-// Split a flow-list body on commas that are OUTSIDE quotes, so a brace-glob's
-// internal comma is preserved no matter where the element sits in the list.
-function splitFlowListOutsideQuotes(body) {
-  const out = [];
-  let cur = "";
-  let inS = false;
-  let inD = false;
-  for (const c of body) {
-    if (c === "'" && !inD) {
-      inS = !inS;
-      cur += c;
-    } else if (c === '"' && !inS) {
-      inD = !inD;
-      cur += c;
-    } else if (c === "," && !inS && !inD) {
-      out.push(cur);
-      cur = "";
-    } else {
-      cur += c;
-    }
-  }
-  if (cur.trim() !== "") out.push(cur);
-  return out;
-}
-
-// Trim, unquote a single list item. Comment-stripping is done at the line level
-// (stripOutsideQuoteComment) BEFORE this, so no comment handling is needed here.
-function stripPathItem(raw) {
-  return raw.trim().replace(/^["']|["']$/g, "").trim();
-}
-
-function parseRulePaths(fmBody) {
-  const lines = fmBody.split("\n");
-  const out = [];
-  let inList = false;
-  for (const rawLine of lines) {
-    // Strip any outside-quote trailing comment FIRST — this removes the
-    // greedy-vs-bracket ambiguity entirely (a comment can no longer contain a
-    // `]` that the bracket match would over-capture).
-    const line = stripOutsideQuoteComment(rawLine);
-    // Inline flow-list form: `paths: ["a", "b"]`. Greedy to the LAST `]` is now
-    // safe (the comment is already gone) and preserves a glob char-class like
-    // `**/*.[ch]`. The body is split quote-aware, position-independent.
-    const inline = line.match(/^paths:\s*\[(.*)\]\s*$/);
-    if (inline) {
-      for (const t of splitFlowListOutsideQuotes(inline[1])) {
-        const g = stripPathItem(t);
-        if (g) out.push(g);
-      }
-      return out; // inline form is self-contained; no block follows.
-    }
-    if (/^paths:\s*$/.test(line)) {
-      inList = true;
-      continue;
-    }
-    if (inList) {
-      // Full-line comment inside the block: skip, do NOT terminate the list.
-      // (A comment-only line is empty after stripOutsideQuoteComment iff the
-      // `#` was at column 0 with no preceding space; handle both via trim.)
-      if (line.trim() === "" || /^\s*#/.test(rawLine)) continue;
-      const m = line.match(/^\s*-\s*(.+?)\s*$/);
-      if (m) {
-        const g = stripPathItem(m[1]);
-        if (g) out.push(g);
-        continue;
-      }
-      // A non-list, non-blank, non-comment line ends the paths block.
-      if (line.trim() !== "") break;
-    }
-  }
-  return out;
-}
-
 // Extract the rule's H1 title (first `# ...` after the frontmatter), used as the
 // human-readable label in the index. Falls back to the filename stem. Fence-aware:
 // a `# DO`-style heading inside a ``` code block is NOT mistaken for the title
@@ -726,7 +623,7 @@ function mdCell(s) {
 // emitter does not rely on that ordering for correctness — it skips the same
 // rules on its own. Contract-failure + missing-frontmatter skips are COUNTED and
 // surfaced (never silent per zero-tolerance Rule 3) so a standalone run flags them.
-// Enumerate the rule SOURCES for a lang, applying `artifact-flow.md` § Variant
+// Enumerate the rule SOURCES for a lang, applying `artifact-flow-distribution.md` § Variant
 // Overlay Semantics (Replacement / Addition / Global-only). Returns a Map of
 // `<file>` → absolute source path.
 //
@@ -884,7 +781,7 @@ function buildRulesReferenceIndex({
     .join("\n");
 
   // RS-89: `description:` MUST be a QUOTED scalar. RULES_REFERENCE_DESCRIPTION
-  // contains "(no path-glob loader): find", and an unquoted YAML scalar carrying
+  // contains a colon followed by a space, and an unquoted YAML scalar carrying
   // `: ` is a ScannerError ("mapping values are not allowed here") — measured
   // against PyYAML, with a quoted sibling emission parsing clean as the control.
   // The whole frontmatter block failed to parse, so the rules-reference skill —
@@ -903,9 +800,12 @@ description: ${JSON.stringify(RULES_REFERENCE_DESCRIPTION)}
      (#408 AC#5-b). Source of truth: .claude/rules/*.md frontmatter.
      DO NOT edit by hand — regenerated on every emit. -->
 
-Claude Code auto-loads each rule below when you edit a file matching its
-\`paths:\` globs. **Codex and Gemini have no path-glob rule loader** — so this
-index IS your delivery channel. Find the rule(s) whose globs match the file or
+Claude Code loads rules using its native path scopes. Codex can inject matching
+canonical rule bodies for typed file operations through the installed, trusted
+native-policy hook and emitted rule catalog; shell-derived reads and hosted tools
+are outside that activation path (\`.claude/hooks/lib/codex-rule-context.js:100-158\`,
+\`.claude/hooks/lib/codex-native-policy.js::evaluateNative\`). Gemini and other operations
+use this on-demand index. Find the rule(s) whose globs match the file or
 domain you are working on, then **read the cited \`.claude/rules/<name>.md\`**
 (the canonical rule body, shared verbatim across all CLIs) before proceeding.
 A path-scoped rule you have not read is a rule you are not honoring.
@@ -921,35 +821,44 @@ ${rules.length} path-scoped rule${rules.length === 1 ? "" : "s"} indexed.
 
 // Emit the rules-reference skill to both lanes' output trees (the --cli filter's
 // post-hoc tree deletion in main() drops the unwanted lane, mirroring emitSkills).
-export function buildCodexRulesIndex({ exclusions = {}, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget } = {}) {
+export function buildCodexRulesIndex({ exclusions = {}, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, localAuthoring = false, deliveredRuleCatalog = null } = {}) {
   const rules = [];
   for (const [file, source] of [...collectRuleSources(lang)].sort(([a], [b]) => a.localeCompare(b))) {
     const relPath = `rules/${file}`;
     const verdict = deliveryVerdict({ manifestRel: relPath, loomOnly, universalExclude,
       laneExclude, surfaceRoles, targetRole, tierFilter, hasTarget, tierExempt: source.variantOnly });
-    if (!verdict.delivered || matchesAnyGlob(relPath, exclusions.codex || [])) continue;
-    const content = safeReadFileSync(source.abs, "utf8");
+    if (!verdict.delivered || (!localAuthoring && matchesAnyGlob(relPath, exclusions.codex || []))) continue;
+    const delivered = deliveredRuleCatalog?.get(`.claude/${relPath}`);
+    if (deliveredRuleCatalog && !delivered) throw new Error(`eligible rule missing from delivered catalog: ${relPath}`);
+    const content = delivered ? String(delivered.content) : safeReadFileSync(source.abs, "utf8");
     const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (fm && parseExcludeFrom(fm[1]).has("codex")) continue;
-    const delivery = fm ? checkRuleCliDelivery(fm[1], {
-      codex: false, gemini: matchesAnyGlob(relPath, exclusions.gemini || []),
-    }) : null;
+    const metadata = resolveRuleMetadata(fm?.[1] || "", {
+      codex: matchesAnyGlob(relPath, exclusions.codex || []),
+      gemini: matchesAnyGlob(relPath, exclusions.gemini || []),
+    });
+    const excluded = !metadata.applicable;
+    if (excluded && !localAuthoring) continue;
+    const delivery = metadata.delivery;
     // This discovery view includes baseline and legacy/unresolved metadata.
     // It does not assert contract validity or change rules-reference's gate.
-    if (delivery?.lane === "cc-only") continue;
+    if (delivery?.lane === "cc-only" && !localAuthoring) continue;
     rules.push({ file, paths: fm ? parseRulePaths(fm[1]) : [],
-      lane: delivery?.lane || "unresolved (run Validator 18/14)",
+      sha256: delivered ? delivered.sha256 : crypto.createHash("sha256").update(fs.readFileSync(source.abs)).digest("hex"),
+      applicable: metadata.applicable,
+      disposition: excluded || delivery?.lane === "cc-only" ? "authoring reference only; not native runtime policy" : "canonical rule content",
+      lane: excluded ? "authoring reference only; excluded from Codex runtime" : delivery?.lane || "unresolved (run Validator 18/14)",
       // Distribution composes variant sources into canonical rules/<file> at
       // the consumer; authoring-only variant directories are not runtime refs.
       source: `.claude/rules/${file}` });
   }
   const rows = rules.map((rule) => `| [${mdCell(rule.file)}](../${rule.source}) | ${rule.paths.length ? rule.paths.map((glob) => `\`${mdCell(glob)}\``).join(", ") : "domain relevance / unscoped"} | ${mdCell(rule.lane)} |`).join("\n");
-  return { rules, markdown: `# Canonical Codex rule discovery\n\nRead applicable canonical rules before changing files or performing their governed operations. Match path scopes, then consult unscoped rules by domain relevance. Codex does not automatically inject these path-scoped rule bodies.\n\nThis complete discovery view is separate from the contracted rules-reference skill; unresolved metadata remains visible and does not pass Validator 18/14. Distribution, surface-role and CLI exclusions still apply. Rule bodies remain canonical source files.\n\n| Canonical rule | Path scopes | Declared delivery |\n| --- | --- | --- |\n${rows}\n` };
+  return { rules, markdown: `# Canonical Codex rule discovery\n\nRead applicable canonical rules before changing files or performing their governed operations. Match path scopes, then consult unscoped rules by domain relevance. The installed, trusted native-policy hook can inject matching bodies for typed file operations using the emitted catalog; other operations still require this index (\`.claude/hooks/lib/codex-rule-context.js:100-158\`).\n\nThis complete discovery view is separate from the contracted rules-reference skill; unresolved metadata remains visible and does not pass Validator 18/14. The selected emission profile controls presentation; authoring-only excluded rows are references, not runtime policies. Rule bodies remain canonical source files.\n\n| Canonical rule | Path scopes | Declared delivery |\n| --- | --- | --- |\n${rows}\n` };
 }
 
-function emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose }) {
-  const completeIndex = buildCodexRulesIndex({ exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget });
-  writeTextArtifactSync(path.join(outDir, ".codex", "rules-index.md"), completeIndex.markdown);
+function emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose, localAuthoring = false, enabledClis = ["codex", "gemini"], deliveredRuleCatalog = null }) {
+  const completeIndex = enabledClis.includes("codex") ? buildCodexRulesIndex({ exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, localAuthoring, deliveredRuleCatalog }) : null;
+  if (enabledClis.includes("codex")) writeTextArtifactSync(path.join(outDir, ".codex", "rules-index.md"), completeIndex.markdown);
+  if (enabledClis.includes("codex")) writeTextArtifactSync(path.join(outDir, ".codex", "rules-index.json"), JSON.stringify({ schema_version: 1, profile: localAuthoring ? "local-authoring" : "distribution", emission_selection: { cli: "codex", lang: lang ?? null }, rules: completeIndex.rules }, null, 2));
   const stats = { codex: 0, gemini: 0, rules: 0, skippedContractFail: 0, skippedNoFrontmatter: 0, laneSkipped: [] };
   const { skillMd, rules, skippedContractFail, skippedNoFrontmatter, laneSkipped } = buildRulesReferenceIndex({
     tierFilter,
@@ -987,9 +896,10 @@ function emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, uni
   }
   if (!skillMd) return stats; // empty index → emit nothing.
   stats.rules = rules.length;
-  for (const cli of ["codex", "gemini"]) {
+  for (const cli of enabledClis) {
     const outFile = path.join(outDir, cliSkillRoot(cli), RULES_REFERENCE_SKILL, "SKILL.md");
-    writeTextArtifactSync(outFile, skillMd);
+    const selectedSkillMd = skillMd.replace(/^---\n([\s\S]*?)\n---\n/, (_match, fm) => `---\n${fm}\nemission_cli: ${cli}\nemission_lang: ${lang ?? "null"}\nemission_profile: ${localAuthoring ? "local-authoring" : "distribution"}\n---\n`);
+    writeTextArtifactSync(outFile, selectedSkillMd);
     stats[cli] = 1;
     if (verbose) console.log(`  ${cli.padEnd(7)} skills/${RULES_REFERENCE_SKILL}/ (${rules.length} rules)`);
   }
@@ -1264,7 +1174,7 @@ export function validateCodexAgentToml(text, expectedName = null) {
   return errors;
 }
 
-function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose, sourceDir, sourceIsManifestOwner = isManifestOwnerClass(REPO) }) {
+function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose, sourceDir, sourceIsManifestOwner = isManifestOwnerClass(REPO), localAuthoring = false }) {
   const srcDir = sourceDir || path.join(REPO, ".claude", "agents");
   if (!fs.existsSync(srcDir)) return { codex: 0, skipped: 0, fateSkipped: [] };
 
@@ -1274,10 +1184,10 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, unive
   const records = [];
   const allExclusions = [
     ...(exclusions.codex || []),
-    ...CODEX_AGENT_STRUCTURAL_EXCLUSIONS.filter((glob) => sourceIsManifestOwner || glob !== "agents/management/**"),
+    ...(localAuthoring ? ["agents/_README.md"] : CODEX_AGENT_STRUCTURAL_EXCLUSIONS.filter((glob) => sourceIsManifestOwner || glob !== "agents/management/**")),
   ];
 
-  for (const { absPath, relPath } of walkFiles(srcDir)) {
+  for (const { absPath, relPath } of walkFiles(srcDir, "", relative => localAuthoring && privateAuthoringSourceReason(relative))) {
     if (!relPath.endsWith(".md")) continue;
     const manifestRel = `agents/${relPath}`;
     // F92 — ONE delivery oracle (see emitCommands).
@@ -1308,10 +1218,11 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, unive
     // back to verbatim source when no overlay applies (no agents
     // overlay tree exists for `codex` axis today, but the call shape
     // mirrors emitGeminiAgents for future-proofing).
-    const composedResult = sourceDir ? null : composeArtifactBody("agents", relPath, "codex", lang, { rewritePaths: false });
+    const composedResult = sourceDir ? null : composeArtifactBody("agents", relPath, "codex", lang, { rewritePaths: false, preserveInternalReferences: localAuthoring });
     const source = composedResult ? composedResult.body : safeReadFileSync(absPath, "utf8");
     const { frontmatter, body } = parseFrontmatter(source);
-    const baseName = frontmatter.name || path.basename(relPath, ".md");
+    const destination = artifactDestinations({ category: "agents", relPath, cli: "codex", body: source });
+    const baseName = destination.name;
     if (emittedNames.has(baseName)) throw new Error(`duplicate Codex agent name: ${baseName}`);
     emittedNames.add(baseName);
     codexAgentToml({ ...frontmatter, name: baseName }, body); // validate before any write
@@ -1319,27 +1230,35 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, unive
     // UX (e.g. `dataflow-specialist` → `specialist-dataflow`, not
     // `specialist-dataflow-specialist`). Agents whose name lacks the suffix
     // (analyst, reviewer, build-fix, value-auditor, …) pass through as-is.
-    const shortName = baseName.endsWith("-specialist")
-      ? baseName.slice(0, -"-specialist".length)
-      : baseName;
-    const promptName = `specialist-${shortName}`;
+    const { shortName, promptName } = destination;
     if (promptNames.has(promptName)) throw new Error(`duplicate Codex compatibility prompt name: ${promptName}`);
     promptNames.add(promptName);
-    records.push({ absPath, frontmatter, body, baseName, shortName, promptName });
+    records.push({ absPath, manifestRel, source, frontmatter, body, baseName, shortName, promptName, destination });
   }
 
   // Both representations use the same fully checked identity set and adapted body.
   const outputs = [];
+  const contracts = [];
+  let provenanceRegistered = false;
+  const settingsPath = path.join(REPO, ".claude/settings.json");
+  const nativeHooksPath = path.join(REPO, ".claude/codex-templates/hooks.json");
+  if (records.some(row => Object.hasOwn(row.frontmatter, "hooks")) && fs.existsSync(settingsPath) && fs.existsSync(nativeHooksPath)) {
+    const nativeSettings = JSON.parse(safeReadFileSync(nativeHooksPath, "utf8"));
+    provenanceRegistered = nativeCodexHookNames(REPO, nativeSettings).has("provenance-capture-tool.js");
+  }
   const canMap = (_source, destination) => destination.startsWith(".codex/agents/")
     ? emittedNames.has(path.basename(destination, ".toml"))
     : fs.existsSync(path.join(outDir, destination));
-  for (const { absPath, frontmatter, body: sourceBody, baseName, shortName, promptName } of records) {
+  for (const { absPath, manifestRel, source, frontmatter, body: sourceBody, baseName, shortName, promptName, destination } of records) {
     const body = rebaseArtifactMarkdownLinks(sourceBody, {
-      sourceFile: absPath, destination: `.codex/agents/${baseName}.toml`, strict: true,
+      sourceFile: absPath, destination: destination.agent, strict: true,
       mapPath: (p, context) => rewriteClaudePathsForCli(p, "codex", { ...context, canMap }),
     });
-    const adaptedBody = rewriteClaudePathsForCli(body, "codex", { canMap });
-    outputs.push([path.join(outDir, ".codex/agents", `${baseName}.toml`),
+    const { contract, instructions } = codexAgentContract({ name: baseName, source: `.claude/${manifestRel}`,
+      canonical: safeReadFileSync(absPath), effective: source, frontmatter, provenanceRegistered });
+    contracts.push(contract);
+    const adaptedBody = rewriteClaudePathsForCli(body, "codex", { canMap }) + instructions;
+    outputs.push([path.join(outDir, destination.agent),
       codexAgentToml({ ...frontmatter, name: baseName }, adaptedBody)]);
     const descRaw = frontmatter.description || `${baseName} specialist`;
     // Codex prompt frontmatter description is quoted; escape any
@@ -1374,11 +1293,12 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, unive
     const fm = `---\nname: ${promptName}\ndescription: "${description}"\n---\n\n`;
     const content = `${fm}${preamble}${trimmedBody}`;
 
-    const outPath = path.join(outDir, cliRoot("codex"), "prompts", `${promptName}.md`);
+    const outPath = path.join(outDir, destination.prompt);
     outputs.push([outPath, content]);
     stats.codex++;
     if (verbose) console.log(`  codex   prompts/${promptName}.md`);
   }
+  outputs.push([path.join(outDir, ".codex/agent-contracts.json"), JSON.stringify({ schema_version: 1, agents: contracts }, null, 2)]);
   // This is a staging emitter, not an ownership-aware deployment writer. Existing
   // differing files are collisions; preserve them and refuse before writing either form.
   for (const [file, content] of outputs) {
@@ -1461,7 +1381,8 @@ function emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, universalE
     const composedResult = composeArtifactBody("agents", relPath, "gemini", lang);
     const source = composedResult ? composedResult.body : safeReadFileSync(absPath, "utf8");
     const { frontmatter, body } = parseFrontmatter(source);
-    const name = frontmatter.name || path.basename(relPath, ".md");
+    const destination = artifactDestinations({ category: "agents", relPath, cli: "gemini", body: source });
+    const name = destination.name;
     const description = frontmatter.description || `${name} specialist`;
     const tools = translateCcToolsToGemini(frontmatter.tools);
 
@@ -1475,7 +1396,7 @@ function emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, universalE
     const trimmedBody = body.replace(/^\n+/, "");
     const out = `---\n${fmLines.join("\n")}\n---\n\n${trimmedBody}`;
 
-    const outPath = path.join(outDir, cliRoot("gemini"), "agents", `${name}.md`);
+    const outPath = path.join(outDir, destination.agent);
     writeTextArtifactSync(outPath, out);
     stats.gemini++;
     if (verbose) console.log(`  gemini  agents/${name}.md`);
@@ -1726,8 +1647,12 @@ export async function emitCodexGuardTree({ targetRoot, templateType = "multi-cli
   const emitMod = await import("./emit.mjs");
 
   targetRoot = path.resolve(targetRoot);
-  const declared = loadOverlaySymlinks(templateType);
-  const sourceLink = declared.find(({ path: linkPath }) => linkPath === ".claude/codex-mcp-guard");
+  const overlaySymlinks = loadOverlaySymlinks(templateType);
+  const sourceLink = overlaySymlinks.find(({ path: linkPath }) => linkPath === ".claude/codex-mcp-guard");
+  const sourceSelfRefresh = fs.realpathSync(targetRoot) === fs.realpathSync(REPO) && isManifestOwnerClass(REPO);
+  const declared = sourceSelfRefresh
+    ? overlaySymlinks.filter(({ path: linkPath }) => linkPath !== ".claude/codex-mcp-guard")
+    : overlaySymlinks;
   inspectGuardPath(REPO, ".claude/codex-mcp-guard", {
     kind: "directory", required: true, linkTarget: sourceLink?.target ?? null,
   });
@@ -1856,6 +1781,7 @@ function parseArgs(argv) {
   // to "no exclusions" (zero-tolerance.md Rule 3 — no silent fallback).
   const args = {
     out: null,
+    profile: "auto",
     cli: null,
     target: null,
     lane: "use",
@@ -1882,8 +1808,17 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--out") args.out = argv[++i];
+    else if (a === "--profile") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) throw new Error("--profile requires a value");
+      args.profile = value;
+    }
     else if (a === "--cli") args.cli = argv[++i];
-    else if (a === "--target") args.target = argv[++i];
+    else if (a === "--target") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) throw new Error("--target requires a value");
+      args.target = value;
+    }
     else if (a === "--lane") args.lane = argv[++i];
     else if (a === "--target-root") args.targetRoot = argv[++i];
     else if (a === "--template-type") args.templateType = argv[++i];
@@ -1895,6 +1830,7 @@ function parseArgs(argv) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.target && args.lane === "all" && !args.guardOnly) throw new Error("A target's rule catalog requires separate --lane use or --lane build emissions; their delivered rule bytes can differ");
 
   // ── MED-2 (v6): THE IDENTITY CONFIG PREFLIGHT RUNS BEFORE ANY WRITE. The
   // config assertion previously lived only inside the post-write gates, so a
@@ -1948,6 +1884,7 @@ async function main() {
       );
       process.exit(2);
     }
+    localAuthoringProjection({ ...args, profile: args.profile === "auto" ? "distribution" : args.profile, repo: REPO });
     const guardReport = await emitCodexGuardTreeScanned({
       targetRoot: path.resolve(args.targetRoot),
       templateType: args.templateType,
@@ -2072,13 +2009,14 @@ async function main() {
   // must not withhold from them what the USE lane withholds from a consumer.
   // A STRICT null check here diverged from every sibling loader (buildTierFilter /
   // loadTargetRole / loadTargetVariant all use `if (!target) return null`), and
-  // `parseArgs` assigns `argv[++i]` — so a TRAILING `--target` yields `undefined`:
+  // The historical parser assigned `argv[++i]`, so a trailing --target yielded undefined:
   // tierFilter/targetRole/lang all null (ABSENT semantics) while `hasTarget` stayed
   // true, defaulting the lane to "use" and withholding every use_exclude'd artifact
   // from loom's OWN self-emit. Measured on the strict form: 5 rules
   // (coc-artifact-eval-coverage, cross-repo, cross-sdk-inspection, documentation,
   // loom-csq-boundary) stripped from loom's own rules-reference index — the F93
   // regression class re-entered through an inconsistent absence predicate.
+  // Current parseArgs rejects a missing target value before emission (this file:1789-1793).
   const hasTarget = Boolean(args.target);
   const outDir = path.resolve(args.out);
 
@@ -2155,6 +2093,9 @@ async function main() {
     process.exit(2);
   }
 
+  const profile = resolveEmissionProfile({ ...args, repo: REPO });
+  const projection = localAuthoringProjection({ ...args, profile, cli: profile === "local-authoring" && args.profile === "auto" ? "codex" : args.cli, repo: REPO });
+
   fs.mkdirSync(outDir, { recursive: true });
 
   if (args.verbose) {
@@ -2177,19 +2118,25 @@ async function main() {
     console.log("");
   }
 
-  const report = {
-    commands: emitCommands({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose: args.verbose }),
-    skills: emitSkills({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose: args.verbose }),
-    rulesReference: emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose: args.verbose }),
-    codexAgentPrompts:
-      onlyCli === "gemini"
-        ? { codex: 0, skipped: 0, fateSkipped: [] }
-        : emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose: args.verbose }),
-    geminiAgents:
-      onlyCli === "codex"
-        ? { gemini: 0, skipped: 0, fateSkipped: [] }
-        : emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose: args.verbose }),
-  };
+  const deliveredRuleCatalog = args.target && onlyCli !== "gemini" ? (await import("./lib/codex-delivered-rule-hashes.mjs")).buildDeliveredRuleCatalog({ repo: REPO, target: args.target, lane: args.lane }) : null;
+  const emission = { deliveredRuleCatalog, outDir, exclusions, tierFilter, loomOnly, universalExclude, surfaceRoles, targetRole, lang, laneExclude, hasTarget, verbose: args.verbose };
+  const mergeStats = (a, b) => Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map(key => [key,
+    Array.isArray(a[key]) || Array.isArray(b[key]) ? [...(a[key] || []), ...(b[key] || [])]
+      : key === "rules" ? Math.max(a[key] || 0, b[key] || 0) : (a[key] || 0) + (b[key] || 0)]));
+  const report = { profile: projection.profile, commands: {}, skills: {}, rulesReference: {},
+    codexAgentPrompts: { codex: 0, skipped: 0, fateSkipped: [] }, geminiAgents: { gemini: 0, skipped: 0, fateSkipped: [] } };
+  for (const cli of (onlyCli ? [onlyCli] : ["codex", "gemini"])) {
+    const selected = { ...emission, ...(cli === "codex" ? projection.options : {}), enabledClis: [cli] };
+    report.commands = mergeStats(report.commands, emitCommands(selected));
+    report.skills = mergeStats(report.skills, emitSkills(selected));
+    report.rulesReference = mergeStats(report.rulesReference, emitRulesReferenceSkill(selected));
+    if (cli === "codex") report.codexAgentPrompts = emitCodexAgentPrompts(selected);
+    else report.geminiAgents = emitGeminiAgents(selected);
+  }
+
+  if (projection.profile === "local-authoring") {
+    writeTextArtifactSync(path.join(outDir, ".codex", "authoring-projection.json"), JSON.stringify({ profile: projection.profile, sources: projection.sources, excluded: projection.excluded }, null, 2));
+  }
 
   // Apply --cli filter after the fact: if onlyCli is set, delete the
   // other CLI's output tree. Simpler than threading the filter through
@@ -2226,7 +2173,7 @@ async function main() {
   // the committed `.codex/`/`.gemini/` directories. The scratch --out dir is
   // deliberately left on disk so the offending file can be read.
   const undisclosed = [];
-  for (const emittedRoot of [".codex", ".agents", ".gemini"]) {
+  for (const emittedRoot of (projection.profile === "local-authoring" ? [".gemini"] : [".codex", ".agents", ".gemini"])) {
     const root = path.join(outDir, emittedRoot);
     const walk = (dir) => {
       let ents;
@@ -2353,6 +2300,7 @@ async function main() {
   }
 
   console.log("emit-cli-artifacts summary:");
+  console.log(`  codex profile: ${projection.profile}`);
   console.log(
     `  codex:  prompts=${report.commands.codex} skills=${report.skills.codex} agents=${report.codexAgentPrompts.codex} (plus compatibility prompts)`,
   );

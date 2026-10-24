@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/lib/other-runtime.js\" --guard .claude/hooks/ok-guard.js" }] }
+    ]
+  }
+}

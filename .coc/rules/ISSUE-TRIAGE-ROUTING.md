@@ -15,7 +15,7 @@ Read `.claude/VERSION::type` FIRST, then route:
 - **`coc-build`** → SDK code: cross-SDK FIRST → `/codify` Step 7a.
 - **`coc-source`** (loom) → Splits, Never Originates: INGEST via `/sync-from-build` + `/sync-from-use`, Gate-1 classify; never author a local artifact.
 
-NEVER hand-edit loom to "resolve" an issue; NEVER "fix" one by editing a synced artifact locally (Class-A non-durable — rebuilt by `/sync-to-use`). The durable surface is the proposal. Depth (the four classes, Route A/B, origination taxonomy): the paired `issue-triage-routing` skill + `rules/artifact-flow.md` § "Issue Routing By Change Type".
+NEVER hand-edit loom to "resolve" an issue; NEVER "fix" one by editing a synced artifact locally (Class-A non-durable — rebuilt by `/sync-to-use`). The durable surface is the proposal. Depth (classes, Route A/B, origination taxonomy): the paired `issue-triage-routing` skill + `rules/artifact-flow-routing.md` § "Issue Routing By Change Type".
 
 ```
 # DO — read .claude/VERSION::type, route by class

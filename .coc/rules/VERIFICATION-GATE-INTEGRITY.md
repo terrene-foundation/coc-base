@@ -7,7 +7,7 @@ paths: [".github/workflows/**", ".github/actions/**", "scripts/ci/**", "tools/**
 
 Full DO/DO-NOT blocks, BLOCKED corpora, MUST-2's carve-out in full, the MUST-3/4 distinction, Origin, and the Wiring detail: `.claude/guides/rule-extracts/verification-gate-integrity.md`.
 
-A gate that cannot fire is indistinguishable, to every reader, from a gate that fired and found nothing — both render green, and nobody investigates a passing check. This governs the INTEGRITY of a verification mechanism (CI checks, suites, guards, linters, audits), not whether its logic is correct: a perfectly-correct gate that never executes protects nothing.
+A gate that cannot fire is indistinguishable from a gate that fired and found nothing — both render green. This governs the INTEGRITY of a verification mechanism (CI checks, suites, guards, linters, audits), not whether its logic is correct: a gate that never executes protects nothing.
 
 ## MUST Rules
 

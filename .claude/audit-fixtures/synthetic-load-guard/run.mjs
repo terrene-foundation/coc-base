@@ -14,6 +14,7 @@
 import "../_lib/no-ambient-git.cjs";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -639,12 +640,50 @@ const quiet = (fn) => {
     process.stderr.write = w;
   }
 };
-const mk = () => fs.mkdtempSync(path.join(os.tmpdir(), "synthetic-load-guard-"));
-const decideIn = (dir, command, env) => quiet(() => G.decide({ command, cwd: dir, env: env || {}, extraRoots: () => [] }));
+// Each tree is its OWN git repository: an honoured receipt's use is recorded in the use ledger
+// under the tree's MAIN checkout (`hooks/lib/override-receipt.js` § THE USE LEDGER), and an
+// unresolvable main checkout refuses the override.
+const mk = () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "synthetic-load-guard-"));
+  spawnSync("git", ["init", "-q", dir], { stdio: "ignore" });
+  return dir;
+};
+const decideIn = (dir, command, env) =>
+  quiet(() => G.decide({ command, cwd: dir, env: env || {}, extraRoots: () => [], toolName: "Bash" }));
 const receiptAt = (dir) => path.join(dir, G.RECEIPT_REL);
 const writeReceipt = (dir, body) => {
   fs.mkdirSync(path.dirname(receiptAt(dir)), { recursive: true });
   fs.writeFileSync(receiptAt(dir), body);
+};
+/**
+ * The digest a receipt must carry to lift `command`, from the library's DOCUMENTED serialization —
+ * computed here, independently of its `callDigestOf`, so a guard that digests the wrong inputs
+ * cannot agree with this oracle by construction.
+ */
+const documentedDigest = (command, tool = "Bash") =>
+  crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify(["coc-override-receipt/call-digest/v1", tool, "", command, ["ci-cost-discipline/MUST-7"]]),
+      "utf8",
+    )
+    .digest("hex");
+/** A receipt bound to `command`, as a blocked caller writes it. */
+const writeBound = (dir, command, reason, writtenAt) =>
+  writeReceipt(
+    dir,
+    JSON.stringify({ digest: documentedDigest(command), reason, written_at: writtenAt || new Date().toISOString() }),
+  );
+const ledgerRows = (dir) => {
+  try {
+    return fs
+      .readFileSync(path.join(dir, ".claude", "learning", "override-receipt-uses.jsonl"), "utf8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l));
+  } catch {
+    return [];
+  }
 };
 const tmpDirs = [];
 {
@@ -667,13 +706,21 @@ const tmpDirs = [];
       Array.isArray(noOverride.agent_must_report) && noOverride.agent_must_report.length > 0,
     "hook-output-discipline MUST-1");
 
-  writeReceipt(d, "operator asked for a 60s stress-ng calibration run on an idle box\n");
+  check("hook-red-block-prints-this-commands-documented-digest",
+    denyReason.includes(`"digest":"${documentedDigest("stress-ng --cpu 8 --timeout 60")}"`),
+    "the printed receipt must be bound to THIS command (M-DIGEST-INPUTS: digest the wrong inputs)");
+
+  writeBound(d, "stress-ng --cpu 8 --timeout 60", "operator asked for a 60s stress-ng calibration run on an idle box");
   const honoured = decideIn(d, "stress-ng --cpu 8 --timeout 60");
   check("hook-green-receipt-with-reason-downgrades-to-advisory", !!honoured && honoured.severity === "advisory", show(honoured && honoured.severity));
   check("hook-green-receipt-reason-is-RECORDED",
     !!honoured && honoured.what_happened.includes("Override HONOURED") && honoured.what_happened.includes("calibration run"),
     show(honoured && honoured.what_happened));
   check("hook-green-receipt-is-CONSUMED", !fs.existsSync(receiptAt(d)), "a one-shot receipt must be deleted as it is honoured");
+  check("hook-green-receipt-use-is-LEDGERED",
+    ledgerRows(d).length === 1 && ledgerRows(d)[0].digest === documentedDigest("stress-ng --cpu 8 --timeout 60") &&
+      ledgerRows(d)[0].channel === ".claude/load-authz/synthetic-load-allow",
+    show(ledgerRows(d)));
   check("hook-poles-differ-block-vs-override", (noOverride && noOverride.severity) !== (honoured && honoured.severity), "");
   const next = decideIn(d, "stress-ng --cpu 8 --timeout 60");
   check("hook-red-next-call-after-consumption-blocks-again", !!next && next.severity === "block", show(next && next.severity));
@@ -681,10 +728,37 @@ const tmpDirs = [];
 {
   const d = mk();
   tmpDirs.push(d);
-  writeReceipt(d, "   \n");
+  writeBound(d, "yes > /dev/null", "   ");
   const r = decideIn(d, "yes > /dev/null");
   check("hook-red-empty-receipt-is-NOT-an-override", !!r && r.severity === "block", show(r && r.severity));
   check("hook-red-empty-receipt-is-left-in-place", fs.existsSync(receiptAt(d)), "an empty receipt is not honoured, so it is not consumed");
+}
+// CALL BINDING — a receipt written for one command must not lift another, must not be spent by
+// it, must be NAMED in its block, and must then still lift the command it was written for.
+{
+  const d = mk();
+  tmpDirs.push(d);
+  const A = "stress-ng --cpu 8 --timeout 60";
+  const B = "stress-ng --cpu 64 --timeout 3600";
+  writeBound(d, A, "an operator-approved 60s calibration on an idle box");
+  const bytesA = fs.readFileSync(receiptAt(d), "utf8");
+  const crossed = decideIn(d, B);
+  check("hook-red-receipt-for-A-does-NOT-lift-B", !!crossed && crossed.severity === "block", show(crossed && crossed.severity));
+  check("hook-red-B-does-NOT-consume-As-receipt",
+    fs.existsSync(receiptAt(d)) && fs.readFileSync(receiptAt(d), "utf8") === bytesA, "left in place, byte-identical");
+  check("hook-red-B-block-NAMES-the-refusal",
+    !!crossed && crossed.agent_must_report.join("\n").includes("RECEIPT-DIGEST-MISMATCH"),
+    "the refusal reaches the agent-visible block body");
+  const liftedA = decideIn(d, A);
+  check("hook-green-the-same-receipt-lifts-A", !!liftedA && liftedA.severity === "advisory" && !fs.existsSync(receiptAt(d)),
+    show(liftedA && liftedA.severity));
+  writeBound(d, A, "aged out", new Date(Date.now() - 20 * 60 * 1000).toISOString());
+  const stale = decideIn(d, A);
+  check("hook-red-stale-receipt-is-NOT-an-override",
+    !!stale && stale.severity === "block" && fs.existsSync(receiptAt(d)) &&
+      stale.agent_must_report.join("\n").includes("RECEIPT-STALE"),
+    show(stale && stale.severity));
+  check("hook-red-refused-receipts-write-NO-ledger-row", ledgerRows(d).length === 1, `rows=${ledgerRows(d).length}`);
 }
 {
   const d = mk();
@@ -694,7 +768,7 @@ const tmpDirs = [];
     !!envOn && envOn.severity === "advisory" && envOn.what_happened.includes("COC_ALLOW_SYNTHETIC_LOAD=1"), show(envOn && envOn.what_happened));
   const envZero = decideIn(d, "openssl speed", { COC_ALLOW_SYNTHETIC_LOAD: "0" });
   check("hook-red-env-zero-does-not-disarm", !!envZero && envZero.severity === "block", show(envZero && envZero.severity));
-  writeReceipt(d, "reason written for a LATER call");
+  writeBound(d, "openssl speed", "reason written for a LATER call");
   const both = decideIn(d, "openssl speed", { COC_ALLOW_SYNTHETIC_LOAD: "1" });
   check("hook-green-env-first-does-not-spend-the-receipt", !!both && both.severity === "advisory" && fs.existsSync(receiptAt(d)), "");
   const halt = decideIn(d, INCIDENT, {});
@@ -765,8 +839,15 @@ const tmpDirs = [];
     h.status === 0 && !!hj && hj.continue === true && /busy-loop/.test(String(hj.hookSpecificOutput?.additionalContext ?? "")),
     `rc=${h.status} out=${String(h.stdout).slice(0, 200)}`);
 
+  // FAILS CLOSED: the payload is read by guard-runner.js::runGuard, which REFUSES one it
+  // cannot parse. It used to pass the call through ({"continue":true}, exit 0) — a guard
+  // that never saw the command cleared it.
   const bad = run("not json at all");
-  check("e2e-failopen-malformed-stdin", bad.status === 0 && String(bad.stdout).trim() === '{"continue":true}', `rc=${bad.status} out=${bad.stdout}`);
+  check(
+    "e2e-failclosed-malformed-stdin",
+    bad.status === 2 && /\[guard-runner\] DENY synthetic-load-guard: synthetic-load-guard could not read its hook payload/.test(String(bad.stderr)),
+    `rc=${bad.status} err=${String(bad.stderr).slice(0, 200)}`,
+  );
 
   const gem = run(JSON.stringify({ tool_name: "run_shell_command", hook_event_name: "BeforeTool", tool_input: { command: "yes > /dev/null" }, cwd: d }));
   check("e2e-red-not-gated-on-cc-tool-or-event-names", gem.status === 2, `rc=${gem.status}`);

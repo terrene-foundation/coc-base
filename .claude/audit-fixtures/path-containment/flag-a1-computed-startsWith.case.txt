@@ -1,0 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 sec F6: a literal computed key names the same property as `.startsWith`.
+export function inside(p, root) {
+  const c = fs.realpathSync(p);
+  return c["startsWith"](path.resolve(root) + path.sep);
+}

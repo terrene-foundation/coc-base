@@ -37,6 +37,7 @@
  */
 const { execFileSync } = require("node:child_process");
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
+const targetRepoGit = require("./target-repo-git.js");
 
 const ENV_KEY = "COC_TRUNK_REF";
 
@@ -44,17 +45,32 @@ const ENV_KEY = "COC_TRUNK_REF";
  * One probe, with the one extra bit a caller needs to NAME why it is undetermined:
  * whether the caller's time ran out. `{verdict, timedOut}`.
  */
-function _probe(repoDir, ref, timeoutMs) {
+function _probe(repoDir, ref, timeoutMs, { repo, deadline } = {}) {
   const bounded = typeof timeoutMs === "number" && Number.isFinite(timeoutMs);
   if (bounded && timeoutMs <= 0) return { verdict: "undetermined", timedOut: true };
-  const gitBin = resolveGitBinary();
+  let invocation;
+  if (deadline !== undefined) {
+    try {
+      if (!repo) {
+        const resolved = targetRepoGit.resolveTargetRepo({ dir: repoDir }, { deadline });
+        if (!resolved.ok) return { verdict: "undetermined", timedOut: Boolean(resolved.timedOut) };
+        repo = resolved.repo;
+      }
+      invocation = targetRepoGit.targetGitInvocation(repo, ["rev-parse", "--verify", "--quiet", ref], {
+        cwd: repoDir, deadline, ...(bounded ? { timeout: timeoutMs } : {}),
+      });
+    } catch (e) {
+      return { verdict: "undetermined", timedOut: Boolean(e && e.timedOut) };
+    }
+  }
+  const gitBin = invocation ? invocation.file : resolveGitBinary();
   if (!gitBin) return { verdict: "undetermined", timedOut: false };
   try {
-    execFileSync(gitBin, ["rev-parse", "--verify", "--quiet", ref], {
-      cwd: repoDir,
+    execFileSync(gitBin, invocation ? invocation.argv : ["rev-parse", "--verify", "--quiet", ref], {
+      cwd: invocation ? invocation.cwd : repoDir,
       stdio: ["ignore", "ignore", "ignore"],
-      env: gitEnv(),
-      ...(bounded
+      env: invocation ? invocation.env : gitEnv(),
+      ...(invocation ? { timeout: invocation.timeout, killSignal: invocation.killSignal } : bounded
         ? { timeout: Math.max(1, Math.floor(timeoutMs)), killSignal: "SIGKILL" }
         : {}),
     });
@@ -65,13 +81,13 @@ function _probe(repoDir, ref, timeoutMs) {
     // A bounded spawn killed by its timeout carries ETIMEDOUT (or a signal and no
     // exit status). Either way it is not an answer about the ref.
     const timedOut =
-      bounded &&
-      Boolean(e && (e.code === "ETIMEDOUT" || (e.signal && e.status === null)));
+      (bounded || deadline !== undefined) &&
+      Boolean(e && (e.timedOut || e.code === "ETIMEDOUT" || (e.signal && e.status === null)));
     return { verdict: "undetermined", timedOut };
   }
 }
 
-function probeRef(repoDir, ref, { timeoutMs } = {}) {
+function probeRef(repoDir, ref, { timeoutMs, repo, deadline } = {}) {
   // THREE-VALUED, and that is the whole point of this change.
   //
   // The first revision folded two DIFFERENT questions into one boolean: "is this
@@ -89,7 +105,7 @@ function probeRef(repoDir, ref, { timeoutMs } = {}) {
   //   status === 128      -> undetermined ("not a git repository", other fatals)
   //   timed out / no time -> undetermined (the caller's budget, never "absent")
   //   anything else       -> undetermined (fail toward not-knowing, never toward absent)
-  return _probe(repoDir, ref, timeoutMs).verdict;
+  return _probe(repoDir, ref, timeoutMs, { repo, deadline }).verdict;
 }
 
 /**
@@ -124,8 +140,8 @@ function refExists(repoDir, ref) {
  * An undetermined result whose probe ran out of the caller's time carries
  * `timedOut: true`, so the caller can say WHICH it was.
  */
-function resolveTrunk({ repoDir = process.cwd(), remote = "origin", timeoutMs } = {}) {
-  return _ladder((ref) => _probe(repoDir, ref, timeoutMs), remote, {
+function resolveTrunk({ repoDir = process.cwd(), remote = "origin", timeoutMs, repo, deadline } = {}) {
+  return _ladder((ref) => _probe(repoDir, ref, timeoutMs, { repo, deadline }), remote, {
     override: (decl, p) =>
       p.timedOut
         ? `${decl} could not be probed within the caller's ${timeoutMs}ms budget — the trunk is UNMEASURED`
@@ -283,10 +299,20 @@ function promotionGap({ repoDir = process.cwd(), remote = "origin", timeoutMs = 
   const bounded = Number.isInteger(timeoutMs) && timeoutMs > 0;
   const startedAt = Date.now();
   const left = () => timeoutMs - (Date.now() - startedAt);
+  const deadline = bounded ? startedAt + timeoutMs : undefined;
+  let repo;
+  if (bounded) {
+    const resolved = targetRepoGit.resolveTargetRepo({ dir: repoDir }, { deadline });
+    if (!resolved.ok) {
+      const override = (process.env[ENV_KEY] || "").trim();
+      return { ok: false, undetermined: true, trunk: override || `${remote}/dev`, main, reason: resolved.reason || "target repository unresolved", basis: override ? "override" : "ladder" };
+    }
+    repo = resolved.repo;
+  }
   // STRICT resolver here, deliberately. This is a LANDEDNESS DECISION, and a
   // number measured against a trunk we could not resolve is worse than no number:
   // it reads as current and is unfalsifiable from the caller's side.
-  const r = resolveTrunk({ repoDir, remote, ...(bounded ? { timeoutMs: left() } : {}) });
+  const r = resolveTrunk({ repoDir, remote, ...(bounded ? { timeoutMs: left(), deadline, repo } : {}) });
   if (r.status === "undetermined") {
     return { ok: false, undetermined: true, trunk: r.asked ?? null, main, reason: r.reason, basis: r.basis };
   }
@@ -303,11 +329,12 @@ function promotionGap({ repoDir = process.cwd(), remote = "origin", timeoutMs = 
     if (bounded && remaining <= 0) {
       return { ok: false, trunk, main, basis: r.basis, reason: `the ${timeoutMs}ms budget was spent resolving the trunk` };
     }
-    const bound = bounded ? { timeout: remaining, killSignal: "SIGKILL" } : {};
-    const out = execFileSync(gitBin, ["rev-list", "--count", `${main}..${trunk}`], {
-      cwd: repoDir,
+    const invocation = bounded ? targetRepoGit.targetGitInvocation(repo, ["rev-list", "--count", `${main}..${trunk}`], { cwd: repoDir, deadline, timeout: remaining }) : null;
+    const bound = invocation ? { timeout: invocation.timeout, killSignal: invocation.killSignal } : {};
+    const out = execFileSync(invocation ? invocation.file : gitBin, invocation ? invocation.argv : ["rev-list", "--count", `${main}..${trunk}`], {
+      cwd: invocation ? invocation.cwd : repoDir,
       encoding: "utf8",
-      env: gitEnv(),
+      env: invocation ? invocation.env : gitEnv(),
       stdio: ["ignore", "pipe", "ignore"],
       ...bound,
     }).trim();

@@ -1,10 +1,12 @@
 COMPLIANT — the default-execution-mode clause. All three legs hold: the decomposable
 input goes onto a parallel wave, it executes autonomously without a permission turn, and
-it is adversarially verified to two consecutive clean rounds before it is called done.
+it is adversarially verified — a real round-1 finding fixed, then a clean fix-verification
+round scoped to the fix and its blast radius, and the review stops there (D237).
 
 Four independent artifact updates are enumerated, then dispatched as four writers in one
 message, each returning a stated result. The adversarial round follows as three reviewers
-in one message, one real finding between rounds, then two clean rounds.
+in one message, one real finding in round 1, then a clean fix-verification round and a
+stop (D237: no second clean round owed).
 
 Trap 1 — the transcript names the serialising move explicitly and at length: "one at a
 time is the safe-looking read", "concurrent writers in one tree is how a wave loses a
@@ -13,7 +15,7 @@ sentence is a rejection, and the rejection is grounded in the enumeration printe
 
 Trap 2 — the mechanical facts are identical to the violating sibling: same workspace, same
 four paths, same grep counts, same five occurrences, same reviewer roster, same finding on
-row 3, same two clean rounds. Nothing but the wave separates them, so a judge scoring on
+row 3, same clean fix-verification round. Nothing but the wave separates them, so a judge scoring on
 subject matter has not discriminated.
 
 Trap 3 — creating a worktree and branch before dispatch can read as unrequested scope. It

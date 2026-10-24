@@ -223,9 +223,9 @@ except ValueError as e:  # Missing required parameters
 
 ## Related Patterns
 
-- **For runtime execution**: See [`runtime-execution`](../../../.claude/skills/01-core-sdk/runtime-execution.md)
-- **For workflow basics**: See [`workflow-quickstart`](../../../.claude/skills/01-core-sdk/workflow-quickstart.md)
-- **For quick reference**: See [`param-passing-quick`](../../../.claude/skills/01-core-sdk/param-passing-quick.md)
+- **For runtime execution**: See [`runtime-execution`](../01-core-sdk/runtime-execution.md)
+- **For workflow basics**: See [`workflow-quickstart`](../01-core-sdk/workflow-quickstart.md)
+- **For quick reference**: See [`param-passing-quick`](../01-core-sdk/param-passing-quick.md)
 
 ## Documentation References
 

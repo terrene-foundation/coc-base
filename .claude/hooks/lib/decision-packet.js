@@ -1,5 +1,5 @@
 /**
- * decision-packet.js — the PURE PREDICATES behind `recommendation-quality.md`
+ * decision-packet.js — the PURE PREDICATES behind `recommendation-quality-packets.md`
  * MUST-6 § "'The Human Decides' Means Ratify A Recommendation — Not Fill A Blank":
  * does a decision packet carry a recommendation on every row, or does it hand the
  * human a blank to fill from scratch?
@@ -13,7 +13,7 @@
  * detectMenuWithoutPick covers only the prose form."
  *
  * The SHAPE is DECLARED, not invented here. Two sources fix it:
- *   - `recommendation-quality.md` MUST-6: "`DO` (packet): each row = recommendation
+ *   - `recommendation-quality-packets.md` MUST-6: "`DO` (packet): each row = recommendation
  *     + spec basis + honest con + \"RATIFY / OVERRIDE\". ... `DO NOT`: a row with an
  *     empty `→ ANSWER:` field; a recommendation cell that says \"needs input\" /
  *     \"TBD\" / \"depends\" (a blank in table costume)".

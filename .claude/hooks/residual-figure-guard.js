@@ -130,6 +130,20 @@
 
 "use strict";
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [],
+ *     "network": false,
+ *     "spawns": []
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "Header states WRITES NOTHING: one bounded stdin read plus a transcript tail read (lib/transcript-read.js) and a pure lexical predicate (lib/residual-figure.js); the finding goes to stdout via lib/instruct-and-wait.js, which writes nothing."
+ * }
+ */
+
 // Bounded timer per `cc-artifacts.md` Rule 7, deliberately under the registered
 // 5s timeout so this hook's OWN fallback fires first and emits a well-formed
 // passthrough. No subprocess is ever spawned.
@@ -179,36 +193,15 @@ async function main() {
     return passthrough(null);
   }
 
-  // The reply, preferring the INLINE field the host supplies when it has one and
-  // falling back to the shared bounded tail reader. Both shapes are real: the
-  // measured `Stop` key set carries `last_assistant_message`, and the transcript
-  // path is the documented fallback.
-  let text = "";
-  if (
-    typeof p.last_assistant_message === "string" &&
-    p.last_assistant_message.trim()
-  ) {
-    text = p.last_assistant_message;
-  } else {
-    let read;
-    try {
-      const { readFinalAssistantText } = require(
-        path.join(__dirname, "lib", "transcript-read.js"),
-      );
-      read = readFinalAssistantText(p.transcript_path);
-    } catch {
-      return passthrough(null);
-    }
-    // An unreadable transcript is an UNKNOWN and rides the advisory channel. It
-    // must not look like a clean scan (`instrument-discipline.md` MUST-3(a)).
-    if (read && read.reason) {
-      return passthrough(
-        "burn-down-reporting residual check did NOT run this turn: " +
-          `${read.reason}. A clean result here is NOT evidence the close-out carried a residual.`,
-      );
-    }
-    text = (read && read.text) || "";
+  const { readAssistantTextFromPayload } = require("./lib/transcript-read.js");
+  const read = readAssistantTextFromPayload(p);
+  if (read.reason) {
+    return passthrough(
+      "burn-down-reporting residual check did NOT run this turn: " +
+        `${read.reason}. A clean result here is NOT evidence the close-out carried a residual.`,
+    );
   }
+  const text = read.text;
   if (!text.trim()) return passthrough(null);
 
   let findings = [];

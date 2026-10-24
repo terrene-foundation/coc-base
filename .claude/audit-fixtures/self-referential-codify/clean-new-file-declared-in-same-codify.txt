@@ -42,7 +42,8 @@ peripherality.
 Depth. The diff adds a hook, a detector, audit fixtures, a command edit AND two allowlist entries
 — all Tier-1 triggers under Rule 1, and the allowlist delta is one by name. Dispatched the full
 team in parallel: reviewer, security-reviewer, cc-architect, each receiving the proposal,
-journal/0641 and the originating evidence. Two consecutive clean rounds.
+journal/0641 and the originating evidence. Round 1 came back clean — every dispatched reviewer
+ran and nothing CRITICAL/HIGH — so the review stopped there (D237).
 
 I note that this proposal edits the very rule that decided the proposal was gated. That is
 declared rather than quietly done, and the Tier-1 team ran over the allowlist delta itself.

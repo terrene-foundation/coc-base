@@ -28,8 +28,12 @@
  * whether the tree is THIS session's to remove. Every gate answered correctly on
  * two review worktrees destroyed mid-round — they were clean, pushed, idle, and
  * somebody else's. So the unattended pass now runs with `--reap-owned-by <id>`,
- * which removes only trees whose recorded creator is the closing session and
- * REPORTS the rest; `reapForest` REFUSES to run at all without an identity.
+ * which classifies and removes only trees whose recorded creator is the closing
+ * session and COUNTS the rest without asking git about them (since 2026-10-11 —
+ * classifying them first cost 38 s of a 45 s registration on a 51-tree forest);
+ * `reapForest` REFUSES to run at all without an identity, and sizes the pass's
+ * budget by the OWNED count, read with the reaper's own owner reader
+ * (`worktree-owner.js`).
  * Creation records that identity (`worktree-reap.mjs --create`). Until a tree
  * carries a record, the unattended pass will not touch it — ABSENT MEANS
  * NOT-YOURS, which is the fail-closed direction and also the reason this change
@@ -127,11 +131,18 @@ const {
   listGitWorktreePaths,
   resolveMainWorktreeRoot,
   minutesSinceTouch,
-  realOr,
   snapshotProcesses,
   occupantsOf,
   sanitizeName,
+  runGit,
+  gitCommonDir,
 } = require("./worktree-occupancy.js");
+// The identity form, from the ONE shared resolver: the OS realpath of the path itself, or null
+// (never a lexical fallback, train-8 R1 correctness L-a).
+const { exactRealOrNull } = require("./containment-realpath.js");
+// OWNERSHIP — the reaper's own reader, so the count that sizes the reap budget and
+// the filter that decides what the reap classifies are ONE predicate, not two.
+const ownerLib = require("./worktree-owner.js");
 
 // ── the one knob ────────────────────────────────────────────────────────────
 //
@@ -375,6 +386,43 @@ function reapBudgetMs(census) {
   return clampBudget(census, REAP_MS_PER_TREE, REAP_FLOOR_MS, REAP_CEILING_MS);
 }
 
+/**
+ * The SessionEnd reap budget, from the number of trees this session CREATED.
+ *
+ * Since 2026-10-11 the reaper classifies only owned trees, so the workload — and
+ * therefore the budget — scales with the OWNED count, not the census: measured on a
+ * 51-tree forest, the census-derived budget was the 36 s ceiling for a pass that had
+ * two trees it could act on. The floor and per-tree allowance are unchanged.
+ *
+ * `elapsedMs` is what reading the owned count itself cost. It comes OUT of the
+ * ceiling, so census + owned count + reap + grace stays inside the arithmetic the
+ * SessionEnd registration test pins; the owned count can never lengthen the pass.
+ */
+function ownedReapBudgetMs(owned, elapsedMs) {
+  const spent = Number.isFinite(elapsedMs) && elapsedMs > 0 ? elapsedMs : 0;
+  return Math.min(reapBudgetMs(owned), REAP_CEILING_MS - spent);
+}
+
+/**
+ * How many trees in this forest `sid` created — { owned, notOwned } — or null when
+ * the forest or its shared git dir cannot be read.
+ *
+ * THE SAME READER THE REAPER FILTERS WITH (`worktree-owner.js::partitionByOwner`):
+ * the owner record, then the lock reason, `isOwnedBy` deciding. So the budget is
+ * sized by exactly the trees the reaper will classify. It is used for SIZING ONLY —
+ * the reaper re-reads ownership itself and is the sole authority on what it removes.
+ * Two git calls through the resolved binary and constants-built env (no per-tree git
+ * work); the rest is file reads.
+ */
+function ownedCensus(repoDir, sid) {
+  const list = runGit(["-C", repoDir, "worktree", "list", "--porcelain"]);
+  if (!list.ok) return null;
+  const common = gitCommonDir(repoDir);
+  if (!common) return null;
+  const part = ownerLib.partitionByOwner(ownerLib.parseWorktreePorcelain(list.out), common, sid);
+  return { owned: part.owned.length, notOwned: part.notOwned.length };
+}
+
 // The worst case each registration must still fit. Exported so the budget test
 // asserts against the SAME arithmetic the runtime uses rather than restating it.
 const CLASSIFY_TIMEOUT_MS = CLASSIFY_CEILING_MS + BUDGET_GRACE_MS;
@@ -430,7 +478,8 @@ function runReaper(repoDir, opts = {}) {
     args.push("--apply", "--zero-loss-only");
     // THE OWNERSHIP GATE, passed only where it must be. `--reap-owned-by <id>`
     // narrows the pass to trees whose recorded creator is that session; the
-    // reaper REPORTS everything else rather than removing it. See the header.
+    // reaper COUNTS everything else (`held_not_owned`) and never classifies or
+    // removes it. See the header.
     if (opts.reapOwnedBy) args.push("--reap-owned-by", String(opts.reapOwnedBy));
   }
 
@@ -477,18 +526,10 @@ function runReaper(repoDir, opts = {}) {
   // still not be removed (git refused, or --zero-loss-only skipped a TAG-FIRST),
   // so `zero_loss` is a verdict tally and `removed` is an outcome.
   const removed = [];
-  const heldNotOwned = [];
   for (const w of Array.isArray(parsed.worktrees) ? parsed.worktrees : []) {
     const actions = Array.isArray(w.actions) ? w.actions : [];
     if (actions.includes("removed") || actions.includes("pruned")) {
       removed.push({ path: w.path, name: path.basename(w.path || ""), branch: w.branch || null });
-    }
-    // READ from the record's own flag, never re-derived here. A second
-    // derivation of "is this mine" in the caller is exactly the drift this
-    // module's header forbids — the reader would quietly disagree with the
-    // classifier, and the report would describe a decision nobody made.
-    if (w.heldNotOwned === true) {
-      heldNotOwned.push({ path: w.path, name: path.basename(w.path || ""), branch: w.branch || null, owner: (w.owner && w.owner.session) || null, ownerName: (w.owner && w.owner.owner) || null });
     }
   }
 
@@ -505,7 +546,11 @@ function runReaper(repoDir, opts = {}) {
     classified: Number.isInteger(parsed.classified) ? parsed.classified : c.total,
     budgetMs,
     removed,
-    heldNotOwned,
+    // The trees this session did NOT create — a COUNT READ from the envelope, never
+    // re-derived here. Since 2026-10-11 the reaper does not examine them, so there are
+    // no per-tree records to read names from; null when the envelope does not carry
+    // the field (an older reaper), which reports nothing rather than a 0 nobody counted.
+    notOwned: Number.isInteger(c.held_not_owned) ? c.held_not_owned : null,
     refusals: Array.isArray(parsed.refusals) ? parsed.refusals : [],
     freeKbAfter:
       parsed.size && Number.isFinite(parsed.size.volume_free_kb)
@@ -544,7 +589,32 @@ function reapForest(repoDir, opts = {}) {
       reason: "no session identity was available, so the unattended reap REFUSED to run — it removes only trees this session created, and without an identity every tree is somebody else's",
     };
   }
-  return runReaper(repoDir, { ...opts, apply: true, reapOwnedBy: sid });
+  // THE BUDGET FOLLOWS THE OWNED COUNT. An unreadable count is a REFUSAL with a named
+  // reason, never a fallback budget: the census would be a number about a different
+  // workload, and a pass sized by it is the 38 s SessionEnd this replaced.
+  const t0 = Date.now();
+  const own = ownedCensus(repoDir, sid);
+  const elapsed = Date.now() - t0;
+  if (!own) {
+    return {
+      ok: false,
+      applied: false,
+      interrupted: false,
+      reason: "the owned-tree census could not be read (git worktree list or the shared git dir failed), so the unattended reap did not run — its budget is sized by the trees this session created, and an unmeasured count is not a budget",
+    };
+  }
+  const budgetMs = ownedReapBudgetMs(own.owned, elapsed);
+  if (budgetMs < REAP_FLOOR_MS) {
+    return {
+      ok: false,
+      applied: false,
+      interrupted: false,
+      reason: `reading the owned-tree census took ${elapsed}ms, leaving ${budgetMs}ms of the ${REAP_CEILING_MS}ms ceiling — under the ${REAP_FLOOR_MS}ms floor — so the unattended reap did not run`,
+    };
+  }
+  const result = runReaper(repoDir, { ...opts, apply: true, reapOwnedBy: sid, budgetMs });
+  result.owned = own.owned;
+  return result;
 }
 
 /**
@@ -625,7 +695,10 @@ function cacheGcAllowedWorktrees(repoDir, opts = {}) {
     // REALPATH, because the caller compares against a realpath'd scan result —
     // an asymmetric comparison (raw here, resolved there) misses on any
     // symlinked prefix, and /var → /private/var is the everyday macOS case.
-    allowed.add(realOr(p));
+    // A path that no longer resolves is NOT admitted: an allow-list entry is a
+    // permission, and a raw string is not the form anything is compared in.
+    const real = exactRealOrNull(p);
+    if (real !== null) allowed.add(real);
   }
   return allowed;
 }
@@ -791,19 +864,39 @@ function evaluateReap(census, result, floor) {
   const removed = result.removed || [];
   const refusals = result.refusals || [];
   const unknown = result.unknown || 0;
-  const heldNotOwned = result.heldNotOwned || [];
+  const notOwned = Number.isInteger(result.notOwned) ? result.notOwned : null;
   // A PARTIAL pass is never silent, even with nothing removed and nothing to
   // escalate — unlike a complete sweep, it has not established that there was
   // nothing to give up. Silence here would assert exactly the thing it failed to
   // check. `unknown > 0` therefore defeats the silence gate.
   //
-  // A pass that REFUSED ON OWNERSHIP is never silent either, and for the same
-  // reason one step further out: it did not decline because the trees were
-  // healthy, it declined because they were somebody else's. Reporting that as
-  // "nothing to give up" would be the `conservation-gate.md` MUST-4 empty in the
-  // grammar of a completed one — and this is the exact report a reviewer who
-  // just watched a sibling's tree vanish needs to see.
-  if (removed.length === 0 && tag_first === 0 && refusals.length === 0 && unknown === 0 && heldNotOwned.length === 0) return null;
+  // THE NOT-OWNED CENSUS DOES NOT DEFEAT IT — a deliberate change (2026-10-11), and
+  // the reason is what the count now means. It used to be "refused DESPITE being
+  // eligible", which needed every foreign tree classified first; that is exactly the
+  // cost removed. The census now counts every tree this session did not create, and
+  // in a shared forest that is nearly every tree at every session end — a finding on
+  // it alone would fire every time and say nothing actionable (the cry-wolf this
+  // module's floor exists to prevent). The pass's SCOPE is the trees it created, and
+  // a pass whose scope held nothing to give up has a genuinely empty outcome. When it
+  // does speak, the census is stated beside what it did, as a count.
+  //
+  // A PASS THAT STOPPED EARLY, OR LEFT A ZERO-LOSS TREE STANDING, IS NOT EMPTY EITHER.
+  // `unknown` counts only trees the CLASSIFY loop never reached; the removal loop stops
+  // on the same budget, and a tree it stranded there classified ZERO-LOSS and was never
+  // removed — `unknown` is 0, nothing was refused, and the old gate went silent over an
+  // owned tree the pass had cleared and then abandoned. So the envelope's own `partial`
+  // flag, and any ZERO-LOSS verdict that did not become a removal, both break silence.
+  const stranded = Math.max(0, zero_loss - removed.length);
+  if (
+    removed.length === 0 &&
+    tag_first === 0 &&
+    refusals.length === 0 &&
+    unknown === 0 &&
+    result.partial !== true &&
+    stranded === 0
+  ) {
+    return null;
+  }
 
   return {
     kind: KIND_REAPED,
@@ -811,7 +904,7 @@ function evaluateReap(census, result, floor) {
     classifierTotal: total,
     removed,
     refusals,
-    heldNotOwned,
+    notOwned,
     zero_loss,
     tag_first,
     keep,
@@ -819,6 +912,7 @@ function evaluateReap(census, result, floor) {
     // still EXACT — the reaper stops between removals, not during one — which is
     // the difference between this and KIND_REAP_INTERRUPTED.
     partial: result.partial === true,
+    stranded,
     unknown,
     classified: Number.isInteger(result.classified) ? result.classified : total,
     floor,
@@ -904,13 +998,14 @@ function reapReportLines(finding) {
     lines.push(
       "State that only the DIRECTORIES were removed — every branch ref survives, so each tree re-materialises with `git worktree add <path> <branch>` (worktree-isolation.md Rule 8).",
     );
-  } else if (finding.heldNotOwned.length > 0) {
-    // "Removed nothing" is TRUE and misleading here — the trees were not held by
-    // evidence that they were healthy, they were refused because this pass may
-    // not act on them. The two answers call for opposite follow-ups (fix the
-    // tree vs. leave it alone), so they must not print the same.
+  } else if (Number.isInteger(finding.notOwned)) {
+    // The pass examined only the trees this session created, so "no tree in this
+    // forest classified ZERO-LOSS" would claim a verdict about trees nobody asked. And
+    // its denominators are the OWNED set: `classifierTotal` trees were candidates, of
+    // which `classified` were read — so the ZERO-LOSS tally is stated against those, not
+    // as "none", which is false whenever a ZERO-LOSS tree was stranded or refused.
     lines.push(
-      `State that the SessionEnd reap removed NOTHING. It was NOT because the forest was clean: ${finding.heldNotOwned.length} of ${finding.census} tree(s) were REFUSED because this session did not create them, and a pass may remove only its own (worktree-isolation.md Rule 8).`,
+      `State that the SessionEnd reap removed NOTHING. It examined only the ${finding.classifierTotal} tree(s) this session created; ${finding.classified} of them were classified, and ${finding.zero_loss} of those classified ZERO-LOSS.`,
     );
   } else {
     lines.push(
@@ -918,11 +1013,26 @@ function reapReportLines(finding) {
     );
   }
   lines.push(
-    `State that ${finding.keep} tree(s) classified KEEP and were not touched — held by a dirty tree, unpushed commits, a lock, recent activity, or being the main checkout or this session's own worktree.`,
+    `State that ${finding.keep} tree(s) classified KEEP and were not touched — held by a dirty tree, burndown events no commit holds yet, unpushed commits, a lock, recent activity, or being the main checkout or this session's own worktree.`,
   );
+  // THE DENOMINATOR IS WHAT THE PASS CLASSIFIED FROM. An owned pass's candidates are the
+  // trees this session created, not the census — "N of <census> classified" would read
+  // the trees it never examined as part of what ran out of budget.
+  const scope = Number.isInteger(finding.notOwned)
+    ? `${finding.classified} of the ${finding.classifierTotal} tree(s) this session created were classified`
+    : `${finding.classified} of ${finding.census} tree(s) were classified`;
   if (finding.unknown > 0) {
     lines.push(
-      `State that the pass was PARTIAL: ${finding.classified} of ${finding.census} tree(s) were classified and ${finding.unknown} were NOT examined (the budget ran out). Those ${finding.unknown} are UNKNOWN, not KEEP — none may be reported as safe to remove. The removal count above is still EXACT: the pass stops between removals, never during one.`,
+      `State that the pass was PARTIAL: ${scope} and ${finding.unknown} were NOT examined (the budget ran out). Those ${finding.unknown} are UNKNOWN, not KEEP — none may be reported as safe to remove. The removal count above is still EXACT: the pass stops between removals, never during one.`,
+    );
+  } else if (finding.partial) {
+    lines.push(
+      `State that the pass was PARTIAL: ${scope}, but the budget ran out during the REMOVALS, so the pass stopped before acting on every tree it had cleared. The removal count above is still EXACT: the pass stops between removals, never during one.`,
+    );
+  }
+  if (finding.stranded > 0) {
+    lines.push(
+      `State that ${finding.stranded} tree(s) classified ZERO-LOSS were NOT removed — the pass stopped before reaching them, or the removal was refused. They are still on disk and still owed teardown: read them with \`node .claude/bin/worktree-reap.mjs\` (report-only), and retire each with \`node .claude/bin/worktree-reap.mjs --deliver <path>\`.`,
     );
   }
   if (finding.tag_first > 0) {
@@ -930,10 +1040,12 @@ function reapReportLines(finding) {
       `State that ${finding.tag_first} tree(s) classified TAG-FIRST and were deliberately NOT reaped unattended: they are detached and unreachable from any ref, so removal depends on a tag this pass will not mint without an operator. Run \`node .claude/bin/worktree-reap.mjs --apply\` to tag and reap them.`,
     );
   }
-  if (finding.heldNotOwned.length > 0) {
-    const named = finding.heldNotOwned.map((r) => sanitizeName(r.name)).join(", ");
+  if (finding.notOwned > 0) {
+    // A COUNT, never names and never verdicts: the reaper did not examine these
+    // trees, so the only true thing to say about any one of them is that it exists
+    // and is not this session's.
     lines.push(
-      `State that ${finding.heldNotOwned.length} tree(s) were REPORTED and NOT reaped because this session did not create them: ${named}. Name them as SURVIVORS, not as findings — nothing was wrong with them, and an operator must not go looking for a defect that is not there. A session removes only the trees it created; another session's tree is not this pass's to touch.`,
+      `State that ${finding.notOwned} other tree(s) in this ${finding.census}-tree forest were NOT created by this session and were REPORTED and NOT reaped: the pass counted them and never examined or touched them. Name them as SURVIVORS, not as findings — and do NOT report any of them as KEEP, reapable or safe to remove, because nothing about them was examined. A session removes only the trees it created; their per-tree verdicts come from \`node .claude/bin/worktree-reap.mjs\` (report-only).`,
     );
   }
   if (finding.refusals.length > 0) {
@@ -967,10 +1079,10 @@ function summarize(finding) {
       return (
         (finding.removed.length > 0
           ? `worktree forest: reaped ${finding.removed.length} ZERO-LOSS tree(s) of ${finding.census}; ${finding.keep} KEEP untouched`
-          : finding.heldNotOwned.length > 0
-            ? `worktree forest: removed nothing of ${finding.census} tree(s) — ${finding.heldNotOwned.length} belong to another session and were reported, not reaped`
+          : finding.stranded > 0
+            ? `worktree forest: ${finding.census} tree(s), ${finding.stranded} ZERO-LOSS tree(s) NOT removed; ${finding.tag_first} TAG-FIRST need an operator`
             : `worktree forest: ${finding.census} tree(s), nothing was ZERO-LOSS; ${finding.tag_first} TAG-FIRST need an operator`) +
-        (finding.removed.length > 0 && finding.heldNotOwned.length > 0 ? ` (${finding.heldNotOwned.length} not this session's, reported)` : "")
+        (finding.notOwned > 0 ? ` (${finding.notOwned} not this session's, not examined)` : "")
       );
     default:
       return `worktree forest: ${finding.reapable} of ${finding.census} tree(s) are reapable (Rule 8 teardown backlog)`;
@@ -1003,6 +1115,8 @@ module.exports = {
   BUDGET_GRACE_MS,
   classifyBudgetMs,
   reapBudgetMs,
+  ownedReapBudgetMs,
+  ownedCensus,
   KIND_BACKLOG,
   KIND_CENSUS_ONLY,
   KIND_PARTIAL,

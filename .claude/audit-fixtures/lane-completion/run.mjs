@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { resolveTrunk } from "../../hooks/lib/trunk-ref.js";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
@@ -567,7 +568,20 @@ process.on("exit", () => {
  */
 function driveGuard({ prs, login, trunkRepo = false }, tag) {
   const proj = mktmp(`lc-proj-${tag}-`);
-  fs.mkdirSync(path.join(proj, ".claude"), { recursive: true });
+  // FIXTURE ISOLATION (L-9, ROOT ruling 2026-10-19). `<proj>` is its OWN repository root, so
+  // the guard's _repoRootOf stops HERE instead of walking up into whatever checkout encloses
+  // the temp dir — under a trestle mirror, os.tmpdir() IS the checkout. `git init` is the FIX.
+  // An init-only revert reds the arm; the exact pass/fail COUNT is host- and check-count-
+  // dependent (at the 53-check R1 measurement it read 52 passed / 1 failed; a later 54-check
+  // tree read 49/5), so the count is never the pole — the named FAIL line is.
+  // The learning dir is created HERE
+  // only as a DEFENSIVE convenience for the guard's write path — it was never shown
+  // load-bearing on its own (LOW-4), so do not read its presence as part of the fix.
+  const hermetic = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
+  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "COC_TRUNK_REF"]) delete hermetic[k];
+  const rootInit = spawnSync("git", ["init", "-q", ...(trunkRepo ? ["-b", "main"] : []), proj], { encoding: "utf8", env: hermetic });
+  if (rootInit.status !== 0) throw new Error(`fixture project init failed: ${rootInit.stderr}`);
+  fs.mkdirSync(path.join(proj, ".claude", "learning"), { recursive: true });
   const bin = mktmp(`lc-bin-${tag}-`);
   const prsPath = path.join(bin, "prs.json");
   // The forge only returns a field the caller ASKED for. The stub honours that:
@@ -603,8 +617,7 @@ exit 0
   const home = mktmp(`lc-home-${tag}-`);
   // Hermetic: an operator's trunk override or ambient repo pointer must not
   // steer which trunk the guard resolves.
-  const gitEnvForFixture = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
-  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "COC_TRUNK_REF"]) delete gitEnvForFixture[k];
+  const gitEnvForFixture = hermetic;
   if (trunkRepo) {
     // The project dir becomes a real repository whose bare "origin" (in its own
     // temp dir) carries `main` and `dev`, so the guard's trunk resolver answers
@@ -644,7 +657,18 @@ exit 0
   try {
     json = JSON.parse((r.stdout || "").trim().split("\n").pop() || "");
   } catch {}
-  return { json, stdout: r.stdout, stderr: r.stderr, code: r.status };
+  let body = json && json.reason;
+  const detail = typeof body === "string" && body.match(/\(detail: ([^)]+)#(F\d+)\)/);
+  if (detail) {
+    const file = fs.realpathSync(path.resolve(proj, detail[1]));
+    assert.ok(file.startsWith(fs.realpathSync(proj) + path.sep), "finding detail stays in its fixture project");
+    const text = fs.readFileSync(file, "utf8");
+    const record = text.split(new RegExp(`^## ${detail[2]} ·`, "m"));
+    assert.equal(record.length, 2, "exact finding record exists once");
+    body = record[1].split(/^## F\d+ ·/m)[0];
+    assert.match(body, /HAND-BACK REFUSED/, "detail carries the full refusal body");
+  }
+  return { json, body, stdout: r.stdout, stderr: r.stderr, code: r.status };
 }
 
 const ghLane = (o) => ({
@@ -672,9 +696,9 @@ check("RED  · an OWN conflicting lane REFUSES the hand-back, naming the remedy"
   assert.match(r.json.reason, /HAND-BACK REFUSED/);
   assert.match(r.json.reason, /#1953/);
   assert.match(r.json.reason, /CONFLICTING/);
-  assert.match(r.json.reason, /git merge origin\/dev/, "the guard must REQUEST baseRefName and merge that base");
-  assert.doesNotMatch(r.json.reason, /git merge origin\/main/);
-  assert.match(r.json.reason, /fix\/conflicted/);
+  assert.match(r.body, /git merge origin\/dev/, "the guard must REQUEST baseRefName and merge that base");
+  assert.doesNotMatch(r.body, /git merge origin\/main/);
+  assert.match(r.body, /fix\/conflicted/);
   assert.equal(r.code, 0);
 });
 check("RED  · a base-less conflicting row in a repo WITH origin/dev names the RESOLVED trunk, end to end", () => {
@@ -686,9 +710,9 @@ check("RED  · a base-less conflicting row in a repo WITH origin/dev names the R
   );
   assert.ok(r.json, `guard emitted no parseable JSON: ${r.stdout} / ${r.stderr}`);
   assert.equal(r.json.decision, "block", `expected a refusal, got ${JSON.stringify(r.json)}`);
-  assert.match(r.json.reason, /git merge origin\/dev/, "the guard resolved the trunk for a row with no base");
-  assert.match(r.json.reason, /integration trunk/);
-  assert.doesNotMatch(r.json.reason, /git merge origin\/main/);
+  assert.match(r.body, /git merge origin\/dev/, "the guard resolved the trunk for a row with no base");
+  assert.match(r.body, /integration trunk/);
+  assert.doesNotMatch(r.body, /git merge origin\/main/);
 });
 check("GREEN · a MERGEABLE (non-conflicting) lane stays SILENT on this arm", () => {
   // Pending checks, so the pre-existing `landable` arm is also silent — what is
@@ -786,11 +810,11 @@ check("RED  · control: the same row with a topic head REFUSES and carries --del
   assert.equal(r.json.decision, "block", `expected a refusal, got ${JSON.stringify(r.json)}`);
   assert.match(r.json.reason, /#2160/);
   assert.match(
-    r.json.reason,
+    r.body,
     /--delete-branch/,
     "the guard resolved the trunk branch, so a genuine lane's remedy still cleans up",
   );
-  assert.doesNotMatch(r.json.reason, /--admin/, "--admin bypasses branch protection and must never be emitted");
+  assert.doesNotMatch(r.body, /--admin/, "--admin bypasses branch protection and must never be emitted");
 });
 check("GREEN · a trunk-headed promotion produces NO refusal and NO destructive flag", () => {
   const r = driveGuard(
@@ -806,6 +830,70 @@ check("GREEN · a trunk-headed promotion produces NO refusal and NO destructive 
   assert.doesNotMatch(r.stdout || "", /--admin/);
 });
 
+// LOW-3 (ROOT 2026-10-19): make the fixture's TRUNK explicit. Before driveGuard made <proj>
+// a repository, `git rev-parse --verify --quiet origin/dev` returned rc 128 ("not a
+// repository") and the ladder answered UNDETERMINED; an empty repo returns rc 1 ("absent"),
+// so the ladder RESOLVES via main-fallback. Pinned here, in one named arm, so a ladder change
+// reds THIS line instead of silently re-steering every non-trunk arm.
+check("GREEN · a non-trunk project is an EMPTY repo whose trunk resolves via main-fallback (LOW-3)", () => {
+  const proj = mktmp("lc-trunk-");
+  const init = spawnSync("git", ["-C", proj, "init", "-q"], { encoding: "utf8" });
+  assert.equal(init.status, 0, init.stderr);
+  const savedEnv = {};
+  // Match driveGuard's CHILD env (R2 observation, ROOT 2026-10-19): the in-process resolver
+  // must not read the operator's global/system git config either.
+  for (const k of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "COC_TRUNK_REF", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"]) {
+    savedEnv[k] = process.env[k];
+    if (k === "GIT_CONFIG_GLOBAL" || k === "GIT_CONFIG_SYSTEM") process.env[k] = "/dev/null";
+    else delete process.env[k];
+  }
+  try {
+    const trunk = resolveTrunk({ repoDir: proj });
+    assert.equal(trunk.status, "resolved", `empty-repo trunk is ${JSON.stringify(trunk)}`);
+    assert.equal(trunk.ref, "origin/main", `empty-repo trunk resolved ${trunk.ref}, expected origin/main`);
+    assert.equal(trunk.basis, "main-fallback", "an empty repo must resolve via main-fallback (rc 1), not dev");
+  } finally {
+    for (const [k, v] of Object.entries(savedEnv)) if (v !== undefined) process.env[k] = v;
+  }
+});
+
+// ── FIXTURE ISOLATION (L-9) — the deterministic repro, no host dependence ────
+// ROOT's poles: TMPDIR inside a scratch repo the TEST creates is RED-before / GREEN-after,
+// and the enclosing repo's .claude/learning must never be created or touched.
+check("GREEN · TMPDIR inside an ENCLOSING checkout: the finding stays in the project, the enclosing repo is untouched", () => {
+  const outer = mktmp("lc-outer-");
+  const init = spawnSync("git", ["-C", outer, "init", "-q"], { encoding: "utf8" });
+  assert.equal(init.status, 0, init.stderr);
+  const scopedTmp = path.join(outer, "tmp");
+  fs.mkdirSync(scopedTmp, { recursive: true });
+  const savedTmp = process.env.TMPDIR;
+  process.env.TMPDIR = scopedTmp;
+  try {
+    const r = driveGuard(
+      { prs: [ghLane({ n: 1953, mergeable: "CONFLICTING", merge: "DIRTY", head: "fix/conflicted", base: "dev", checks: [] })], login: "me" },
+      "iso-tmpdir",
+    );
+    // driveGuard's own detail assertion is the RED pole: before the isolation fix the ref is
+    // computed against the ENCLOSING repo's root, escapes <proj>, and realpath throws
+    // `ENOENT … lstat '<proj>/.claude/learning'`.
+    assert.ok(r.json, `guard emitted no parseable JSON under a scoped TMPDIR: ${r.stdout} / ${r.stderr}`);
+    assert.equal(r.json.decision, "block");
+  } finally {
+    if (savedTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = savedTmp;
+  }
+  // CONSERVATION: nothing may be written into the checkout that merely ENCLOSES the temp root.
+  assert.equal(
+    fs.existsSync(path.join(outer, ".claude")),
+    false,
+    "the guard's finding landed in the ENCLOSING checkout (.claude/learning) — the fixture " +
+      "leaked outside its project; <proj> must be its own repo root",
+  );
+});
+
+// The results loop runs AFTER every check (MED-2, ROOT 2026-10-19): printing before the L-9
+// arm meant its PASS/FAIL line never appeared (52 lines for 53 checks; a reverted init showed
+// "52 passed, 1 failed" with no FAIL line naming the arm).
 for (const r of results) console.log(r);
 console.log(`\nlane-completion fixtures: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

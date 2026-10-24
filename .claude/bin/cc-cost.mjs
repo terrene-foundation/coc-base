@@ -16,7 +16,9 @@
 //
 // USAGE
 //   node cc-cost.mjs                     # per-project table, all history
-//   node cc-cost.mjs --since 2026-07-01  # only messages at/after a date
+//   node cc-cost.mjs --since 2026-07-01  # only messages at/after a date (UTC midnight)
+//   node cc-cost.mjs --since 2026-10-11T14:00Z        # ... or an instant (Z or offset)
+//   node cc-cost.mjs --since 2026-10-11T22:00+08:00   # same instant as above
 //   node cc-cost.mjs --sessions          # break down per session
 //   node cc-cost.mjs --by-model          # break down per model
 //   node cc-cost.mjs --no-fold           # keep worktrees/subdirs separate (default: fold)
@@ -33,17 +35,69 @@ import { execFileSync } from "node:child_process";
 import { isMainModule } from "./lib/entry-point.mjs";
 import process from "node:process";
 
-// --since is compared LEXICALLY against ISO-8601 timestamps. It is documented as
-// date-granularity (YYYY / YYYY-MM / YYYY-MM-DD) and is restricted to that shape
-// on purpose: a non-date string (e.g. "notadate") would sort ABOVE every
-// timestamp and silently skip ALL messages, and a TIME suffix would mis-order
-// against millisecond timestamps in the boundary second (`…:00Z` vs `…:00.5Z`).
-// A bare date prefix is always < any longer timestamp that shares it, so the
-// lexical compare is exact. `isValidSince` additionally rejects a shaped-but-
-// impossible date like 2026-99-99 (which would also empty the report).
-const SINCE_RE = /^\d{4}(-\d{2}(-\d{2})?)?$/;
+// --since is an INSTANT, compared as epoch milliseconds — never as a string.
+//
+// Accepted shapes (anything else is rejected loudly by parseArgs):
+//   YYYY | YYYY-MM | YYYY-MM-DD                  -> 00:00:00.000 UTC on that day
+//   YYYY-MM-DDTHH:MM[:SS[.fff]](Z|+HH:MM|-HH:MM)  -> that instant
+// A datetime WITHOUT a zone designator is rejected: it would silently mean
+// "whatever this machine's local zone is", and the transcripts are written in UTC.
+// Every calendar field is range-checked by hand, because Date.parse is lenient
+// where this must not be: it accepts 2026-02-30 and rolls it into March.
+// Fractional seconds are capped at 3 digits — the precision the transcript
+// timestamps carry — so a since value is never silently truncated.
+const SINCE_DATE_RE = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/;
+const SINCE_DATETIME_RE =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})$/;
+
+function daysInMonth(y, m) {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate(); // m is 1-based; day 0 of m+1 = last of m
+}
+
+// Returns epoch milliseconds, or null when the input is not an accepted shape or
+// names an impossible calendar value.
+function parseSince(s) {
+  if (typeof s !== "string") return null;
+  let m = SINCE_DATE_RE.exec(s);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = m[2] === undefined ? 1 : Number(m[2]);
+    const d = m[3] === undefined ? 1 : Number(m[3]);
+    if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
+    const t = Date.UTC(y, mo - 1, d);
+    // Date.UTC maps years 0-99 to 1900-1999; setUTCFullYear pins the literal year.
+    const dt = new Date(t);
+    dt.setUTCFullYear(y);
+    return dt.getTime();
+  }
+  m = SINCE_DATETIME_RE.exec(s);
+  if (!m) return null;
+  const [y, mo, d, hh, mi] = [1, 2, 3, 4, 5].map((i) => Number(m[i]));
+  const ss = m[6] === undefined ? 0 : Number(m[6]);
+  const ms = m[7] === undefined ? 0 : Number(m[7].padEnd(3, "0"));
+  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
+  if (hh > 23 || mi > 59 || ss > 59) return null;
+  let offMin = 0;
+  if (m[8] !== "Z") {
+    const oh = Number(m[8].slice(1, 3));
+    const om = Number(m[8].slice(4, 6));
+    if (oh > 23 || om > 59) return null;
+    offMin = (m[8][0] === "+" ? 1 : -1) * (oh * 60 + om);
+  }
+  const dt = new Date(Date.UTC(2000, mo - 1, d, hh, mi, ss, ms));
+  dt.setUTCFullYear(y, mo - 1, d);
+  return dt.getTime() - offMin * 60_000;
+}
 function isValidSince(s) {
-  return SINCE_RE.test(s) && !Number.isNaN(Date.parse(s));
+  return parseSince(s) !== null;
+}
+
+// A transcript timestamp as epoch ms, or null when absent/unparseable. Claude Code
+// writes ISO-8601 UTC with milliseconds ("2026-10-11T14:00:00.123Z").
+function tsMs(v) {
+  if (typeof v !== "string" || !v) return null;
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? t : null;
 }
 
 // A single transcript larger than this is skipped rather than read whole into a
@@ -292,10 +346,21 @@ function resolveRepoRoot(cwd, cache) {
   return root;
 }
 
+// Directories this run could NOT list. Every skip silently REDUCES a dollar figure
+// the operator reads as the total, and an under-count is indistinguishable from
+// genuinely-lower usage (`verification-gate-integrity.md` MUST-2 — absence of a
+// result is not a pass). ENOENT is deliberately EXCLUDED: several call sites probe
+// an OPTIONAL directory, so counting absence as "unreadable" reports a hole where
+// there is none — the very conflation this counter exists to expose (the template's
+// measurement: 835 false "unreadable" directories on the first instrumented run,
+// every one absent). Operator-ratified Gate-1 port, 2026-10-06.
+const SKIPPED = { dirs: 0 };
+
 function listDir(p) {
   try {
     return readdirSync(p, { withFileTypes: true });
-  } catch {
+  } catch (e) {
+    if (!e || e.code !== "ENOENT") SKIPPED.dirs++;
     return [];
   }
 }
@@ -321,13 +386,53 @@ function* usageLines(fp, maxBytes = MAX_FILE_BYTES) {
   }
 }
 
+// WHY ONE MESSAGE IS ONE (survivor, instant) PAIR, CHOSEN BEFORE ANY WINDOW.
+//
+// Claude Code streams one assistant message as SEVERAL transcript lines that share
+// (message.id, requestId), each stamped a little later and each carrying a usage
+// block — and output_tokens GROWS across them; only the LAST line holds the
+// message's final usage. Measured over one day of real transcripts: 115,966
+// multi-line messages; on every one the last line held the largest output_tokens,
+// and the first lines summed to ~29% less output than the last lines.
+//
+// The previous shape filtered each LINE by --since and THEN deduped, keeping the
+// first line that survived the filter. That made the counted record depend on the
+// window: with an earlier start the first (smallest) line won; with a start that
+// fell between a message's lines, a later (larger) line won — so a LATER start
+// could report MORE cost. It also under-counted output on every unwindowed run.
+//
+// Now, per transcript file, every line of a message is grouped first; the
+// message's representative is the line with the LARGEST output_tokens — ties go
+// to the later line, so when only input moves into cache-read the final record
+// still wins — and its instant is its EARLIEST line's timestamp (when it
+// started). "Last line in file order" alone is not enough: an older partial
+// line re-appended later would replace the final usage AND move its project.
+// Across files the first file (sorted order) to carry a message keeps it — a
+// resumed/forked copy is a duplicate — and that choice is made over EVERY line,
+// in or out of the window. --since then includes or excludes whole messages by
+// their fixed instant. Because neither the representative, its project, nor its
+// instant depends on --since, cost(since t2) <= cost(since t1) for t1 <= t2.
 function collect(projectsDir, rates, { since = null, fold = true, perSession = false, perModel = false } = {}) {
   const buckets = new Map();
   const subBuckets = new Map(); // key -> Map(subKey -> bucket)
   const unpriced = new Map();
-  const seen = new Set(); // NUL-joined (id, requestId) dedup key
+  // NUL-joined (id, requestId) -> was the owning copy counted (inside the window)?
+  // Every keyed message enters, in or out of the window, so which file owns a
+  // message never depends on --since.
+  const owner = new Map();
   const repoCache = new Map();
-  const counters = { files: 0, lines: 0, dupes: 0 };
+  const counters = { files: 0, lines: 0, dupes: 0, dirs_skipped: 0 };
+
+  let sinceMs = null;
+  if (since !== null && since !== undefined) {
+    sinceMs = typeof since === "number" ? since : parseSince(since);
+    if (sinceMs === null || !Number.isFinite(sinceMs)) {
+      throw new TypeError(`collect: invalid since ${JSON.stringify(since)}`);
+    }
+  }
+  // A message with no parseable timestamp cannot be placed in a window, so it is
+  // excluded whenever a window is set (and counted when none is).
+  const inWindow = (startMs) => sinceMs === null || (startMs !== null && startMs >= sinceMs);
 
   const getBucket = (key) => {
     let b = buckets.get(key);
@@ -340,6 +445,32 @@ function collect(projectsDir, rates, { since = null, fold = true, perSession = f
     let b = m.get(subKey);
     if (!b) m.set(subKey, (b = newBucket()));
     return b;
+  };
+
+  // The fields accounting reads, coerced once. A message group holds ONLY this
+  // (never the parsed line, whose message.content can dwarf the usage block), so
+  // per-file memory stays proportional to the message count, not the file size.
+  const record = (d, msg, u) => ({ cwd: asStr(d.cwd), sid: asStr(d.sessionId), model: asStr(msg.model), u });
+
+  const account = ({ cwd: rawCwd, sid, model, u }, fallback) => {
+    counters.lines++;
+    // Coerce every field used as a key / subprocess arg / rate lookup.
+    const cwd = rawCwd || fallback;
+    const key = fold ? resolveRepoRoot(cwd, repoCache) : cwd;
+
+    addUsage(getBucket(key), u, model, rates, sid);
+    if (model && matchRate(model, rates, false) === null) {
+      unpriced.set(
+        model,
+        (unpriced.get(model) || 0) +
+          tok(u.input_tokens) +
+          tok(u.output_tokens) +
+          tok(u.cache_creation_input_tokens) +
+          tok(u.cache_read_input_tokens),
+      );
+    }
+    if (perSession) addUsage(getSub(key, sid || "?"), u, model, rates, sid);
+    else if (perModel) addUsage(getSub(key, model || "?"), u, model, rates, sid);
   };
 
   // Sorted so the dedup survivor is deterministic across runs.
@@ -369,48 +500,52 @@ function collect(projectsDir, rates, { since = null, fold = true, perSession = f
 
     for (const fp of [...files, ...subFiles]) {
       counters.files++;
+      // dk -> { rec, startMs, n } for this file's keyed messages, in first-seen order.
+      const groups = new Map();
       for (const d of usageLines(fp)) {
-        if (since && String(d.timestamp || "") < since) continue;
         const msg = asDict(d.message);
         const u = msg.usage;
         if (!u || typeof u !== "object" || Array.isArray(u)) continue;
+        const t = tsMs(d.timestamp);
 
         // Dedup key must be hashable/comparable — coerce id/requestId to str-or-null.
         const mid = asStr(msg.id);
         const rid = asStr(d.requestId);
-        if (!(mid === null && rid === null)) {
-          const dk = `${mid}\u0000${rid}`;
-          if (seen.has(dk)) {
-            counters.dupes++;
-            continue;
-          }
-          seen.add(dk);
+        if (mid === null && rid === null) {
+          // No key to group on: the line is its own message.
+          if (inWindow(t)) account(record(d, msg, u), fallback);
+          continue;
         }
-        counters.lines++;
-
-        // Coerce every field used as a key / subprocess arg / rate lookup.
-        let cwd = asStr(d.cwd);
-        if (!cwd) cwd = fallback;
-        const key = fold ? resolveRepoRoot(cwd, repoCache) : cwd;
-        const model = asStr(msg.model);
-        const sid = asStr(d.sessionId);
-
-        addUsage(getBucket(key), u, model, rates, sid);
-        if (model && matchRate(model, rates, false) === null) {
-          unpriced.set(
-            model,
-            (unpriced.get(model) || 0) +
-              tok(u.input_tokens) +
-              tok(u.output_tokens) +
-              tok(u.cache_creation_input_tokens) +
-              tok(u.cache_read_input_tokens),
-          );
+        const dk = `${mid}\u0000${rid}`;
+        const g = groups.get(dk);
+        if (!g) {
+          groups.set(dk, { rec: record(d, msg, u), startMs: t, n: 1 });
+        } else {
+          // Output only grows while a message streams: the largest is the final
+          // usage; >= hands a tie to the later line.
+          if (tok(u.output_tokens) >= tok(g.rec.u.output_tokens)) g.rec = record(d, msg, u);
+          g.n++;
+          if (t !== null && (g.startMs === null || t < g.startMs)) g.startMs = t;
         }
-        if (perSession) addUsage(getSub(key, sid || "?"), u, model, rates, sid);
-        else if (perModel) addUsage(getSub(key, model || "?"), u, model, rates, sid);
+      }
+      for (const [dk, g] of groups) {
+        if (owner.has(dk)) {
+          // A copy, in a later file, of a message an earlier file owns. counters.dupes
+          // counts every extra line of a COUNTED message, so it moves with the window.
+          if (owner.get(dk)) counters.dupes += g.n;
+          continue;
+        }
+        const counted = inWindow(g.startMs);
+        owner.set(dk, counted);
+        if (!counted) continue;
+        counters.dupes += g.n - 1;
+        account(g.rec, fallback);
       }
     }
   }
+  // Surfaced rather than counted-and-dropped: a counter nothing reads cannot warn
+  // anyone, and the under-count it exists to expose is invisible in the totals.
+  counters.dirs_skipped = SKIPPED.dirs;
   return { buckets, subBuckets, unpriced, counters };
 }
 
@@ -487,7 +622,9 @@ function printHelp() {
       "",
       "Usage: node cc-cost.mjs [options]",
       "  --projects-dir DIR   default: <home>/.claude/projects",
-      "  --since YYYY-MM-DD    only messages at/after this date (date granularity)",
+      "  --since WHEN         only messages that STARTED at/after WHEN, where WHEN is",
+      "                       YYYY[-MM[-DD]] (00:00 UTC) or an ISO-8601 instant with a",
+      "                       zone: 2026-10-11T14:00Z, 2026-10-11T22:00:30.5+08:00",
       "  --sessions           break down per session within each project",
       "  --by-model           break down per model (ignored if --sessions is set)",
       "  --no-fold            do NOT fold worktrees/subdirs into their repo root",
@@ -540,7 +677,11 @@ function parseArgs(argv) {
     else if (x === "--since") {
       a.since = needVal("--since", argv[++i]);
       if (!isValidSince(a.since)) {
-        die(`--since ${a.since}: expected a valid date (YYYY-MM-DD, YYYY-MM, or YYYY)`);
+        die(
+          `--since ${a.since}: expected YYYY, YYYY-MM, YYYY-MM-DD, or an ISO-8601 instant with a ` +
+            `zone (e.g. 2026-10-11T14:00Z or 2026-10-11T22:00+08:00); a datetime without Z/offset ` +
+            `is rejected as ambiguous`,
+        );
       }
     } else if (x === "--sessions") a.sessions = true;
     else if (x === "--by-model") a.byModel = true;
@@ -576,7 +717,7 @@ function main() {
   }
 
   const { buckets, subBuckets, unpriced, counters } = collect(args.projectsDir, rates, {
-    since: args.since || null,
+    since: args.since ? parseSince(args.since) : null,
     fold: !args.noFold,
     perSession: args.sessions,
     perModel: args.byModel,
@@ -615,6 +756,12 @@ function main() {
     `source: ${args.projectsDir}   scanned ${counters.files.toLocaleString("en-US")} files, ` +
       `${counters.lines.toLocaleString("en-US")} messages, deduped ${counters.dupes.toLocaleString("en-US")}\n`,
   );
+  if (counters.dirs_skipped) {
+    console.log(
+      `WARN: ${counters.dirs_skipped} director(y/ies) could not be listed — any transcripts under them ` +
+        `are MISSING from every figure below (an under-count, not lower usage).\n`,
+    );
+  }
   printTable(buckets, subBuckets, args.top, args.sessions || args.byModel);
 
   if (unpriced.size) {
@@ -638,8 +785,9 @@ export {
   MAX_RATE,
   RATE_KEYS,
   MAX_FILE_BYTES,
-  SINCE_RE,
+  parseSince,
   isValidSince,
+  tsMs,
   tok,
   asDict,
   asStr,

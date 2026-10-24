@@ -1,0 +1,30 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// The SAFE climb, return form: lstat SUCCEEDING exits, so only a genuinely absent entry climbs.
+function nearest(p) {
+  let cur = path.resolve(p);
+  const tail = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(cur), ...tail);
+    } catch (e) {
+      if (!e || e.code !== "ENOENT") return null;
+      try {
+        fs.lstatSync(cur);
+        return null;
+      } catch {
+        /* genuinely absent: climb */
+      }
+    }
+    const up = path.dirname(cur);
+    if (up === cur) return null;
+    tail.unshift(path.basename(cur));
+    cur = up;
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return nearest(p).startsWith(r + path.sep);
+}

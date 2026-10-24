@@ -11,8 +11,10 @@
  *               MUST be blocked (exit 2 / continue:false).
  *   (b) CLEAN — an ordinary call on the registered matcher MUST pass through.
  *               A wedge here wedges every delegation in the repo.
- *   (c) EDGE  — no stdin / empty stdin / malformed JSON / non-string isolation
- *               MUST fail OPEN (cc-artifacts.md Rule 7).
+ *   (c) EDGE  — a non-string isolation is no delegation call and passes through;
+ *               no stdin / empty stdin / malformed JSON / a JSON non-object is NO
+ *               VERDICT and MUST fail CLOSED (cc-artifacts.md Rule 7, a deny row:
+ *               `lib/guard-runner.js::runGuard` refuses it, exit 2, naming the guard).
  *   (d) MUTATION — `--mutation-check` proves this fixture set can actually go
  *               RED. A fixture suite that passes against a DEFEATED guard is
  *               the same inert-green failure the guard itself exists to close.
@@ -31,6 +33,8 @@
  * Exit: 0 = every case matched expectation; 1 = at least one did not.
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -112,7 +116,7 @@ function buildCases() {
     }
     cases.push({
       name: f,
-      input: readFileSync(path.join(HERE, f), "utf8"),
+      input: materializeFixtureText(readFileSync(path.join(HERE, f), "utf8")),
       expect: f.startsWith("flag-") ? "BLOCKED" : "PASSTHROUGH",
       env: {},
     });
@@ -122,10 +126,10 @@ function buildCases() {
   // status marker (`hook-output-discipline.md` MUST-1 delivery channel).
   cases.push({
     name: "<injection> control bytes stripped from emitted body",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-injection-in-tool-name.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     // eslint-disable-next-line no-control-regex
@@ -133,42 +137,37 @@ function buildCases() {
   });
   cases.push({
     name: "<injection> forged [ADVISORY] marker not reproduced",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-injection-in-tool-name.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     forbidStderr: /\[ADVISORY\]/,
   });
-  // EDGE class — every non-happy read path MUST fail OPEN (Rule 7).
-  cases.push({
-    name: "<edge> empty stdin",
-    input: "",
-    expect: "PASSTHROUGH",
-    env: {},
-  });
-  cases.push({
-    name: "<edge> malformed JSON",
-    input: "{not json at all",
-    expect: "PASSTHROUGH",
-    env: {},
-  });
-  cases.push({
-    name: "<edge> JSON null",
-    input: "null",
-    expect: "PASSTHROUGH",
-    env: {},
-  });
+  // EDGE class — every unreadable payload is NO VERDICT, and this row is
+  // `on_incomplete: "deny"`, so each MUST fail CLOSED (Rule 7): the runner
+  // (`lib/guard-runner.js::readPayload`) refuses it with exit 2 and names the
+  // guard. Until the fail-closed migration these three PASSED THROUGH — the
+  // exact `{}`-default shape that let any unreadable input bypass the guard.
+  for (const [label, input] of [["empty stdin", ""], ["malformed JSON", "{not json at all"], ["JSON null", "null"]]) {
+    cases.push({
+      name: `<edge> ${label} is REFUSED by the run boundary`,
+      input,
+      expect: "BLOCKED",
+      env: {},
+      alsoRequireStderr: /\[guard-runner\] DENY nested-worktree-guard: nested-worktree-guard could not read its hook payload/,
+    });
+  }
   // ESCAPE HATCH — the documented override must actually let the call through,
   // otherwise the block dead-ends work (hook-output-discipline.md MUST NOT
   // § "Detectors that block work the agent has been instructed to perform").
   cases.push({
     name: "<escape> env COC_ALLOW_NESTED_WORKTREE=1 lets the call through",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "PASSTHROUGH",
     env: { COC_ALLOW_NESTED_WORKTREE: "1" },
   });
@@ -178,10 +177,10 @@ function buildCases() {
   // (`lib/instruct-and-wait.js` delivery contract).
   cases.push({
     name: "<escape> override surfaces on stderr AND in additionalContext",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "PASSTHROUGH",
     env: { COC_ALLOW_NESTED_WORKTREE: "1" },
     alsoRequireStderr: /ADVISORY.*COC_ALLOW_NESTED_WORKTREE=1/,
@@ -190,49 +189,150 @@ function buildCases() {
   // RECEIPT OVERRIDE — the agent-reachable channel. An env var cannot be set
   // from inside a session (a Bash `export` dies with the child shell), so the
   // one-shot receipt is what actually answers the MUST NOT. These rows prove
-  // it (a) lets the call through, (b) is CONSUMED so it cannot silently disarm
-  // the gate for later calls, and (c) is ignored when empty.
+  // it (a) lets the call it is BOUND to through and records the use, (b) is
+  // CONSUMED so it cannot silently disarm the gate for later calls, (c) is
+  // ignored when its reason is empty, and (d) — the 2026-10-10 binding — lifts
+  // NO other call: a receipt for another call or a stale one is refused by
+  // name and left in place.
+  //
+  // EVERY receipt row runs in its OWN sandbox repository (`receiptSandbox`):
+  // the hook's cwd, its receipt roots and the use ledger all resolve inside a
+  // runner-created `mkdtemp`. Until 2026-10-10 these rows wrote and DELETED the
+  // receipt at the checkout this suite was started from — and cleared it
+  // before EVERY case — so running the suite destroyed an operator's real
+  // pending override, the hazard the dispatch-contract fixture closed on
+  // 2026-09-12. With an honoured receipt now appending to the MAIN checkout's
+  // use ledger, a row run from a linked worktree would also have written into
+  // the primary.
+  const taskInput = () =>
+    materializeFixtureText(readFileSync(path.join(HERE, "flag-task-isolation-worktree.json"), "utf8"));
+  const taskDigest = () => documentedDigest(JSON.parse(taskInput()));
+  const dropSandbox = (ctx) => rmSync(ctx.dir, { recursive: true, force: true });
   cases.push({
-    name: "<receipt> one-shot receipt lets the call through",
-    input: readFileSync(
-      path.join(HERE, "flag-task-isolation-worktree.json"),
-      "utf8",
-    ),
+    name: "<receipt> a receipt BOUND to this call lets it through, and its use is recorded in the main checkout's ledger",
+    input: taskInput(),
     expect: "PASSTHROUGH",
     env: {},
-    setup: () => writeReceipt("sanctioned nested placement for this one shard"),
-    teardown: clearReceipt,
+    setup: () => {
+      const dir = receiptSandbox();
+      const p = putReceiptIn(dir, taskDigest(), "sanctioned nested placement for this one shard");
+      return { dir, cwd: dir, p };
+    },
+    after: (ctx) => {
+      if (existsSync(ctx.p)) return "the honoured receipt was NOT consumed";
+      const rows = ledgerRowsIn(ctx.dir);
+      return rows.length === 1 && rows[0].digest === taskDigest()
+        ? null
+        : `use ledger rows=${rows.length} (expected exactly one, naming this call's digest)`;
+    },
+    teardown: dropSandbox,
     alsoRequireStdout: /additionalContext/,
   });
   cases.push({
     name: "<receipt> receipt is CONSUMED (second call blocks again)",
-    input: readFileSync(
-      path.join(HERE, "flag-task-isolation-worktree.json"),
-      "utf8",
-    ),
+    input: taskInput(),
     expect: "BLOCKED",
     env: {},
     // Write the receipt, spend it on a first call, then assert the SECOND call
     // — the one this row actually measures — is blocked again.
     setup: () => {
-      writeReceipt("one-shot");
-      probe(
-        HOOK,
-        readFileSync(path.join(HERE, "flag-task-isolation-worktree.json"), "utf8"),
-      );
+      const dir = receiptSandbox();
+      putReceiptIn(dir, taskDigest(), "one-shot");
+      probe(HOOK, taskInput(), {}, dir);
+      return { dir, cwd: dir };
     },
-    teardown: clearReceipt,
+    teardown: dropSandbox,
   });
   cases.push({
-    name: "<receipt> empty receipt is NOT an override",
-    input: readFileSync(
-      path.join(HERE, "flag-task-isolation-worktree.json"),
-      "utf8",
-    ),
+    name: "<receipt> empty-reason receipt is NOT an override",
+    input: taskInput(),
     expect: "BLOCKED",
     env: {},
-    setup: () => writeReceipt("   \n"),
-    teardown: clearReceipt,
+    setup: () => {
+      const dir = receiptSandbox();
+      putReceiptIn(dir, taskDigest(), "   ");
+      return { dir, cwd: dir };
+    },
+    teardown: dropSandbox,
+  });
+  cases.push({
+    name: "<receipt> a receipt bound to ANOTHER call does NOT lift this one, and is left in place, named",
+    input: taskInput(),
+    expect: "BLOCKED",
+    env: {},
+    setup: () => {
+      const dir = receiptSandbox();
+      const other = {
+        tool_name: "Task",
+        tool_input: { prompt: "a different brief", subagent_type: "general-purpose", isolation: "worktree" },
+      };
+      const p = putReceiptIn(dir, documentedDigest(other), "written for another dispatch");
+      return { dir, cwd: dir, p, bytes: readFileSync(p, "utf8") };
+    },
+    alsoRequireStderr: /RECEIPT-DIGEST-MISMATCH/,
+    after: (ctx) =>
+      existsSync(ctx.p) && readFileSync(ctx.p, "utf8") === ctx.bytes
+        ? null
+        : "the other call's receipt was consumed or altered by this call",
+    teardown: dropSandbox,
+  });
+  cases.push({
+    name: "<receipt> a STALE receipt for this call does NOT lift it, and is left in place, named",
+    input: taskInput(),
+    expect: "BLOCKED",
+    env: {},
+    setup: () => {
+      const dir = receiptSandbox();
+      const p = putReceiptIn(dir, taskDigest(), "aged out", new Date(Date.now() - 20 * 60 * 1000).toISOString());
+      return { dir, cwd: dir, p };
+    },
+    alsoRequireStderr: /RECEIPT-STALE/,
+    after: (ctx) => (existsSync(ctx.p) ? null : "the stale receipt was consumed"),
+    teardown: dropSandbox,
+  });
+  cases.push({
+    name: "<receipt> the block PRINTS this call's documented digest in its receipt template",
+    input: taskInput(),
+    expect: "BLOCKED",
+    env: {},
+    setup: () => {
+      const dir = receiptSandbox();
+      return { dir, cwd: dir };
+    },
+    after: (ctx, r) =>
+      r.stderr.includes(`"digest":"${taskDigest()}"`)
+        ? null
+        : "the block's receipt template does not carry this call's documented digest",
+    teardown: dropSandbox,
+  });
+  // EnterWorktree binds its WHOLE input (it has no prompt): a receipt for one
+  // nested path must not lift another. Bipolar on the same receipt shape.
+  cases.push({
+    name: "<receipt> EnterWorktree: a receipt for one nested path does NOT lift a different nested path",
+    expect: "BLOCKED",
+    env: {},
+    setup: () => {
+      const dir = receiptSandbox();
+      const forA = JSON.parse(enterWorktreePayload({ path: path.join(dir, "wt-a") }));
+      const p = putReceiptIn(dir, documentedDigest(forA), "for wt-a only");
+      return { dir, cwd: dir, p, input: enterWorktreePayload({ path: path.join(dir, "wt-b") }) };
+    },
+    alsoRequireStderr: /RECEIPT-DIGEST-MISMATCH/,
+    after: (ctx) => (existsSync(ctx.p) ? null : "the wt-a receipt was consumed by the wt-b call"),
+    teardown: dropSandbox,
+  });
+  cases.push({
+    name: "<receipt> EnterWorktree: the SAME receipt shape lifts the path it was written for",
+    expect: "PASSTHROUGH",
+    env: {},
+    setup: () => {
+      const dir = receiptSandbox();
+      const input = enterWorktreePayload({ path: path.join(dir, "wt-a") });
+      putReceiptIn(dir, documentedDigest(JSON.parse(input)), "for wt-a only");
+      return { dir, cwd: dir, input };
+    },
+    alsoRequireStdout: /additionalContext/,
+    teardown: dropSandbox,
   });
   // ── PATH-TARGET class ────────────────────────────────────────────────────
   // The discriminator is the RESOLVED TARGET, never which key carried it. Each
@@ -307,10 +407,10 @@ function buildCases() {
   // (hook-output-discipline.md MUST-1).
   cases.push({
     name: "<shape> block carries actionable remediation",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     alsoRequireStderr: /REPORT TO USER/,
@@ -318,10 +418,10 @@ function buildCases() {
   });
   cases.push({
     name: "<shape> block names the one-shot receipt override",
-    input: readFileSync(
+    input: materializeFixtureText(readFileSync(
       path.join(HERE, "flag-task-isolation-worktree.json"),
       "utf8",
-    ),
+    )),
     expect: "BLOCKED",
     env: {},
     alsoRequireStderr: /worktree-authz[/\\]nested-worktree-allow/,
@@ -360,22 +460,67 @@ function siblingWorktreeRoot() {
 }
 
 // ── receipt helpers (the agent-reachable override channel) ──────────────────
-const RECEIPT = path.resolve(
-  HERE,
-  "..",
-  "..",
-  "worktree-authz",
-  "nested-worktree-allow",
-);
-function writeReceipt(reason) {
-  mkdirSync(path.dirname(RECEIPT), { recursive: true });
-  writeFileSync(RECEIPT, reason);
+// Every receipt lives in a runner-created SANDBOX repository, never in the
+// checkout this suite runs from (see the RECEIPT OVERRIDE rows for why).
+const RULE_ID = "worktree-isolation/nested-worktree-placement";
+const RECEIPT_REL = path.join(".claude", "worktree-authz", "nested-worktree-allow");
+const LEDGER_REL = path.join(".claude", "learning", "override-receipt-uses.jsonl");
+
+/**
+ * The digest a receipt must carry to lift `payload`, from the library's
+ * DOCUMENTED serialization (`hooks/lib/override-receipt.js` § THE CALL DIGEST),
+ * computed independently of its `callDigestOf` so a hook that digests the wrong
+ * inputs cannot agree with this oracle by construction. The principal input is
+ * `prompt`, else `command`, else the canonical JSON of the whole tool_input —
+ * written here as sorted-key `JSON.stringify`, which IS the RFC 8785 form for the
+ * flat string-valued inputs these rows use.
+ */
+function documentedDigest(payload) {
+  const ti = payload.tool_input || {};
+  const principal =
+    typeof ti.prompt === "string"
+      ? ti.prompt
+      : typeof ti.command === "string"
+        ? ti.command
+        : JSON.stringify(Object.fromEntries(Object.keys(ti).sort().map((k) => [k, ti[k]])));
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify([
+        "coc-override-receipt/call-digest/v1",
+        payload.tool_name || "",
+        typeof ti.subagent_type === "string" ? ti.subagent_type : "",
+        principal,
+        [RULE_ID],
+      ]),
+      "utf8",
+    )
+    .digest("hex");
 }
-function clearReceipt() {
+
+/** A fresh sandbox REPOSITORY: the hook's cwd, its receipt roots, and its ledger root. */
+function receiptSandbox() {
+  const dir = mkdtempSync(path.join(tmpdir(), "nwg-receipt-"));
+  spawnSync("git", ["init", "-q", dir], { stdio: "ignore" });
+  return dir;
+}
+function putReceiptIn(dir, digest, reason, writtenAt) {
+  const p = path.join(dir, RECEIPT_REL);
+  mkdirSync(path.dirname(p), { recursive: true });
+  writeFileSync(
+    p,
+    JSON.stringify({ digest, reason, written_at: writtenAt || new Date().toISOString() }),
+  );
+  return p;
+}
+function ledgerRowsIn(dir) {
   try {
-    rmSync(RECEIPT, { force: true });
+    return readFileSync(path.join(dir, LEDGER_REL), "utf8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l));
   } catch {
-    /* best effort */
+    return [];
   }
 }
 
@@ -383,7 +528,10 @@ function runSuite(hookPath, { quiet = false } = {}) {
   const rows = [];
   let failures = 0;
   for (const c of buildCases()) {
-    clearReceipt(); // no stray receipt from a prior aborted run
+    // NO pre-case receipt clear: receipts live only in per-row sandboxes, and a
+    // receipt left in the checkout by an operator is bound to THEIR call, so it
+    // cannot lift a fixture call — the binding is what makes the suite immune to
+    // it, where the old blanket delete destroyed it.
     const ctx = c.setup ? c.setup() : undefined;
     // A dynamic case may need the real repo layout (a symlink that resolves back
     // inside the repo, the actual sibling-worktree root, a non-git cwd). Those
@@ -391,9 +539,16 @@ function runSuite(hookPath, { quiet = false } = {}) {
     const input = ctx && ctx.input !== undefined ? ctx.input : c.input;
     const cwd = ctx && ctx.cwd !== undefined ? ctx.cwd : c.cwd;
     const r = probe(hookPath, input, c.env, cwd);
+    // Post-run state (receipt still on disk? ledger row written?) is read
+    // BEFORE teardown removes the sandbox it lives in.
+    const afterNote = c.after ? c.after(ctx, r) : null;
     if (c.teardown) c.teardown(ctx);
     let ok = r.verdict === c.expect;
     let note = "";
+    if (ok && afterNote) {
+      ok = false;
+      note = afterNote;
+    }
     if (ok && c.alsoRequireStderr && !c.alsoRequireStderr.test(r.stderr)) {
       ok = false;
       note = `stderr missing ${c.alsoRequireStderr}`;
@@ -493,12 +648,24 @@ const MUTANTS = [
   },
   {
     id: "M2-sync-stdin-drain",
-    doc: "stdin read reverted to a synchronous drain (reads zero bytes, always passes)",
+    doc: "the run boundary replaced by a synchronous stdin drain (reads zero bytes, always passes)",
+    // RE-ANCHORED (fail-closed migration): the payload is read by
+    // `guard-runner.js::runGuard`, so the defect now lives at the hookMain seam —
+    // the exact shape the event-driven reader exists to remove: a sync read at call
+    // time returns null on a stream whose data has not yet arrived, and passes.
     anchor:
-      "const payload = await readStdinBounded({ timeoutMs: 2000, fallback: null });",
-    // The exact defective shape readStdinBounded exists to remove: a sync read
-    // at call time returns null on a stream whose data has not yet arrived.
-    to: "let payload = null; try { const b = process.stdin.read(); payload = b ? JSON.parse(String(b)) : null; } catch { payload = null; } // MUTANT M2",
+      'const hookMain = runGuard("nested-worktree-guard", main, { budgetMs: BUDGET_MS });',
+    to: "function hookMain() { let payload = null; try { const b = process.stdin.read(); payload = b ? JSON.parse(String(b)) : null; } catch { payload = null; } return payload ? main(payload) : passthrough(); } // MUTANT M2",
+  },
+  {
+    id: "M15-run-boundary-fails-open",
+    doc: "the fail-closed run boundary reverted to the pre-migration fail-open shape — an unreadable payload or a throw passes the call through",
+    anchor:
+      'const hookMain = runGuard("nested-worktree-guard", main, { budgetMs: BUDGET_MS });',
+    // The reader is required by ABSOLUTE path: mutants run from a temp dir, and the
+    // re-root (`reroot`) is applied BEFORE the mutation, so a `__dirname`-relative
+    // require here would die at load and be misread as a kill.
+    to: `function hookMain() { const { readStdinBounded } = require(${JSON.stringify(path.join(HOOKS, "lib", "read-stdin-bounded.js"))}); return readStdinBounded({ timeoutMs: 2000, fallback: null }).then((p) => (p === null ? passthrough() : main(p))).catch(() => passthrough()); } // MUTANT M15`,
   },
   {
     id: "M3-lexical-not-structural",
@@ -516,8 +683,15 @@ const MUTANTS = [
     // made this re-anchor a two-minute fix instead of an undetected hole. The mutant
     // still expresses the same defect at the new seam: an override resolved as always
     // present means the block never fires.
-    anchor: "  const override = overrideGate().resolveOverride();",
+    // RE-ANCHORED 2026-10-10: the call now passes its digest and consumer identity.
+    anchor: "  const override = overrideGate().resolveOverride({ digest, consumer: consumerOf(payload) });",
     to: '  const override = { channel: "forced", detail: "forced", reason: null }; // MUTANT M4',
+  },
+  {
+    id: "M14-digest-ignores-the-call",
+    doc: "the call digest is computed over a CONSTANT instead of this call — the printed receipt and the bound receipt stop meaning THIS call",
+    anchor: "  const digest = callDigestOf(readToolName(payload), payload.tool_input, [RULE_ID]);",
+    to: '  const digest = callDigestOf("", {}, [RULE_ID]); // MUTANT M14',
   },
   {
     id: "M5-no-normalization",
@@ -697,7 +871,6 @@ function mutationCheck() {
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
-    clearReceipt();
   }
   return harnessFailures;
 }

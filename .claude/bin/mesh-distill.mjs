@@ -79,9 +79,9 @@ export class MeshDistillError extends Error {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Name-blind a `kp://` URN for any surface loom-command UP-pulls (the registry
+// Name-blind a `kp://` URN for any surface the UP-pull aggregator fetches (the registry
 // entry + the #757 claim path). The readable <name> segment MUST NOT reach
-// loom-command (M3 name-blindness, specs/04) — exactly as the fence already
+// the UP-pull aggregator (M3 name-blindness, specs/04) — exactly as the fence already
 // redacts every merged_from[] URN. Reuses the fence's OWN scrubMergedFrom so the
 // redaction + segment-validation are byte-identical: a conforming URN becomes
 // kp://<owning_level>/<domain>/«REDACTED_NAME»@<version>; a malformed one
@@ -204,8 +204,8 @@ export function distill(input, opts = {}) {
     throw e;
   }
 
-  // Name-blind the URN for every loom-command (UP-pulled) surface — the readable
-  // <name> stays LOCAL in the project vault and MUST NOT reach loom-command (M3).
+  // Name-blind the URN for every UP-pulled surface — the readable
+  // <name> stays LOCAL in the project vault and MUST NOT reach the UP-pull aggregator (M3).
   // registry.urn + claim.path below use urnUp, NEVER the raw readable urn.
   const urnUp = nameBlindUrn(urn);
 

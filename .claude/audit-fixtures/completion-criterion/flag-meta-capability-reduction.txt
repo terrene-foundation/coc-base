@@ -60,7 +60,7 @@ overthinking literature shows more reasoning makes output worse.
 - **Receipt requirement:** SessionStart soft-gate `[ack: adaptive-redteam-depth]` IFF
   `posture.json::pending_verification` includes this rule_id.
 - **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the model tier was
-  identified and the round count scaled accordingly. Phase 2 deferred.
+  identified and the round count scaled accordingly. Phase 2: RETIRED — no Stop detector will be built; gate-review is the enforcement layer.
 - **Violation scope:** MUST-1 (round count not scaled to model tier).
 - **Origin:** See § Origin.
 

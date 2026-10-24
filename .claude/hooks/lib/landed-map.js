@@ -73,6 +73,21 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
+// The shared non-blocking, fd-checked reader and its exclusive-create write twin.
+// Every file this module opens lives in a session-writable place (the tracked
+// config, `<common>/landed-map-cache.json`, `<common>/land-lane/landing-ledger.jsonl`),
+// and a FIFO at any of them was a blocking open on a hook's synchronous path
+// (reap-on-landing-guard, stranded-artifact-guard, wip-lanes, unlanded-work-surface).
+const { readRegularFileBounded, writeFreshThenRename } = require("./landing-window-read.js");
+
+// The landing ledger is append-only for the life of the repository, so its bound
+// is generous; the read is chunked, so the bound costs nothing up front. Over it,
+// the ledger is UNREADABLE (a throw), never a truncated — shorter, wrong — map.
+const LANDING_LEDGER_MAX_BYTES = 64 * 1024 * 1024;
+// The config and cache are small (the cache keeps 8 tips); over the bound they are
+// unreadable / a cache miss respectively.
+const CONFIG_MAX_BYTES = 256 * 1024;
+const CACHE_MAX_BYTES = 16 * 1024 * 1024;
 
 const TRAILER_FROM = "Landed-From";
 const TRAILER_PARTIAL = "Landed-Partial";
@@ -411,7 +426,9 @@ function loadConfig(repoDir, opts) {
   }
   if (!fs.existsSync(p)) return { ok: false, absent: true, why: `no ${CONFIG_REL} (recording not enabled here)` };
   let obj;
-  try { obj = JSON.parse(fs.readFileSync(p, "utf8")); } catch (e) { return { ok: false, why: `${CONFIG_REL} unreadable: ${e.message}` }; }
+  const got = readRegularFileBounded(p, { maxBytes: CONFIG_MAX_BYTES });
+  if (!got.ok) return { ok: false, why: `${CONFIG_REL} unreadable: ${got.reason}` };
+  try { obj = JSON.parse(got.text); } catch (e) { return { ok: false, why: `${CONFIG_REL} unreadable: ${e.message}` }; }
   return validateConfig(obj);
 }
 
@@ -489,7 +506,9 @@ function _buildLandedMap({ repoDir = process.cwd(), ref, config, useCache = true
   const cacheFile = useCache ? _cachePath(repoDir, o) : null;
   if (cacheFile) {
     try {
-      const c = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+      const got = readRegularFileBounded(cacheFile, { maxBytes: CACHE_MAX_BYTES });
+      if (!got.ok) throw new Error(got.reason);
+      const c = JSON.parse(got.text);
       const hit = c && c.schema === CACHE_SCHEMA && c.entries && c.entries[`${tip}:${cutover}`];
       if (hit) {
         const folded = foldRecords(hit);
@@ -506,16 +525,20 @@ function _buildLandedMap({ repoDir = process.cwd(), ref, config, useCache = true
       // Keep only a handful of tips; the file is a cache, never a record.
       let entries = {};
       try {
-        const prev = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+        const got = readRegularFileBounded(cacheFile, { maxBytes: CACHE_MAX_BYTES });
+        if (!got.ok) throw new Error(got.reason);
+        const prev = JSON.parse(got.text);
         if (prev && prev.schema === CACHE_SCHEMA && prev.entries) entries = prev.entries;
       } catch { /* start fresh */ }
       const keys = Object.keys(entries).slice(-7);
       const kept = {};
       for (const k of keys) kept[k] = entries[k];
       kept[`${tip}:${cutover}`] = records;
+      // Exclusive create of the temp (O_CREAT|O_EXCL|O_NOFOLLOW), then rename: the
+      // name is predictable and sits in the session-writable common dir, so a plain
+      // writeFileSync there followed a planted symlink (or blocked on a FIFO).
       const tmp = `${cacheFile}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify({ schema: CACHE_SCHEMA, entries: kept }));
-      fs.renameSync(tmp, cacheFile);
+      writeFreshThenRename(tmp, cacheFile, JSON.stringify({ schema: CACHE_SCHEMA, entries: kept }), 0o644);
     } catch { /* a cache that cannot be written costs speed, not correctness */ }
   }
   return { ok: true, ref: target, tip, cutover, ...foldRecords(records), cached: false };
@@ -956,13 +979,14 @@ function newSameChangeMemo() {
 function readLandingLedger(repoDir, opts) {
   const common = gitOk(repoDir, ["rev-parse", "--path-format=absolute", "--git-common-dir"], opts).trim();
   if (!common) throw new Error(`landed-map: no git common dir for ${repoDir}`);
-  let text;
-  try {
-    text = fs.readFileSync(path.join(common, LANDING_LEDGER_REL), "utf8");
-  } catch (e) {
-    if (e && e.code === "ENOENT") return new Map();
-    throw new Error(`landed-map: landing ledger unreadable: ${e.message}`);
+  // Non-blocking, decided on the opened fd, bounded: a FIFO, symlink or oversized
+  // ledger is UNREADABLE (a throw) — "could not read" is not "no landing".
+  const got = readRegularFileBounded(path.join(common, LANDING_LEDGER_REL), { maxBytes: LANDING_LEDGER_MAX_BYTES });
+  if (!got.ok) {
+    if (got.code === "ENOENT") return new Map();
+    throw new Error(`landed-map: landing ledger unreadable: ${got.reason}`);
   }
+  const text = got.text;
   const out = new Map();
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;

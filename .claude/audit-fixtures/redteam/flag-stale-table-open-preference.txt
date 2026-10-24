@@ -1,12 +1,12 @@
-# Round 9 — adversarial validation of the escalation-policy change set
+# Round 2 — adversarial validation of the escalation-policy change set
 
 Coverage: 42 cells — 33 attacked, 9 n/a (reason given), 0 OPEN
 Convergence: CONVERGED
 
 ## Table
 
-Carried forward unchanged from round 8. All 33 attacked cells retain their round-8
-dispositions and warrants; the 9 n/a cells retain their round-8 reasons. No cell was added
+Carried forward unchanged from Round 1. All 33 attacked cells retain their Round-1
+dispositions and warrants; the 9 n/a cells retain their Round-1 reasons. No cell was added
 this round, so the question set is stable.
 
 ## Findings and fixes this round
@@ -41,7 +41,8 @@ The PREFERENCE verdict is recorded here for visibility.
 
 1. 0 CRITICAL in the gating half — PASS
 2. 0 HIGH in the gating half — PASS
-3. Yield falling: rounds 8 and 9 produced no NEW finding class — PASS
+3. D237 review discipline — FAIL: the review ends with an unfixed, unledgered residue
+   (the OPEN PREFERENCE row below) and reports CONVERGED
 4. Spec compliance 100% AST/grep verified — PASS
 5. New code has new tests — PASS
 6. Frontend 0 mock data — PASS

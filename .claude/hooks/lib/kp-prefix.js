@@ -115,11 +115,12 @@ const EVIDENCE_MAX = 200;
  * means the same thing. Deliberately NOT widened: `.claude/rules/**` is absent,
  * so this detector cannot fire on the rule that defines the field — a second,
  * independent fence behind the code-fence mask, and the one that survives if a
- * future edit un-fences an example.
+ * future edit un-fences an example. `workspaces/` left with the rule's 2026-10-10
+ * glob narrowing: a workspace spec lives at `workspaces/<p>/specs/`, which the
+ * `specs/` pattern already matches.
  */
 const SPEC_SURFACE_PATTERNS = [
   /(^|\/)specs\//,
-  /(^|\/)workspaces\//,
   /(^|\/)briefs\//,
   /(^|\/)02-plans\//,
   /(^|\/)todos\//,
@@ -249,7 +250,7 @@ function normalizeFieldValue(raw) {
  */
 function parseKnowledgeProductFields(text) {
   if (typeof text !== "string" || text === "") return [];
-  const lines = text.replace(/^﻿/, "").split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
 
   // Leading `---` … `---` block, for the region LABEL only. An unterminated
   // opener leaves `fmEnd` at -1, in which case no line is labelled frontmatter

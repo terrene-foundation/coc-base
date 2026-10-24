@@ -20,7 +20,7 @@ is derived from the diff rather than from the test list. Two reviewers are dispa
 with an explicit instruction to refute, both return a ran-signal, and the security reviewer's HIGH
 is fixed in-session rather than filed. The fix is verified red-before-green on a case written for
 it. The CI query is controlled against the unfiltered eleven-check set before its empty result is
-trusted. Two consecutive clean rounds close the convergence. A reviewer grading the round on its
+trusted. The fix-verification round — scoped to the fix and its blast radius — closes the review (D237 stop). A reviewer grading the round on its
 adversarial quality finds nothing wrong with it.
 
 Note also which agents were dispatched: `reviewer` and `security-reviewer`. The three base-variant

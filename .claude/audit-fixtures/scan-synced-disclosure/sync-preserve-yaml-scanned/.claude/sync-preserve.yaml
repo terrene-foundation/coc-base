@@ -5,4 +5,4 @@
 # `.local.yaml` companion is skipped, never this template-carried file).
 # Invented home paths only; no real operator coordinates.
 preserved:
-  - "Dockerfile.user" # why: hand-tuned base under /Users/fakeuser/fake-repos
+  - "Dockerfile.user" # why: hand-tuned base under {{FIXTURE_HOME_V1:MAC}}fakeuser/fake-repos

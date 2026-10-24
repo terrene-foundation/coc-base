@@ -40,16 +40,15 @@
  * while every surface reported the lane covered — the pattern `ci-runner-saturation-guard.js`
  * records and measured.
  *
- * FAILS OPEN ON EVERY UNKNOWN (`cc-artifacts.md` Rule 7): no payload, no command, a library that
- * will not load, a gate that will not construct, the 5 s timer — all pass the call through. A
- * broken override channel degrades a block to halt-and-report rather than refusing with no escape.
- *
- * ACCEPTED RESIDUAL — FAIL-OPEN IS REACHABLE ON PURPOSE. The paragraph above is a disposition;
- * this names its cost. An input crafted to make a sub-parse THROW, or to outlast the 5 s timer,
- * is classified SILENT and the command runs. That is accepted, not deferred: the alternative is a
- * guard that wedges ordinary shell work on its own parse bugs, which is how a guard gets switched
- * off. The layer that sees what gets through is the process-table backstop, which reads processes
- * rather than command strings and so cannot be defeated by a spelling.
+ * FAILS CLOSED ON A RUN THAT CANNOT FINISH (`cc-artifacts.md` Rule 7, deny rows): the run is
+ * owned by `lib/guard-runner.js::runGuard`, so a throw (a sub-parse, a library that will not load),
+ * a run past the budget, or an unreadable payload REFUSES the call — on every host, not only Codex.
+ * The earlier disposition accepted the opposite on purpose (an input crafted to make a sub-parse
+ * throw, or to outlast the 5 s timer, ran the command); that residual is CLOSED, because any input
+ * that made this guard throw was a bypass of it. What still passes is a COMPLETED verdict: a call
+ * with no command, or a command the classifier reads as no load generator. A broken override
+ * channel still degrades a block to halt-and-report rather than refusing with no escape — that is
+ * a verdict the guard reaches and reports, not a crash.
  *
  * NAMED RESIDUAL — the halt-and-report HEAD. The shared renderer (`lib/instruct-and-wait.js`)
  * heads a `halt-and-report` "NOT BLOCKED — the action ALREADY RAN", which is not true at the
@@ -68,10 +67,35 @@
  * this lane has not measured it.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/load-authz/synthetic-load-allow",
+ *       ".claude/load-authz/.override-claim-<mkdtemp>/receipt",
+ *       "<main-checkout>/.claude/learning/override-receipt-uses.jsonl"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "On a block-class call with a matching, unexpired receipt, consumption renames the public receipt into a private same-parent 0700 `.override-claim-<mkdtemp>/receipt`, validates the claimed bytes, records the use under the main checkout, then cleans up the private claim. Validation or recording failure restores the original inode bytes without overwriting a newer public receipt; a collision retains private custody and reports refusal. Recorded cleanup failure never rearms the public receipt. Source: .claude/hooks/lib/override-receipt.js:656-685,896-1005. The consumed receipt cannot authorize a repeat payload, so idempotent is false. spawns: one `git rev-parse --path-format=absolute --show-toplevel --git-common-dir` (via lib/event-git.js) on the block path, to find the MAIN checkout for receipt lookup, and on the honour path the main-checkout probe lib/append-sink.js::mainCheckoutBoundaryRoots makes for the use ledger (same canonical question). Receipt candidates resolve in the invoking tree or a resolved root."
+ * }
+ */
+
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
-const TIMEOUT_MS = 5000;
+const { runGuard } = require("./lib/guard-runner.js");
+const { emit } = require("./lib/instruct-and-wait.js");
+
+// The out-of-engine run budget handed to runGuard (inside the dispatcher the row's own
+// registered 8s is the bound and this value is unused). It bounds the WHOLE run, and a
+// run past it is REFUSED, not passed through: 6500 sits below the 8s registration
+// (measured direct run 1.9s under load, dispatch-registry `_timeout_note`).
+const TIMEOUT_MS = 6500;
 const RECEIPT_REL = ".claude/load-authz/synthetic-load-allow";
 const ENV_VAR = "COC_ALLOW_SYNTHETIC_LOAD";
 
@@ -108,17 +132,38 @@ function mainCheckoutRoots(cwd, env) {
   if (typeof e.CLAUDE_PROJECT_DIR === "string" && e.CLAUDE_PROJECT_DIR) roots.push(e.CLAUDE_PROJECT_DIR);
   try {
     const { resolveGitBinary, gitEnv } = require(path.join(__dirname, "lib", "git-subprocess-env.js"));
+    const { askOnce, eventGitKey } = require(path.join(__dirname, "lib", "event-git.js"));
+    // Canonical common-dir argv; sharing requires the complete question key:
+    // binary, cwd, argv and envelope (.claude/hooks/lib/event-git.js:53-56).
+    // Matching argv alone does not share answers across environment profiles.
+    const CANONICAL = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
     const bin = resolveGitBinary();
     if (bin) {
-      const out = execFileSync(bin, ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-        cwd,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 1500,
-        killSignal: "SIGKILL",
-        env: gitEnv(),
-      });
-      const common = String(out || "").trim();
+      const probe = askOnce(
+        eventGitKey({ gitBin: bin, cwd, args: CANONICAL, envelope: "gitEnv" }),
+        () => {
+          try {
+            const out = execFileSync(bin, CANONICAL, {
+              cwd,
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+              timeout: 1500,
+              killSignal: "SIGKILL",
+              env: gitEnv(),
+            });
+            return { ok: true, value: String(out || "").trim() };
+          } catch (err) {
+            return { ok: false, reason: String((err && err.message) || err) };
+          }
+        },
+      );
+      const lines = probe.ok
+        ? String(probe.value || "")
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      const common = lines.length ? lines[lines.length - 1] : "";
       if (common && path.basename(common) === ".git") roots.push(path.dirname(common));
     }
   } catch {
@@ -176,17 +221,18 @@ function haltPayload(findings, safeField, note) {
  * @param {string}   o.cwd          the invoking tree (receipt candidate #1)
  * @param {object}   [o.env]        environment for the override channel; defaults to process.env
  * @param {function} [o.extraRoots] `() => string[]` extra receipt roots; defaults to the main checkout
+ * @param {string}   [o.toolName]   the payload's `tool_name` — part of the call digest a receipt
+ *                                  must name (`lib/override-receipt.js` § THE CALL DIGEST)
+ * @param {object}   [o.consumer]   the consuming party's identity for the use ledger
+ *                                  (`lib/override-receipt.js::consumerOf(payload)`)
  */
-function decide({ command, cwd, env, extraRoots } = {}) {
+function decide({ command, cwd, env, extraRoots, toolName, consumer } = {}) {
   if (typeof command !== "string" || !command.trim()) return null;
-  let L;
-  let O;
-  try {
-    L = require(path.join(__dirname, "lib", "synthetic-load.js"));
-    O = require(path.join(__dirname, "lib", "override-receipt.js"));
-  } catch {
-    return null;
-  }
+  // A library that will not load is NOT "no finding": it throws out of here, and the run
+  // that cannot finish is refused (guard-runner.js::runGuard / the dispatcher's
+  // on_incomplete:"deny"). Returning null here used to make a missing lib a silent allow.
+  const L = require(path.join(__dirname, "lib", "synthetic-load.js"));
+  const O = require(path.join(__dirname, "lib", "override-receipt.js"));
   const findings = L.classifyCommand(command);
   if (!Array.isArray(findings) || findings.length === 0) return null;
   const safeField = O.safeField;
@@ -211,7 +257,15 @@ function decide({ command, cwd, env, extraRoots } = {}) {
   }
 
   const list = describe(findings, safeField);
-  const override = gate.resolveOverride(effectiveEnv);
+  // THE CALL DIGEST — a receipt lifts only the command it was written for: this tool, this
+  // exact command string, and the ids of the findings that block it. The command is the
+  // digest's principal input for every shell tool (`callPromptOf` reads `command`).
+  const digest = O.callDigestOf(
+    typeof toolName === "string" ? toolName : "",
+    { command },
+    blocks.map((f) => f.rule_id),
+  );
+  const override = gate.resolveOverride({ digest, env: effectiveEnv, consumer });
   if (override) {
     return {
       hookEvent: "PreToolUse",
@@ -248,7 +302,7 @@ function decide({ command, cwd, env, extraRoots } = {}) {
         "instead: force the budget, inject a clock, or stub the slow call.",
       "Do not generate load another way (a different tool, a busy loop, a wrapper, a nested shell) — " +
         "that is the same act under a new spelling.",
-      `Only if generating load is itself the task the operator assigned: ${gate.formatOverrideInstruction()}`,
+      `Only if generating load is itself the task the operator assigned: ${gate.formatOverrideInstruction(digest)}`,
     ],
     agent_must_wait:
       "Do not re-issue this command or any respelling of it. Reproduce the failure without load; use " +
@@ -257,64 +311,42 @@ function decide({ command, cwd, env, extraRoots } = {}) {
   };
 }
 
-module.exports = { decide, mainCheckoutRoots, RECEIPT_REL, ENV_VAR, TIMEOUT_MS, hookMain };
+// main — the decision over the PARSED payload. guard-runner.js reads and parses stdin
+// (an empty, unparseable or non-object payload REFUSES there and never reaches here)
+// and owns the budget. Nothing below catches a throw: a classifier or library failure
+// is a run that never reached a verdict, which the runner (or, in the engine, the
+// dispatcher's on_incomplete:"deny") refuses. The old `.catch` passed the call through
+// on every host but Codex — a throw was a bypass of this guard.
+function main(payload) {
+  const command = payload.tool_input && payload.tool_input.command;
+  if (typeof command !== "string" || !command) return passthrough();
+  let consumer;
+  try {
+    consumer = require(path.join(__dirname, "lib", "override-receipt.js")).consumerOf(payload);
+  } catch {
+    consumer = undefined; // identity is ledger metadata; its absence never decides anything
+  }
+  const decision = decide({
+    command,
+    cwd: payload.cwd || process.cwd(),
+    env: process.env,
+    toolName: payload.tool_name,
+    consumer,
+  });
+  if (!decision) return passthrough();
+  return emit(decision);
+}
+
+function passthrough() {
+  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+  process.exit(0);
+}
 
 // hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
-// in-process by lib/hook-engine.js (dispatch.js). It is the body the CLI guard
-// used to hold, unchanged except that it returns the stdin promise.
-function hookMain() {
-  let timer = null;
-  const passthrough = () => {
-    if (timer) clearTimeout(timer);
-    try {
-      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-    } catch {
-      // stdout gone; exiting 0 still lets the call through
-    }
-    process.exit(0);
-  };
-  // cc-artifacts.md Rule 7 — a hung guard blocks the session; a bounded one passes the call through.
-  timer = setTimeout(passthrough, TIMEOUT_MS);
-  if (typeof timer.unref === "function") timer.unref();
+// in-process by lib/hook-engine.js (dispatch.js). A require() has no side effects.
+const hookMain = runGuard("synthetic-load-guard", main, { budgetMs: TIMEOUT_MS });
 
-  let readStdinBounded;
-  try {
-    ({ readStdinBounded } = require(path.join(__dirname, "lib", "read-stdin-bounded.js")));
-  } catch {
-    passthrough();
-  }
-  return readStdinBounded({ fallback: null })
-    .then((payload) => {
-      if (!payload || typeof payload !== "object") return passthrough();
-      const command = payload.tool_input && payload.tool_input.command;
-      if (typeof command !== "string" || !command) return passthrough();
-      const decision = decide({ command, cwd: payload.cwd || process.cwd(), env: process.env });
-      if (!decision) return passthrough();
-      let emit;
-      try {
-        ({ emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js")));
-      } catch {
-        return passthrough();
-      }
-      clearTimeout(timer);
-      return emit(decision);
-    })
-    .catch((e) => {
-      try {
-        process.stderr.write(`[synthetic-load-guard] HOOK ERROR: ${e && e.message ? e.message : e}\n`);
-      } catch {
-        // ignore
-      }
-      // Codex's boundary must distinguish a failed validator from a clean
-      // early return. Other hosts retain the historical advisory fallback.
-      if (process.env.COC_RUNTIME === "codex") {
-        clearTimeout(timer);
-        process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-        process.exit(1);
-      }
-      passthrough();
-    });
-}
+module.exports = { decide, mainCheckoutRoots, RECEIPT_REL, ENV_VAR, TIMEOUT_MS, hookMain };
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The

@@ -31,7 +31,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
+import Module, { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
@@ -289,6 +289,25 @@ const NO_PROTECTED_PATH_FIXTURES = new Set([
   "detectStateFileMutation/clean-s4-find-name-delete-nonstate-root",
 ]);
 
+const EXACT_FIXTURE_TARGETS = new Map([
+  ["detectStateFileMutation/flag-rm-posture", [".claude/learning/posture.json"]],
+  ["detectStateFileMutation/flag-s65-dotgit-dquote-still-blocked", [".git"]],
+  ["detectStateFileMutation/flag-s65-dotgit-squote-still-blocked", [".git"]],
+  ["detectStateFileMutationSegmentAware/flag-1399-version-cp-forged-overwrite", [".claude/VERSION"]],
+  ["detectStateFileMutationSegmentAware/flag-1681-traversal-layer2-cp-in-tree", [".claude/learning/../learning/posture.json"]],
+  ["detectStateFileMutationSegmentAware/flag-1703-scope-layer2-cp-live-in-tree", [".claude/learning/posture.json"]],
+  ["detectStateFileMutationSegmentAware/flag-body-flag-token-in-quoted-prose-then-real-rm", [".claude/learning/posture.json"]],
+  ["detectStateFileMutationSegmentAware/flag-chained-rm-after-commit", [".claude/learning/posture.json"]],
+  ["detectStateFileMutationSegmentAware/flag-direction-cp-destination-is-posture-state-other-directory", [".claude/learning/posture.json"]],
+  ["detectStateFileMutationSegmentAware/flag-direction-cp-destination-is-the-state-file", [".claude/VERSION"]],
+  ["detectStateFileMutationSegmentAware/flag-direction-cp-unresolvable-repo-shaped-destination", ["$DEST/.claude/VERSION"]],
+  ["detectStateFileMutationSegmentAware/flag-direction-dd-of-is-the-state-file", [".claude/VERSION"]],
+  ["detectStateFileMutationSegmentAware/flag-direction-ln-destination-is-the-state-file", [".claude/VERSION"]],
+  ["detectStateFileMutationSegmentAware/flag-real-rm-quoted-operand", [".claude/learning/posture.json"]],
+  ["detectStateFileMutationSegmentAware/flag-title-body-token-in-quoted-prose-then-real-rm", [".claude/learning/posture.json"]],
+  ["detectStateFileMutationSegmentAware/flag-verb-position-ln-symlink-settings", [".claude/settings.json"]],
+]);
+
 function runFixtureDir(dir, detector) {
   const abs = path.join(HERE, "..", dir);
   const names = fs
@@ -296,6 +315,20 @@ function runFixtureDir(dir, detector) {
     .filter((f) => f.endsWith(".txt"))
     .map((f) => f.slice(0, -4))
     .sort();
+  // EMPTY-DENOMINATOR GUARD (operator-ratified Gate-1 port, 2026-10-06). A fixture
+  // directory that yields zero .txt files generates zero `test()` calls, and a suite
+  // that runs no tests passes — so renaming or moving the fixtures would disarm this
+  // detector's entire corpus without a single red. The same shape the coverage fence
+  // closes in scan-synced-disclosure.mjs, applied to the apparatus that guards the
+  // detectors (`verification-gate-integrity.md` MUST-2 — absence of a result is not a
+  // pass; `instrument-discipline.md` MUST-3(a) — a never-shown-to-fire instrument).
+  test(`${dir}/<fixture corpus is non-empty>`, () => {
+    assert.ok(
+      names.length > 0,
+      `${dir} yielded no .txt fixtures, so every assertion below it would be ` +
+        `silently skipped and this suite would pass having tested nothing.`,
+    );
+  });
   for (const name of names) {
     test(`${dir}/${name}`, () => {
       const cmd = fs.readFileSync(path.join(abs, name + ".txt"), "utf8");
@@ -335,31 +368,10 @@ function runFixtureDir(dir, detector) {
         );
       }
       const got = detector(cmd, rx, optsFor(name, cmd));
-      // loom#1703 — the verdict gained a THIRD field, `scope`, reporting HOW the
-      // protected path was decided ("in-tree" = candidate and boundary root both
-      // canonicalized and it landed inside; "unresolved" = a `$VAR`/glob/`$(…)`
-      // the hook refuses to expand, failed closed). A whole-object deepEqual
-      // would have forced a mechanical rewrite of all 100+ `.expected` files to
-      // re-state a field none of them is about, so the layer/kind contract is
-      // compared on its OWN and `scope` is asserted only where a fixture opts in
-      // via `expected.scope`. NOT laxity: the two poles that exist to pin scope
-      // (`clean-1703-*` sandbox / `flag-1703-*` in-tree + unresolved) declare it,
-      // and `scope-declared-somewhere` below refuses to let the set go empty.
-      const { scope: gotScope, ...gotCore } = got || {};
-      const { scope: wantScope, ...wantCore } = expected || {};
-      assert.deepEqual(
-        got ? gotCore : got,
-        expected ? wantCore : expected,
-        `fixture ${dir}/${name}: expected ${JSON.stringify(
-          expected,
-        )}, got ${JSON.stringify(got)}`,
-      );
-      if (wantScope !== undefined) {
-        assert.equal(
-          gotScope,
-          wantScope,
-          `fixture ${dir}/${name}: expected scope=${wantScope}, got scope=${gotScope}`,
-        );
+      assertVerdict(got, expected, `fixture ${dir}/${name}`);
+      if (EXACT_FIXTURE_TARGETS.has(`${dir}/${name}`)) {
+        assert.deepEqual(got?.targets, EXACT_FIXTURE_TARGETS.get(`${dir}/${name}`),
+          `fixture ${dir}/${name}: exact literal write operands`);
       }
     });
   }
@@ -456,17 +468,86 @@ test("every NO_PROTECTED_PATH_FIXTURES entry names a fixture that exists", () =>
 const DIRECTIONAL_RX = /\.claude\/(?:learning\/posture\.json|settings\.json)\b/;
 const PROTECTED = ".claude/learning/posture.json";
 
-// loom#1703 — these two rows assert on the {layer,kind} CONTRACT; the verdict
-// gained an orthogonal `scope` field. Drop it here for the same reason
-// runFixtureDir does, and for the same non-laxity reason: neither directional
-// invariant is ABOUT path identity, and both were re-measured against
-// origin/main at this change (site 1 discriminating: {layer:2,kind:"rm"} on
-// both; site 2 wide: {layer:3,kind:"node (interpreter)"} on both; both null
-// cases null on both), so the properties they pin are demonstrably intact.
+const VERDICT_METADATA = new Set(["targets", "scope"]);
+function assertVerdict(got, expected, label = "verdict") {
+  if (expected === null) {
+    assert.equal(got, null, label);
+    return;
+  }
+  assert.ok(got && typeof got === "object" && !Array.isArray(got), label);
+  for (const key of Object.keys(expected)) {
+    assert.ok(Object.hasOwn(got, key), `${label}: missing declared key: ${key}`);
+    assert.deepEqual(got[key], expected[key], `${label}: declared key: ${key}`);
+  }
+  for (const key of Object.keys(got)) {
+    if (!Object.hasOwn(expected, key)) {
+      assert.ok(VERDICT_METADATA.has(key), `${label}: undeclared result key: ${key}`);
+    }
+  }
+}
+
+test("verdict comparator: exact declared keys and closed optional metadata", (t) => {
+  const expected = { layer: 2, kind: "rm" };
+  const got = { ...expected, scope: "in-tree", targets: [PROTECTED] };
+  assertVerdict(got, expected);
+  assertVerdict(got, { ...got });
+  assertVerdict(null, null);
+  for (const bad of [null, { kind: "rm" }, { ...got, layer: 3 }, { ...got, kind: "cp" }]) {
+    assert.throws(() => assertVerdict(bad, expected), assert.AssertionError);
+  }
+  assert.throws(() => assertVerdict(got, { ...expected, targets: ["other.json"] }), /declared key: targets/);
+  assert.throws(() => assertVerdict(got, { ...expected, scope: "unresolved" }), /declared key: scope/);
+  assert.throws(() => assertVerdict(got, { ...expected, missing: true }), /missing declared key: missing/);
+  assert.throws(() => assertVerdict(got, null), assert.AssertionError);
+  const extra = { ...got, undeclared: true };
+  const checkExtra = (error) => assert.match(error?.message || "", /undeclared result key: undeclared/);
+  let observed;
+  try { assertVerdict(extra, expected); } catch (error) { observed = error; }
+  checkExtra(observed);
+
+  const anchor = 'assert.ok(VERDICT_METADATA.has(key), `${label}: undeclared result key: ${key}`);';
+  const source = assertVerdict.toString();
+  assert.equal(source.split(anchor).length, 2, "closed-metadata mutation reached once");
+  const mutated = source.replace(anchor, "void key;")
+    .replace('  if (expected === null)', '  module.exports.hits++;\n  if (expected === null)');
+  const instance = new Module(HOOKS_LIB);
+  instance.exports.hits = 0;
+  instance._compile('const assert = require("node:assert/strict");\n' +
+    mutated + '\nmodule.exports.compare = assertVerdict;', HOOKS_LIB);
+  let mutantError;
+  try { instance.exports.compare(extra, expected); } catch (error) { mutantError = error; }
+  assert.equal(instance.exports.hits, 1, "mutated comparator body reached");
+  assert.equal(mutantError, undefined, "removing the metadata fence accepted the extra key");
+  assert.throws(() => checkExtra(mutantError), assert.AssertionError);
+  t.diagnostic("REACHED comparator metadata fence: undeclared-key assertion RED with fence removed");
+
+  const command = "rm .claude/settings.json";
+  const wantTarget = { layer: 2, kind: "rm", targets: [".claude/settings.json"] };
+  const targetSource = fs.readFileSync(HOOKS_LIB, "utf8");
+  const targetAnchor = "{ targets: removed }";
+  assert.equal(targetSource.split(targetAnchor).length, 2);
+  const targetModule = new Module(HOOKS_LIB);
+  targetModule.filename = HOOKS_LIB;
+  targetModule.paths = Module._nodeModulePaths(path.dirname(HOOKS_LIB));
+  targetModule._compile("let targetMetadataHits = 0;\n" +
+    targetSource.replace(targetAnchor, '{ targets: (targetMetadataHits++, ["other.json"]) }') +
+    "\nmodule.exports.targetMetadataHits = () => targetMetadataHits;\n", HOOKS_LIB);
+  for (const name of ["detectStateFileMutation", "detectStateFileMutationSegmentAware"]) {
+    assertVerdict(require(HOOKS_LIB)[name](command, STATE_PATH_RX), wantTarget);
+    const before = targetModule.exports.targetMetadataHits();
+    const targetMutant = targetModule.exports[name](command, STATE_PATH_RX);
+    assert.ok(targetModule.exports.targetMetadataHits() > before, "mutated metadata return reached: " + name);
+    assert.deepEqual(targetMutant.targets, ["other.json"]);
+    assert.throws(() => assertVerdict(targetMutant, wantTarget), /declared key: targets/);
+    t.diagnostic("REACHED target metadata " + name + ": exact target assertion RED with changed operand");
+  }
+});
+
 const core = (v) => {
   if (!v) return v;
-  const { scope: _scope, ...rest } = v;
-  return rest;
+  const identity = { layer: v.layer, kind: v.kind };
+  assertVerdict(v, identity);
+  return identity;
 };
 
 test("directional site 1 (heredoc bodyInert): converting to quote-aware would be FAIL-OPEN", () => {
@@ -633,6 +714,117 @@ test("empty / null input returns null without throwing", () => {
 // #1337 scope fix introduced, so a future edit to either cannot silently change
 // the segment scoping or the shared read-vs-write predicate.
 
+function restoredCommentModules() {
+  const source = fs.readFileSync(HOOKS_LIB, "utf8");
+  const anchor = '    if (newlineSeparates && ch === "\\n") {';
+  assert.equal(source.split(anchor).length, 2, "splitter restoration anchor reached once");
+  const restored = [
+    '    if (ch === "#" && (i === 0 || /[\\s;&|()]/.test(command[i - 1]))) {',
+    '      restoredCommentHits++;',
+    '      while (i < n && command[i] !== "\\n") { current += " "; i++; }',
+    '      continue;',
+    '    }',
+  ].join("\n") + "\n";
+  const parserFile = path.join(path.dirname(HOOKS_LIB), "git-command-parse.js");
+  const lib = new Module(HOOKS_LIB);
+  const parser = new Module(parserFile);
+  for (const [instance, filename] of [[lib, HOOKS_LIB], [parser, parserFile]]) {
+    instance.filename = filename;
+    instance.paths = Module._nodeModulePaths(path.dirname(filename));
+    instance.require = function (id) {
+      if (id.endsWith("violation-patterns.js")) return lib.exports;
+      if (id.endsWith("git-command-parse.js")) return parser.exports;
+      return Module.prototype.require.call(this, id);
+    };
+  }
+  lib._compile("let restoredCommentHits = 0;\n" + source.replace(anchor, restored + anchor) +
+    "\nmodule.exports.restoredCommentHits = () => restoredCommentHits;\n", HOOKS_LIB);
+  parser._compile(fs.readFileSync(parserFile, "utf8"), parserFile);
+  return { lib: lib.exports, parser: parser.exports };
+}
+
+const commentReversalRows = [
+  [
+    "C01",
+    "echo `echo #`; "
+  ],
+  [
+    "C02",
+    "echo \\ #; "
+  ],
+  [
+    "C03",
+    "echo a\r#; "
+  ],
+  [
+    "C04",
+    "echo a #; "
+  ],
+  [
+    "C05",
+    "echo $(echo a)#; "
+  ],
+  [
+    "C06",
+    "echo ${x:- #}; "
+  ],
+  [
+    "C09",
+    "echo \\;#; "
+  ],
+  [
+    "C10",
+    "echo a\u000b#; "
+  ],
+  [
+    "C16",
+    "echo $((1))#; "
+  ],
+  [
+    "C17",
+    "cat <(echo)#; "
+  ],
+  [
+    "C18",
+    "echo ${x/ #/y}; "
+  ],
+  [
+    "C22",
+    "echo `true;#`; "
+  ],
+  [
+    "C23",
+    "echo \\|#; "
+  ]
+];
+const stateCommentRows = new Set(["C02", "C03", "C04", "C06", "C09", "C10", "C17", "C18", "C22", "C23"]);
+const gitCommentRows = new Set(["C01", "C05", "C09", "C16", "C17", "C22", "C23"]);
+const baseParser = require(path.join(path.dirname(HOOKS_LIB), "git-command-parse.js"));
+for (const [id, prefix] of commentReversalRows) {
+  if (stateCommentRows.has(id)) test("R1 comment reversal state " + id, (t) => {
+    const command = prefix + 'echo \'{"level":"L5"}\' > .claude/learning/posture.json';
+    const expected = { layer: 1, kind: "redirect" };
+    assertVerdict(detectStateFileMutationSegmentAware(command, STATE_PATH_RX), expected);
+    const mutant = restoredCommentModules();
+    const got = mutant.lib.detectStateFileMutationSegmentAware(command, STATE_PATH_RX);
+    assert.ok(mutant.lib.restoredCommentHits() > 0, id + ": restored comment branch reached");
+    assert.throws(() => assertVerdict(got, expected), assert.AssertionError);
+    t.diagnostic("REACHED R1 state " + id + " hex=" + Buffer.from(prefix).toString("hex") +
+      ": denial assertion RED when fe43773a1 branch restored");
+  });
+  if (gitCommentRows.has(id)) test("R1 comment reversal git " + id, (t) => {
+    const command = prefix + "git reset --hard HEAD";
+    const expected = id === "C22" ? [null, "reset"] : ["reset"];
+    assert.deepEqual(baseParser.parseGitInvocations(command).map((g) => g.sub), expected);
+    const mutant = restoredCommentModules();
+    const got = mutant.parser.parseGitInvocations(command).map((g) => g.sub);
+    assert.ok(mutant.lib.restoredCommentHits() > 0, id + ": restored splitter branch reached");
+    assert.throws(() => assert.deepEqual(got, expected), assert.AssertionError);
+    t.diagnostic("REACHED R1 git " + id + " hex=" + Buffer.from(prefix).toString("hex") +
+      ": reset assertion RED when fe43773a1 branch restored");
+  });
+}
+
 test("splitShellSegments: options default OFF (pre-#1337 callers byte-identical)", () => {
   // No opts → bare strings, newline is NOT a separator.
   assert.deepEqual(splitShellSegments("a && b ; c"), ["a ", " b ", " c"]);
@@ -686,18 +878,18 @@ const scopeOf = (cmd) =>
     boundaryRoots: [REPO_ROOT],
     command: cmd,
   });
-const verdictBoth = (cmd) => ({
-  seg: core(
-    detectStateFileMutationSegmentAware(cmd, STATE_PATH_RX, {
+const verdictBoth = (cmd, metadata = false) => {
+  const project = metadata ? (v) => v : core;
+  return {
+    seg: project(detectStateFileMutationSegmentAware(cmd, STATE_PATH_RX, {
       scope: scopeOf(cmd),
-    }),
-  ),
-  raw: core(
-    detectStateFileMutation(cmd, STATE_PATH_RX, { scope: scopeOf(cmd) }),
-  ),
-});
+    })),
+    raw: project(detectStateFileMutation(cmd, STATE_PATH_RX, { scope: scopeOf(cmd) })),
+  };
+};
 
-const L2 = (kind) => ({ layer: 2, kind });
+const L2 = (kind, targets = [SETTINGS]) => ({ layer: 2, kind, targets });
+const lexicalL2 = (kind) => ({ layer: 2, kind });
 const L1 = (kind) => ({ layer: 1, kind });
 
 // Every one of these is a real mutation of the protected file. The first block is
@@ -713,11 +905,11 @@ const VERB_POSITION_REFUSED = [
   [`true && rm ${SETTINGS}`, L2("rm")],
   [`(rm ${SETTINGS})`, L2("rm")],
   [`{ rm ${SETTINGS}; }`, L2("rm")],
-  [`echo $(rm ${SETTINGS})`, L2("rm")],
+  [`echo $(rm ${SETTINGS})`, lexicalL2("rm")],
   [`sh -c 'rm ${SETTINGS}'`, L2("rm")],
   [`eval "rm ${SETTINGS}"`, L2("rm")],
-  [`xargs rm <<< ${SETTINGS}`, L2("rm")],
-  [`find ${SETTINGS} -exec rm {} \\;`, L2("rm")],
+  [`xargs rm <<< ${SETTINGS}`, lexicalL2("rm")],
+  [`find ${SETTINGS} -exec rm {} \\;`, lexicalL2("rm")],
   [`cp x ${SETTINGS}`, L2("cp")],
   [`cp x "${SETTINGS}"`, L2("cp")],
   [`ln -s x "${SETTINGS}"`, L2("ln")],
@@ -729,26 +921,26 @@ const VERB_POSITION_REFUSED = [
   [`watch rm ${SETTINGS}`, L2("rm")],
   [`exec rm ${SETTINGS}`, L2("rm")],
   [`busybox rm ${SETTINGS}`, L2("rm")],
-  [`rg --pre=rm x ${SETTINGS}`, L2("rm")],
-  [`git -c diff.external=rm diff ${SETTINGS}`, L2("rm")],
+  [`rg --pre=rm x ${SETTINGS}`, lexicalL2("rm")],
+  [`git -c diff.external=rm diff ${SETTINGS}`, lexicalL2("rm")],
   // Command positions the segment splitter does not separate.
   [`sleep 1 & rm ${SETTINGS}`, L2("rm")],
   [`grep -e x file & rm ${SETTINGS}`, L2("rm")],
-  [`grep -e x file&rm ${SETTINGS}`, L2("rm")],
+  [`grep -e x file&rm ${SETTINGS}`, lexicalL2("rm")],
   [`if true; then rm ${SETTINGS}; fi`, L2("rm")],
   [`for f in a; do rm ${SETTINGS}; done`, L2("rm")],
-  [`case x in x) rm ${SETTINGS};; esac`, L2("rm")],
+  [`case x in x) rm ${SETTINGS};; esac`, lexicalL2("rm")],
   [`f() { rm ${SETTINGS}; }`, L2("rm")],
   [`timeout 5 rm ${SETTINGS}`, L2("rm")],
   [`sudo -u root rm ${SETTINGS}`, L2("rm")],
   [`true || ln -s x ${SETTINGS}`, L2("ln")],
   // Executing constructs.
   [`cat <(rm ${SETTINGS})`, L2("rm")],
-  ["echo `rm " + SETTINGS + "`", L2("rm")],
-  [`echo "$(rm ${SETTINGS})"`, L2("rm")],
-  // A comment-opened quote the shell ends at the newline: our quote model and
-  // bash's disagree here, so the fail-closed lexical scan must still see line 2.
-  [`echo x #'\nrm ${SETTINGS}`, L2("rm")],
+  ["echo `rm " + SETTINGS + "`", lexicalL2("rm")],
+  [`echo "$(rm ${SETTINGS})"`, lexicalL2("rm")],
+  // The comment quote leaves this on the lexical fallback after the R1 reversal.
+  // Source: .claude/hooks/lib/violation-patterns.js:3364-3376.
+  [`echo x #'\nrm ${SETTINGS}`, lexicalL2("rm")],
   // Verb spellings the shell resolves to the same command word.
   [`\\rm ${SETTINGS}`, L2("rm")],
   [`"rm" ${SETTINGS}`, L2("rm")],
@@ -768,11 +960,11 @@ const VERB_POSITION_REFUSED = [
   [`find ${SETTINGS} -delete`, L2("rm")],
   [`sudo find ${SETTINGS} -delete`, L2("rm")],
   [`find ${SETTINGS} -name x -delete`, L2("rm")],
-  [`find ${SETTINGS} -execdir rm {} \\;`, L2("rm")],
-  [`find ${SETTINGS} -ok rm {} \\;`, L2("rm")],
-  [`find ${SETTINGS} -okdir rm {} +`, L2("rm")],
-  [`find ${SETTINGS} -exec "rm" {} \\;`, L2("rm")],
-  [`find ${SETTINGS} -exec sh -c 'rm "$1"' _ {} \\;`, L2("rm")],
+  [`find ${SETTINGS} -execdir rm {} \\;`, lexicalL2("rm")],
+  [`find ${SETTINGS} -ok rm {} \\;`, lexicalL2("rm")],
+  [`find ${SETTINGS} -okdir rm {} +`, lexicalL2("rm")],
+  [`find ${SETTINGS} -exec "rm" {} \\;`, lexicalL2("rm")],
+  [`find ${SETTINGS} -exec sh -c 'rm "$1"' _ {} \\;`, lexicalL2("rm")],
   [`find . -fprint ${SETTINGS}`, L1("find-fprint")],
   [`find . -fprintf ${SETTINGS} '%p'`, L1("find-fprint")],
   [`find . -fls ${SETTINGS}`, L1("find-fprint")],
@@ -786,8 +978,8 @@ const VERB_POSITION_REFUSED = [
   // An UNREADABLE split string takes the lexical fallback, exactly like
   // `sh -c "$CMD"`. The trailing `-ln` is there to make the route observable: the
   // parsed dispatch would call it a flag, the lexical scan still reads `ln`.
-  [`env -S "$CMD" -ln ${SETTINGS}`, L2("ln")],
-  [`sh -c "$CMD" -ln ${SETTINGS}`, L2("ln")],
+  [`env -S "$CMD" -ln ${SETTINGS}`, lexicalL2("ln")],
+  [`sh -c "$CMD" -ln ${SETTINGS}`, lexicalL2("ln")],
   // Command-running wrappers (`git-command-parse.js::COMMAND_RUNNING_WRAPPERS`).
   // Each was null from both entry points before this lane's third change: the
   // word scan over an unknown command reads a MASKED view, so a quoted body or a
@@ -808,10 +1000,10 @@ const VERB_POSITION_REFUSED = [
   [`su root --command='rm ${SETTINGS}'`, L2("rm")],
   [`script --command 'rm ${SETTINGS}'`, L2("rm")],
   [`arch -e FOO=1 -arch arm64 find . -fprint "${SETTINGS}"`, L1("find-fprint")],
-  [`parallel -j 4 'rm {}' ::: ${SETTINGS}`, L2("rm")],
+  [`parallel -j 4 'rm {}' ::: ${SETTINGS}`, lexicalL2("rm")],
   [`chroot --userspec=u:g / sh -c 'rm ${SETTINGS}'`, L2("rm")],
   // A KNOWN wrapper whose bare-word skip swallowed the real command name.
-  [`nice rg --pre=rm x ${SETTINGS}`, L2("rm")],
+  [`nice rg --pre=rm x ${SETTINGS}`, lexicalL2("rm")],
   // PREFIX RUNNERS added with the load guard (`GIT_WRAPPERS`). The bipolar
   // fixture pairs use the QUOTED-BODY spelling, because that is the one
   // membership decides: measured against an unmodelled name on this tree,
@@ -839,7 +1031,7 @@ const VERB_POSITION_REFUSED = [
   [`toybox find ${SETTINGS} -fprint "${SETTINGS}"`, L1("find-fprint")],
   // shadow-utils `sg` — the named-open residual a9dedb29c left behind.
   [`sg staff -c 'rm ${SETTINGS}'`, L2("rm")],
-  [`sg - staff -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`sg - staff -c 'rm ${SETTINGS}'`, lexicalL2("rm")],
   // `nix-shell`'s positional operand is a `.nix` FILE, so only its body options
   // run anything a fence can see.
   [`nix-shell -p coreutils --run 'rm ${SETTINGS}'`, L2("rm")],
@@ -872,8 +1064,8 @@ const VERB_POSITION_REFUSED = [
   // Constructs the parser reports as undecidable keep today's lexical verdict,
   // INCLUDING its false positive: an ANSI-C quote desyncs the quote model and an
   // unterminated quote leaves the segmentation untrusted.
-  [`echo $'\\'' ; git grep -ln x -- ${SETTINGS}`, L2("ln")],
-  [`git grep -ln 'x -- ${SETTINGS}`, L2("ln")],
+  [`echo $'\\'' ; git grep -ln x -- ${SETTINGS}`, lexicalL2("ln")],
+  [`git grep -ln 'x -- ${SETTINGS}`, lexicalL2("ln")],
 ];
 
 const VERB_POSITION_ALLOWED = [
@@ -939,9 +1131,9 @@ const VERB_POSITION_ALLOWED = [
 
 for (const [cmd, want] of VERB_POSITION_REFUSED) {
   test(`verb position — REFUSED with identity ${want.layer}:${want.kind}: ${JSON.stringify(cmd)}`, () => {
-    const got = verdictBoth(cmd);
-    assert.deepEqual(got.seg, want, `segment-aware entry point: ${JSON.stringify(got.seg)}`);
-    assert.deepEqual(got.raw, want, `layer implementation: ${JSON.stringify(got.raw)}`);
+    const got = verdictBoth(cmd, true);
+    assertVerdict(got.seg, want, `segment-aware entry point: ${JSON.stringify(got.seg)}`);
+    assertVerdict(got.raw, want, `layer implementation: ${JSON.stringify(got.raw)}`);
   });
 }
 
@@ -1004,11 +1196,11 @@ test("RESIDUAL: stdin-fed xargs operands are undetected, by decision", () => {
   // — so this row pins a boundary, not a blind spot in the verb scan.
   assert.deepEqual(verdictBoth(`echo ${SETTINGS} | xargs rm`), {
     seg: null,
-    raw: L2("rm"),
+    raw: lexicalL2("rm"),
   });
   assert.deepEqual(verdictBoth(`xargs rm ${SETTINGS}`), {
-    seg: L2("rm"),
-    raw: L2("rm"),
+    seg: lexicalL2("rm"),
+    raw: lexicalL2("rm"),
   });
   // A here-string is not stdin from a PIPE — the operand is still in the segment,
   // and `xargs rm <<< <settings>` is refused (pinned in VERB_POSITION_REFUSED
@@ -1022,14 +1214,14 @@ test("RESIDUAL: stdin-fed xargs operands are undetected, by decision", () => {
   );
   assert.deepEqual(
     verdictBoth(`find . -path ./.git -prune -o -name '*.tmp' -print | xargs rm`),
-    { seg: null, raw: L2("rm") },
+    { seg: null, raw: lexicalL2("rm") },
   );
   // (iii) INPUT-LIST role — the producer READS the protected file and emits
   // OTHER paths. Token-for-token the shape of (i); only the producer's stdout
   // separates them, and `hook-output-discipline.md` MUST-3 forbids computing it.
   assert.deepEqual(verdictBoth(`jq -r '.paths[]' ${SETTINGS} | xargs rm`), {
     seg: null,
-    raw: L2("rm"),
+    raw: lexicalL2("rm"),
   });
 });
 

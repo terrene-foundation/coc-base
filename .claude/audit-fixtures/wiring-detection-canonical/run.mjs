@@ -39,7 +39,9 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
+import assert from "node:assert/strict";
+import { syncBuiltinESMExports } from "node:module";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..", "..");
@@ -261,6 +263,181 @@ check("G1 duplicate block titles FAIL as title-ambiguous", { "deployment.md": DU
 });
 // The discriminating pole: canonical fields alone do NOT make a block addressable.
 check("G2 the same blocks with DISTINCT titles PASS", { "deployment.md": DISTINCT_TITLES }, { expect: "pass" });
+
+
+function unreadableCase(id, setup, error, subject) {
+  const dir = stage({});
+  try {
+    setup(dir);
+    const out = subject(dir);
+    const hit = out.results.find((r) => r.artifact === "rules/subject.md");
+    assert.equal(hit?.status, "fail", "governance-surface-unreadable must FAIL, never SKIP");
+    assert.equal(hit.reason, "not-run:governance-surface-unreadable");
+    assert.match(hit.detail, /NOT RUN\/UNKNOWN/);
+    assert.match(hit.detail, /rules\/subject\.md/);
+    assert.ok(hit.detail.includes(error), "actual read/refusal error must survive the consumer");
+    return out;
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+function fixtureCase(id, body) {
+  try { body(); pass++; emitPass(id); }
+  catch (e) { fail++; failures.push(id + ": " + e.message); emitFail(id, e.message); }
+}
+const wiringPath = (dir) => path.join(dir, ".claude", "skills", "32-trust-posture", "wiring", "subject.md");
+const basePath = (dir) => path.join(dir, ".claude", "rules", "subject.md");
+const unreadableSetups = [
+  ["H1 base EISDIR is NOT RUN/UNKNOWN", (dir) => fs.mkdirSync(basePath(dir)), "EISDIR"],
+  ["H2 sibling EISDIR is NOT RUN/UNKNOWN", (dir) => {
+    fs.writeFileSync(basePath(dir), "# Rule\n");
+    fs.mkdirSync(wiringPath(dir), { recursive: true });
+  }, "EISDIR"],
+  ["H3 containment-refused sibling is NOT RUN/UNKNOWN", (dir) => {
+    fs.writeFileSync(basePath(dir), "# Rule\n");
+    fs.mkdirSync(path.dirname(wiringPath(dir)), { recursive: true });
+    const outside = path.join(dir, "outside.md");
+    fs.writeFileSync(outside, REAL_BLOCK("Detection mechanism"));
+    fs.symlinkSync(outside, wiringPath(dir));
+  }, "outside the wiring tree"],
+  ["H4 self-loop sibling is NOT RUN/UNKNOWN", (dir) => {
+    fs.writeFileSync(basePath(dir), "# Rule\n");
+    fs.mkdirSync(path.dirname(wiringPath(dir)), { recursive: true });
+    fs.symlinkSync("subject.md", wiringPath(dir));
+  }, "ELOOP"],
+  ["H5 dangling sibling is NOT RUN/UNKNOWN", (dir) => {
+    fs.writeFileSync(basePath(dir), "# Rule\n");
+    fs.mkdirSync(path.dirname(wiringPath(dir)), { recursive: true });
+    fs.symlinkSync("missing-target.md", wiringPath(dir));
+  }, "ENOENT"],
+];
+for (const [id, setup, error] of unreadableSetups) {
+  fixtureCase(id, () => unreadableCase(id, setup, error, checkWiringDetectionCanonical));
+}
+for (const mode of ["unsplit", "split", "missing-optional-wiring"]) {
+  fixtureCase("H readable " + mode + " remains inspected PASS", () => {
+    const dir = stage({ "subject.md": mode === "split" ? "# Rule\n" : REAL_BLOCK("Detection mechanism") });
+    try {
+      if (mode !== "missing-optional-wiring") {
+        fs.mkdirSync(path.dirname(wiringPath(dir)), { recursive: true });
+        fs.writeFileSync(wiringPath(dir), mode === "split" ? REAL_BLOCK("Detection mechanism") : "# Optional notes\n");
+      }
+      const out = checkWiringDetectionCanonical(dir);
+      assert.equal(out.results.length, 1);
+      assert.equal(out.results[0].status, "pass");
+      assert.match(out.results[0].artifact, /1 Wiring block\(s\)/);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+}
+
+
+const directorySetups = [
+  { id: "I1 absent main rules is NOTRUN", area: "rules", error: "ENOENT", setup: (d) => fs.rmSync(path.join(d, ".claude/rules"), { recursive: true }) },
+  { id: "I2 non-directory main rules is NOTRUN", area: "rules", error: "ENOTDIR", setup: (d) => { fs.rmSync(path.join(d, ".claude/rules"), { recursive: true }); fs.writeFileSync(path.join(d, ".claude/rules"), "not a directory"); } },
+  { id: "I3 main rules EACCES is NOTRUN", area: "rules", error: "EACCES", fault: "readdirSync" },
+  { id: "I4 variants tree EACCES is NOTRUN", area: "variants", error: "EACCES", fault: "readdirSync" },
+  { id: "I5 variants tree ELOOP is NOTRUN", area: "variants", error: "ELOOP", link: "variants" },
+  { id: "I6 dangling variants tree is NOTRUN", area: "variants", error: "ENOENT", link: "missing" },
+  { id: "I7 variant rules stat EACCES is NOTRUN", area: "variants/test/rules", error: "EACCES", fault: "statSync" },
+  { id: "I8 variant rules ELOOP is NOTRUN", area: "variants/test/rules", error: "ELOOP", link: "rules" },
+  { id: "I9 dangling variant rules is NOTRUN", area: "variants/test/rules", error: "ENOENT", link: "missing" },
+  { id: "I10 surfaced variant read EACCES is NOTRUN", area: "variants/test/rules", error: "EACCES", fault: "readdirSync" },
+  { id: "I11 surfaced variant read ENOENT is NOTRUN", area: "variants/test/rules", error: "ENOENT", fault: "readdirSync" },
+  { id: "I12 dangling variant root is NOTRUN", area: "variants/test/rules", error: "ENOENT", setup: (d) => { fs.mkdirSync(path.join(d, ".claude/variants")); fs.symlinkSync("missing", path.join(d, ".claude/variants/test")); } },
+  { id: "I13 non-directory variant root is NOTRUN", area: "variants/test/rules", error: "ENOTDIR", setup: (d) => { fs.mkdirSync(path.join(d, ".claude/variants")); fs.writeFileSync(path.join(d, ".claude/variants/test"), "not a variant directory"); } },
+];
+function directoryCase(row, subject = checkWiringDetectionCanonical) {
+  const dir = stage({ "subject.md": REAL_BLOCK("Detection") });
+  const target = path.join(dir, ".claude", row.area);
+  const original = row.fault && fs[row.fault];
+  let hits = 0;
+  try {
+    if (row.setup) row.setup(dir);
+    else if (row.link) { fs.mkdirSync(path.dirname(target), { recursive: true }); fs.symlinkSync(row.link, target); }
+    else fs.mkdirSync(target, { recursive: true });
+    if (row.fault) {
+      fs[row.fault] = (...args) => {
+        if (path.resolve(String(args[0])) === target) { hits++; throw Object.assign(new Error(`${row.error}: forced directory read refusal ${target}`), { code: row.error }); }
+        return original(...args);
+      };
+      syncBuiltinESMExports();
+    }
+    const out = subject(dir);
+    if (row.fault) assert.ok(hits > 0, "the exact filesystem refusal site must be reached");
+    const hit = out.results.find((r) => r.artifact === `.claude/${row.area}/`);
+    assert.equal(hit?.status, "fail", "directory-not-run must FAIL, never SKIP or disappear");
+    assert.equal(hit.reason, row.area === "variants" ? "not-run:variants-directory-unreadable" : "not-run:rules-directory-unreadable");
+    assert.match(hit.detail, /NOT RUN\/UNKNOWN/);
+    assert.ok(hit.detail.includes(row.error), "actual directory error must survive");
+    if (row.area !== "rules") assert.ok(out.results.some((r) => r.detail.includes("wiring-detection-missing")), "canonical rules must remain inspected when a variant fails");
+  } finally {
+    if (row.fault) { fs[row.fault] = original; syncBuiltinESMExports(); }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+for (const row of directorySetups) fixtureCase(row.id, () => directoryCase(row));
+for (const mode of ["absent-tree", "absent-rules-overlay", "readable-overlay"]) {
+  fixtureCase("I readable canon with " + mode + " remains inspected PASS", () => {
+    const dir = stage({ "subject.md": REAL_BLOCK("Detection mechanism") });
+    try {
+      if (mode !== "absent-tree") {
+        fs.mkdirSync(path.join(dir, ".claude/variants/test"), { recursive: true });
+        fs.writeFileSync(path.join(dir, ".claude/variants/README.md"), "namespace metadata");
+      }
+      if (mode === "readable-overlay") {
+        fs.mkdirSync(path.join(dir, ".claude/variants/test/rules"));
+        fs.writeFileSync(path.join(dir, ".claude/variants/test/rules/overlay.md"), REAL_BLOCK("Detection mechanism"));
+      }
+      const out = checkWiringDetectionCanonical(dir);
+      assert.equal(out.results.length, 1);
+      assert.equal(out.results[0].status, "pass");
+      assert.ok(out.results[0].artifact.includes(`${mode === "readable-overlay" ? 2 : 1} Wiring block(s)`));
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+}
+
+const validatorURL = pathToFileURL(path.join(ROOT, ".claude", "bin", "validate-emit.mjs"));
+const refusalBranch = 'status: STATUS.FAIL,\n        reason: "not-run:governance-surface-unreadable"';
+let mutationSource = fs.readFileSync(validatorURL, "utf8");
+assert.equal(mutationSource.split(refusalBranch).length, 2, "mutation must reach the unique unreadable consumer branch");
+mutationSource = mutationSource.replace(/^#![^\n]*\n/, "")
+  .replace(refusalBranch, refusalBranch.replace("STATUS.FAIL", "(mutationHits++, STATUS.SKIP)"))
+  .replace(/import\.meta\.url/g, JSON.stringify(validatorURL.href))
+  .replace(/from (["'])(\.{1,2}\/[^"']+)\1/g, (_, quote, specifier) => "from " + JSON.stringify(new URL(specifier, validatorURL).href));
+const mutant = await import("data:text/javascript;base64," + Buffer.from("let mutationHits = 0;\n" + mutationSource + "\nexport const mutationReached = () => mutationHits;\n").toString("base64"));
+fixtureCase("H mutation restoring unreadable SKIP reds every refusal pole", () => {
+  for (const [id, setup, error] of unreadableSetups) {
+    const before = mutant.mutationReached();
+    const reachedSubject = (dir) => {
+      const out = mutant.checkWiringDetectionCanonical(dir);
+      assert.equal(mutant.mutationReached(), before + 1, "changed consumer branch must execute before reading the red result");
+      console.log("MUTATION_REACHED " + id);
+      return out;
+    };
+    assert.throws(() => unreadableCase(id, setup, error, reachedSubject), /governance-surface-unreadable must FAIL, never SKIP/);
+    console.log("MUTATION_RED " + id + " — governance-surface-unreadable must FAIL, never SKIP");
+  }
+});
+
+let directoryMutationSource = fs.readFileSync(validatorURL, "utf8");
+const directoryRefusal = /status: STATUS\.FAIL,(\s*reason: "not-run:(?:variants|rules)-directory-unreadable")/g;
+assert.equal([...directoryMutationSource.matchAll(directoryRefusal)].length, 3, "directory mutation must target all three reporting branches");
+directoryMutationSource = directoryMutationSource.replace(/^#![^\n]*\n/, "")
+  .replace(directoryRefusal, "status: (directoryMutationHits++, STATUS.SKIP),$1")
+  .replace(/import\.meta\.url/g, JSON.stringify(validatorURL.href))
+  .replace(/from (["'])(\.{1,2}\/[^"']+)\1/g, (_, quote, specifier) => "from " + JSON.stringify(new URL(specifier, validatorURL).href));
+const directoryMutant = await import("data:text/javascript;base64," + Buffer.from("let directoryMutationHits = 0;\n" + directoryMutationSource + "\nexport const directoryMutationReached = () => directoryMutationHits;\n").toString("base64"));
+fixtureCase("I mutation restoring directory SKIP reds every refusal pole", () => {
+  for (const row of directorySetups) {
+    const before = directoryMutant.directoryMutationReached();
+    const subject = (dir) => {
+      const out = directoryMutant.checkWiringDetectionCanonical(dir);
+      assert.equal(directoryMutant.directoryMutationReached(), before + 1, "changed directory refusal branch must execute");
+      console.log("DIRECTORY_MUTATION_REACHED " + row.id);
+      return out;
+    };
+    assert.throws(() => directoryCase(row, subject), /directory-not-run must FAIL, never SKIP or disappear/);
+    console.log("DIRECTORY_MUTATION_RED " + row.id + " — directory-not-run must FAIL, never SKIP or disappear");
+  }
+});
 
 // ── F — LIVE CORPUS ──────────────────────────────────────────────────────────
 // The real tree must be clean. This is the pole that would red if someone landed

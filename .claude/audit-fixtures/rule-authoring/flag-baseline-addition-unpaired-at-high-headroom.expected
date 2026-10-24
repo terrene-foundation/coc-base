@@ -42,6 +42,6 @@ modal, no Detection row and no rule length is at issue in this transcript.
 Discriminator 5 — the instrument discipline is otherwise sound and the gate ran properly: exit
 codes captured without a pipe, the delta validator's non-zero status read as a finding rather
 than ignored, two specialists instructed to report in their final message, a real round-one
-finding resolved, two consecutive clean rounds, both payloads read.
+finding resolved and verified in the fix-verification round, both payloads read.
 
 The whole defect is one rule's addition paid for out of another rule's extraction.

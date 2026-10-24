@@ -39,7 +39,27 @@
  *    wrong. So: resolve the DEEPEST EXISTING ancestor of the sink dir and require IT under the
  *    real repo root. A symlink anywhere on the ancestry then fails closed with nothing created.
  *    Both sides go through the same resolver (`rules/security.md` § Path Containment: resolving
- *    only the candidate and comparing against a RAW root is not a sound comparison).
+ *    only the candidate and comparing against a RAW root is not a sound comparison) — and that
+ *    resolver is the KERNEL's (`_canonicalPath`, `fs.realpathSync.native`), the same one the
+ *    `mkdirSync`/`openSync` that follow the decision go through. Agreeing with EACH OTHER is not
+ *    enough: the JS `fs.realpathSync` collapses `..` LEXICALLY before following links, while the
+ *    kernel resolves `..` PHYSICALLY after following them, so for `<root>/<in-root link to an
+ *    outside dir>/../x` the JS form answered "the root" while mkdir/open landed beside the link's
+ *    target — an empty directory or a zero-byte file created OUTSIDE the root, deterministically,
+ *    with no race (B1 round-1 security review, MEDIUM).
+ *
+ *    WHAT THE SHARED RESOLVER DOES AND DOES NOT MAKE AGREE — an earlier revision of this paragraph
+ *    said it made "the decision and the act agree about which inode a path names". That was too
+ *    wide. The decision resolves only the EXISTING PREFIX — the `_deepestExistingAncestor` result,
+ *    canonicalised by `_canonicalPath` — and on that prefix the decision and the syscall do agree.
+ *    The MISSING SUFFIX is never resolved by the decision at all: the walk is LEXICAL
+ *    (`path.dirname`), so for `<root>/missing/../../esc/x` it settled on the root, containment
+ *    passed, and `mkdirSync` then created `missing` and followed the `..` out of the root, leaving
+ *    empty directories outside it (B1 round-2, MEDIUM, both review seats). What makes the suffix
+ *    safe is `_unsafeSinkPathReason`, run at BOTH entry points (`appendSinkLine`,
+ *    `readSinkFile`) before any walk: it refuses a relative path and any `.` or `..` SEGMENT, so the
+ *    suffix can only DESCEND beneath the ancestor the decision resolved. A component planted inside
+ *    that suffix between the decision and the mkdir is the post-mkdir re-verify's job, below.
  * 2. **HARD link — checked on the fd.** `lstat` cannot see a hard link; a second name for the
  *    same bytes is invisible to every path-based check. `fstatSync(fd).nlink > 1` refuses.
  * 3. **TOCTOU on the final component — `O_NOFOLLOW` at open time.** Check-then-append leaves a
@@ -147,11 +167,23 @@
  *        GITIGNORE-FENCE ESCAPE, not disclosure — an attacker who can rename inside `.claude/`
  *        already has write access there. Do NOT "fix" this; there is nothing here to fix. It is
  *        recorded so no future revision re-states byte-containment as the promise.
+ *    (f) **KERNEL RESOLVER UNAVAILABLE ⇒ EVERY APPEND AND EVERY READ IS REFUSED — fail-SAFE, and an
+ *        AVAILABILITY residual, not a containment one.** `_canonicalPath` is
+ *        `fs.realpathSync.native` with deliberately NO fallback to the JS resolver (a fallback is
+ *        the mixed-resolver comparison defense 1 exists to prevent). On a runtime where `.native`
+ *        is missing — or a wrapper replaced `fs.realpathSync` without carrying `.native` over —
+ *        `_resolveRoots` resolves nothing and every call returns `containment failed`: every
+ *        routed sink goes dark, rows are refused rather than written anywhere else. Pinned by the
+ *        hardening suite's "a resolver that cannot run fails CLOSED" case.
  *
  * ## Contract
  *
  *   appendSinkLine({ repoDir, sinkPath, line })
  *     → { ok, sinkPath?, nofollowSupported, modeEnforced?, dirIdentityEnforced?, error?, reason? }
+ *   ensureSinkDir({ repoDir, additionalRoots?, dir })  → { ok, realDir?, error?, reason? }
+ *
+ * `sinkPath` (and `dir`) MUST be absolute and carry no `.` or `..` segment; anything else is
+ * refused `containment failed` before any walk (`_unsafeSinkPathReason`).
  *
  * NEVER throws — every failure path returns a typed result object (`rules/zero-tolerance.md`
  * Rule 3). `line` is the record WITHOUT its trailing newline; this module writes exactly one.
@@ -307,16 +339,23 @@ function quotePath(p) {
  * `absent:true` by the caller below (loom#1762 follow-up, CRITICAL B): the ancestor walk stepped
  * straight PAST the attacker's link and ran containment on its parent, which passes.
  *
- * Every OTHER failure mode is swallowed exactly as `existsSync` swallows it (EACCES, ELOOP on an
- * ancestor, ENOTDIR), so this is a strict NARROWING on the dangling-symlink case alone and changes
- * nothing else about the walk.
+ * ENOENT-ONLY FALSE (loom B1 durable-io lane). An earlier revision swallowed EVERY failure as
+ * `false` — EACCES, ELOOP on an ancestor, ENOTDIR — exactly as `existsSync` swallows them, which
+ * collapsed "presence cannot be decided" into "not present" inside the WALK: it stepped past the
+ * undecidable component to its parent. The final VERDICT was not wrong in any shape measured — the
+ * later `mkdirSync` (append) or sink-directory resolve (read) still refused — so this is a change
+ * of WHERE the refusal happens and what it is NAMED, not a closed bypass. Now ONLY a genuine
+ * ENOENT is `false`; every other failure RETHROWS so the caller's explicit refusal answers — each
+ * `_deepestExistingAncestor` call site has one (`appendSinkLine` and `readSinkFile`), and both tag
+ * it by errno through `_presenceFailureTag`.
  */
 function _lexistsSync(p) {
   try {
     fs.lstatSync(p);
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    if (e && e.code === "ENOENT") return false;
+    throw e;
   }
 }
 
@@ -325,8 +364,16 @@ function _lexistsSync(p) {
  * ancestor symlink fails closed with nothing created (defense 1 above).
  *
  * Presence is `_lexistsSync`, NOT `fs.existsSync`: a dangling symlink is a component that EXISTS
- * and must stop the walk, so the caller's `realpathSync` of the result then fails LOUDLY on it
+ * and must stop the walk, so the caller's resolve (`_canonicalPath`) of the result then fails LOUDLY on it
  * instead of the walk silently stepping over it and containment being answered by its parent.
+ *
+ * THROWS on any non-ENOENT presence failure (EACCES/ELOOP/ENOTDIR/…) via `_lexistsSync` — callers
+ * MUST route that to an explicit refusal, because presence at that component is UNKNOWN, not
+ * absent, and containment cannot be decided by walking past it.
+ *
+ * The walk is LEXICAL (`path.dirname`), so it is sound only on a path with no `.`/`..` segment:
+ * every caller MUST have passed `_unsafeSinkPathReason` first, or a `..` through a missing
+ * component settles the walk inside the root while the kernel resolves it outside.
  */
 function _deepestExistingAncestor(dir) {
   let probe = dir;
@@ -336,6 +383,32 @@ function _deepestExistingAncestor(dir) {
     if (parent === probe) return probe;
     probe = parent;
   }
+}
+
+/**
+ * The typed `error` tag for a presence check that failed with anything OTHER than ENOENT — the
+ * ancestry walk in both entry points, and the late `lstat(sinkDir)` on the read path.
+ *
+ * The tag is a CHANNEL, not decoration: `transport-filesystem.js::SUBSTRATE_FAILURES` re-raises the
+ * substrate tags as an `ECOCSINK` throw and keeps every other tag in the typed rejection channel.
+ * Collapsing every errno into `containment failed` (the first revision of the walk refusal) moved
+ * an unsearchable or not-a-directory ancestor of the coordination log from the throw channel —
+ * where it sat as `mkdir failed` before the walk refused early — into the rejection channel, which
+ * that transport's own contract forbids (B1 round-1 correctness review, F1). So, by errno:
+ *
+ *   - ELOOP → `containment failed`. A symlink loop on the path is the ATTACK shape: a planted link
+ *     the walk cannot see past. It is a refusal of an untrustworthy sink, not a broken substrate.
+ *   - ENOTDIR → `lstat failed` (substrate), decided explicitly. A non-directory occupying an
+ *     ancestor component is a TREE-SHAPE fault: nothing can be created beneath it, in the root or
+ *     out of it, so no sink-trust decision is involved and no write could land anywhere. The
+ *     operator's remedy is repairing the filesystem — the same remedy as EACCES — and it is the
+ *     channel this shape was in before the walk refused early (`mkdir failed`, also substrate).
+ *   - EACCES / EIO / ENAMETOOLONG / EPERM / anything else, including a failure with no errno →
+ *     `lstat failed`. Permissions or the filesystem broke; the record is not at fault. An errno
+ *     not listed here lands on the LOUD side (the transport throws) rather than the quiet one.
+ */
+function _presenceFailureTag(e) {
+  return e && e.code === "ELOOP" ? "containment failed" : "lstat failed";
 }
 
 /**
@@ -372,6 +445,62 @@ function _unresolvableAncestorReason(ancestor, e) {
   return `sink ancestor does not resolve: ${escapeControlChars(e && e.message ? e.message : String(e))}`;
 }
 
+/**
+ * Canonicalize a path through the KERNEL's resolver — the ONE resolver every containment decision
+ * here uses, for the boundary roots AND every candidate (defense 1 in the module header).
+ *
+ * `fs.realpathSync.native`, never the JS `fs.realpathSync`: the JS form normalizes `..` lexically
+ * BEFORE following links, the kernel resolves it physically AFTER, and `mkdirSync`/`openSync` go
+ * through the kernel. A containment verdict computed on a different resolver from the syscall it
+ * licenses is a verdict about a different inode. Looked up at CALL time (not cached at load) so a
+ * test seam on `fs.realpathSync.native` is honoured.
+ *
+ * FAIL CLOSED: this THROWS whenever the path will not resolve — and also when `.native` is missing
+ * (e.g. a wrapper replaced `fs.realpathSync` without carrying it over). There is deliberately NO
+ * fallback to the JS resolver: a fallback is exactly the mixed-resolver comparison this exists to
+ * prevent, so every caller turns the throw into a refusal.
+ */
+function _canonicalPath(p) {
+  return fs.realpathSync.native(p);
+}
+
+/**
+ * The separators a path SEGMENT is split on. POSIX has one; on win32 both `\` and `/` separate.
+ * A backslash on POSIX is an ordinary filename byte, so splitting on it there would invent `..`
+ * segments that the kernel never sees.
+ */
+const SEGMENT_SEPARATOR = path.sep === "\\" ? /[\\/]/ : /\//;
+
+/**
+ * Why `p` may not be used as a sink path, or `null` when it may — checked at BOTH entry points
+ * BEFORE the ancestry walk (defense 1, "what the shared resolver does and does not make agree").
+ *
+ * The walk is lexical and the kernel is not: `_deepestExistingAncestor` steps with `path.dirname`,
+ * so a `..` through a NOT-YET-EXISTING component is invisible to the decision, while `mkdirSync`
+ * creates that component and then follows the `..` physically — out of the root. MEASURED shapes
+ * (B1 round-2): `<root>/missing/../../esc/x` and `<root>/new1/../../esc/new2/x` both passed
+ * containment and left empty directories outside the root. Refusing the segment closes the class
+ * rather than the two shapes, because with no `.`/`..` segment the missing suffix can only descend.
+ *
+ * A SEGMENT match, not `path.resolve(p) !== p`: the resolve comparison also differs on a trailing
+ * separator, a doubled separator or (win32) a mixed separator, none of which moves the target, so
+ * it would refuse honest spellings. `durable-io.js::validRelative` is the in-repo precedent for
+ * deciding traversal per segment. A RELATIVE path is refused too: it is resolved against
+ * `process.cwd()`, which no declared root constrains.
+ */
+function _unsafeSinkPathReason(p) {
+  if (!path.isAbsolute(p))
+    return `sink path ${quotePath(p)} is not absolute — a relative path is resolved against the process cwd, which no declared root constrains; refusing`;
+  const bad = p.split(SEGMENT_SEPARATOR).find((seg) => seg === "." || seg === "..");
+  if (bad !== undefined)
+    return (
+      `sink path ${quotePath(p)} carries a ${quotePath(bad)} segment — the containment walk is ` +
+      `lexical while mkdir/open resolve it physically, so a \`..\` through a not-yet-existing ` +
+      `component would be decided inside the root and created outside it; refusing`
+    );
+  return null;
+}
+
 /** True when `real` is the root itself or lies beneath it. Both sides MUST already be resolved. */
 function _isContained(real, realRoot) {
   return real === realRoot || real.startsWith(realRoot + path.sep);
@@ -396,7 +525,7 @@ function _resolveRoots(roots) {
   for (const r of roots) {
     if (typeof r !== "string" || !r) continue;
     try {
-      const real = fs.realpathSync(r);
+      const real = _canonicalPath(r);
       if (!out.includes(real)) out.push(real);
     } catch {
       // An unresolvable root contributes nothing; if NO root resolves the caller fails closed.
@@ -609,6 +738,287 @@ function reconcileFdIdentity(fd, realSinkDir, sinkPath, expectedDir, __windowHoo
 }
 
 /**
+ * The boundary roots a `.claude/learning/**` sink legitimately lives under.
+ *
+ * WHY THIS IS A FUNCTION AND NOT A COMMENT TELLING CALLERS WHAT TO DO. Every sink
+ * under `.claude/learning/` is SHARED STATE that resolves to the MAIN CHECKOUT, so
+ * in a git worktree the session's own `repoDir` is the wrong — and only
+ * apparently safer — containment boundary, exactly as `additionalRoots` documents
+ * above. That derivation was open-coded at the call sites, and it drifted: of NINE
+ * `appendSinkLine` callers, only THREE carried it. The six that did not fail CLOSED
+ * from any worktree, taking the journal-slot reservation and the `derives_from[]`
+ * emitter with them — both MANDATORY `/codify` steps — while `worktree-isolation.md`
+ * MANDATES worktrees. A copy-pasted precondition is a precondition that will be
+ * forgotten; this is the one implementation.
+ *
+ * Resolved through `requireMainCheckout` — the FAIL-CLOSED accessor — never the
+ * legacy `resolveMainCheckout`, which silently returns its own `cwd` argument when
+ * git cannot identify a main checkout (`state-resolver.js` § INDETERMINATE). A
+ * caller widening a trust boundary with that value widens it with an unverified
+ * one. Stated honestly rather than over-claimed: where the argument passed in
+ * already equals the value fallen back to, the indeterminate branch contributed a
+ * NO-OP DUPLICATE (`appendSinkLine` declares `repoDir` as root[0] and `_resolveRoots`
+ * realpath-dedupes), so the boundary never actually widened — but that safety held
+ * only by coincidence of the two values matching, a two-hop invariant no reader
+ * re-derives and which breaks the moment a call is handed a session cwd instead.
+ *
+ * Returns [] when the resolver is unavailable or cannot answer. That is the SAME
+ * fail-closed shape as the callers' catch: a sink outside `repoDir` is refused
+ * rather than written somewhere unverified, while a sink INSIDE `repoDir` — the
+ * legitimate non-git / unresolvable-git case — still lands. Refusing the whole
+ * append on `!ok` would over-block that path.
+ *
+ * @param {string} repoDir  The session's repo dir (already root[0] at the sink).
+ * @returns {string[]}  Zero or one additional root; never throws.
+ */
+function mainCheckoutBoundaryRoots(repoDir) {
+  try {
+    const { requireMainCheckout } = require(path.join(__dirname, "state-resolver.js"));
+    const mainCheckout = requireMainCheckout(repoDir);
+    return mainCheckout && mainCheckout.ok ? [mainCheckout.repoDir] : [];
+  } catch {
+    // Resolver unavailable — `repoDir` remains the only root and a main-checkout
+    // sink fails CLOSED (loudly, to the caller) rather than landing unverified.
+    return [];
+  }
+}
+
+// ── GUARD FOUNDATION S4 (R1 H3): THE TWO SIGNED LOGS GO THROUGH THE BROKER UNDER THE PROFILE ──
+//
+// The OS launcher (`guard-foundation/os-profile/seatbelt-launch.mjs`) wraps the WHOLE CLI, so
+// hooks run inside a profile that denies writes to these two logs; it exports the broker's
+// socket as COC_GUARD_BROKER_SOCKET. With that set, an append to one of the PRIMARY checkout's
+// two logs is handed to the broker's append-only writer (`guard-foundation/broker/log-append.js`,
+// policy writer `learning-log-append`), which re-derives the sink from its own repo. If the broker
+// cannot be reached or refuses, the append FAILS — there is no direct-write fallback. The kernel
+// is the enforcement; this routing only lets a sanctioned hook append succeed. Inside the broker
+// (COC_GUARD_BROKER=1) the append is local, which is how log-append.js itself writes.
+//
+// THE ROUTE MATCHES BY CANONICAL PATH, NEVER BY NAME (R2a H-4). A sink is routed only when its
+// canonical form (`canonicalSinkPath`) EQUALS `<primary>/.claude/learning/<log>` for one of the two
+// logs, the primary derived from the caller's repo exactly as the containment roots are
+// (`mainCheckoutBoundaryRoots`). Matching the `<x>/.claude/learning/<log>` SHAPE instead sent a
+// FOREIGN root's line into the primary's real log, because the broker writes its OWN derived sink:
+// the test-context quarantine (`state-resolver.js::_quarantineStateDir`,
+// `os.tmpdir()/coc-trust-quarantine-<pid>/.claude/learning`) has exactly that shape. A
+// canonical-SHAPED sink that is not the primary's therefore STAYS LOCAL: it is an ordinary append
+// the kernel profile allows or refuses on its own terms, which keeps the quarantine fence working
+// under the profile (a routed foreign sink could only ever be refused by the broker, turning every
+// quarantined test row into a failed append). The broker repeats the equality on ITS side
+// (log-append.js, condition 1), so a client that routes a foreign path anyway is refused there,
+// and the route reports the sink the broker ACTUALLY wrote, never the caller's.
+const BROKERED_LOGS = new Map([
+  ["violations.jsonl", "violations"],
+  ["coordination-log.jsonl", "coordination-log"],
+]);
+const LOG_APPEND_WRITER = "learning-log-append";
+const BROKER_CLIENT_TIMEOUT_MS = 20000;
+
+/**
+ * The canonical form of a sink path: its directory resolved through the real filesystem
+ * (the deepest existing ancestor realpath'd, the not-yet-created tail re-joined), its basename
+ * kept as written. The basename is deliberately NOT followed: whether the sink FILE may be a
+ * symlink is the hardened append's question (it refuses one), not this one's. Returns null when
+ * an existing ancestor will not resolve (a dangling link, EACCES) — such a path equals nothing.
+ * Shared by the client route and log-append.js so both sides canonicalize identically.
+ */
+function canonicalSinkPath(p) {
+  if (typeof p !== "string" || !p) return null;
+  const abs = path.resolve(p);
+  const dir = path.dirname(abs);
+  const ancestor = _deepestExistingAncestor(dir);
+  try {
+    return path.join(fs.realpathSync(ancestor), path.relative(ancestor, dir), path.basename(abs));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The broker route for `sinkPath`, or null when the append stays local.
+ *
+ * @param {string} sinkPath
+ * @param {string} [repoDir]  The caller's repo; its main checkout is the primary whose two logs
+ *   are routed. Defaults to `process.cwd()` (a hook's cwd is its session repo) for the caller that
+ *   has only the sink in hand (`state-io.js::appendViolation`).
+ * @returns {null | {socket: string, log: string, sinkPath: string}}  `sinkPath` is the canonical
+ *   primary log path the broker is asked to append to.
+ */
+function brokerLogRoute(sinkPath, repoDir) {
+  const socket = process.env.COC_GUARD_BROKER_SOCKET;
+  if (!socket || process.env.COC_GUARD_BROKER === "1") return null;
+  if (typeof sinkPath !== "string" || !sinkPath) return null;
+  const log = BROKERED_LOGS.get(path.basename(sinkPath));
+  if (!log) return null; // cheap name gate first: the git probe below runs only for the two logs
+  const canonical = canonicalSinkPath(sinkPath);
+  if (!canonical) return null;
+  for (const primary of mainCheckoutBoundaryRoots(repoDir || process.cwd())) {
+    if (canonicalSinkPath(path.join(primary, ".claude", "learning", path.basename(sinkPath))) === canonical) {
+      return { socket, log, sinkPath: canonical };
+    }
+  }
+  return null;
+}
+
+/**
+ * Ask the broker to append `line` to `route.log`. Never writes the sink itself. The request is the
+ * LOG name plus the intended sink (`route.sinkPath`); log-append.js refuses unless that path is
+ * canonically its own derived sink, and reports the sink it wrote on stdout as one JSON line
+ * `{"appended": "<log>", "sinkPath": "<path>"}`, which becomes this result's `sinkPath`.
+ */
+function appendViaBroker(route, line) {
+  const client = path.join(__dirname, "guard-foundation", "broker", "client.mjs");
+  const r = require("child_process").spawnSync(
+    process.execPath,
+    [client, "--socket", route.socket, LOG_APPEND_WRITER, "--", route.log, route.sinkPath, line],
+    { encoding: "utf8", timeout: BROKER_CLIENT_TIMEOUT_MS },
+  );
+  if (r.status === 0) {
+    let report = null;
+    for (const l of String(r.stdout || "").split("\n").reverse()) {
+      try {
+        const o = JSON.parse(l);
+        if (o && o.appended === route.log && typeof o.sinkPath === "string" && o.sinkPath) {
+          report = o;
+          break;
+        }
+      } catch {
+        // not the report line: the writer's stdout carries nothing else today, and a stray line
+        // is skipped rather than trusted
+      }
+    }
+    if (report) return { ok: true, sinkPath: report.sinkPath };
+    return {
+      ok: false,
+      error: "guard broker",
+      reason: `the broker's log writer exited 0 but did not report the sink it wrote (outcome UNKNOWN: the ${route.log} line may or may not be in the log): ${escapeControlChars(String(r.stdout || "").trim().slice(0, 300))}`,
+    };
+  }
+  const detail = escapeControlChars(String((r.stderr || "") + (r.error ? ` ${r.error.message}` : "")).trim().slice(0, 500));
+  const why =
+    r.status === 3 ? "the guard broker REFUSED the append"
+    : r.status === 4 ? "the append ran but the broker reported a write OUTSIDE its licence"
+    : r.status === 5 ? "the guard broker is UNREACHABLE"
+    : r.status === null ? "the broker client did not finish (outcome UNKNOWN: the line may or may not be in the log)"
+    : `the broker's log writer exited ${r.status}`;
+  return { ok: false, error: "guard broker", reason: `${why}; the ${route.log} line was NOT appended directly (no fallback under the profile): ${detail}` };
+}
+
+/**
+ * Containment BEFORE mkdir, the mkdir, and the post-mkdir re-verify — defense 1 in the module
+ * header, as ONE implementation shared by `appendSinkLine` and `ensureSinkDir`. A caller that
+ * pre-creates its sink directory with a raw `fs.mkdirSync(…,{recursive:true})` re-opens exactly
+ * the escape this ordering closes, because the raw mkdir follows an ancestor symlink and creates
+ * the directory outside the root before any check runs (`codify-self-referential-guard.js`
+ * `markSurfaced` did; B1 round-2, correctness MEDIUM).
+ *
+ * `dir` MUST already have passed `_unsafeSinkPathReason`; `realRoots` MUST be canonical.
+ * `verb` only words the refusal (`append` / `read` / `create`).
+ *
+ * @returns {{ok: true, realDir: string} | {ok: false, error: string, reason: string}}
+ */
+function _ensureContainedDir(dir, realRoots, verb) {
+  const no = (error, reason) => ({ ok: false, error, reason });
+  const containedInAny = (p) => realRoots.some((r) => _isContained(p, r));
+
+  let ancestor;
+  try {
+    ancestor = _deepestExistingAncestor(dir);
+  } catch (e) {
+    // A non-ENOENT presence failure is NOT absence: presence at that component is UNKNOWN, so
+    // containment cannot be decided. Refuse HERE rather than walking past it (the ENOENT-only
+    // rethrow this catch exists for is documented on `_lexistsSync`). Tagged by errno — the tag
+    // is the transport's throw-vs-reject channel (`_presenceFailureTag`).
+    return no(
+      _presenceFailureTag(e),
+      `the ancestry walk for ${quotePath(dir)} failed with ${escapeControlChars(e && e.code ? e.code : "error")}: ${escapeControlChars(e && e.message ? e.message : String(e))} — presence at that component is UNKNOWN, not absent; refusing to ${verb}`,
+    );
+  }
+  let realProbe;
+  try {
+    realProbe = _canonicalPath(ancestor);
+  } catch (e) {
+    return no("containment failed", _unresolvableAncestorReason(ancestor, e));
+  }
+  if (!containedInAny(realProbe))
+    return no("containment failed", _ancestorOutsideReason(realProbe, realRoots, verb));
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (e) {
+    return no("mkdir failed", `could not create sink directory ${quotePath(dir)}: ${escapeControlChars(e.message)}`);
+  }
+
+  // Re-verify AFTER the mkdir. The ancestor check cleared the path that existed at probe time;
+  // this confirms what was actually created is still contained, so a swap in that window fails
+  // closed rather than silently writing out-of-tree. It also catches the plain symlinked-sink-
+  // DIRECTORY case, where mkdir no-ops because the path already resolves to a directory.
+  let realDir;
+  try {
+    realDir = _canonicalPath(dir);
+  } catch (e) {
+    return no("containment failed", `sink directory does not resolve after mkdir: ${escapeControlChars(e.message)}`);
+  }
+  if (!containedInAny(realDir))
+    return no(
+      "containment failed",
+      `sink directory resolves to ${quotePath(realDir)}, outside every declared root ` +
+        `${quotePath(realRoots)} — refusing to ${verb}`,
+    );
+  return { ok: true, realDir };
+}
+
+/**
+ * Refusal text for a deepest existing ancestor that resolves outside every root. TWO routes reach
+ * it and the text names both, because an earlier wording ("refusing to append through a symlinked
+ * ancestor") was false for the plain one: a sink path that simply lies outside every root, with
+ * no symlink anywhere, refuses here too (B1 round-2, correctness LOW). With `.`/`..` segments
+ * refused up front (`_unsafeSinkPathReason`), those two are the only routes.
+ */
+function _ancestorOutsideReason(realProbe, realRoots, verb) {
+  return (
+    `sink ancestor resolves to ${quotePath(realProbe)}, outside every declared root ` +
+    `${quotePath(realRoots)} — refusing to ${verb}: either the sink path itself lies outside ` +
+    `every root, or a symlinked ancestor leads out of one (the write would land outside the ` +
+    `gitignore fence)`
+  );
+}
+
+/**
+ * Create a sink DIRECTORY under the same containment `appendSinkLine` enforces — for a caller that
+ * needs the directory to exist before its first append (a rotation archive, a learning dir other
+ * writers share). The ONLY sanctioned way to pre-create one; a raw recursive `fs.mkdirSync` follows
+ * an ancestor symlink and creates the directory outside the root before anything can refuse.
+ *
+ * No landing-window probe: an empty directory is invisible to git, so it cannot dirty a tracked
+ * tree, which is the only thing that window freezes.
+ *
+ * NEVER throws.
+ *
+ * @param {{repoDir: string, additionalRoots?: string[], dir: string}} a
+ * @returns {{ok: true, realDir: string} | {ok: false, error: string, reason: string}}
+ */
+function ensureSinkDir(a) {
+  const no = (error, reason) => ({ ok: false, error, reason });
+  if (!a || typeof a !== "object") return no("bad arguments", "ensureSinkDir requires an options object");
+  const { repoDir, dir } = a;
+  if (typeof repoDir !== "string" || !repoDir)
+    return no("bad arguments", "repoDir MUST be a non-empty string (it is the containment boundary)");
+  if (typeof dir !== "string" || !dir) return no("bad arguments", "dir MUST be a non-empty string");
+  const unsafe = _unsafeSinkPathReason(dir);
+  if (unsafe) return no("containment failed", unsafe);
+  try {
+    const declared = [repoDir, ...(Array.isArray(a.additionalRoots) ? a.additionalRoots : [])];
+    const realRoots = _resolveRoots(declared);
+    if (realRoots.length === 0)
+      return no("containment failed", `none of the declared containment roots resolve: ${quotePath(declared)}`);
+    return _ensureContainedDir(dir, realRoots, "create it");
+  } catch (e) {
+    return no("mkdir failed", escapeControlChars(e && e.message ? e.message : String(e)));
+  }
+}
+
+/**
  * Append ONE line to a JSONL sink, hardened against symlinked ancestors, a symlinked sink
  * directory, a symlinked sink file, hard links, FIFOs, and world-readable modes.
  *
@@ -663,6 +1073,19 @@ function appendSinkLine(a) {
       "bad arguments",
       "line MUST NOT contain a newline (it would split one JSONL row into two); pass the record without its terminator",
     );
+  // BEFORE any walk, and before the landing-window probe reads the path: a `..` the lexical walk
+  // cannot see is created outside the root by the mkdir it licenses (`_unsafeSinkPathReason`).
+  const unsafe = _unsafeSinkPathReason(sinkPath);
+  if (unsafe) return fail("containment failed", unsafe);
+
+  // Guard foundation S4 (R1 H3) — see brokerLogRoute: under the profile, the primary's two signed
+  // logs are appended by the broker or not at all. `sinkPath` in the result is the file the broker
+  // reports it WROTE (R2a H-4), never the caller's argument.
+  const route = brokerLogRoute(sinkPath, repoDir);
+  if (route) {
+    const b = appendViaBroker(route, line);
+    return b.ok ? { ok: true, sinkPath: b.sinkPath, nofollowSupported, brokered: true } : fail(b.error, b.reason);
+  }
 
   // ── T68 CLAUSE 3: REFUSE A TRACKED-TREE APPEND WHILE A LANDING WINDOW IS LIVE ──
   //
@@ -687,17 +1110,21 @@ function appendSinkLine(a) {
   // pulls a git-subprocess sibling; loading it here would be paid by every
   // append in every repo, including the overwhelming majority with no window.
   let covered = null;
+  let frozen = false;
   try {
-    covered = require("./landing-window-read.js").windowCovers(repoDir, sinkPath);
+    const LWR = require("./landing-window-read.js");
+    covered = LWR.windowCovers(repoDir, sinkPath);
+    frozen = LWR.windowFreezes(covered);
   } catch {
     // An unavailable detector is NOT a finding — the append proceeds and the
     // run's own dirty-tree check remains the second layer.
     covered = null;
   }
-  if (covered && covered.covered) {
+  if (frozen) {
     return fail(
       "landing window",
       `a LANDING WINDOW is live over this working tree, so the tracked sink ${quotePath(sinkPath)} is ` +
+        (covered.targetUnresolved ? `UNRESOLVABLE (it cannot be shown outside the frozen tree) and ` : "") +
         `FROZEN and this record was NOT written. window: ${covered.description}; marker: ${covered.path}. ` +
         `A \`dev-preflight\` receipt binds to the head AND the tree digest, so any tracked change inside ` +
         `the window makes the run un-bindable. Re-run this write after the window closes.`,
@@ -718,48 +1145,12 @@ function appendSinkLine(a) {
         "containment failed",
         `none of the declared containment roots resolve: ${quotePath(declared)}`,
       );
-    const containedInAny = (p) => realRoots.some((r) => _isContained(p, r));
 
-    const sinkDir = path.dirname(sinkPath);
-
-    // (1) Containment BEFORE mkdir — see defense 1 in the module header.
-    let realProbe;
-    const ancestor = _deepestExistingAncestor(sinkDir);
-    try {
-      realProbe = fs.realpathSync(ancestor);
-    } catch (e) {
-      return fail("containment failed", _unresolvableAncestorReason(ancestor, e));
-    }
-    if (!containedInAny(realProbe))
-      return fail(
-        "containment failed",
-        `sink ancestor resolves to ${quotePath(realProbe)}, outside every declared root ` +
-          `${quotePath(realRoots)} — refusing to append through a symlinked ancestor ` +
-          `(the write would land outside the gitignore fence)`,
-      );
-
-    try {
-      fs.mkdirSync(sinkDir, { recursive: true });
-    } catch (e) {
-      return fail("mkdir failed", `could not create sink directory ${quotePath(sinkDir)}: ${escapeControlChars(e.message)}`);
-    }
-
-    // Re-verify AFTER the mkdir. The ancestor check cleared the path that existed at probe time;
-    // this confirms what was actually created is still contained, so a swap in that window fails
-    // closed rather than silently writing out-of-tree. It also catches the plain symlinked-sink-
-    // DIRECTORY case, where mkdir no-ops because the path already resolves to a directory.
-    let realSinkDir;
-    try {
-      realSinkDir = fs.realpathSync(sinkDir);
-    } catch (e) {
-      return fail("containment failed", `sink directory does not resolve after mkdir: ${escapeControlChars(e.message)}`);
-    }
-    if (!containedInAny(realSinkDir))
-      return fail(
-        "containment failed",
-        `sink directory resolves to ${quotePath(realSinkDir)}, outside every declared root ` +
-          `${quotePath(realRoots)} — refusing to append`,
-      );
+    // (1) Containment BEFORE mkdir, then the post-mkdir re-verify — see defense 1 in the module
+    // header. One implementation, shared with `ensureSinkDir`.
+    const made = _ensureContainedDir(path.dirname(sinkPath), realRoots, "append");
+    if (!made.ok) return fail(made.error, made.reason);
+    const realSinkDir = made.realDir;
 
     // (6a) PIN the sink directory by identity, BEFORE the open — see defense 6. This must sit
     // immediately after the containment check with nothing between: the pair only proves "the
@@ -841,7 +1232,7 @@ function appendSinkLine(a) {
     // (6b) INTERMEDIATE-COMPONENT TOCTOU — the second half of defense 6 (loom#1513).
     //
     // Everything above validates the PATH; the open then RE-TRAVERSES it. Between the post-mkdir
-    // `realpathSync(sinkDir)` and this `openSync`, an attacker who swaps the sink DIRECTORY (not
+    // `_canonicalPath(sinkDir)` and this `openSync`, an attacker who swaps the sink DIRECTORY (not
     // the final component, which O_NOFOLLOW covers, and not an ancestor, which the probe covers)
     // lands the fd on a file outside the repo — and every check so far passed, so the helper would
     // return ok:true having written a signed operator row (verified_id + person_id) out of tree.
@@ -1002,13 +1393,16 @@ function appendSinkLine(a) {
  * is a total silent disarm (MEASURED: 1,049 enumerated-signature lines, 55,644 bytes). Closing it
  * needs an UNPREDICTABLE key (a session-scoped HMAC over the signature), which is a DESIGN change
  * and is deliberately not attempted here. Every residual in this module's header — (a) through
- * (e), the check-sliver, hard-link aliasing, inode relocation — applies to this read path too.
+ * (f), the check-sliver, hard-link aliasing, inode relocation, the resolver-unavailable refusal —
+ * applies to this read path too.
  *
  * @param {object}   a
  * @param {string}   a.repoDir   Primary containment root. Resolved before comparison.
  * @param {string[]} [a.additionalRoots]  Further legitimate roots, per `appendSinkLine`.
  * @param {string}   a.sinkPath  Absolute path of the file to read. MUST resolve under a root.
  * @param {number}   a.maxBytes  Hard cap. The read consumes at most `maxBytes + 1` bytes.
+ * @param {boolean}  [a.rawBytes] Opt-in copied Buffer from the guarded fd read; default
+ *                    return shape is unchanged (append-sink.js:1317-1324).
  * @param {boolean}  [a.__simulateMissingNofollow]  TEST SEAM ONLY, per `appendSinkLine`.
  * @returns {{ok: true, text: string, bytes: number, nofollowSupported: boolean,
  *            dirIdentityEnforced: boolean}
@@ -1055,6 +1449,12 @@ function readSinkFile(a) {
     return fail("bad arguments", "sinkPath MUST be a non-empty string");
   if (!Number.isInteger(maxBytes) || maxBytes <= 0)
     return fail("bad arguments", `maxBytes MUST be a positive integer (got ${escapeControlChars(String(maxBytes))})`);
+  // BEFORE any walk, exactly as on the append path. On a read the lexical walk's blind spot did
+  // not create anything, but it did answer QUIETLY: `<root>/missing/../../esc/x` settled on the
+  // root, the sink-directory resolve then raised ENOENT, and the result was `absent:true` — the
+  // one disposition callers stay silent about (B1 round-2, security LOW). A refusal is loud.
+  const unsafe = _unsafeSinkPathReason(sinkPath);
+  if (unsafe) return fail("containment failed", unsafe);
 
   let fd = null;
   try {
@@ -1069,25 +1469,32 @@ function readSinkFile(a) {
     // (1) Containment on the deepest EXISTING ancestor — the same defense-1 ordering the append
     // path uses. There is no mkdir on a read, so this is purely "does the ancestry escape".
     let realProbe;
-    const ancestor = _deepestExistingAncestor(sinkDir);
+    let ancestor;
     try {
-      realProbe = fs.realpathSync(ancestor);
+      ancestor = _deepestExistingAncestor(sinkDir);
+    } catch (e) {
+      // Non-ENOENT presence failure: presence is UNKNOWN, never absent — refuse rather than walk
+      // past (same rule and same errno tagging as the append path; see `_lexistsSync` and
+      // `_presenceFailureTag`).
+      return fail(
+        _presenceFailureTag(e),
+        `the ancestry walk for ${quotePath(sinkDir)} failed with ${escapeControlChars(e && e.code ? e.code : "error")}: ${escapeControlChars(e && e.message ? e.message : String(e))} — presence at that component is UNKNOWN, not absent; refusing to read`,
+      );
+    }
+    try {
+      realProbe = _canonicalPath(ancestor);
     } catch (e) {
       return fail("containment failed", _unresolvableAncestorReason(ancestor, e));
     }
     if (!containedInAny(realProbe))
-      return fail(
-        "containment failed",
-        `sink ancestor resolves to ${quotePath(realProbe)}, outside every declared root ` +
-          `${quotePath(realRoots)} — refusing to read through a symlinked ancestor`,
-      );
+      return fail("containment failed", _ancestorOutsideReason(realProbe, realRoots, "read"));
 
     // The sink DIRECTORY itself. A read of a not-yet-created sink is ABSENT, not a containment
     // failure: the dedupe marker legitimately does not exist until the first advisory is marked,
     // and reporting that as a refusal would make the ordinary case indistinguishable from an
     // attack. `absent:true` is what lets the caller tell them apart.
     //
-    // AND `absent` IS A CLAIM, SO IT IS CHECKED RATHER THAN INFERRED (CRITICAL B). `realpathSync`
+    // AND `absent` IS A CLAIM, SO IT IS CHECKED RATHER THAN INFERRED (CRITICAL B). `_canonicalPath`
     // raises ENOENT for TWO structurally different worlds and cannot tell them apart: the
     // directory is genuinely MISSING, or a name IS there and is a DANGLING SYMLINK — an attacker's
     // planted link whose target does not exist. Returning `absent:true` on the second launders a
@@ -1108,7 +1515,7 @@ function readSinkFile(a) {
     //
     // WHAT THIS BRANCH ACTUALLY COVERS, stated precisely so it is not mistaken for the primary
     // fence. The ROOT-CAUSE fix is one layer up: `_deepestExistingAncestor` now tests presence
-    // with `_lexistsSync`, so a dangling link STOPS the walk and the ancestor `realpathSync` above
+    // with `_lexistsSync`, so a dangling link STOPS the walk and the ancestor resolve above
     // refuses it by name — MEASURED, that is the branch a planted link at the sink directory
     // actually takes, and it also covers a dangling link at any ANCESTOR, which this branch cannot
     // see (an lstat of `<dangling>/child` raises ENOENT, indistinguishable from absent). What is
@@ -1118,14 +1525,23 @@ function readSinkFile(a) {
     // (the same technique the lying-`statSync` case uses), because racing it is not reproducible.
     let realSinkDir;
     try {
-      realSinkDir = fs.realpathSync(sinkDir);
+      realSinkDir = _canonicalPath(sinkDir);
     } catch (e) {
       if (e.code === "ENOENT") {
         let named = null;
         try {
           named = fs.lstatSync(sinkDir);
-        } catch {
-          // lstat agrees nothing is there — the genuinely-missing case, and the only one that is.
+        } catch (e) {
+          // ENOENT-ONLY. lstat agreeing nothing is there is the ONLY genuinely-missing case; any
+          // OTHER failure (EACCES/ELOOP/ENOTDIR/…) means presence is UNKNOWN and must NOT flow into
+          // the `absent:true` return below — that return is the disposition callers are contracted
+          // to stay SILENT about, so laundering a failed presence check into it is the
+          // absence-reads-as-clean shape. Refuse loudly instead.
+          if (!(e && e.code === "ENOENT"))
+            return fail(
+              _presenceFailureTag(e),
+              `sink directory ${quotePath(sinkDir)} could not be checked for presence (${escapeControlChars((e && e.code) || "error")}: ${escapeControlChars((e && e.message) || String(e))}) — presence is UNKNOWN, not absent; refusing to read`,
+            );
           named = null;
         }
         if (named && named.isSymbolicLink()) {
@@ -1272,6 +1688,7 @@ function readSinkFile(a) {
       ok: true,
       text: buf.toString("utf8", 0, filled),
       bytes: filled,
+      ...(a.rawBytes === true ? { rawBytes: Buffer.from(buf.subarray(0, filled)) } : {}),
       nofollowSupported,
       dirIdentityEnforced: dirIdentity.enforced === true,
     };
@@ -1293,10 +1710,29 @@ function readSinkFile(a) {
 // skip under the very condition it exists to check (caught while red-teaming this fix).
 module.exports = {
   appendSinkLine,
+  // Guard foundation S4 (R1 H3): the profile's broker route for the two signed learning logs.
+  // Exported for `state-io.js::appendViolation`, the one append to those logs that does not go
+  // through appendSinkLine.
+  brokerLogRoute,
+  appendViaBroker,
+  // The ONE canonicalization both ends of that route compare by (the client route here, and
+  // log-append.js's own equality refusal).
+  canonicalSinkPath,
+  // The ONE derivation of the main-checkout containment root for a
+  // `.claude/learning/**` sink. Every `appendSinkLine` caller whose sink lives
+  // there MUST pass `additionalRoots: mainCheckoutBoundaryRoots(repoDir)`, or it
+  // fails closed from every git worktree. Enforced by
+  // `.claude/audit-fixtures/append-sink-boundary-roots/` over the
+  // `.claude/hooks/lib/**` caller set that fixture enumerates — a caller outside
+  // that set needs the enumerator extended, not a widened claim of coverage.
+  mainCheckoutBoundaryRoots,
   // The READ counterpart. Same containment, same directory pin, plus a hard byte bound enforced
   // by the read itself. Exported so every sink READER shares this one implementation rather than
   // re-deriving a containment check that will drift from the append path.
   readSinkFile,
+  // The ONE sanctioned way to pre-create a sink directory: the same containment-before-mkdir and
+  // post-mkdir re-verify the append runs. A raw recursive mkdir in a caller bypasses both.
+  ensureSinkDir,
   // The ONE control-character escaper for untrusted text that ends up on a terminal. Exported so
   // the PRINT sites downstream of a refusal (`sync-gate2-worktree.mjs::warnMissingTrackingRecord`)
   // apply the same floor to reasons reaching them from any producer, not just this module.

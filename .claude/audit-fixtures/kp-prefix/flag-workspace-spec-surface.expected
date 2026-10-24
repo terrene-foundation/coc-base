@@ -1,0 +1,12 @@
+{
+  "path": "workspaces/churn/specs/domain/churn.md",
+  "expect": [
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "scope gate — path (workspace spec, accept pole)",
+  "defeats": "a scope predicate that lost workspace specs when `workspaces/` left SPEC_SURFACE_PATTERNS (2026-10-10). A workspace spec lives at `workspaces/<p>/specs/` and MUST stay governed through the `specs/` pattern. Body is BYTE-IDENTICAL to `flag-bare-table-name-body`; only the path differs.",
+  "quotes_verbatim": [
+    "churn_features_table"
+  ]
+}

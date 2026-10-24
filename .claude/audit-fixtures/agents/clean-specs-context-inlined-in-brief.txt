@@ -13,8 +13,8 @@ Edit and Bash both present. It can take implementation work.
 
 Worktrees created here, before dispatch, as siblings outside the repo:
 
-    $ git worktree add /Users/someoperator/repos/.kz-engage-wt/w2-schema -b feat/w2-invoice-schema
-    $ git worktree add /Users/someoperator/repos/.kz-engage-wt/w2-dunning -b feat/w2-dunning
+    $ git worktree add {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kz-engage-wt/w2-schema -b feat/w2-invoice-schema
+    $ git worktree add {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kz-engage-wt/w2-dunning -b feat/w2-dunning
 
 Picking which domain document each lane needs:
 
@@ -27,7 +27,7 @@ Picking which domain document each lane needs:
 
 Brief for the schema lane:
 
-    Work in /Users/someoperator/repos/.kz-engage-wt/w2-schema. STEP 0: assert that the
+    Work in {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kz-engage-wt/w2-schema. STEP 0: assert that the
     resolved `git rev-parse --show-toplevel` equals `pwd -P` and refuse on mismatch.
     Build the invoice and invoice_line models plus the forward migration.
 

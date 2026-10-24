@@ -1,6 +1,6 @@
 ---
 name: hook-authoring
-description: "Authoring or auditing hooks (CC/Codex/Gemini). hooks.json registration, COC_RUNTIME, instructAndWait emit, Codex native tool bridge + policy parity, timeout fallback."
+description: "Authoring or auditing hooks (CC/Codex/Gemini). hooks.json registration, COC_RUNTIME, instructAndWait emit, Codex native tool bridge + policy parity, fail-closed deny rows via runGuard."
 tools:
   - read_file
   - glob
@@ -20,14 +20,14 @@ Authoring a new hook script under `.claude/hooks/`. Auditing an existing hook fo
 | CLI    | Registration                                               | Event surface                                                              | Path env                               |
 | ------ | ---------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------- |
 | CC     | `.claude/hooks/dispatch-registry.json` (run in-process by `dispatch.js <Event>`) | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`    | `$CLAUDE_PROJECT_DIR` exported         |
-| Codex  | `.codex/hooks.json` (repo) or `~/.codex/hooks.json` (user) | Shared core names; native Bash, patch, MCP, and local-tool events   | NOT exported; resolve via cwd-relative |
+| Codex  | `.codex/hooks.json` (repo) or `~/.codex/hooks.json` (user) | Shared core names; native Bash, patch, MCP, and local-tool events   | Wrapper resolves the canonical checkout root |
 | Gemini | `.gemini/settings.json` `hooks` object                     | `BeforeTool` / `AfterTool` / `BeforeAgent` / `SessionStart` / `SessionEnd` | `$GEMINI_PROJECT_DIR` exported         |
 
 | Constraint                | Value                                                                                                                 |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Script location           | `.claude/hooks/<name>.js` — Anthropic-documented path, shared across all three CLIs                                   |
 | Module system             | CommonJS (`require`), matching repo convention                                                                        |
-| Timeout fallback          | Mandatory per `rules/cc-artifacts.md` Rule 7 — `setTimeout` → emit `{continue: true}`, `process.exit(1)`              |
+| Timeout / crash handling  | Per `rules/cc-artifacts.md` Rule 7 — deny row: `guard-runner.js::runGuard` (exit 2 on throw/budget/unreadable stdin); advisory row: `setTimeout` → `{continue: true}`, exit 1 |
 | Stdin / stdout            | Read JSON payload from stdin; emit JSON on stdout                                                                     |
 | Halting exit (PreToolUse) | `process.exit(2)` — but ONLY via `lib/instruct-and-wait.js::emit()` shape per `rules/hook-output-discipline.md`       |
 | Halting return (post)     | `continue: false` — ONLY via the same emit() shape                                                                    |
@@ -38,7 +38,7 @@ Authoring a new hook script under `.claude/hooks/`. Auditing an existing hook fo
 The authoritative copy of every hook lives at `.claude/hooks/<name>.js`. All three CLIs reference the same file by path; what differs is the registration manifest:
 
 - CC reads `.claude/settings.json` `hooks` → command list. Working directory at hook launch is the project root; CC exports `CLAUDE_PROJECT_DIR`.
-- Codex reads `.codex/hooks.json` and invokes each registered native hook through the COC_RUNTIME-delivery wrapper: `node "$(git rev-parse --show-toplevel)/.claude/hooks/lib/codex-hook-runtime.js" ./.claude/hooks/<name>.js` (the wrapper stamps `COC_RUNTIME=codex` + `CLAUDE_PROJECT_DIR`, then delegates to the hook as a native child process — see § The COC_RUNTIME Contract). Codex does NOT export a project-dir env var; the wrapper's `CLAUDE_PROJECT_DIR` stamp AND the hook's own `cwd` extraction from the stdin payload both resolve the project root.
+- Codex reads `.codex/hooks.json`. Preserve the canonical template launchers: they clear Node injection variables, discover the checkout through filesystem markers, and select `--native-policy` or `--native-event <Event>` before parsing input. Add detectors to the shared source registry; the adapter selects and supervises them. The wrapper supplies `COC_RUNTIME=codex` and project context; Codex does not export a project-directory variable (`.claude/codex-templates/hooks.json:1-137`, `.claude/hooks/lib/codex-native-events.js:143-190`).
 - Gemini reads `.gemini/settings.json` `hooks` (the `hooks` object) and renames events to its own taxonomy (`BeforeTool`, `AfterTool`). Gemini exports `GEMINI_PROJECT_DIR`.
 
 The single-source contract means every hook MUST work under all three runtimes without per-CLI source forks. The shared library `lib/runtime.js::parseHook()` validates the `COC_RUNTIME` env var (closed enum: `cc` / `codex` / `gemini`) and returns a canonical payload shape regardless of source.
@@ -48,7 +48,7 @@ The single-source contract means every hook MUST work under all three runtimes w
 loom's CC hooks run through ONE process per event: `settings.json` registers `node "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js" <Event>`, and `dispatch.js` loads every hook `.claude/hooks/dispatch-registry.json` lists for that event and runs it in-process under `hooks/lib/hook-engine.js` (its own stdin, stdout/stderr capture, `process.exit` capture, time budget and error boundary; any deny wins and every reason reaches the agent in one message). A new hook therefore:
 
 1. Is added as a group entry in `dispatch-registry.json` under its event — same `matcher`/`command`/`timeout` shape a settings.json group had. A new DIRECT `settings.json` hook entry is BLOCKED by `hook-registration-regrowth.test.mjs` (the two settings-deny guards stay direct by design: they verify their own registration).
-2. Exports `hookMain()` holding everything the script used to do at load time — timeout fallback, stdin read, the decision — and ends with a CLI guard (`if (require.main === module) hookMain();`). A `require()` of the file MUST have no side effects (`hook-dispatch-registry.test.mjs` loads every registered hook and fails on any output or armed timer).
+2. Exports `hookMain()` holding everything the script used to do at load time — the run bound (`runGuard` for a deny row, the timeout fallback for an advisory one), stdin read, the decision — and ends with a CLI guard (`if (require.main === module) hookMain();`). A `require()` of the file MUST have no side effects (`hook-dispatch-registry.test.mjs` loads every registered hook and fails on any output or armed timer).
 3. Reads shared git answers through the event context (`hooks/lib/event-git.js`, used by `state-resolver.js::safeExec` and `operator-id.js`): one answer per distinct git question per event, a failure stays a failure. Never add a file-keyed git memo.
 4. Asks first whether it belongs on a tool call at all: a lexical, advisory-only detector is a gate-review check (`rules/probe-driven-verification.md` MUST-4), not a per-call hook.
 
@@ -71,19 +71,6 @@ const event = data.hook_event_name; // CLI taxonomy not normalized
 
 `parseHook` normalizes legacy event aliases to the shared event identifiers, so downstream branching can compare against canonical event identifiers regardless of the source CLI's event taxonomy.
 
-## Path Resolution Across CLIs
-
-Project-dir resolution is the #1 portability pitfall. Only CC and Gemini export a project-dir env var; Codex does not. The hook resolves the project root in this order:
-
-```javascript
-const projectDir =
-  process.env.CLAUDE_PROJECT_DIR ||
-  process.env.GEMINI_PROJECT_DIR ||
-  payload.cwd; // from stdin — Codex fallback
-```
-
-The native payload's `cwd` identifies the session working directory, which may be nested below the repo root. The bridge establishes COC project context before invoking shared hooks. A cwd-relative launch still needs to locate the bridge before payload processing can help; validate nested-cwd launches against the delivered registration. Do not assume the historical root-cwd observation is a runtime guarantee. This Node bridge is distinct from phase dispatch through `bin/coc`.
-
 ## Codex Native Coverage and Compatibility
 
 Verified 2026-09-28: current native hooks reach Bash, `apply_patch`, MCP calls, and most local function tools. Patch calls also match `Edit`/`Write`; agent spawn also matches `Agent`. Hosted tools and specialized opt-outs are outside that path. Later `write_stdin` input does not repeat the original pre-tool check.
@@ -93,16 +80,6 @@ The COC bridge selects delivered registrations and projects patch targets into s
 The MCP companion remains compatibility/policy machinery for explicit wrapper calls; it does not intercept all native calls. Validator 13 checks extracted predicate parity. Preserve that contract while the library is delivered, and avoid duplicate capture when two paths observe the same operation.
 
 Review new or changed non-managed definitions through `/hooks`. Trust is operator-local and definition-specific. Hook sources merge across active config layers. Event-specific contracts and newer compaction/subagent/session lifecycle events are documented in the [official Hooks reference](https://learn.chatgpt.com/docs/hooks).
-
-## Predicate Function Shapes (Validator-13 Bijection)
-
-A predicate function is any function whose body produces a reject decision. The MCP guard's AST extraction recognizes three structural shapes:
-
-- **Shape A** — `process.exit(N)` with `N >= 2` in the function body.
-- **Shape B** — returns `{ exitCode: N, ... }` with `N >= 2`; at least one caller routes that return into a `process.exit(<field>)` call in the same file. The data-flow check is per-predicate (tightened in v6.1).
-- **Shape C** — returns `{ isError: true, content: [...] }` — the MCP response form used by the guard server.
-
-Fixtures live at `.claude/fixtures/validator-13/`. Adding a new predicate that the extractor cannot match (a fourth shape, or a borrowed pattern from elsewhere) is BLOCKED until the extractor and fixture set are updated together. Predicate shape is part of the public contract between the hook layer and the MCP guard.
 
 ## Output Discipline — instructAndWait
 
@@ -136,78 +113,55 @@ The CC UI shows the user "Execution stopped by PostToolUse hook" — useless wit
 
 A finding with `severity: "block"` MUST be grounded in a structural / behavioral / AST / process-state signal that surface rewrites cannot evade. Lexical regex matches against shell command strings, file contents, or agent prose MUST emit `severity: "halt-and-report"` or `severity: "advisory"`, never `block`. Block severity is reserved for facts the agent cannot rationalize away — env vars, exit codes, file existence, AST shape.
 
-```javascript
-// DO — block grounded in env var + path prefix (structural)
-if (
-  process.env.CLAUDE_WORKTREE_PATH &&
-  !filePath.startsWith(process.env.CLAUDE_WORKTREE_PATH)
-) {
-  return { rule_id: "worktree-isolation/MUST-1", severity: "block", evidence };
-}
-
-// DO — lexical regex → halt-and-report, never block
-const m = command.match(/\bgh\b[^|;]*--repo\s+([^\s]+)/);
-if (m && !m[1].includes(path.basename(cwd))) {
-  return {
-    rule_id: "repo-scope/MUST-NOT-1",
-    severity: "halt-and-report",
-    evidence,
-  };
-}
-```
-
-Command-string detectors MUST skip captured groups referencing unexpanded shell variables (`$VAR`, `${VAR}`, `$(...)`, backticks) — the pre-expansion form cannot be evaluated at hook invocation time. Per `rules/hook-output-discipline.md` MUST-3, the skip is a structural `null` return; no downgrade-to-advisory, no in-hook shell expansion (that path is a confused-deputy security hole).
+Command-string detectors MUST skip captured groups referencing unexpanded shell variables (`$VAR`, `${VAR}`, `$(...)`, backticks) with a structural `null` return (`rules/hook-output-discipline.md` MUST-3). Worked example: `portability-and-audit.md` § "Severity Grounding — Worked Example".
 
 ## Timeout Fallback
 
-Every hook MUST install a `setTimeout` that emits `{continue: true}` and exits before the runtime's kill window. Per `rules/cc-artifacts.md` Rule 7:
+Every hook bounds its own run (`rules/cc-artifacts.md` Rule 7). What happens when the bound fires, or the hook throws, depends on whether the row can deny.
+
+**Deny-capable row — FAILS CLOSED.** A row declaring `on_incomplete: "deny"` (`hooks/dispatch-registry.json`, or `hook-registry.json` for the directly registered settings-deny guard) builds its `hookMain` with `guard-runner.js::runGuard(name, main, {budgetMs, standalone})`:
+
+```javascript
+// DO — deny row: the runner owns the try/catch, the budget and the stdin read
+const { runGuard } = require("./lib/guard-runner.js");
+async function main(payload) {
+  /* decide; deny through instruct-and-wait.js::emit, allow by returning */
+}
+const hookMain = runGuard("my-guard", main, { budgetMs: 5000 });
+module.exports = { hookMain };
+if (require.main === module) hookMain();
+
+// DO NOT — a deny row that passes through when it breaks
+setTimeout(() => { console.log(JSON.stringify({ continue: true })); process.exit(1); }, 5000);
+try { /* decide */ } catch { process.exit(0); } // a crash becomes an allow
+const payload = await readStdinBounded();       // resolves {} on timeout = "not my tool"
+```
+
+A throw, a rejected promise, a budget overrun or unreadable stdin (timeout, parse error, overflow) DENIES with exit 2 and a reply naming the guard; a budget overrun says it is a budget refusal, not a verdict, and to retry. In-process under `dispatch.js` the engine owns the budget and the runner arms no timer; `standalone: true` (a guard still registered directly, e.g. `settings-deny-edit-guard`) arms the budget timer and the `uncaughtException` / `unhandledRejection` handlers itself. A guard's own `process.exit(0)` inside the engine still passes — the runner re-throws the engine's exit sentinel rather than catching it. The deny-row fail-closed lint reds a deny-row file whose `hookMain` is not built by `runGuard(`, or that carries a `{continue: true}` / pass-through emitter inside a `catch`, `.catch(` or timer callback, or calls `readStdinBounded`.
+
+**Advisory row — MAY FAIL OPEN.** A row declaring `on_incomplete: "continue"` (it cannot deny) keeps the classic fallback, armed inside `hookMain()`:
 
 ```javascript
 const TIMEOUT_MS = 5000;
-const _timeout = setTimeout(() => {
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(1);
-}, TIMEOUT_MS);
+function hookMain() {
+  setTimeout(() => {
+    console.log(JSON.stringify({ continue: true }));
+    process.exit(1);
+  }, TIMEOUT_MS);
+  // … read stdin, decide, emit …
+}
 ```
 
-`SessionStart` hooks may use `10000` (10s) for boot-time discovery; per-tool hooks (`PreToolUse`, `PostToolUse`) MUST stay at `5000` to avoid stalling interactive workflows. A hanging hook blocks the entire CLI session indefinitely — the timeout is the only structural escape.
+`SessionStart` hooks may use `10000` (10s) for boot-time discovery; per-tool hooks (`PreToolUse`, `PostToolUse`) MUST stay at `5000` to avoid stalling interactive workflows. A hanging hook blocks the entire CLI session indefinitely — the bound is the only structural escape.
 
-The `setTimeout`-fallback path is the ONE legitimate raw-exit branch. It MUST emit `{continue: true}` first; raw `process.exit(N)` from any other branch is BLOCKED per `rules/hook-output-discipline.md` MUST-NOT-1.
+On an advisory row the `setTimeout`-fallback path is the ONE legitimate raw-exit branch; it MUST emit `{continue: true}` first. Raw `process.exit(N)` from any other branch is BLOCKED per `rules/hook-output-discipline.md` MUST-NOT-1. On a deny row there is no raw-exit branch at all: the runner emits.
 
-## Variant Overlays
+## Gotchas — How A Deny Row Silently Fails Open
 
-CLI-specific or language-specific hook bodies live at `.claude/variants/<axis>/hooks/<name>.js` and overlay only the diverging slot. Axes mirror skills + commands: `variants/codex/`, `variants/gemini/`, `variants/py/`, `variants/rs/`, `variants/base/`, ternary forms like `variants/py-codex/`.
-
-Hook overlays are rare in practice — most behavior is keyed off `payload.runtime` (from `COC_RUNTIME`) rather than full-file forking. When an overlay is genuinely needed (a Codex-only enforcement path that has no CC analog), the overlay file replaces the body wholesale; slot markers are not used in `.js` source.
-
-## Audit Fixtures
-
-Every detector function in `.claude/hooks/lib/violation-patterns.js` MUST ship at least one committed fixture per scope-restriction predicate it relies on, under `.claude/audit-fixtures/violation-patterns/<detector>/`. Required coverage:
-
-- Clean input that MUST NOT flag
-- Flagging input that MUST flag
-- For command-string detectors, at least one shell-variable input that MUST NOT flag (per `hook-output-discipline.md` MUST-3)
-
-Per `rules/cc-artifacts.md` Rule 9. Fixtures are the mechanical regression lock for scope-restriction predicates; without them, future modifications silently weaken the predicate and the detector starts producing false positives at scale.
-
-## Wrapper Status — Native Hook Registration Is Canonical
-
-Hook-level Bash wrappers were briefly authored at Phase J1 to bridge missing Codex hook events via shell shims, but **wrapper emission was deferred at Shard C (2026-05-10)** per `journal/0006-DECISION-wrapper-emission-disposition-strip.md`. That historical deferral concerned per-hook shell wrappers. Current native coverage is described above; `bin/coc` is a separate phase dispatcher.
-
-New hooks MUST NOT add `.claude/wrappers/*.sh.template` files. If a future workstream requires external CLI invocation or structured-output enforcement at the hook layer, revival is documented in the journal entry — propose at `/codify`, do not assume the path is live.
-
-## Workspace-Walking Hooks Filter Meta-Dirs
-
-Hooks that enumerate `workspaces/<name>/` directories (e.g. `detectActiveWorkspace`, `findAllSessionNotes`) MUST filter both the literal `instructions` directory AND any directory whose name starts with an underscore. Per `rules/cc-artifacts.md` Rule 8:
-
-```javascript
-const projects = entries.filter(
-  (e) =>
-    e.isDirectory() && e.name !== "instructions" && !e.name.startsWith("_"),
-);
-```
-
-Leading-underscore is the convention for workspace meta-dirs (`_archive`, `_template`, `_draft`). Archival operations (`git mv workspaces/X (loom-internal reference)`) bump `_archive/`'s mtime; without the filter, the hook surfaces `_archive` as the active workspace and SessionEnd routes journal stubs into (loom-internal reference) — invisible drift the next session must untangle.
+- ❌ **The fail-open template, copied onto a deny row.** Until 2026-10-19 Rule 7 itself prescribed `setTimeout → {continue: true}` for EVERY hook, so many older guards carry it, and a new guard copied from a neighbour inherits it. On a deny row that timer is an allow that fires exactly when the guard is starved. ✅ Check the row's `on_incomplete` first; `"deny"` means `runGuard`, with no timer of the guard's own.
+- ❌ **A timer, or the deny decision, inside a `catch`.** A guard that arms its own `setTimeout` races the engine budget, and whatever the callback emits on expiry (`continue: true`, `exit(0)`) is the verdict. A guard that decides "deny" INSIDE a `catch` usually also has a pass-through on the catch's other branch. ✅ Delete the guard's timers (the runner or engine owns the budget) and lift any deny decision out of the `catch` into the normal flow, so the only thing an error path does is throw.
+- ❌ **`readStdinBounded` resolving `{}`.** `hooks/lib/read-stdin-bounded.js::readStdinBounded` resolves its `fallback` (default `{}`) on a timeout, a parse error or an over-size payload, by contract. A guard reading `{}` finds no `tool_name` and returns "not my tool" — an allow built from no input at all. ✅ Let `runGuard` read the payload; it REJECTS on those three paths and the dispatcher refuses.
+- ❌ **Reading the lint's green as "fails closed".** loom's deny-row fail-closed lint (it runs in loom CI and does not ship) is lexical over ONE file: it cannot see a pass-through emitter defined in another file, an `exit(code)` with a variable code, or a `catch` that sets a flag the verdict later reads as allowed (its header names these blind spots). ✅ Pair the lint with the guard's own throw probe: an env-gated throw through `dispatch.js` MUST return rc 2.
 
 ## Common Mistakes
 
@@ -223,13 +177,13 @@ Lexical regex against `payload.tool_input.command` cannot see shell expansion; m
 
 Native `apply_patch` does fire tool hooks, but its input is a patch in `tool_input.command`, not a CC `file_path` edit. Route through the native bridge's target projection and verify the delivered registration with deny/allow fixtures. Keep extracted compatibility policy parity current.
 
-### 4. Missing Timeout Fallback
+### 4. Missing Bound, Or A Fail-Open Bound On A Deny Row
 
-Hook author skips the `setTimeout` block "because the work is fast." First runtime hang freezes the entire CLI session. Fix: install the 5s (or 10s for SessionStart) timeout fallback unconditionally — it is the ONLY legitimate raw-exit branch.
+Hook author skips the bound "because the work is fast." First runtime hang freezes the entire CLI session. Fix: an advisory row installs the 5s (or 10s for SessionStart) timeout fallback unconditionally. The opposite mistake is as common: a deny row copies that fail-open fallback (or a `catch` that exits 0), so the guard silently allows whatever arrives while it is crashed or starved. Fix: build a deny row's `hookMain` with `guard-runner.js::runGuard` and delete its own timers, pass-through catches and `readStdinBounded` (§ "Gotchas").
 
 ### 5. `$CODEX_PROJECT_DIR` Referenced In Hook Registration
 
-Codex does not export a project-dir env var; `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` (MODULE_NOT_FOUND). Fix: register through the wrapper — `node "$(git rev-parse --show-toplevel)/.claude/hooks/lib/codex-hook-runtime.js" ./.claude/hooks/<name>.js` (Git-root-resolved, no invented env var; the wrapper stamps `CLAUDE_PROJECT_DIR` + `COC_RUNTIME`) — and rely on `payload.cwd` from stdin as the in-script fallback.
+Codex does not export a project-dir env var. Use the event-bound canonical template registration rather than constructing a launcher from an assumed variable or Git environment. Filesystem-marker discovery and the runtime establish project context; detector code consumes the normalized payload (`.claude/codex-templates/hooks.json:1-137`, `.claude/hooks/lib/codex-hook-runtime.js:435-508`).
 
 ### 6. Gemini Event Names As CC Aliases
 
@@ -243,12 +197,24 @@ Hook attempts to reason about the meaning of agent prose, file contents, or comm
 
 Per `rules/probe-driven-verification.md` MUST-4, every lexical hook detector MUST have a probe-driven gate-review counterpart at `/codify` validation. Hook-only verification of a semantic property is BLOCKED — hooks alone produce false positives at scale; probes alone miss the cumulative-violation count for trust-posture downgrade math. Both layers required.
 
+## Moved Depth
+
+Full Documentation: `.claude/skills/hook-authoring/portability-and-audit.md` carries the worked detail for six topics; each MUST they carry is restated here so this file still states the whole contract:
+
+- **Path resolution** — resolve the project root as `CLAUDE_PROJECT_DIR || GEMINI_PROJECT_DIR || payload.cwd`; Codex exports no project-dir variable.
+- **Predicate shapes (validator-13)** — a reject predicate MUST match Shape A / B / C; a new shape is BLOCKED until the extractor and `.claude/fixtures/validator-13/` change together.
+- **Variant overlays** — `.claude/variants/<axis>/hooks/<name>.js` replaces the body wholesale; prefer branching on `payload.runtime`.
+- **Audit fixtures** — every `violation-patterns.js` detector MUST ship clean + flag (+ shell-variable) fixtures under `.claude/audit-fixtures/violation-patterns/<detector>/` (`rules/cc-artifacts.md` Rule 9).
+- **Wrappers** — new hooks MUST NOT add `.claude/wrappers/*.sh.template` (deferred per `journal/0006`).
+- **Workspace walks** — MUST filter `instructions` AND every leading-underscore directory (`rules/cc-artifacts.md` Rule 8).
+
 ## Audit Checklist
 
 When auditing an existing hook:
 
 - [ ] File location is `.claude/hooks/<name>.js` (NOT `scripts/hooks/` — obsolete pre-v2.8.31)
-- [ ] Timeout fallback installed: `setTimeout` → `{continue: true}` → `process.exit(1)`
+- [ ] Deny row (`on_incomplete: "deny"`): `hookMain` built by `guard-runner.js::runGuard`; no own timer, no pass-through `catch`, no `readStdinBounded`; the deny-row fail-closed lint is green
+- [ ] Advisory row: timeout fallback installed: `setTimeout` → `{continue: true}` → `process.exit(1)`
 - [ ] CC timeout 5s (per-tool) or 10s (SessionStart); never higher than 10s
 - [ ] Every halting branch routes through `lib/instruct-and-wait.js::emit()` with all six fields
 - [ ] No `severity: "block"` returns whose `evidence` is a regex span
@@ -264,7 +230,7 @@ When auditing an existing hook:
 
 ## Related
 
-- `rules/cc-artifacts.md` Rule 7 — timeout fallback mandate
+- `rules/cc-artifacts.md` Rule 7 — run-bound mandate: deny rows fail closed via `runGuard`, advisory rows may fail open
 - `rules/cc-artifacts.md` Rule 8 — workspace meta-dir filter pattern
 - `rules/cc-artifacts.md` Rule 9 — audit fixtures committed alongside detectors
 - `rules/cc-artifacts.md` Rule 10 — positive-allowlist sweep pattern
@@ -277,5 +243,6 @@ When auditing an existing hook:
 - `codex-mcp-guard/README.md` — POLICIES table population, validator-13, predicate shapes
 - `hooks/lib/runtime.js` — `COC_RUNTIME` closed enum + `parseHook` contract
 - `hooks/lib/instruct-and-wait.js` — canonical halt-shape emit
+- `hooks/lib/guard-runner.js::runGuard` — the fail-closed run boundary every deny row is built on
 - `skill-authoring` (F1) — sibling meta-skill, same shape conventions
 - `command-authoring` (F2) — sibling meta-skill, same shape conventions

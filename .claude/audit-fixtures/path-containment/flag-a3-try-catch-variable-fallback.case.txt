@@ -1,0 +1,13 @@
+import fs from "node:fs";
+import path from "node:path";
+
+export function besideRoot(abs, dir) {
+  const realDir = fs.realpathSync(dir);
+  let c;
+  try {
+    c = fs.realpathSync(abs);
+  } catch {
+    c = path.resolve(abs);
+  }
+  return c.startsWith(realDir + path.sep);
+}

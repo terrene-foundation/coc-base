@@ -62,11 +62,15 @@ export function unionHookSettings(settings, settingsPath, opts = {}) {
   return { ...settings, hooks };
 }
 
-function isNativePolicyLauncher(root, command) {
+const NATIVE_EVENTS = new Set(["SessionStart", "SessionEnd", "PreCompact", "PostCompact", "UserPromptSubmit",
+  "PreToolUse", "PermissionRequest", "PostToolUse", "SubagentStart", "SubagentStop", "Stop", "Interrupt"]);
+
+function isNativePolicyLauncher(root, command, event) {
   const prefix = /^(?:unset NODE_OPTIONS NODE_PATH; exec |)node[ \t]+/.exec(command);
   if (!prefix) return false;
-  const tail = /[ \t]+--native-policy[ \t]*$/.exec(command);
-  if (!tail) return false;
+  const tail = /[ \t]+(--native-policy|--native-event)(?:[ \t]+([A-Za-z]+))?[ \t]*$/.exec(command);
+  if (!tail || tail[1] !== (event === "PreToolUse" ? "--native-policy" : "--native-event")) return false;
+  if (tail[2] !== (event === "PreToolUse" ? undefined : event)) return false;
   const target = command.slice(prefix[0].length, tail.index);
   const legacy = '"$(git rev-parse --show-toplevel)/.claude/hooks/lib/codex-hook-runtime.js"';
   const resolver = `"$(node -e 'const fs=require("node:fs"),path=require("node:path");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,".git"))){const q=path.dirname(p);if(q===p)throw Error("no repository root");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js"`;
@@ -84,6 +88,8 @@ function isNativePolicyLauncher(root, command) {
     };
     const expected = localHook("codex-hook-runtime.js");
     localHook("codex-native-policy.js");
+    localHook("codex-tool-contracts.js");
+    if (event !== "PreToolUse") localHook("codex-native-events.js");
     if (target === legacy || target === resolver) return true;
     const quoted = /^(?:"([^"\r\n]+)"|'([^'\r\n]+)')$/.exec(target);
     const literal = quoted ? quoted[1] ?? quoted[2] : target;
@@ -95,30 +101,34 @@ function isNativePolicyLauncher(root, command) {
   }
 }
 
-/** Native Codex PreToolUse bridge registration, shared by reachability and
+/** Native Codex bridge registration, shared by reachability and
  * provenance validators. This proves source registration, not operator trust,
  * deployed state, or payload-semantic equivalence. Unknown inventory is empty.
  */
 export function nativeCodexHookNames(root, settings) {
   const found = new Set();
-  const registered = (settings?.hooks?.PreToolUse || []).some((group) =>
-    group.matcher === "*" && (group.hooks || []).some((hook) =>
-      hook.type === "command" && typeof hook.command === "string" &&
-      isNativePolicyLauncher(root, hook.command)));
-  if (!registered || !["codex-native-policy.js", "codex-hook-runtime.js"].every((file) =>
-    fs.existsSync(path.join(root, ".claude/hooks/lib", file)))) return found;
   try {
     const settingsPath = path.join(root, ".claude/settings.json");
     const source = readExpandedHookSettings(settingsPath);
     // These are native names and the bridge's supported CC projections. Read,
     // Glob, Grep, Skill, Task and NotebookEdit are not created by the adapter.
-    const names = ["Bash", "Edit", "Write", "Agent", "shell", "shell_command", "exec_command", "unified_exec", "apply_patch", "spawn_agent", "collaborationspawn_agent"];
-    for (const group of source?.hooks?.PreToolUse || []) {
-      if (!names.some((name) => hookEngine.matcherMatches(group.matcher, name, "PreToolUse")) && !String(group.matcher || "").split(/[|,]/).some((name) => /^mcp__/.test(name.trim()))) continue;
-      for (const hook of group.hooks || []) {
-        if (hook.type !== "command" || typeof hook.command !== "string") continue;
-        const re = /\.claude\/hooks\/([A-Za-z0-9_.-]+\.js)(?![A-Za-z0-9])/g;
-        for (const match of hook.command.matchAll(re)) found.add(match[1]);
+    // Structured projections: hooks/lib/codex-tool-contracts.js:3-46.
+    const names = ["Bash", "Edit", "Write", "Agent", "TodoWrite", "SendMessage", "shell", "shell_command", "exec_command", "unified_exec", "apply_patch", "spawn_agent", "collaborationspawn_agent", "collaboration.spawn_agent", "update_plan", "functionsupdate_plan", "send_message", "collaborationsend_message", "collaboration.send_message", "collaboration.followup_task", "collaborationfollowup_task", "followup_task"];
+    for (const event of NATIVE_EVENTS) {
+      const registered = (settings?.hooks?.[event] || []).some((group) =>
+        (group.matcher === "*" || (event !== "PreToolUse" && group.matcher === undefined)) &&
+        (group.hooks || []).some((hook) => hook.type === "command" && typeof hook.command === "string" &&
+          isNativePolicyLauncher(root, hook.command, event)));
+      if (!registered) continue;
+      for (const group of source?.hooks?.[event] || []) {
+        if (["PreToolUse", "PostToolUse", "PermissionRequest"].includes(event) &&
+            !names.some((name) => hookEngine.matcherMatches(group.matcher, name, event)) &&
+            !String(group.matcher || "").split(/[|,]/).some((name) => /^mcp__/.test(name.trim()))) continue;
+        for (const hook of group.hooks || []) {
+          if (hook.type !== "command" || typeof hook.command !== "string") continue;
+          const re = /\.claude\/hooks\/([A-Za-z0-9_.-]+\.js)(?![A-Za-z0-9])/g;
+          for (const match of hook.command.matchAll(re)) found.add(match[1]);
+        }
       }
     }
   } catch {

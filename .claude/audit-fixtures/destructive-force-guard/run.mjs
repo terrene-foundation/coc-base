@@ -59,6 +59,7 @@
  * mutation run.
  */
 import "../_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../../hooks/lib/fixture-home.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -590,10 +591,10 @@ check("DANGER/NFP/plain-dir-in-sandbox-silent", () =>
 // `/work/repo` is not left with a no-escape-hatch block — it must still SPEAK
 // (deleting a whole repo is a hazard worth naming) but must not refuse.
 //
-// ARM 1 — the CRITICAL half, always runs. `/Users/Shared` (POSIX) is a real
+// ARM 1 — the CRITICAL half, always runs. `<fixture-home-prefix>Shared` (POSIX) is a real
 // depth-2 path that is NOT a repo and NOT scratch, and asserting on it needs NO
 // writes anywhere. This is the control proving the depth rule still bites.
-const SHALLOW_NONREPO = process.platform === "darwin" ? "/Users/Shared" : "/srv";
+const SHALLOW_NONREPO = process.platform === "darwin" ? materializeFixtureText("{{FIXTURE_HOME_V1:MAC}}Shared") : "/srv";
 if (fs.existsSync(SHALLOW_NONREPO)) {
   check("DANGER/shallow-non-repo-blocks", () =>
     assertCatastrophic(runHook(`rm -rf ${SHALLOW_NONREPO}`, REPO), SHALLOW_NONREPO),
@@ -673,7 +674,7 @@ check("DANGER/xargs-stdin-fed-speaks", () => {
 // the flags and the operand never appear as tokens of their own. Positive
 // evidence of rm + an unreadable operand list MUST speak.
 check("DANGER/fused-command-word-speaks", () => {
-  const res = runHook("rm$IFS-rf$IFS/Users/someoperator", REPO);
+  const res = runHook(materializeFixtureText("rm$IFS-rf$IFS{{FIXTURE_HOME_V1:MAC}}someoperator"), REPO);
   return res.spoke ? true : "expected a finding for a fused `rm` command word, got SILENCE";
 });
 
@@ -682,7 +683,7 @@ check("DANGER/fused-command-word-speaks", () => {
 // into substring matching would red here while the FIRING cases above stayed
 // green, which is the mutation this pole exists to catch.
 check("DANGER/NFP/fused-rmdir-silent", () =>
-  assertSilent(runHook("rmdir$IFS/Users/someoperator", REPO)),
+  assertSilent(runHook(materializeFixtureText("rmdir$IFS{{FIXTURE_HOME_V1:MAC}}someoperator"), REPO)),
 );
 check("DANGER/NFP/substituted-non-rm-silent", () =>
   assertSilent(runHook("$(echo ls) -la /Users", REPO)),
@@ -819,6 +820,175 @@ check("DANGER/NFP/process-substitution-operand-survives", () => {
     `process substitution is an operand, not plumbing; got ${JSON.stringify(got.targets)}`
   );
 });
+
+// ======================================= ARM 12: QUOTED-HEREDOC BODIES ARE DATA
+// The `Blocked` dangerous patterns tested the RAW command, so a QUOTED heredoc
+// body that merely MENTIONS `rm … /` blocked the `cat >> notes.md` writing it.
+// MEASURED (ROOT, 2026-10-16): `cat >> …/notes.md <<'EOF'` whose body read
+// `… cp&&rm / node -e …` -> "validate-bash-command/Blocked: rm on root
+// filesystem". `dangerousPatternSurface` removes bodies ONLY when the WHOLE
+// command is an allowlisted data write (bare cat/tee/mkdir -p, quoted delimiter,
+// plain data-extension targets, no expansion/pipe/continuation/glob anywhere
+// outside a body); anything else is tested raw, exactly as before.
+//
+// ALLOW pole: reds when the surface stops removing inert bodies.
+// BLOCK pole: every shape asserts the SAME owner that refused it before the
+// change, so a sibling fence cannot absorb a regression here. Groups:
+//   v1-*   the first cut's exec cases (and its variable-target allow, now raw);
+//   r1a-f  correctness review: path-prefixed / backslashed shell, `$SHELL -s \\`
+//          continuation, quoted executor + glob, Makefile + make, rc file;
+//   d/e/f-target-*, exec-config-*, *-hooks-dir, dotdot-*: the data-path
+//          predicate is the SOLE defence (nothing else on the line is foreign);
+//   continuation-on-opener: line continuation is the SOLE defence;
+//   sec-*  security review: quote-blind decoy openers, unbalanced `${X`,
+//          `<<-`, CRLF, same-line chaining, globbed/stdin/`$SHELL` execution,
+//          git hook + rc persistence, process substitution, unclosed body.
+//   r2-*   second review: agent-instruction and config targets (.claude/commands,
+//          skills, agents, CLAUDE.md, AGENTS.md, compose override, nodemon.json,
+//          project.json), case / `.`-segment aliasing of .claude/hooks, and
+//          symlink / symlinked-parent / directory / FIFO targets.
+// Mutations that red this arm: strip-always (drop the allowlist) -> every r1/
+// sec/target case; drop the data-path predicate -> d/e/f-target, exec-config-*,
+// claude-hooks-dir, dotdot-target, r1f; accept a trailing `\\` -> continuation-on-opener;
+// skip lowercasing / `.`-normalization -> r2 case and dot-segment cases; skip
+// the lstat walk -> r2 symlink / directory / FIFO cases.
+const R = "rm -rf /";
+const ROOT_BLOCK = "validate-bash-command/Blocked: rm on root filesystem";
+const LONG_BLOCK = "validate-bash-command/Blocked: rm recursive/force with long flags";
+// Decision-time filesystem fixtures for the r2 non-regular-target cases and the
+// existing-regular-file allow case. Precondition-checked below as its own case,
+// so a host that cannot make a FIFO reds loudly instead of greening vacuously.
+fs.writeFileSync(path.join(REPO, "plain.md"), "x\n");
+fs.writeFileSync(path.join(REPO, "real.md"), "x\n");
+fs.symlinkSync(path.join(REPO, "real.md"), path.join(REPO, "link.md"));
+fs.mkdirSync(path.join(REPO, "realdir"));
+fs.symlinkSync(path.join(REPO, "realdir"), path.join(REPO, "linkdir"));
+fs.mkdirSync(path.join(REPO, "adir.md"));
+spawnSync("mkfifo", [path.join(REPO, "pipe.md")]);
+check("HEREDOC/fs-fixture-precondition", () => {
+  const l = (n) => fs.lstatSync(path.join(REPO, n));
+  try {
+    return (
+      (l("plain.md").isFile() && l("link.md").isSymbolicLink() && l("linkdir").isSymbolicLink() &&
+        l("adir.md").isDirectory() && l("pipe.md").isFIFO()) ||
+      "filesystem fixtures did not materialize with the expected types"
+    );
+  } catch (e) {
+    return "filesystem fixture missing: " + (e && e.message);
+  }
+});
+const HEREDOC_DATA_ALLOW = [
+  ["repro-cat-append-quoted", "cat >> .claude/scratchpad/root-ledger/notes.md <<'EOF'\n- Guard-foundation shell parser: git mv / rsync / cp&&rm / node -e come back \"undetermined\" — feed to EP-1.\nEOF"],
+  ["tee-append-quoted", "tee -a notes.md <<'EOF'\n" + R + "\nEOF"],
+  ["cat-dquoted-delim", "cat > report.md <<\"EOF\"\nthe hook refused " + R + " as it should\nEOF"],
+  ["cat-backslash-delim", "cat <<\\EOF >> log.md\n" + R + "*\nEOF"],
+  ["cat-plain-target-longflags", "cat >> notes.md <<'EOF'\nrm --recursive --force build\nEOF"],
+  ["trail-space-close-is-body", "cat > a.md <<'EOF'\nx\nEOF \n" + R + "\nEOF"],
+  ["mkdir-then-cat", "mkdir -p notes/sub && cat > notes/sub/a.md <<'EOF'\n" + R + "\nEOF"],
+  ["two-writes-sequenced", "cat > a.md <<'A'\n" + R + "\nA\ntee -a b.log <<'B'\nmkfs.ext4 /dev/sda\nB"],
+  ["mkfs-body", "cat > n.md <<'EOF'\nmkfs.ext4 /dev/sda\nEOF"],
+  ["home-data-target", "cat >> ~/notes/today.txt <<'EOF'\n" + R + "\nEOF"],
+  ["scratchpad-dot-segment", "cat > .claude/./scratchpad/n/a.md <<'EOF'\n" + R + "\nEOF"],
+  ["existing-regular-file", "cat >> plain.md <<'EOF'\n" + R + "\nEOF"],
+  ["cat-to-stdout", "cat <<'EOF'\n" + R + "\nEOF"],
+];
+for (const [id, cmd] of HEREDOC_DATA_ALLOW) {
+  check(`HEREDOC/data-allow/${id}`, () => {
+    const res = runHook(cmd, REPO);
+    return /validate-bash-command\/Blocked: /.test(res.text)
+      ? `quoted heredoc body is DATA, but a dangerous pattern refused it: ${res.text.replace(/\s+/g, " ").slice(0, 200)}`
+      : true;
+  });
+}
+// Third column: the owner measured at the pre-change hook for each shape.
+//   root / long  the `Blocked` pattern this change narrows — it MUST still own it;
+//   unquoted     an UNQUOTED body (expanding) — root pattern, the destructive-op
+//                fence, or the CATASTROPHIC target dimension, whichever speaks first;
+//   state        trust-posture/state-file-mutation refuses the write target first.
+const HEREDOC_EXEC_BLOCK = [
+  ["v1-bash-consumes-quoted-body", "bash <<'EOF'\n" + R + "\nEOF", "root"],
+  ["v1-piped-to-sh", "cat <<'EOF' | sh\n" + R + "\nEOF", "root"],
+  ["v1-unquoted-body-command-substitution", "cat <<EOF\n$(" + R + ")\nEOF", "unquoted"],
+  ["v1-rm-on-opener-line", R + " <<'EOF'\nx\nEOF", "root"],
+  ["v1-rm-after-close", "cat > f <<'EOF'\nx\nEOF\n" + R, "root"],
+  ["v1-written-file-then-executed", "cat > run.sh <<'EOF'\n" + R + "\nEOF\nbash run.sh", "root"],
+  ["v1-mixed-quoted-and-unquoted", "cat > a.md <<'A'\nx\nA\ncat <<B\n`" + R + "`\nB", "unquoted"],
+  ["v1-var-target-now-raw", "cat >> \"$NOTES\" <<'EOF'\nrm --recursive --force build\nEOF", "long"],
+  ["r1a-path-prefixed-shell", "/bin/bash -c \"$(\ncat <<'EOF'\n" + R + "\nEOF\n)\"", "root"],
+  ["r1b-backslash-shell", "\\bash -c \"$(\ncat <<'EOF'\n" + R + "\nEOF\n)\"", "root"],
+  ["r1c-line-continuation-shell", "$SHELL -s \\\ncat <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r1d-quoted-executor-glob", "cat > a.sh <<'EOF'\n" + R + "\nEOF\n\"bash\" ./a.s?", "root"],
+  ["r1e-makefile-make", "cat > Makefile <<'EOF'\nx:\n\t" + R + "\nEOF\nmake x", "root"],
+  ["r1f-rc-file-deferred", "cat >> ~/.bashrc <<'EOF'\n" + R + "\nEOF", "root"],
+  ["d-target-sh-only", "cat > a.sh <<'EOF'\n" + R + "\nEOF", "root"],
+  ["e-target-makefile-only", "cat > Makefile <<'EOF'\nx:\n\t" + R + "\nEOF", "root"],
+  ["f-target-rcfile-only", "cat >> .bashrc <<'EOF'\n" + R + "\nEOF", "root"],
+  ["exec-config-package-json", "cat > package.json <<'EOF'\n{\"scripts\":{\"test\":\"" + R + " \"}}\nEOF", "root"],
+  ["exec-config-claude-settings", "cat > .claude/settings.json <<'EOF'\n{\"x\":\"" + R + "\"}\nEOF", "state"],
+  ["claude-hooks-dir", "cat > .claude/hooks/x.json <<'EOF'\n" + R + "\nEOF", "root"],
+  ["exec-config-nested-settings", "cat > app/settings.json <<'EOF'\n" + R + "\nEOF", "root"],
+  ["nested-git-dir-target", "cat > vendor/.git/info/x.txt <<'EOF'\n" + R + "\nEOF", "state"],
+  ["git-dir-target", "cat > .git/info/x.txt <<'EOF'\n" + R + "\nEOF", "state"],
+  ["dotdot-target", "cat > ../x.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["continuation-on-opener", "cat > a.md <<'EOF' \\\n; " + R + "\nx\nEOF", "root"],
+  ["r2-claude-commands-md", "cat > .claude/commands/x.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-claude-skill-md", "cat > .claude/skills/x/SKILL.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-claude-agents-md", "cat > .claude/agents/x.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-CLAUDE-md", "cat > CLAUDE.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-nested-AGENTS-md", "tee -a docs/AGENTS.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-compose-override-yml", "cat > docker-compose.override.yml <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-nodemon-json", "cat > nodemon.json <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-project-json", "cat > project.json <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-claude-Hooks-case", "cat > .claude/Hooks/x.json <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-claude-HOOKS-case", "cat > .claude/HOOKS/x.json <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-claude-dot-segment-hooks", "cat > .claude/./hooks/x.json <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-CLAUDE-dir-case", "cat > .CLAUDE/commands/x.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-symlink-target", "cat > link.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-symlinked-parent", "cat > linkdir/x.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-directory-target", "cat > adir.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["r2-fifo-target", "cat > pipe.md <<'EOF'\n" + R + "\nEOF", "root"],
+  ["sec-DECOY-sp", "cat '<<\\X x' <<'EOF'\nEOF\n" + R + "\nX", "root"],
+  ["sec-DECOY-sp-after", "cat <<'EOF' '<<\\X x'\nEOF\n" + R + "\nX", "root"],
+  ["sec-DECOY-dq", "cat \"<<X\" <<'EOF'\nEOF\n" + R + "\nX", "root"],
+  ["sec-DECOY-sq-bs", "cat '<<\\X' <<'EOF'\nEOF\n" + R + "\nX", "root"],
+  ["sec-DECOY-sq-dq", "cat '<<\"X\"' <<'EOF'\nEOF\n" + R + "\nX", "root"],
+  ["sec-DECOY-dq-word", "cat \"a\" '<<\\Z' <<'EOF' > o.md\nEOF\n" + R + " \nZ", "root"],
+  ["sec-brace-newline", "cat ${X <<'EOF'\n}\n" + R + "\nEOF", "root"],
+  ["sec-brace-sameline-close", "cat ${X} ${Y <<'EOF'\n}\n" + R + "\nEOF", "root"],
+  ["sec-dollar-brace-open", "cat ${X <<'EOF'\n}; " + R + " \nEOF", "root"],
+  ["sec-dash-tab-close", "cat > a.md <<-'EOF'\nx\n\tEOF\n" + R, "root"],
+  ["sec-crlf-close", "cat > a.md <<'EOF'\r\nx\r\nEOF\r\n" + R + "\r\nEOF", "root"],
+  ["sec-same-line-chain", "cat > a.md <<'EOF'; " + R + "\nx\nEOF", "root"],
+  ["sec-same-line-andsh", "cat > f <<'EOF' && sh f\n" + R + "\nEOF", "root"],
+  ["sec-two-heredocs", "cat <<'A' <<'B'\n" + R + "\nA\n" + R + "\nB", "root"],
+  ["sec-glob-binsh", "cat > run.txt <<'EOF'\n" + R + "\nEOF\n/bin/sh run.tx?", "root"],
+  ["sec-glob-exec-dot", "cat > x.sh <<'EOF'\n" + R + "\nEOF\n./x.s?", "root"],
+  ["sec-stdin-binsh", "cat > j.txt <<'EOF'\n" + R + "\nEOF\n/bin/bash < j.tx*", "root"],
+  ["sec-SHELL-var", "cat > k <<'EOF'\n" + R + "\nEOF\n\"$SHELL\" ./?", "root"],
+  ["sec-var-indirect", "cat > \"$A\" <<'EOF'\n" + R + "\nEOF\n/bin/sh \"${A}\"", "root"],
+  ["sec-git-hook", "cat > .git/hooks/pre-commit <<'EOF'\n#!/bin/sh\n" + R + "\nEOF\ngit commit --allow-empty -m x", "state"],
+  ["sec-zshrc-persist", "cat >> ~/.zshrc <<'EOF'\n" + R + "\nEOF", "root"],
+  ["sec-tee-procsub", "tee >(sh) <<'EOF'\n" + R + "\nEOF", "root"],
+  ["sec-devstdout-pipe", "cat <<'EOF' > /dev/stdout | sh\n" + R + "\nEOF", "root"],
+  ["sec-cmd-subst", "x=$(cat <<'EOF'\n" + R + "\nEOF\n)", "root"],
+  ["sec-backslash-cat", "\\cat > f <<'EOF'\n" + R + "\nEOF", "root"],
+  ["sec-exec-busybox", "cat > f <<'EOF'\n" + R + "\nEOF\nbusybox sh f", "root"],
+  ["sec-unclosed-body", "cat > f <<'EOF'\n" + R, "root"],
+  ["sec-make-exec", "cat > Makefile <<'EOF'\nall:\n\t" + R + "\nEOF\nmake", "root"],
+];
+for (const [id, cmd, owner] of HEREDOC_EXEC_BLOCK) {
+  check(`HEREDOC/exec-block/${id}`, () => {
+    const res = runHook(cmd, REPO);
+    if (!res.spoke) return "expected REFUSAL, got SILENCE";
+    if (!/Tool call blocked/.test(res.text)) return `spoke but did not refuse: ${res.text.replace(/\s+/g, " ").slice(0, 300)}`;
+    const ok =
+      owner === "root" ? res.text.includes(ROOT_BLOCK)
+      : owner === "long" ? res.text.includes(LONG_BLOCK)
+      : owner === "state" ? res.text.includes("trust-posture/state-file-mutation")
+      : res.text.includes(ROOT_BLOCK) || /CATASTROPHIC target|Destructive Working-Tree Ops/.test(res.text);
+    return ok ? true : `refused, but not by the ${owner} owner: ${res.text.replace(/\s+/g, " ").slice(0, 300)}`;
+  });
+}
 
 fs.rmSync(TMP, { recursive: true, force: true });
 

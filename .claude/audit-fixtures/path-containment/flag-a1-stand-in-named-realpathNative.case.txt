@@ -1,0 +1,13 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R2 sec N8: a same-file stand-in NAMED like a resolver is read as what it returns (lexical).
+const realpathNative = (p) => path.resolve(p);
+
+export function rootIsStandIn(p, root) {
+  return fs.realpathSync.native(p).startsWith(realpathNative(root) + path.sep);
+}
+
+export function candidateIsStandIn(p, root) {
+  return realpathNative(p).startsWith(fs.realpathSync.native(root) + path.sep);
+}

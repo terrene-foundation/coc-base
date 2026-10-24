@@ -10,7 +10,7 @@
  * `rules/upstream-issue-hygiene.md` MUST-1 (human gate) / MUST-2 (redaction) /
  * MUST-3 (five-section minimal-repro shape).
  *
- * THE HUMAN-VS-TOOLING BOUNDARY (load-bearing, `artifact-flow.md:224` +
+ * THE HUMAN-VS-TOOLING BOUNDARY (load-bearing, `artifact-flow-gates.md` § "Human Classifies Every Change" +
  * `upstream-issue-hygiene.md` MUST-1): tooling DRAFTS the body + injects the
  * cross-SDK flag + runs the mechanical scrub + SIGNALS that a human gate is
  * required. The human CONFIRMS the classification, RATIFIES the scrub (HALT on

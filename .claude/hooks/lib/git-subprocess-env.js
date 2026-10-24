@@ -355,6 +355,13 @@ function gitEnv() {
     GIT_OPTIONAL_LOCKS: "0",
     GIT_PAGER: "cat",
     LC_ALL: "C",
+    // A hook's git READS; it must never FETCH as a side effect of one. In a partial
+    // clone a read that needs a missing object lazily fetches it from the promisor
+    // remote, and that transport runs the repository's `remote.<n>.uploadpack`,
+    // `core.sshCommand` and `core.gitProxy` (RUN 8 HIGH-A, measured through
+    // `rm -rf`, `reset --hard` and `clean -fd` assessments). With this set the read
+    // fails instead, and a failed read is every caller's not-measured state.
+    GIT_NO_LAZY_FETCH: "1",
     // IDENTITY IS FAIL-CLOSED (loom#1915) — see § IDENTITY below for the whole
     // argument. The three `GIT_CONFIG_*` lines above make `user.name` /
     // `user.email` / `user.signingkey` / `commit.gpgsign` unreadable, and git's
@@ -1026,15 +1033,282 @@ function gitConfigInvocation(gitArgs) {
   return { args: [...CONFIG_NEUTRALIZERS, ...gitArgs], env, homeSource };
 }
 
+/* ─────────────── the TARGET-REPO envelope (security seat, 2026-10-14) ───────────────
+ *
+ * WHY A THIRD ARGV ENVELOPE EXISTS. `gitEnv()` closes GLOBAL and SYSTEM config. It does
+ * NOT close the config of the repository git is pointed AT, and nothing in the env can:
+ * `$GIT_DIR/config` is read whenever a repository is discovered. That is harmless while
+ * the repository is the session's own. It is NOT harmless when a guard ASSESSES a
+ * repository named by the command it is judging (`rm -rf <repo>`, `git -C <repo> …`) —
+ * the agent controls that repository's `.git/config`, and several keys there name a
+ * PROGRAM git will run. MEASURED (security seat: `fsmonitor-ran=true`): a planted
+ * `core.fsmonitor = <program>` ran inside the hook when it merely ASSESSED `rm -rf <repo>`.
+ *
+ * `-c` outranks every config FILE, so the neutralizers below beat the target's own
+ * values. MEASURED per subcommand on git 2.54.0 (Apple Git-157) and git 2.56.0, under the
+ * `gitEnv()` profile, each knob planted in the target repo with a marker-writing program,
+ * both poles (planted-and-live vs neutralized) on the same tree:
+ *
+ *   status --porcelain       core.fsmonitor ran; filter.<d>.clean ran (stat-dirty file,
+ *                            driver bound in `.git/info/attributes`); filter.<d>.process
+ *                            ran. All three silent under the envelope + driver overrides.
+ *   ls-files [-s]            core.fsmonitor ran (an index READ refreshes fsmonitor).
+ *   log --oneline,           gpg.program ran when `log.showSignature=true` and a commit
+ *   stash list               carries a gpgsig header; gpg.ssh.program likewise with
+ *                            `gpg.format=ssh`. Silent under `log.showSignature=false`.
+ *   rev-parse, ls-tree,      nothing ran.
+ *   remote, rev-list,
+ *   config --get-regexp
+ *
+ * `core.hooksPath=<devNull>`: no assess subcommand runs a hook (GIT_OPTIONAL_LOCKS=0 keeps
+ * status from writing the index, so `post-index-change` cannot fire). It is set anyway
+ * because it is the ONE knob that silences BOTH a planted `core.hooksPath` AND the default
+ * `$GIT_DIR/hooks/` — MEASURED with `update-ref` as the control: the reference-transaction
+ * hook fired from either location, and from neither under `-c core.hooksPath=/dev/null`.
+ *
+ * `gpg.*program=<devNull>` is a BELT under `log.showSignature=false`: exec of the null
+ * device fails (`fatal: cannot exec '/dev/null': Permission denied`, MEASURED) so no
+ * program runs even on a path that still reaches verification. An EMPTY value was not
+ * used, because an empty program string is not a documented "disable" for these keys.
+ *
+ * NOT INJECTED HERE: `core.sshCommand`, `core.gitProxy`, `core.askPass`,
+ * `diff.external`, `diff.<d>.command`/`textconv`. Each is reached by transport, a prompt,
+ * or patch output — and transport INCLUDES a partial clone's lazy fetch, which a plain
+ * read triggers (RUN 8 HIGH-A: the measurement table above never built a promisor
+ * remote, and an earlier version of this note said "only by transport" as if no read
+ * could reach one). `gitEnv()` sets GIT_NO_LAZY_FETCH for every hook call, and the
+ * TARGET-repo envelope (lib/target-repo-git.js) additionally refuses every transport and
+ * injects the patch-output flags. For several of these an empty value NAMES a program
+ * rather than disabling one, so an empty `-c` would be a hazard, not a neutralizer.
+ * Target-repo callers use lib/target-repo-git.js, not this prefix alone.
+ *
+ * FILTER DRIVERS CANNOT BE WILDCARDED, so they are the caller's half. `filter.<name>.*`
+ * is keyed by a driver NAME the target's config chooses. `--attr-source=<empty tree>` was
+ * MEASURED and is NOT sufficient: it replaces only the in-tree `.gitattributes` — a driver
+ * bound in `$GIT_DIR/info/attributes` still ran under it. So the caller enumerates the
+ * driver names from the target's config (and every populated submodule's) and passes
+ * them as `filterDrivers`; each gets `clean=`, `smudge=` and `process=` emptied, which
+ * git treats as "no command" (MEASURED silent for clean and process, dotted and
+ * mixed-case names included). A name containing `=` CANNOT be expressed through `-c`
+ * (git splits the parameter at the first `=`; MEASURED: `-c filter.x=y.clean=` left the
+ * `x=y` driver live), nor can an empty name or one with a newline/NUL — those THROW, so
+ * the caller fails closed instead of running a status it could not neutralize.
+ *
+ * SUBMODULES: `status` recurses into populated submodules as child processes, and the
+ * `-c` set reaches them through GIT_CONFIG_PARAMETERS — MEASURED: a `core.fsmonitor` and a
+ * filter driver planted in the SUBMODULE's own config both ran under a bare top-level
+ * status, and neither ran with the overrides on the top-level argv alone. The driver
+ * NAMES in a submodule's config are still the caller's to enumerate.
+ *
+ * RESIDUAL, stated: the driver set is read BEFORE the status that relies on it. A process
+ * that rewrites the target's config in that window can introduce a driver the status was
+ * not told about. Older git (before the builtin fsmonitor) read `core.fsmonitor` as a hook
+ * PATH, where `false` would name `false` on the constant `/usr/bin:/bin` PATH — a no-op
+ * program, not the planted one. That older-git reading is REASONED from the § THE HARD
+ * PART note above, not measured: no pre-builtin-fsmonitor git was available here.
+ */
+const TARGET_REPO_NEUTRALIZERS = Object.freeze([
+  "--no-pager",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  `core.hooksPath=${os.devNull}`,
+  "-c",
+  "core.pager=cat",
+  "-c",
+  "credential.helper=",
+  "-c",
+  "log.showSignature=false",
+  "-c",
+  `gpg.program=${os.devNull}`,
+  "-c",
+  `gpg.ssh.program=${os.devNull}`,
+  "-c",
+  `gpg.x509.program=${os.devNull}`,
+  "-c",
+  "protocol.ext.allow=never",
+]);
+
+/** Thrown when a target-repo invocation cannot be neutralized as asked. */
+function _targetRepoError(message) {
+  const error = new Error(`targetRepoArgs: ${message}`);
+  error.code = "GIT_TARGET_REPO_ARGS_REFUSED";
+  return error;
+}
+
+/**
+ * Build the argv for git run against a TARGET (untrusted) repository: the
+ * `TARGET_REPO_NEUTRALIZERS` prefix, an emptied clean/smudge/process for each named filter
+ * driver, then the caller's args. Pair it with `env: gitEnv()`.
+ *
+ * @param {string[]} gitArgs the invocation WITHOUT the binary, e.g. ["-C", dir, "status"]
+ * @param {{filterDrivers?: Iterable<string>}} [opts]
+ * @returns {string[]}
+ * @throws {Error} code GIT_TARGET_REPO_ARGS_REFUSED — on a caller `-c`/`--config-env`
+ *   (which, parsed after the prefix, would override it) or on a driver name `-c` cannot
+ *   express. It THROWS rather than dropping the override: a status run with a live driver
+ *   is the defect this exists to remove.
+ */
+function targetRepoArgs(gitArgs, opts) {
+  if (!Array.isArray(gitArgs) || gitArgs.some((a) => typeof a !== "string")) {
+    throw _targetRepoError("args must be an array of strings");
+  }
+  for (let i = 0; i < gitArgs.length; i++) {
+    const tok = gitArgs[i];
+    if (tok === "-C") {
+      i++; // its value is a directory, never an option
+      continue;
+    }
+    if (tok === "-c" || tok === "--config-env" || tok.startsWith("--config-env=")) {
+      throw _targetRepoError(
+        `global option ${tok} would override the neutralizer prefix — refused`,
+      );
+    }
+    if (!tok.startsWith("-")) break; // the subcommand: its own args are not global options
+  }
+  const drivers = opts && opts.filterDrivers ? [...opts.filterDrivers] : [];
+  const overrides = [];
+  for (const name of drivers) {
+    if (typeof name !== "string" || name === "" || /[=\n\0]/.test(name)) {
+      throw _targetRepoError(
+        `filter driver name ${JSON.stringify(String(name))} cannot be neutralized through -c`,
+      );
+    }
+    for (const key of ["clean", "smudge", "process"]) {
+      overrides.push("-c", `filter.${name}.${key}=`);
+    }
+  }
+  return [...TARGET_REPO_NEUTRALIZERS, ...overrides, ...gitArgs];
+}
+
+let _hookNodeLauncher;
+
+function _hookNodeError(code, message, cause) {
+  const error = new Error(`git hook profile: ${message}`, { cause });
+  error.code = code;
+  return error;
+}
+
+function _validateHookNodeLauncher(launcher) {
+  const stat = fs.lstatSync(launcher.directory);
+  if (!stat.isDirectory() || fs.realpathSync(launcher.directory) !== launcher.directory ||
+      (process.platform !== "win32" && ((stat.mode & 0o777) !== 0o700 || stat.uid !== process.getuid()))) {
+    throw new Error("launcher directory identity or private permissions changed");
+  }
+  const entries = fs.readdirSync(launcher.directory);
+  if (entries.length !== 1 || entries[0] !== launcher.name ||
+      !fs.lstatSync(launcher.link).isSymbolicLink() ||
+      fs.realpathSync(launcher.link) !== launcher.node || !isExecutableFile(launcher.link)) {
+    throw new Error("launcher must contain only the canonical executable Node link");
+  }
+}
+
+function _disposeHookNodeLauncher(launcher) {
+  if (launcher.disposed) return;
+  _validateHookNodeLauncher(launcher);
+  fs.unlinkSync(launcher.link);
+  fs.rmdirSync(launcher.directory);
+  launcher.disposed = true;
+  if (_hookNodeLauncher === launcher) _hookNodeLauncher = undefined;
+}
+
+function _bindHookNodeCleanup(launcher) {
+  const report = (cause) => {
+    const error = _hookNodeError("GIT_HOOK_NODE_LAUNCHER_CLEANUP_FAILED", "Node launcher cleanup refused", cause);
+    process.stderr.write(`${error.code}: ${error.message}: ${cause.message}\n`);
+    process.exitCode = process.exitCode || 1;
+  };
+  const removeSignalListeners = () => {
+    process.removeListener("SIGINT", onInt);
+    process.removeListener("SIGTERM", onTerm);
+  };
+  const onExit = () => {
+    try {
+      _disposeHookNodeLauncher(launcher);
+    } catch (cause) {
+      report(cause);
+    }
+    removeSignalListeners();
+  };
+  const onSignal = (signal, ownListener) => {
+    const hasOtherListeners = process.listeners(signal).some(listener => listener !== ownListener);
+    try {
+      _disposeHookNodeLauncher(launcher);
+      process.removeListener("exit", onExit);
+    } catch (cause) {
+      report(cause);
+    }
+    removeSignalListeners();
+    if (!hasOtherListeners) process.kill(process.pid, signal);
+  };
+  const onInt = () => onSignal("SIGINT", onInt);
+  const onTerm = () => onSignal("SIGTERM", onTerm);
+  process.once("exit", onExit);
+  process.on("SIGINT", onInt);
+  process.on("SIGTERM", onTerm);
+}
+
+function _hookNodeDirectory() {
+  if (_hookNodeLauncher) {
+    try {
+      _validateHookNodeLauncher(_hookNodeLauncher);
+      return _hookNodeLauncher.directory;
+    } catch (cause) {
+      throw _hookNodeError("GIT_HOOK_NODE_LAUNCHER_INVALID", "cached Node launcher failed validation", cause);
+    }
+  }
+  let directory;
+  let link;
+  try {
+    const node = fs.realpathSync(process.execPath);
+    if (!isExecutableFile(node)) {
+      throw _hookNodeError("GIT_HOOK_NODE_UNAVAILABLE", "current Node is not an executable regular file");
+    }
+    const tempRoot = fs.realpathSync(os.tmpdir());
+    if (!fs.statSync(tempRoot).isDirectory()) throw new Error("temporary root is not a directory");
+    directory = fs.realpathSync(fs.mkdtempSync(path.join(tempRoot, "loom-git-hook-node-")));
+    fs.chmodSync(directory, 0o700);
+    const name = process.platform === "win32" ? "node.exe" : "node";
+    link = path.join(directory, name);
+    fs.symlinkSync(node, link, "file");
+    const launcher = { directory, link, node, name };
+    _validateHookNodeLauncher(launcher);
+    _bindHookNodeCleanup(launcher);
+    _hookNodeLauncher = launcher;
+    return directory;
+  } catch (cause) {
+    if (directory) {
+      try {
+        if (link && fs.existsSync(link) && fs.lstatSync(link).isSymbolicLink() &&
+            fs.realpathSync(link) === fs.realpathSync(process.execPath)) fs.unlinkSync(link);
+        fs.rmdirSync(directory);
+      } catch (cleanupCause) {
+        throw _hookNodeError("GIT_HOOK_NODE_LAUNCHER_SETUP_FAILED", "Node launcher setup and cleanup failed", new AggregateError([cause, cleanupCause]));
+      }
+    }
+    if (cause.code === "GIT_HOOK_NODE_UNAVAILABLE") throw cause;
+    throw _hookNodeError("GIT_HOOK_NODE_LAUNCHER_SETUP_FAILED", "canonical Node launcher could not be created", cause);
+  }
+}
+
+function gitHookEnv({ network = false } = {}) {
+  const env = network === true ? gitNetEnv() : gitEnv();
+  env.PATH = _hookNodeDirectory() + path.delimiter + env.PATH;
+  return env;
+}
+
 module.exports = {
   resolveGitBinary,
   resetGitBinaryCache,
   gitEnv,
   gitNetEnv,
   gitEnvForArgs,
+  gitHookEnv,
   windowsHostEnv,
   gitConfigInvocation,
   GitConfigProfileError,
+  TARGET_REPO_NEUTRALIZERS,
+  targetRepoArgs,
   // Test-only — NOT part of the supported API.
   _test_setCandidates,
   _test_isExecutableFile: isExecutableFile,

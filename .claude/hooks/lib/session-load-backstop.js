@@ -567,17 +567,60 @@ function classifyRow(row, classify, conditionalWords) {
  */
 const CREDENTIAL_WORD =
   "(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|APIKEY|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIALS?|AUTH)";
+const CREDENTIAL_NAME = new RegExp(CREDENTIAL_WORD, "i");
 const CREDENTIAL_ASSIGNMENT = new RegExp(
-  `(^|[\\s"'\`=:;,|&()<>])(-{0,2}[A-Za-z0-9_.-]*${CREDENTIAL_WORD}[A-Za-z0-9_.-]*)=\\S+`,
+  String.raw`(^|[\s"'\x60=:;,|&()<>?{}\[\]])(-{0,2}[A-Za-z0-9_.-]+)(?:["'])?\s*[:=]\s*`,
   "gi",
 );
-/** `--token <value>` — a hyphen-led flag only, and only when the value is not itself a flag. */
 const CREDENTIAL_FLAG_VALUE = new RegExp(
-  `(^|\\s)(-{1,2}[A-Za-z0-9_.-]*${CREDENTIAL_WORD}[A-Za-z0-9_.-]*)(\\s+)(?!-)(\\S+)`,
+  String.raw`(^|[\s"'\x60=:;,|&()<>?{}\[\]])(-{1,2}[A-Za-z0-9_.-]+)(\s+)(?!-)(?=\S)`,
   "gi",
 );
-/** URL userinfo: `https://user:pass@host` — the whole userinfo goes, not only the password. */
-const URL_USERINFO = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/@]+@/g;
+const URL_USERINFO = /(^|[^A-Za-z0-9+.-])([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/@]+@/g;
+
+/** Pure best-effort disclosure projection, shared by command and CI diagnostics.
+ * Credential matchers are local (.claude/hooks/lib/session-load-backstop.js:568-580).
+ * No path/control/bracket normalization and no arbitrary-secret/PII guarantee.
+ */
+function scrubCredentialText(text) {
+  let s = String(text == null ? "" : text);
+  if (s.length > 64 * 1024) return "[DIAGNOSTIC WITHHELD: credential scan input exceeds 64 KiB]";
+  const replaceValues = (input, pattern, render, accepts = () => true) => {
+    pattern.lastIndex = 0;
+    const parts = [];
+    let copied = 0, match;
+    while ((match = pattern.exec(input))) {
+      if (!accepts(match)) {
+        pattern.lastIndex = Math.max(match.index + 1, pattern.lastIndex - 1);
+        continue;
+      }
+      const start = pattern.lastIndex;
+      let end = start;
+      const quote = input[start];
+      if (quote === '"' || quote === "'") {
+        end++;
+        while (end < input.length) {
+          if (input[end] === "\\") { end = Math.min(input.length, end + 2); continue; }
+          if (input[end++] === quote) break;
+        }
+      } else {
+        while (end < input.length && !/\s/.test(input[end])) end++;
+      }
+      parts.push(input.slice(copied, match.index), render(match, input.slice(start, end), input.slice(end)));
+      copied = end;
+      pattern.lastIndex = end;
+    }
+    parts.push(input.slice(copied));
+    return parts.join("");
+  };
+  s = s.replace(URL_USERINFO, "$1$2<redacted>@");
+  s = replaceValues(s, /\b(Bearer|Basic)\s+(?=\S)/gi, (m) => `${m[1]} <redacted>`);
+  s = replaceValues(s, CREDENTIAL_ASSIGNMENT, (m, value, tail) =>
+    /^(Bearer|Basic)$/i.test(value) && /^\s+<redacted>/.test(tail)
+      ? m[0] + value : `${m[1]}${m[2]}=<redacted>`, (m) => CREDENTIAL_NAME.test(m[2]));
+  s = replaceValues(s, CREDENTIAL_FLAG_VALUE, (m) => `${m[1]}${m[2]}${m[3]}<redacted>`, (m) => CREDENTIAL_NAME.test(m[2]));
+  return s;
+}
 
 /**
  * Scrub a command column for emission. Best-effort DISCLOSURE hygiene, never a trust
@@ -596,10 +639,7 @@ function sanitizeCommand(command, homeDir) {
     s = s.split(homeDir).join("~");
   }
   s = s.replace(/\/(Users|home)\/[A-Za-z][\w.-]*/g, "/$1/<user>");
-  s = s.replace(URL_USERINFO, "$1<redacted>@");
-  s = s.replace(CREDENTIAL_ASSIGNMENT, "$1$2=<redacted>");
-  s = s.replace(CREDENTIAL_FLAG_VALUE, "$1$2$3<redacted>");
-  s = s.replace(/\b(Bearer|Basic)\s+\S+/g, "$1 <redacted>");
+  s = scrubCredentialText(s);
   s = s.replace(/[[\]]/g, "").replace(/`/g, "'").replace(/\s+/g, " ").trim();
   if (s.length > COMMAND_MAX) s = s.slice(0, COMMAND_MAX) + "…";
   return s;
@@ -818,6 +858,7 @@ module.exports = {
   commandToArgv,
   classifyRow,
   sanitizeCommand,
+  scrubCredentialText,
   assessSessionLoad,
   buildEmitPayload,
   formatEtime,

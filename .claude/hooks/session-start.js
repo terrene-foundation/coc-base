@@ -16,11 +16,50 @@
  *   other = non-blocking error (warn and continue)
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".env",
+ *       ".claude/learning/",
+ *       ".claude/learning/observations.jsonl",
+ *       ".session-notes.d/",
+ *       ".session-notes.shared.md",
+ *       ".session-notes.aggregate.md",
+ *       ".session-notes.migrated",
+ *       ".session-notes.migrate.lock",
+ *       ".git/config",
+ *       "~/.claude/sessions/"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["csq","curl","gh","git","gpg","node","ollama","python","python3","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "spawns: git probes (lib/state-resolver.js, lib/unlanded-work-surface.js, lib/landing-provenance-audit.js, lib/release-drift.js), `gh pr list` (lib/open-pr-surface.js), `git config` writes (lib/coc-ledger-driver.js), `python -m pip list` + lib/version-utils.js's curl/node probes, and lib/operator-id.js key discovery. Network: false by the own-process rule — the gh/curl children reach the network and are covered by spawns. Writes: .env via lib/env-utils.js::ensureEnvFile (copy from .env.example or generated template); the .session-notes.* set comes from lib/session-notes-layout.js::migrateMonolithToSplit + regenerateAggregate; ~/.claude/sessions/ is the home-scoped startedAt record (tmp + rename). Non-idempotent: one session_start observation is appended per invocation."
+ * }
+ */
+
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 // loom#1349 — the ONE hardened append primitive; see lib/append-sink.js for the six defenses.
 const { appendSinkLine } = require("./lib/append-sink.js");
+// The shared non-blocking, fd-checked reader. Every file SessionStart reads from
+// the (session-writable) repo goes through it: a FIFO at pyproject.toml, an
+// __init__.py, .claude/VERSION, .env, a top-level *.py or the sync marker was a
+// blocking readFileSync that parked this hook until its host killed it.
+const { readRegularFileBounded } = require("./lib/landing-window-read.js");
+// Generous: these reads were unbounded, and over the bound the file is SKIPPED
+// (the advisory it feeds is not emitted), never read as a truncated text.
+const SESSION_START_READ_MAX_BYTES = 4 * 1024 * 1024;
+/** Read a regular file's text without blocking, or THROW (every caller catches). */
+function readTextNonBlocking(p) {
+  const got = readRegularFileBounded(p, { maxBytes: SESSION_START_READ_MAX_BYTES });
+  if (!got.ok) throw new Error(`${p} not read: ${got.reason}`);
+  return got.text;
+}
 const {
   parseEnvFile,
   discoverModelsAndKeys,
@@ -79,9 +118,9 @@ function hookMain() {
     let input = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => (input += chunk));
-    process.stdin.on("end", () => {
+    process.stdin.on("end", async () => {
       try {
-        onStdinEnd(input);
+        await onStdinEnd(input);
       } catch (e) {
         return reject(e);
       }
@@ -96,10 +135,10 @@ function hookMain() {
 // ONLY, all of which the engine discards once the detector has exited. Every
 // side-effecting step (observation append, .env provision, git config) runs
 // BEFORE the exit, inside initializeSession, exactly as it did standalone.
-function onStdinEnd(input) {
+async function onStdinEnd(input) {
   try {
     const data = JSON.parse(input);
-    const result = initializeSession(data);
+    const result = await initializeSession(data);
 
     // Trust-posture gate (mitigates red-team H4 / Phase 1 of trust-posture rollout)
     let trustGate = "";
@@ -240,6 +279,7 @@ function onStdinEnd(input) {
 
     const output = { continue: true };
     const ctxParts = [];
+    if (result.accelContext) ctxParts.push(result.accelContext);
     if (result.sessionsRefusal) ctxParts.push(result.sessionsRefusal);
     if (openPrBlock) ctxParts.push(openPrBlock);
     if (unlandedBlock) ctxParts.push(unlandedBlock);
@@ -262,7 +302,7 @@ function onStdinEnd(input) {
   }
 }
 
-function initializeSession(data) {
+async function initializeSession(data) {
   const result = { sessionNotesContext: null, sessionsRefusal: null };
   const session_id = (data.session_id || "unknown").replace(
     /[^a-zA-Z0-9_-]/g,
@@ -448,7 +488,16 @@ function initializeSession(data) {
     // Regenerate the aggregate regardless (belt: reflects any fragment change).
     // The writer self-refuses if the target is not gitignored (C2.2), so an
     // errored/absent-gitignore state is a silent no-op here, never a throw.
-    regenerateAggregate(cwd);
+    // A BYTE-BUDGET refusal and history left in the fragment dir are LOUD
+    // (context-budget S5): the refused source is named, never truncated.
+    const agg = regenerateAggregate(cwd);
+    if (agg && agg.ok === false && agg.error === "aggregate over byte budget") {
+      console.error(`[SESSION-NOTES] Aggregate REFUSED by byte budget: ${agg.reason}`);
+    } else if (agg && agg.ok && agg.history_in_fragment_dir && agg.history_in_fragment_dir.length) {
+      console.error(
+        `[SESSION-NOTES] ${agg.history_in_fragment_dir.length} history file(s) sit in .session-notes.d/ and are NOT aggregated — move them to .session-notes.archive/ (session-notes-layout.js::archiveHistoryFragments).`,
+      );
+    }
   } catch (e) {
     console.error(`[SESSION-NOTES] Coherence pass skipped: ${e.message}`);
   }
@@ -559,6 +608,36 @@ function initializeSession(data) {
     );
   }
 
+  // ONE absolute deadline, taken before any probe work: the probes derive their inner
+  // deadline from it (PROBE_MARGIN_MS earlier), and the fallback fires AT it. The
+  // finally kills any probe group still outstanding before the hook can exit.
+  const accelStarted = performance.now();
+  let probeTimer, accel;
+  try {
+    accel = require("./lib/accel-probe.js");
+    const deadline = accelStarted + accel.SESSION_BUDGET_MS;
+    const fallback = ["engine", "ollama", "csq"].map((kind) => ({
+      kind, outcome: "undetermined", rung: "R0", reason: "session-probe-timeout",
+    }));
+    const probes = await Promise.race([
+      accel.probeAll({ cwd, sessionId: data.session_id, deadline }),
+      new Promise((resolve) => {
+        probeTimer = setTimeout(() => resolve(fallback), Math.max(0, deadline - performance.now()));
+      }),
+    ]);
+    const find = (kind) => probes.find((record) => record.kind === kind);
+    const reason = (record) => String(record?.reason || "undetermined").replace(/[^a-zA-Z0-9:_-]/g, "_").slice(0, 80);
+    const engine = find("engine"), local = find("ollama"), broker = find("csq");
+    const embedRung = local?.outcome === "available" ? "E1" : "E0";
+    const brokerRung = broker?.outcome === "available" ? "B1" : "B0";
+    result.accelContext = `[ACCEL] ingest=I0 retrieval=R0(${reason(engine)}) embed=${embedRung}(${reason(local)}) broker=${brokerRung}(${reason(broker)}) judge=J0`;
+    if (find("telemetry")) result.accelContext += " telemetry=undetermined(record-not-written)";
+  } catch {
+    result.accelContext = "[ACCEL] ingest=I0 retrieval=R0(probe-error) embed=E0(probe-error) broker=B0(probe-error) judge=J0";
+  } finally {
+    clearTimeout(probeTimer);
+    if (accel) accel.killOutstanding();
+  }
   return result;
 }
 
@@ -767,8 +846,8 @@ function checkPythonPackageFreshness(cwd) {
 
       if (!fs.existsSync(pyprojectPath) || !fs.existsSync(initPath)) continue;
 
-      const pyproject = fs.readFileSync(pyprojectPath, "utf8");
-      const init = fs.readFileSync(initPath, "utf8");
+      const pyproject = readTextNonBlocking(pyprojectPath);
+      const init = readTextNonBlocking(initPath);
 
       const pyVersionMatch = pyproject.match(/version\s*=\s*"([^"]+)"/);
       const initVersionMatch = init.match(/__version__\s*=\s*"([^"]+)"/);
@@ -807,7 +886,9 @@ function checkPythonPackageFreshness(cwd) {
   const markerPath = path.join(cwd, ".claude", ".coc-sync-marker");
   if (fs.existsSync(markerPath)) {
     try {
-      const marker = JSON.parse(fs.readFileSync(markerPath, "utf8").trim());
+      // A refused read (FIFO, symlink, oversized) throws into the catch below,
+      // which skips this advisory exactly as an unreadable marker always did.
+      const marker = JSON.parse(readTextNonBlocking(markerPath).trim());
       if (marker.synced_at) {
         const daysSince =
           (Date.now() - new Date(marker.synced_at).getTime()) /
@@ -839,7 +920,7 @@ function checkSdkPinFreshness(cwd) {
   if (!fs.existsSync(pyprojectPath)) return;
 
   try {
-    const content = fs.readFileSync(pyprojectPath, "utf8");
+    const content = readTextNonBlocking(pyprojectPath);
 
     // Extract kailash-* dependency pins from pyproject.toml
     // Matches: kailash>=1.2.3, kailash-dataflow>=1.0.0, etc.
@@ -927,7 +1008,7 @@ function checkPinsAgainstBuild(cwd, pins) {
 
   let sdkPackages;
   try {
-    const version = JSON.parse(fs.readFileSync(versionPath, "utf8"));
+    const version = JSON.parse(readTextNonBlocking(versionPath));
     sdkPackages = (version.upstream || {}).sdk_packages;
   } catch {
     return;
@@ -1021,7 +1102,7 @@ function detectFramework(cwd) {
     const files = fs.readdirSync(cwd);
     for (const file of files.filter((f) => f.endsWith(".py")).slice(0, 10)) {
       try {
-        const content = fs.readFileSync(path.join(cwd, file), "utf8");
+        const content = readTextNonBlocking(path.join(cwd, file));
         if (/@db\.model/.test(content) || /from dataflow/.test(content))
           return "dataflow";
         if (/from nexus/.test(content) || /Nexus\(/.test(content))
@@ -1041,7 +1122,7 @@ function detectPoolConfig(cwd) {
   try {
     const envPath = path.join(cwd, ".env");
     if (!fs.existsSync(envPath)) return result;
-    const content = fs.readFileSync(envPath, "utf8");
+    const content = readTextNonBlocking(envPath);
     const lines = content.split("\n");
     for (const line of lines) {
       const trimmed = line.trim();
@@ -1072,6 +1153,8 @@ module.exports = {
   readSessionFile,
   recordSessionStart,
   resolveSessionsDir,
+  // Exposed for tests: the freshness reads (a FIFO at any of them must not block).
+  _internal: { checkPythonPackageFreshness, checkSdkPinFreshness, detectFramework, detectPoolConfig },
 };
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a

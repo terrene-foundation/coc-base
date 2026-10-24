@@ -50,7 +50,7 @@
  * DECISION rather than by oversight. The Bash lane DOES match it: the registry
  * row at `.claude/hooks/lib/guard-path-scope.js:1304-1309` carries
  * `surfaces: { bash: true, layer3: true }`, and `:1751` builds `STATE_PATH_RX`
- * from exactly that `bash` surface set (`validate-bash-command.js:139-142`
+ * from exactly that `bash` surface set (`validate-bash-command.js`'s module-scope `require("./lib/guard-path-scope.js")`
  * imports it from there rather than defining its own). The file-tool deny floor
  * (`reconcile-settings-deny.mjs::CANONICAL_STATE_DENY`) DECLINES it, and the
  * decline is recorded with its reason at `reconcile-settings-deny.mjs:101-112`:

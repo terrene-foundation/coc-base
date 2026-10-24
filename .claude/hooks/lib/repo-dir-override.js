@@ -89,8 +89,14 @@
 const fs = require("fs");
 const { spawnSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
+const { askOnce, eventGitKey } = require("./event-git.js");
 
 const GIT_TIMEOUT_MS = 2000;
+
+// Canonical common-dir argv; sharing requires the complete question key:
+// binary, cwd, argv and envelope (.claude/hooks/lib/event-git.js:53-56).
+// Matching argv alone does not share answers across environment profiles.
+const CANONICAL_COMMON_DIR_ARGS = ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"];
 
 /**
  * The repository-identity token for `dir`: the realpath of its
@@ -101,24 +107,41 @@ function repoIdentity(dir) {
   if (!dir || typeof dir !== "string") return null;
   const bin = resolveGitBinary();
   if (!bin) return null;
-  let r;
-  try {
-    r = spawnSync(bin, ["rev-parse", "--git-common-dir"], {
-      cwd: dir,
-      stdio: ["ignore", "pipe", "pipe"],
-      encoding: "utf8",
-      timeout: GIT_TIMEOUT_MS,
-      // NOTHING inherited — GIT_DIR and family cannot steer which repository
-      // answers (loom#1462 F1 / loom#1471).
-      env: gitEnv(),
-    });
-  } catch {
-    return null;
-  }
-  if (!r || r.status !== 0) return null;
-  const out = String(r.stdout || "").trim();
+  // ONE answer per distinct question per hook event (lib/event-git.js): the
+  // canonical argv makes the override-side and seed-side probes, and every other
+  // common-dir asker of the same tree, share one spawn. Outside an event scope
+  // `askOnce` runs the probe directly — unchanged behaviour.
+  const probe = askOnce(
+    eventGitKey({ gitBin: bin, cwd: dir, args: CANONICAL_COMMON_DIR_ARGS, envelope: "gitEnv" }),
+    () => {
+      let r;
+      try {
+        r = spawnSync(bin, CANONICAL_COMMON_DIR_ARGS, {
+          cwd: dir,
+          stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf8",
+          timeout: GIT_TIMEOUT_MS,
+          // NOTHING inherited — GIT_DIR and family cannot steer which repository
+          // answers (loom#1462 F1 / loom#1471).
+          env: gitEnv(),
+        });
+      } catch (e) {
+        return { ok: false, reason: String((e && e.message) || e) };
+      }
+      if (!r || r.status !== 0) return { ok: false, reason: "git rev-parse failed" };
+      return { ok: true, value: String(r.stdout || "").trim() };
+    },
+  );
+  if (!probe.ok) return null;
+  const lines = String(probe.value || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // The common dir is the LAST line (toplevel is printed first) and, under the
+  // canonical argv, is always absolute; the relative tolerance is retained for
+  // any non-canonical asker.
+  const out = lines.length ? lines[lines.length - 1] : "";
   if (!out) return null;
-  // `--git-common-dir` may come back relative to `cwd`.
   const abs = require("path").isAbsolute(out)
     ? out
     : require("path").resolve(dir, out);

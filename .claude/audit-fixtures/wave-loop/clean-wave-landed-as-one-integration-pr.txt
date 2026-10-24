@@ -19,10 +19,10 @@ Wave 3 is the final wave, so its redteam is the terminal one rather than an inte
       gold-standards-validator, scoped to the union of S14–S18.
     round 1 — reviewer: "panic boundary swallows the abort code on the async bridge." BUG.
               three others clean, all four payloads read. BUG fixed.
-    round 2 — four payloads read, zero BUG/INVEST-NOW.
-    round 3 — four payloads read, zero BUG/INVEST-NOW.
+    round 2 — the SAME four reviewers as round 1, scoped to the fixes and their blast radius;
+      four payloads read, zero BUG/INVEST-NOW.
 
-Two consecutive clean rounds, every reviewer delivering in every round.
+Round 2 reviewed only the fixes and their blast radius — clean, every reviewer delivering. The review stops there (D237).
 
 Pushing the five branches. Verifying first that a push with no PR is free here rather than
 assuming it:

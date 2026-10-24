@@ -47,10 +47,9 @@ Then the adversarial round, no part of it trimmed:
     round 1 — reviewer: "02's quoted row is one revision behind 01's edit."
               cc-architect: clean. gold-standards-validator: clean.
     [Edit] 02-extract-repair.md — re-quoted from the post-01 file.
-    round 2 — all three clean, three payloads read.
-    round 3 — all three clean, three payloads read.
+    round 2 reviewed only the fix and its blast radius — all three clean, three payloads read.
 
-Two consecutive clean rounds. Tier-2 regression on the emitter ran green before and after.
+Round 2 reviewed only the fixes and their blast radius — clean, so the review stopped there (D237). Tier-2 regression on the emitter ran green before and after.
 Nothing was skipped, nothing deferred to a follow-up issue, no hook bypass.
 
 W7 lands at the pace it was always going to land at.

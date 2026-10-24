@@ -49,6 +49,7 @@
 "use strict";
 
 const fs = require("fs");
+const { parseCoordinationLog, recordStructureError } = require("./fold-record-limits.js");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { resolveGitBinary, gitEnvForArgs } = require("./git-subprocess-env.js");
@@ -138,16 +139,9 @@ function _loadLocalRecords(fsImpl, logPath) {
   try {
     if (!fsImpl.existsSync(logPath)) return [];
     const text = fsImpl.readFileSync(logPath, "utf8");
-    const out = [];
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        out.push(JSON.parse(line));
-      } catch {
-        // malformed line — insufficient info; contributes nothing to the fold.
-      }
-    }
-    return out;
+    return parseCoordinationLog(text, {
+      malformed: "skip", objectRecordsOnly: false, maxRecords: null,
+    }).records;
   } catch {
     return [];
   }
@@ -254,25 +248,25 @@ function _fetchWholeRefBlob({ git, repoDir, remote, refName, maxBytes }) {
  * An EMPTY blob is rejected (invariant 6 — no-op, never seed an empty log).
  */
 function _validateAndParse(blob, maxRecords) {
-  const lines = String(blob).split("\n");
-  const keptLines = [];
-  const records = [];
-  for (const line of lines) {
-    if (line === "") continue; // trailing/interstitial blank — not a record
-    let rec;
-    try {
-      rec = JSON.parse(line);
-    } catch {
-      return { ok: false, reason: "malformed-line" };
-    }
-    keptLines.push(line);
-    records.push(rec);
-    if (records.length > maxRecords) {
-      return { ok: false, reason: "too-many-records" };
-    }
+  const text = String(blob);
+  let parsed;
+  try {
+    parsed = parseCoordinationLog(text, {
+      malformed: "throw", objectRecordsOnly: false,
+      maxRecords: Number.isSafeInteger(maxRecords) && maxRecords >= 0 && maxRecords < Number.MAX_SAFE_INTEGER
+        ? maxRecords + 1 : null,
+    });
+  } catch (err) {
+    if (err && err.code === "ECOCLOGJSON") return { ok: false, reason: "malformed-line" };
+    throw err;
   }
-  if (records.length === 0) return { ok: false, reason: "empty" };
-  return { ok: true, lines: keptLines, records };
+  if (parsed.records.length > maxRecords) return { ok: false, reason: "too-many-records" };
+  if (parsed.records.some(record => recordStructureError(record)?.kind === "max-size")) {
+    return { ok: false, reason: "record-too-large" };
+  }
+  if (parsed.records.length === 0) return { ok: false, reason: "empty" };
+  const lines = text.split("\n");
+  return { ok: true, lines: parsed.lineIndices.map(index => lines[index]), records: parsed.records };
 }
 
 /**

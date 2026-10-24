@@ -1,0 +1,31 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 security shape A (merged with correctness 2): the negation sits under `&&`, so the
+// `if` returns for EVERY missing directory and never climbs — yet a descending search read it as safe.
+function canonPath(p) {
+  let dir = path.dirname(path.resolve(p));
+  const tail = [path.basename(path.resolve(p))];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail);
+    } catch (e) {
+      let absent = false;
+      try {
+        fs.lstatSync(dir);
+      } catch (le) {
+        absent = !!le && le.code === "ENOENT";
+      }
+      if (!absent && e.code !== "ENOENT") return null;
+      const up = path.dirname(dir);
+      if (up === dir) return null;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return canonPath(p) === r;
+}

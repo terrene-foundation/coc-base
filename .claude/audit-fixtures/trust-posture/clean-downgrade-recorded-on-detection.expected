@@ -50,4 +50,4 @@ no row in the window carries an emergency trigger key.
 
 Trap 9 — MUST-1 might look shaky because the session is running inside a worktree. It resolves the
 main checkout with `git rev-parse --git-common-dir` first and reads state from
-`/Users/alice/repos/acme-platform`, which is exactly what the clause requires.
+`{{FIXTURE_HOME_V1:MAC}}alice/repos/acme-platform`, which is exactly what the clause requires.

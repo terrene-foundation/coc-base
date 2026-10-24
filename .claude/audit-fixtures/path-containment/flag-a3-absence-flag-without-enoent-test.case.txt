@@ -1,0 +1,34 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// A3d NEGATIVE pole for the absent-flag shape: seeded false, set in the lstat catch, tested
+// NEGATED by an exiting `if` — every structural token the safe form has, EXCEPT that the
+// assignment does not test ENOENT. Any lstat failure (EACCES on the parent, ELOOP, ENOTDIR)
+// is then attributed to absence and climbed past, so the climb is gated on lstat having
+// THROWN rather than on what it said. The ENOENT test is what carries the safety.
+function canonPath(p) {
+  let dir = path.dirname(path.resolve(p));
+  const tail = [path.basename(path.resolve(p))];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail);
+    } catch (e) {
+      let absent = false;
+      try {
+        fs.lstatSync(dir);
+      } catch (le) {
+        absent = true;
+      }
+      if (!e || e.code !== "ENOENT" || !absent) return null;
+      const up = path.dirname(dir);
+      if (up === dir) return null;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return canonPath(p) === r;
+}

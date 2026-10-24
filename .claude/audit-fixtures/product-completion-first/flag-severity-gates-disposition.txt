@@ -1,4 +1,4 @@
-/redteam round 3 — dispositioning the fourteen findings from the parallel reviewers.
+/redteam round 2 — the fix-verification round, dispositioning the fourteen findings from the parallel reviewers.
 
 ---
 

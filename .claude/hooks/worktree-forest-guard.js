@@ -133,6 +133,20 @@
  * that can wedge a session is worse than the accumulation it reports.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": ["<sibling-worktree-path>/"],
+ *     "network": false,
+ *     "spawns": ["git","node"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The hook's own process writes nothing: PreToolUse is a read-only census (git worktree list + git status/cherry/rev-list via lib/worktree-forest.js). The fs_writes entry is the SessionEnd `--apply` pass: it spawns `node .claude/bin/worktree-reap.mjs --apply --zero-loss-only --reap-owned-by <session>`, which DELETES whole ZERO-LOSS worktree DIRECTORIES (and their .git/worktrees/ admin entries) via spawned `git worktree remove`. The target has NO repo-relative form by design — worktree-isolation Rule 7 mandates a SIBLING outside the checkout — so it is declared as the sibling-directory shape. Second run removes nothing further and reports differently, hence not idempotent; `COC_WORKTREE_AUTOREAP=0` downgrades the SessionEnd arm to report-only."
+ * }
+ */
+
 const path = require("path");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 const {

@@ -2,7 +2,7 @@
 id: "WRAPUP"
 name: wrapup
 description: "Close the session: sweep-gated notes, the container backlog, the burndown chart, and a /pickup handoff block."
-argument-hint: '[--carry "<directive>"] [--handoff] [--no-sweep <reason>]'
+argument-hint: '[--carry "<directive>"] [--handoff] [--no-sweep <reason>] [--cycle]'
 ---
 
 Close the session so a fresh one resumes producing work within 2–3 minutes, and so **nothing open lives only in session context**. Two deliverables: the `.session-notes` fragment, and the paste-able **handoff block** (§ Handoff block) the operator pastes into `/pickup` after `/clear`.
@@ -17,6 +17,18 @@ Parse `$ARGUMENTS`. Recognized forms — anything else is a **LOUD REFUSAL**: na
 - **`--carry "<text>"`** — carry the operator's free-form text into **Next-session directives as entry 1, verbatim**. It still needs a re-validation check: if you cannot write one, put the text in **Traps**, say so in the reply, and do not silently promote it. Composes with `--no-sweep`.
 - **`--handoff`** — re-emit the handoff block for the fragment ALREADY written this session. No re-write, no events, no census, no gate, no sweep step; tool-call cap **1** (read the fragment). Composes with nothing. Use when the block was lost from the terminal.
 - **`--no-sweep <reason>`** — skip the sweep step and proceed with no receipt. `<reason>` is REQUIRED, is recorded verbatim in the notes as a named gap, and appears in the handoff block. Omitting it is a refusal, not a default.
+- **`--cycle`** — the bounded context-cycle handover (§ Cycle mode). Composes with nothing. Every section below § Cycle mode governs the FULL wrapup only.
+
+## Cycle mode — `--cycle` (autonomous, bounded)
+
+Run when the context meter signals `HANDOVER-DUE` / `HANDOVER-OVERDUE` / `BACKSTOP`, or when invoked. No human step, no prompt. **Do NOT read further in this file** — the whole procedure and the seed schema are `skills/wrapup/cycle.md`; read that file ONLY if its schema is not already in context. Closed allowlist, **cap 4, plus ONE bounded retry of at most 2 calls (≤ 6)**, in this order:
+
+0. optional `Read` of `skills/wrapup/cycle.md`;
+1. **SEED FIRST** — ONE `Write` of the seed (fixed schema, ≤ 8,000 B, refused over the cap and never truncated) to `<main-checkout>/.claude/learning/handoff/seed-<display_id>-<YYYYMMDDTHHMMSS>.md`, its `written=` COPIED from the latest `[CTX]` line's `seed written=<clock>` (never typed, never looked up). After this call alone any boundary resumes correctly;
+2. **DEPTH delta** — ONE `Write` of `<same stem>.events.json` (ledger transitions, § Outstanding ledger reconciliation steps 2–3), only when the forest changed this cycle;
+3. **projections** — ONE call, `node .claude/bin/handover-render.mjs render <seed> [--events <file>]; echo "rc=$?"`, which validates the seed and writes the fragment `## CURRENT`, the signed events, the forest ledger and the vault pair — an absent vault is a DECLARED skip.
+
+Then **END THE CYCLE** — never the session's work: with work queued, keep draining it after the line (`skills/wrapup/cycle.md` § After the line). The cycle's last output is one line — the renderer's first line verbatim (`HANDOVER WRITTEN <sha8> — …`) or `HANDOVER REFUSED|INCOMPLETE|UNKNOWN …` per `skills/wrapup/cycle.md`. The ONE retry, only for the codes `skills/wrapup/cycle.md` names (`written-skew`, `seed-stale`, `assignment-ledger-stale`) or a seed-write `[CTX] seed …` line: one fixing call, then the render once more; anything else, or a second refusal, ends the cycle loudly and the seed stands. Cycle mode runs no sweep gate, no census, no burndown render: the seed replaces the handoff block, and a cycle vault pair satisfies the vault directive between full `/sweep` runs (a full `/sweep` runs on request, at most daily).
 
 ## Gate: a same-day `/sweep` receipt — produced here when missing (MUST)
 
@@ -77,7 +89,7 @@ Recomputing, re-typing, rounding or summarising a row, or quoting a stored block
 
 Emit ONE self-contained block, in the chat reply AND as the last section of the fragment. It is a handoff SOCKET: the operator runs `/clear`, starts the next session with `/pickup`, and pastes the block as its argument — so it MUST be intelligible with zero surrounding context and MUST survive being passed as an argument: **no backticks, no code fences, no triple quotes inside the block**.
 
-The `START HERE:` and `LAND FIRST:` lines are FIXED and always present, in every block, in every mode. Omitting or re-wording either is BLOCKED: the first is how the operator learns the resume command and that `/pickup` applies the owner's standing block, which is never pasted by hand or duplicated here; the second is how the landing directive reaches the next session and every lane brief derived from it.
+The `START HERE:` and `LAND FIRST:` lines are FIXED and always present, in every handoff block (in `--cycle` the seed replaces the block and carries `LAND FIRST` as a STANDING pointer). Omitting or re-wording either is BLOCKED: the first is how the operator learns the resume command and that `/pickup` applies the owner's standing block, which is never pasted by hand or duplicated here; the second is how the landing directive reaches the next session and every lane brief derived from it.
 
 ```
 === HANDOFF <YYYY-MM-DD> <display_id> ===
@@ -137,7 +149,7 @@ Reporting `/wrapup` complete is BLOCKED while ANY of these holds. Each is the st
 
 ## Hard rules
 
-- **Write, not verify (closed allowlist — EXACTLY these six tool calls).** **(a)** one optional `ls workspaces/` — ONLY to orient the "Read first" pointers; **(b)** one batched `appendEvent` call emitting ALL of this session's ledger transitions; **(c)** one write of the `.session-notes` fragment; **(d)** one write of `.wave-tracker.d/<display_id>.md` — memory-sourced, NO read; **(e)** one close-out gate invocation running EXACTLY the three commands in § Gate; **(f)** one burndown render per § Burndown chart. **Tool call cap: 6.** ANY other tool call — any additional read of any file, any grep / git / gh / pytest / find — is BLOCKED. The allowlist is the operative bound; this is not a denylist with examples. `--handoff` mode's cap is **1**. Slots (e) and (f) are BOUNDED measurements whose output IS a required section of the deliverable, not verification reads: each runs once and confers NO further read budget, and re-running any command, running `--check`, or reading any file they name stays BLOCKED — **with ONE exception: after a sweep step, the gate's three commands run once more as slot (e′)**, because the sweep changed the answer the gate reads. The sweep step itself precedes the write phase and is outside this allowlist.
+- **Write, not verify (closed allowlist — these six core calls plus conditional history preparation).** **(a)** one optional `ls workspaces/` — ONLY to orient the "Read first" pointers; **(b)** one batched `appendEvent` call emitting ALL of this session's ledger transitions; **(c)** one write of the `.session-notes` fragment; **(d)** one write of `.wave-tracker.d/<display_id>.md` — memory-sourced, NO read; **(e)** one close-out gate invocation running EXACTLY the three commands in § Gate; **(f)** one burndown render per § Burndown chart. **(g)** one history archive plan and **(h)** one apply of that plan, ONLY in full wrapup when history placement already surfaced this session; execute the two commands in `skills/wrapup/SKILL.md` § Sizing before slot (c), and retain its conservation and owner-pointer obligations. **Tool call cap: 6, or 8 with history preparation.** ANY other tool call — any additional read of any file, any grep / git / gh / pytest / find — is BLOCKED. The allowlist is the operative bound; this is not a denylist with examples. `--handoff` mode's cap is **1**. Slots (e) and (f) are BOUNDED measurements whose output IS a required section of the deliverable, not verification reads: each runs once and confers NO further read budget, and re-running any command, running `--check`, or reading any file they name stays BLOCKED — **with ONE exception: after a sweep step, the gate's three commands run once more as slot (e′)**, because the sweep changed the answer the gate reads. The sweep step itself precedes the write phase and is outside this allowlist.
 
   **The generated-projection carve-out.** Regenerating `.session-notes.shared.md` from the fold does NOT count against the cap and is NOT optional where events were emitted — it is a generated-surface operation, the same class as (d), not a verification read. Bounded to ONE regeneration, conferring NO read budget: reading the regenerated projection back, or reading the event log, stays BLOCKED. **Slot (b) formerly held the prior-`.session-notes` read for ledger carry-forward; that read is RETIRED, not re-spent** — carry-forward is now a property of the fold, so the read lost its justification and its slot funds the emission.
 

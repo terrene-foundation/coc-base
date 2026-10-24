@@ -82,4 +82,4 @@ Red first, shared pair removed from `jwt.py` only, then restored:
 
 It reds on the JWT path and only there.
 
-Two consecutive clean rounds. W12 lands.
+Round 1 clean — every dispatched reviewer ran and nothing CRITICAL/HIGH. Done; no second round owed (D237). W12 lands.

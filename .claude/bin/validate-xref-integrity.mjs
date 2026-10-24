@@ -490,7 +490,7 @@ function isCrossCliDispatcher(token) {
 // slug is not enumerated here — a genuinely-missing fixture dir cannot hide
 // behind a blanket `audit-fixtures/` suppression.
 const SANCTIONED_DEFERRED_FIXTURES = new Set([
-  // artifact-flow.md § "Exact Gate-1 / Gate-2 Tracking" Detection mechanism
+  // artifact-flow-gates.md § "Exact Gate-1 / Gate-2 Tracking" Detection mechanism
   // (also cited by sync-completeness.md's distribution-side companion).
   "audit-fixtures/exact-gate-tracking",
   // (2026-09-13) `audit-fixtures/ci-check-merge-separation` was here for
@@ -517,7 +517,7 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   // of flagged loudly, the exact behaviour this set's own header refuses. The MUST-8
   // sibling below is a DIFFERENT clause whose deferral still stands, and stays.
   //
-  // recommendation-quality.md MUST-8 (sensitivity/classification escalation) Detection mechanism.
+  // recommendation-quality-escalation.md MUST-8 (sensitivity/classification escalation) Detection mechanism.
   "audit-fixtures/recommendation-quality/sensitivity-escalation",
   // (2026-09-13) `audit-fixtures/enforcement-surface-parity` was here for
   // security.md § Enforcement-Surface Parity and is DELETED, not moved — the same
@@ -574,7 +574,7 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   "audit-fixtures/wave-loop/orchestration-hygiene",
   // agents.md § "Correctness-Review-Clean Is Not Security-Clean" Detection mechanism.
   "audit-fixtures/correctness-not-security-clean",
-  // artifact-flow.md § Canon-Neutrality Detection mechanism.
+  // artifact-flow-routing.md § Canon-Neutrality Detection mechanism.
   "audit-fixtures/canon-neutrality",
   // command-skill-parity.md Detection mechanism.
   "audit-fixtures/command-skill-parity",
@@ -617,8 +617,15 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   "audit-fixtures/proposal-intake-trust",
   // schema-migration.md § ADD COLUMN paired-artifacts Detection mechanism.
   "audit-fixtures/schema-add-column-paired-artifacts",
-  // security.md § Path Containment Detection mechanism.
-  "audit-fixtures/path-containment",
+  // (2026-10-17) `audit-fixtures/path-containment` was here for security.md § Path
+  // Containment and is DELETED: the Phase-2 deferral GRADUATED — the detector
+  // `.claude/bin/lib/path-containment-scan.mjs` and its fixtures at
+  // `.claude/audit-fixtures/path-containment/` landed, and the registry row now lives in
+  // `acknowledged_non_deferrals` as `security.md#path-containment-phase2-landed`. With the
+  // directory on disk resolveRefToken resolves the token directly, so the entry was inert;
+  // left standing it would silently absorb a future dangling reference at that slug.
+  // Fixtures 27-29 of the xref runner moved their "listed, still-deferred" slug to
+  // approver-identity-server-derived in the same change.
   // (2026-09-13) `audit-fixtures/secure-default-new-feature` was here for security.md
   // § Secure-Default For A New Security Feature and is DELETED on the same ground as
   // the § Enforcement-Surface Parity entry above: that clause's Phase-2 deferral was
@@ -747,7 +754,7 @@ const SANCTIONED_ABSENT_REFS = new Map([
   [
     ".claude/wip-authz/wip-limit-allow",
     {
-      why: "CONSUMED-ON-USE RECEIPT. `wip-discipline-guard.js` deletes it as it honours it (the rule's own MUST-2 says 'honoured ONCE (consumed on use)'), so it exists only between an operator writing it and the very next dispatch. A committed copy would be a permanently-armed WIP override.",
+      why: "CONSUMED-ON-USE RECEIPT. `wip-discipline-guard.js` deletes it as it honours it (the rule's own MUST-2 says 'honoured ONCE, then consumed'), so it exists only between an operator writing it and the very next dispatch. A committed copy would be a permanently-armed WIP override.",
       sources: new Set([
         ".claude/rules/wip-discipline.md",
         ".claude/guides/rule-extracts/wip-discipline.md",
@@ -774,8 +781,19 @@ const SANCTIONED_ABSENT_REFS = new Map([
   [
     ".claude/load-authz/synthetic-load-allow",
     {
-      why: "CONSUMED-ON-USE RECEIPT, same class as the two entries above: the synthetic-load guard's one-shot, reason-bearing override channel. `hooks/lib/override-receipt.js::consumeReceipt` UNLINKS it as it honours it (`fs.unlinkSync(c.abs)`, override-receipt.js:342-354, whose own comment records 'The unlink IS the one-shot property'), and repo-root `.gitignore:33` names the exact path, so canon can never carry a resolvable copy. A committed one would be a permanently-armed load override — precisely the inversion `detector-distribution-baseline.json` records for this receipt. The namespace DIRECTORY exists and is tracked (`.claude/load-authz/README.md`), so this carve-out excuses only the spent RECEIPT, never a citation into a namespace that is gone.",
+      why: "CONSUMED-ON-USE RECEIPT, same class as the two entries above: the synthetic-load guard's one-shot, reason-bearing override channel. `hooks/lib/override-receipt.js::consumeReceipt` UNLINKS it as it honours it (`fs.unlinkSync(c.abs)` under that function's THE CLAIM comment, which records 'The unlink IS the one-shot property'; anchored by text, not line, because the line moves with every edit above it), and repo-root `.gitignore` names the exact path, so canon can never carry a resolvable copy. A committed one would be a permanently-armed load override — precisely the inversion `detector-distribution-baseline.json` records for this receipt. The namespace DIRECTORY exists and is tracked (`.claude/load-authz/README.md`), so this carve-out excuses only the spent RECEIPT, never a citation into a namespace that is gone.",
       sources: new Set([".claude/rules/ci-cost-discipline.md"]),
+    },
+  ],
+  [
+    ".claude/wip-authz/override-ledger.jsonl",
+    {
+      why: "RUNTIME APPEND LOG, deliberately UNTRACKED and gitignored (train-10a direct commit ee0beabfb, 'fix(wip-authz): stop tracking the runtime override ledger'). `wip-discipline-guard.js::recordOverride` appends each honoured override's `land-first` debt to this path, so the file exists only on an operator's machine after their first override; a committed copy would ship one operator's override history to every consumer through /sync. Absent from canon's tree IS correct — same class as the consumed-on-use receipts above, one rung over: a pure runtime log rather than a spent receipt. The namespace directory stays tracked, so this excuses the log only, never a citation into a missing namespace.",
+      sources: new Set([
+        // Handbook Part VI names the ledger to explain the override DEBT any
+        // operator accumulates. Same by-design absence as the receipt citers.
+        ".claude/guides/handbook/06-operating.md",
+      ]),
     },
   ],
   [
@@ -1758,7 +1776,7 @@ function targetDisposition(relpath, plan) {
   // skipped for a reason the manifest positively declares. A `no_tier_match`
   // still counts as proven IF the path matches some OTHER tier's globs — that is
   // "lives in a tier this target does not subscribe". Matching NO tier at all is
-  // UNDECLARED: `artifact-flow.md` § MUST NOT is explicit that "matches nothing"
+  // UNDECLARED: `artifact-flow-distribution.md` § MUST NOT is explicit that "matches nothing"
   // must never be relied on as a fence, so it stays reportable.
   const reasons = new Set();
   for (const e of entries) {

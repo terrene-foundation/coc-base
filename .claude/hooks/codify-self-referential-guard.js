@@ -98,6 +98,20 @@
  * of the hook". Graduated by supplying it.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [".claude/learning/codify-selfref/<session-id>-<sha8>.jsonl"],
+ *     "network": false,
+ *     "spawns": ["git"]
+ *   },
+ *   "idempotent": true,
+ *   "may_rewrite_input": false,
+ *   "notes": "The one write is the per-(session, matched-ENTRY) dedupe marker appended via lib/append-sink.js in markSurfaced; a repeat with the same payload reads the marker in alreadySurfaced and emits/writes nothing. A session with no usable id emits and writes nothing.; spawns: git — every append goes through lib/append-sink.js::appendSinkLine, which runs the landing-window probe (lib/landing-window-read.js::windowCovers -> a git rev-parse) on each call."
+ * }
+ */
+
 "use strict";
 
 // Bounded timer per `cc-artifacts.md` Rule 7, under the registered 5s timeout so this hook's own
@@ -229,10 +243,11 @@ function alreadySurfaced(repoDir, sinkPath, signature) {
   }
 }
 
+// NO pre-mkdir here. `appendSinkLine` creates the marker directory itself, AFTER its containment
+// check; a raw recursive `fs.mkdirSync` ahead of it followed a symlinked `.claude/learning` and
+// created `codify-selfref/` outside the repo before the primitive could refuse (B1 round-2).
 function markSurfaced(repoDir, sinkPath, signature) {
   try {
-    const fs = require("fs");
-    fs.mkdirSync(path.dirname(sinkPath), { recursive: true });
     const { appendSinkLine } = require(
       path.join(__dirname, "lib", "append-sink.js"),
     );

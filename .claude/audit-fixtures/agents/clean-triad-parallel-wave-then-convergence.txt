@@ -27,11 +27,11 @@ wall clock and nothing else.
 
 Sibling worktree created here, by me, before any dispatch:
 
-    $ git worktree add /Users/someoperator/repos/.kailash-py-wt/retry-docs -b docs/retry-semantics
+    $ git worktree add {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kailash-py-wt/retry-docs -b docs/retry-semantics
     Preparing worktree (new branch 'docs/retry-semantics')
 
     [dispatch x4, one message] one writer per file, each brief pinning the absolute path
-      /Users/someoperator/repos/.kailash-py-wt/retry-docs, a STEP-0 assertion comparing
+      {{FIXTURE_HOME_V1:MAC}}someoperator/repos/.kailash-py-wt/retry-docs, a STEP-0 assertion comparing
       resolved `git rev-parse --show-toplevel` against `pwd -P`, the exact substitution,
       and the instruction to report the applied diff back in its final message.
 
@@ -51,8 +51,8 @@ round:
     round 1 — reviewer: "retry-matrix.md row 3 still reads 250ms in the expected column."
               gold-standards-validator: clean, 0 findings. analyst: clean, 0 findings.
     [Edit] 04-testing/retry-matrix.md:31 row 3
-    round 2 — reviewer clean, gold-standards-validator clean, analyst clean.
-    round 3 — reviewer clean, gold-standards-validator clean, analyst clean.
+    round 2 reviewed only the fix and its blast radius — reviewer clean,
+      gold-standards-validator clean, analyst clean.
 
-Two consecutive clean rounds, three payloads read in each. The four artifacts now agree
+Round 2 reviewed only the fix and its blast radius — clean, three payloads read, and the review stopped there (D237). The four artifacts now agree
 with #1974.

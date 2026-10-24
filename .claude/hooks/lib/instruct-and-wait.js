@@ -28,11 +28,19 @@
  * orchestrator) and for a top-level session (its next message to the human).
  * See that constant for the measured failure it closes.
  *
+ * COMPACT RENDER (journal/0661, 2026-10-10): when a session resolves (`lib/hook-findings.js`),
+ * every NON-DENY finding renders as ONE line — rule id, fate, <=160-char summary, a pointer to the
+ * full body on disk, and the short channel (`COMPACT_AGENT_CHANNEL`, or the escalation channel for
+ * an `escalate` class). A repeat of the same (rule, content) this session renders a one-line stub
+ * (non-Stop) or nothing (non-refusing Stop). A non-refusing Stop finding is QUEUED for the agent's
+ * next UserPromptSubmit, because Stop `systemMessage` reaches only the human. DENIES (block at a
+ * non-STOP_LIKE event) never take this path; the refusal verdict is decided before it.
+ *
  * Severities:
  *   - block            tool call BLOCKED. Only meaningful at PreToolUse.
- *   - halt-and-report  tool ran (or event already fired); agent must surface and wait.
- *   - advisory         soft warning; the tool RAN; agent acknowledges, may proceed.
- *   - pre-action       PreToolUse only: the call is NOT blocked and has NOT run yet.
+ *   - halt-and-report  tool ran (or event already fired; NOT yet at PreToolUse/PermissionRequest); surface, wait.
+ *   - advisory         soft warning; the tool RAN (not yet, at PermissionRequest); acknowledge, may proceed.
+ *   - pre-action       PreToolUse/PermissionRequest only: the call is NOT blocked and has NOT run yet.
  *   - post-mortem      forensic only (Stop-class events); surfaces at next SessionStart.
  *
  * § STOP HAND-BACK REFUSAL (opt-in, default OFF, added 2026-08-20)
@@ -283,7 +291,61 @@ function buildValidationBody({
   // through to the same advisory head an unrecognized severity already got, so
   // the rendered bytes are identical to pre-fix. That is measured across the
   // full 7-event × 6-severity matrix in ci-cost-reach.test.mjs, not reasoned.
-  const isPreAction = severity === "pre-action" && hookEvent === "PreToolUse";
+  // loom GAPS-v4 REVIEW item 1 — the fate gate is EVENT ∧ SEVERITY
+  // (2026-10-06). The v3 revision gated on the EVENT ALONE, so at PreToolUse
+  // EVERY non-block severity — `advisory` and `post-mortem` included — printed
+  // "has NOT run yet. Read this, then decide." That over-reached in the
+  // direction no test in this file could see, and it was MEASURED red on a
+  // sibling surface: the stranded-artifacts fixture's pair15 contract reads the
+  // fate head as finding weight, so `pair15-unresolvable-target-is-weaker-than-
+  // a-finding` went 116p/1f against a 117p/0f base — an INDETERMINATE result
+  // was presenting with the same register as a real finding. The fate word is
+  // the HALT REGISTER's word; the weaker headings are deliberate and belong to
+  // their own severities at every event.
+  //
+  // WHAT THE v3 ROOT FIX GOT RIGHT, AND THIS KEEPS: at PreToolUse
+  // `halt-and-report` joins `pre-action` on the true head. That is the case the
+  // v3 change existed for — validate-bash-command's deferral merge collapses
+  // every mixed-severity group to `halt-and-report`, so `gh pr create` (PCF
+  // finding + CI-cost delivery) rendered the false ALREADY-RAN head on a call
+  // that had not run. The v4 gate still covers it: the collapsed group is
+  // `halt-and-report` at PreToolUse, which still reads "has NOT run yet".
+  // Every other cell (the post-run events; PreToolUse advisory/post-mortem/unknown;
+  // PermissionRequest block and post-mortem) is byte-identical to the pre-v3
+  // renderer, which ci-cost-reach.test.mjs asserts per cell.
+  //
+  // PermissionRequest JOINS THE PRE-ACTION SET (2026-10-09, measured, not
+  // reasoned): the re-request event is a PRE-action moment too — the host is
+  // asking whether the call may run, so a refusal there (`decision.behavior:
+  // "deny"`) is what PREVENTS the run, and the action cannot have happened.
+  // MEASURED defect this closes: rendering the guard foundation's halt through
+  // this renderer at PermissionRequest produced a body whose head read "the
+  // action ALREADY RAN" while the very same message carried the halt's own
+  // paragraph "the call did NOT run" — one message asserting both fates, which
+  // is the exact class the fate register exists to refuse. Only the halt
+  // register's two severities move here, exactly as at PreToolUse; the `block`
+  // head at PermissionRequest ("STOP — Tool call blocked.") is already true
+  // (a deny there blocks the call). PostToolUse and the STOP_LIKE events
+  // are NOT touched: there the action genuinely has run.
+  //
+  // THE ADVISORY REGISTER'S FATE CLAUSE MOVES TOO, AND ONLY HERE. The advisory
+  // head states a fate ("the action proceeded") the way every head does, and at
+  // PermissionRequest that claim is about nothing that has happened — the
+  // prompt has not been answered, so the call cannot have proceeded, and a deny
+  // is what would prevent it. The REPLACEMENT KEEPS THE REGISTER ("ADVISORY —
+  // … Acknowledge in next message."): an advisory must not borrow the halt
+  // register's weight, which is the gaps-v4 ruling the fate gate above encodes
+  // and which the stranded-artifacts pair15 contract reads. Only the fate
+  // clause moves, and only at this event: PreToolUse advisory is DELIBERATELY
+  // unchanged (its weaker heading is pinned at every event by
+  // ci-cost-reach.test.mjs and refusal-delivery-channel.test.mjs), and the
+  // unknown-severity fallback — which IS the advisory head — states the same
+  // true fate at PermissionRequest. `post-mortem` at this event is NOT changed
+  // (flagged, not authorized): its head is likewise forward-false here, but no
+  // producer emits it at a pre-run event.
+  const isPreAction =
+    (hookEvent === "PreToolUse" || hookEvent === "PermissionRequest") &&
+    (severity === "halt-and-report" || severity === "pre-action");
   // loom FINDING-F — the SAME lifecycle-gating the `pre-action` clause above
   // establishes, applied to the opposite end of the register. A STOP_LIKE event
   // CANNOT block a tool call: the branch below returns `{continue:true}` and exit
@@ -303,8 +365,8 @@ function buildValidationBody({
   // The severity stays `block` — it records the finding's CLASS honestly, which
   // is what that rule deliberately does. What changes is the head, which reports
   // the FATE. Class and fate are different facts and only the second was wrong.
-  // Gated exactly like `isPreAction`, so this is a STRICT NO-OP at the four
-  // non-STOP_LIKE events, where "Tool call blocked." remains true and remains
+  // Gated on the STOP_LIKE events alone, so this is a STRICT NO-OP at every
+  // non-STOP_LIKE event, where "Tool call blocked." remains true and remains
   // pinned verbatim by settings-deny-edit-guard.test.mjs and
   // posture-gate-mutation-fence.test.mjs (both PreToolUse denies).
   const isUnblockableBlock =
@@ -329,13 +391,22 @@ function buildValidationBody({
         ? // Kept verbatim: it is the one head that means "did not run", and
           // settings-deny-edit-guard.test.mjs pins this exact string.
           "STOP — Tool call blocked."
-        : severity === "halt-and-report"
-          ? "NOT BLOCKED — the action ALREADY RAN. Report it and wait."
-          : isPreAction
-            ? "NOT BLOCKED — the action has NOT run yet. Read this, then decide."
+        : isPreAction
+          ? // EVENT ∧ SEVERITY (2026-10-06, gaps-v4 review item 1 — the
+            // event-only revision this replaces over-reached; the gate's own
+            // comment above records the pair15 measurement). At PreToolUse the
+            // halt register — `halt-and-report`, and `pre-action` before it —
+            // reads the true fate; `advisory` and `post-mortem` fall through to
+            // their own weaker headings below, at every event, exactly as the
+            // pre-v3 renderer did.
+            "NOT BLOCKED — the action has NOT run yet. Read this, then decide."
+          : severity === "halt-and-report"
+            ? "NOT BLOCKED — the action ALREADY RAN. Report it and wait."
             : severity === "post-mortem"
               ? "POST-MORTEM — already happened; recorded for next session."
-              : "ADVISORY — the action proceeded. Acknowledge in next message.";
+              : hookEvent === "PermissionRequest"
+                ? "ADVISORY — the action has NOT run yet. Acknowledge in next message."
+                : "ADVISORY — the action proceeded. Acknowledge in next message.";
   const hasReport =
     Array.isArray(agent_must_report) && agent_must_report.length > 0;
   const reportBlock = hasReport
@@ -368,6 +439,149 @@ function buildValidationBody({
 }
 
 /**
+ * § COMPACT RENDER (journal/0661, 2026-10-10) — the channel line every compact finding carries.
+ * It is the short form of `DELIVERY_INSTRUCTION` (MUST-7): it still names the channel for BOTH
+ * readers, but only for a finding that must reach a HUMAN. A finding the agent can clear names no
+ * human at all — routing it "to the user" is what made the operator relay hook text back by hand.
+ */
+const COMPACT_AGENT_CHANNEL = "Handle it yourself (act, or state why not) — do not relay it to a human.";
+function compactEscalateChannel(cls) {
+  return (
+    `ESCALATE(${cls}) — subagent: SendMessage your orchestrator; top-level: tell the human ` +
+    "in your next message."
+  );
+}
+
+/**
+ * The compact fate prefix — the same lifecycle facts the legacy head states (loom#1590 / #1715 /
+ * FINDING-F), in one clause.
+ */
+function compactFate(hookEvent, severity, refusal) {
+  // The refusing head is the legacy head VERBATIM (it is already one line, and it states its own
+  // bound) — the compact line is placed AFTER it, see compactOutput.
+  if (refusal && refusal.refuse)
+    return (
+      "HAND-BACK REFUSED — you are NOT done; this turn CONTINUES. Act on this now, then stop. " +
+      `(Refusal ${refusal.count}/${refusal.max} this session; after that the hand-back proceeds regardless.)`
+    );
+  if (severity === "block" && STOP_LIKE_EVENTS.has(hookEvent))
+    return "ACT — block-class finding; nothing was blocked and the output stands, so correct it:";
+  if ((hookEvent === "PreToolUse" || hookEvent === "PermissionRequest") && (severity === "halt-and-report" || severity === "pre-action")) // the pre-run set, as buildValidationBody's isPreAction
+    return "NOT BLOCKED, NOT RUN YET — decide before it runs:";
+  if (severity === "halt-and-report") return "ACT — the action already ran:";
+  if (severity === "post-mortem") return "POST-MORTEM:";
+  return "ADVISORY:";
+}
+
+/**
+ * Report a refusal's STRUCTURAL rule id to the dispatcher's engine, for its shadow rows
+ * (lib/dispatch-main.js § SHADOW ROWS): a shadow row's refusal whose id is a data-loss
+ * arm (lib/dispatch-registry.js::NEVER_SHADOW_ARMS) still refuses, and one that reported
+ * no id refuses too. The id is ruleIdOf(why), the key the findings ledger uses. It travels
+ * on the engine's per-row record (hook-engine.js::installShims, `process.cocRefusalRuleId`),
+ * NEVER in the reply: the refusal bytes the host reads stay exactly as measured. Outside
+ * the engine (a hook run as its own process, Codex, Gemini) the call is absent and nothing
+ * is recorded, which a shadow row reads as "no id": the stricter reading. An id that cannot
+ * be DERIVED is still reported (as null): the engine marks the row, and the dispatcher reads
+ * its arm as unknown, so it cannot hide behind another id the row reported (R2b M-1).
+ */
+function withRuleId(json, why) {
+  const report = typeof process.cocRefusalRuleId === "function" ? process.cocRefusalRuleId : null;
+  if (!report) return json;
+  let id = null;
+  try {
+    id = require("./hook-findings.js").ruleIdOf(why);
+  } catch {
+    id = null;
+  }
+  report(id);
+  return json;
+}
+
+/**
+ * Try the compact path. Returns `{ json, exitCode }` or `null` (→ the caller renders the full
+ * legacy body). NEVER reached for a deny (`severity: "block"` at a non-STOP_LIKE event): the deny
+ * body is the refusal the agent re-plans from, and its bytes, channel and exit code are untouched.
+ */
+function compactOutput(a) {
+  let hf;
+  try {
+    hf = require("./hook-findings.js");
+  } catch {
+    return null;
+  }
+  if (!hf.compactEnabled()) return null;
+  const ctx = hf.resolveContext({ payload: a.payload, refusalRequest: a.refuseHandback });
+  if (!ctx) return null;
+  const esc = hf.escalationClass(a.why, a.escalate);
+  const rec = hf.recordFinding(ctx, {
+    hookEvent: a.hookEvent,
+    severity: a.severity,
+    why: a.why,
+    what_happened: a.what_happened,
+    agent_must_report: a.agent_must_report,
+    dedupeKey: esc ? hf.contentKey(a) + "|escalation:" + esc : a.dedupeKey,
+    body: a.validation,
+  });
+  if (!rec) return null;
+  const rule = hf.ruleIdOf(a.why);
+  const refusing = !!(a.refusal && a.refusal.refuse);
+  // An escalation class outside the closed set is still routed to the human: an unrecognised
+  // value fails toward VISIBILITY, never toward silence.
+  const summary = hf.oneLine(a.user_summary || a.what_happened, hf.SUMMARY_MAX);
+  const channel = esc ? compactEscalateChannel(esc) : COMPACT_AGENT_CHANNEL;
+  const fate = compactFate(a.hookEvent, a.severity, a.refusal);
+  const line = refusing
+    ? `${fate} [${rule}] ${summary} (detail: ${rec.ref}) ${channel}`
+    : `[${rule}] ${fate} ${summary} (detail: ${rec.ref}) ${channel}`;
+  const stub = `[${rule}] unchanged — already delivered this session (detail: ${rec.ref}).`;
+  const text = esc ? line + "\n\n" + a.validation : line;
+  const delivery = rec.receipt ? [{ ...rec.receipt, text }] : [];
+  const notice = `[${rule}] ${summary} — ESCALATE(${esc}); detail: ${rec.ref}`;
+  if (a.hookEvent === "SessionEnd") {
+    return { json: { continue: true, systemMessage: text,
+      __coc_findings_delivery: delivery }, exitCode: 0 };
+  }
+  if (a.hookEvent === "PreCompact") {
+    return { json: { continue: true,
+      ...(esc ? { systemMessage: notice } : {}),
+      hookSpecificOutput: { hookEventName: a.hookEvent, additionalContext: text },
+      __coc_findings_delivery: delivery }, exitCode: 0 };
+  }
+  if (STOP_LIKE_EVENTS.has(a.hookEvent)) {
+    if (refusing) return { json: withRuleId({ decision: "block", reason: text,
+      ...(esc ? { systemMessage: notice } : {}), __coc_findings_delivery: delivery }, a.why), exitCode: 0 };
+    if (rec.repeat) return { json: { continue: true }, exitCode: 0 };
+    if (!hf.queueForAgent(ctx, `${a.hookEvent}: ${text}`, rec.receipt)) {
+      return { json: { continue: true, systemMessage: "HOOK-FINDINGS QUEUE WRITE FAILED — " + text }, exitCode: 0 };
+    }
+    const json = { continue: true };
+    if (esc) json.systemMessage = notice;
+    return { json, exitCode: 0 };
+  }
+  return {
+    json: {
+      continue: true,
+      ...(esc ? { systemMessage: notice } : {}),
+      __coc_findings_delivery: rec.repeat ? [] : delivery,
+      hookSpecificOutput: {
+        hookEventName: a.hookEvent,
+        additionalContext: rec.repeat ? stub : text,
+      },
+    },
+    exitCode: 0,
+  };
+}
+
+function findingsErrorMessage(err) {
+  try {
+    return String(err && err.message ? err.message : err);
+  } catch {
+    return "unrenderable exception";
+  }
+}
+
+/**
  * Build the JSON output for a hook. The caller decides exit code separately
  * (severity=block → exit 2 at PreToolUse; everything else → exit 0).
  */
@@ -380,6 +594,9 @@ function instructAndWait({
   agent_must_wait,
   user_summary,
   refuseHandback, // OPT-IN Stop hand-back refusal; see § STOP HAND-BACK REFUSAL. Default OFF.
+  payload, // OPTIONAL raw hook payload — the session the compact record is keyed on.
+  dedupeKey, // OPTIONAL content identity for dedupe (state, not clock). See hook-findings.js.
+  escalate, // OPTIONAL ALWAYS-ESCALATE class → also routed to the human, as one line.
 }) {
   // Resolved BEFORE the body is rendered, because the HEAD depends on the verdict. `refusal`
   // stays `null` unless the caller opted in, and `null` is what every pre-existing code path
@@ -409,7 +626,7 @@ function instructAndWait({
 
   const validation = buildValidationBody({
     // loom#1715 — the RENDERER needs the lifecycle moment, because `pre-action`
-    // is only true at PreToolUse. `buildValidationBody` is module-private (the
+    // is only true at PreToolUse/PermissionRequest. `buildValidationBody` is module-private (the
     // exports below are `instructAndWait` / `emit` / `STOP_LIKE_EVENTS`), so
     // this is an internal parameter, NOT a public signature change; every
     // caller already passes `hookEvent` to `instructAndWait`.
@@ -422,6 +639,48 @@ function instructAndWait({
     refusal,
   });
 
+  // 0. COMPACT RENDER — every NON-DENY finding, when a session resolves. A deny (block at a
+  // non-STOP_LIKE event) skips this entirely and falls through to the unchanged branch below.
+  if (!(severity === "block" && !STOP_LIKE_EVENTS.has(hookEvent))) {
+    // Any throw falls through to the legacy render below, which still carries a decided refusal.
+    let c = null;
+    try {
+      c = compactOutput({
+        hookEvent,
+        severity,
+        what_happened,
+        why,
+        agent_must_report,
+        user_summary,
+        refuseHandback,
+        refusal,
+        payload,
+        dedupeKey,
+        escalate,
+        validation,
+      });
+    } catch {
+      c = null;
+    }
+    if (c) {
+      if (user_summary) {
+        process.stderr.write(`[${String(severity).toUpperCase()}] ${user_summary}\n`);
+      }
+      return c;
+    }
+  }
+
+  let esc = null, legacyNotice = {};
+  try {
+    const hf = require("./hook-findings.js");
+    esc = hf.escalationClass(why, escalate);
+    if (esc) legacyNotice = {
+      systemMessage: `[${hf.ruleIdOf(why)}] ${hf.oneLine(user_summary || what_happened, hf.SUMMARY_MAX)} — ESCALATE(${esc})`,
+    };
+  } catch (err) {
+    process.stderr.write("HOOK-FINDINGS RENDER FAILED — full validation retained: " + findingsErrorMessage(err) + "\n");
+  }
+
   // 1. User-facing stderr line (mitigates user-visibility hole)
   if (user_summary) {
     const tag = severity.toUpperCase();
@@ -432,6 +691,10 @@ function instructAndWait({
   }
 
   // 2. Event-aware JSON shape (mitigates CRIT-1 + #466 dropped-channel bug).
+  if (hookEvent === "SessionEnd") {
+    return { json: { continue: true, systemMessage: validation,
+      ...(esc ? { systemMessage: legacyNotice.systemMessage + "\n\n" + validation } : {}) }, exitCode: 0 };
+  }
   if (STOP_LIKE_EVENTS.has(hookEvent)) {
     if (refusal && refusal.refuse) {
       // MEASURED SHAPE, not inferred. The probe's refusing arm emitted exactly these two keys and
@@ -439,7 +702,7 @@ function instructAndWait({
       // as byte-indistinguishable from the control at this event, and adding an unmeasured key to
       // a measured payload is how a verified contract quietly becomes an assumed one.
       return {
-        json: { decision: "block", reason: validation },
+        json: withRuleId({ decision: "block", reason: validation, ...legacyNotice }, why),
         exitCode: 0,
       };
     }
@@ -449,14 +712,14 @@ function instructAndWait({
     // block a tool call because they are not tool calls, but `Stop` CAN refuse the hand-back (see
     // § STOP HAND-BACK REFUSAL). Non-refusal here is a DEFAULT, not a limitation.
     return {
-      json: { continue: true, systemMessage: validation },
+      json: { continue: true, systemMessage: esc ? legacyNotice.systemMessage + "\n\n" + validation : validation },
       exitCode: 0,
     };
   }
 
   if (severity === "block") {
-    // A block at PreToolUse / PostToolUse / UserPromptSubmit / SessionStart (the STOP_LIKE
-    // events returned above). Exit code 2 is the proven, UNCHANGED block trigger
+    // A block at PreToolUse / PermissionRequest / PostToolUse / UserPromptSubmit / SessionStart
+    // (the STOP_LIKE events returned above). Exit code 2 is the proven, UNCHANGED block trigger
     // (the structural teeth at L2/L3 per trust-posture.md); on exit 2 the host
     // feeds stderr back to the agent, so the FULL instruction body goes to
     // stderr — that is the agent's delivery channel for a denied call
@@ -474,23 +737,25 @@ function instructAndWait({
     // report-then-resolve contract. Codex parity is unaffected: codex-mcp-guard/server.js
     // denies on exit 2 OR permissionDecision "deny" as well as continue:false.
     return {
-      json: {
+      json: withRuleId({
+        ...legacyNotice,
         hookSpecificOutput: {
           hookEventName: hookEvent,
           permissionDecision: "deny",
           permissionDecisionReason: validation,
         },
-      },
+      }, why),
       exitCode: 2,
     };
   }
 
-  // Non-block (halt-and-report / advisory / post-mortem) at
-  // PreToolUse / PostToolUse / UserPromptSubmit / SessionStart — the body
-  // reaches the agent ONLY via additionalContext.
+  // Non-block (halt-and-report / advisory / post-mortem) at PreToolUse /
+  // PermissionRequest / PostToolUse / UserPromptSubmit / SessionStart — the body rides
+  // additionalContext; PermissionRequest is registered on Codex only, whose runtime re-routes it to systemMessage.
   return {
     json: {
       continue: true,
+      ...legacyNotice,
       hookSpecificOutput: {
         hookEventName: hookEvent,
         additionalContext: validation,
@@ -505,8 +770,52 @@ function instructAndWait({
  */
 function emit(payload) {
   const out = instructAndWait(payload);
-  process.stdout.write(JSON.stringify(out.json) + "\n");
-  process.exit(out.exitCode);
+  if (require("fs").readFileSync.name === "hookEngineReadFileSync") {
+    process.stdout.write(JSON.stringify(out.json) + "\n");
+    return process.exit(out.exitCode);
+  }
+  const receipts = out.json.__coc_findings_delivery || [];
+  delete out.json.__coc_findings_delivery;
+  let hf = null, trusted = null;
+  try {
+    hf = require("./hook-findings.js");
+    const ctx = hf.resolveContext(payload);
+    trusted = ctx && require("./hook-engine.js").deliveryContext(JSON.stringify({
+      session_id: ctx.sessionId, agent_id: ctx.agentId, cwd: process.cwd(),
+    }));
+  } catch (err) {
+    hf = null;
+    process.stderr.write("HOOK-FINDINGS CONTEXT FAILED — receipts remain pending: " + findingsErrorMessage(err) + "\n");
+  }
+  const fs = require("fs"), bytes = Buffer.from(JSON.stringify(out.json) + "\n");
+  const deadline = Date.now() + 2000, pause = new Int32Array(new SharedArrayBuffer(4));
+  let offset = 0;
+  try {
+    for (let attempts = 0; offset < bytes.length; attempts++) {
+      if (attempts >= 10000 || Date.now() >= deadline)
+        throw new Error("stdout handoff deadline exceeded");
+      try {
+        const written = fs.writeSync(1, bytes, offset, bytes.length - offset);
+        if (!Number.isInteger(written) || written < 0 || written > bytes.length - offset)
+          throw new Error("invalid stdout write result");
+        offset += written;
+        if (written === 0) Atomics.wait(pause, 0, 0, 1);
+      } catch (err) {
+        if (!err || !["EAGAIN", "EWOULDBLOCK", "EINTR"].includes(err.code)) throw err;
+        Atomics.wait(pause, 0, 0, 1);
+      }
+    }
+  } catch (err) {
+    process.stderr.write("HOOK-FINDINGS STDOUT HANDOFF FAILED — receipts remain pending: " + findingsErrorMessage(err) + "\n");
+    return process.exit(out.exitCode || 1);
+  }
+  try {
+    if (hf && !hf.confirmDelivery(receipts, trusted))
+      process.stderr.write("HOOK-FINDINGS ACK WRITE FAILED — findings may be delivered again.\n");
+  } catch (err) {
+    process.stderr.write("HOOK-FINDINGS ACK WRITE FAILED — receipts remain pending: " + findingsErrorMessage(err) + "\n");
+  }
+  return process.exit(out.exitCode);
 }
 
 module.exports = {
@@ -515,4 +824,10 @@ module.exports = {
   STOP_LIKE_EVENTS,
   assertRefusalShape,
   DELIVERY_INSTRUCTION,
+  COMPACT_AGENT_CHANNEL,
+  compactEscalateChannel,
+  // Exported for `refusal-delivery-channel.test.mjs`, which pins the compact fate against
+  // the legacy head per event — the compact path needs a resolved findings context to be
+  // reached end to end, so its fate is otherwise unobserved by the matrix there.
+  compactFate,
 };

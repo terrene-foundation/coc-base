@@ -4,6 +4,16 @@
  *
  * adjacency-leasecheck.js — §4.3 pre-tool-use hook for Edit|Write.
  *
+ * @coc-codex-edit-gate — multi-operator claim-adjacency surface. The policy
+ *   extractor fans its CC edit-matcher registration out to the Codex
+ *   `apply_patch` lane (mcp-guard, FF-AC6-1). The predicate consumes the
+ *   projected target path plus the repo-local claims fold; it carries NO
+ *   block branch (SAME / ADJACENT are halt-and-report / advisory — see the
+ *   severity table below), and where coordination is OFF it is already a
+ *   passthrough (see `isCoordinationEnabled` below). Wired 2026-10-09 under
+ *   the orchestrator ruling that every guard runs natively on every CLI
+ *   unless its predicate cannot be computed — this one's can.
+ *
  * The first user-visible behavior in F14: every Edit/Write in a
  * multi-operator session now surfaces sibling activity per §4.1's
  * SAME / ADJACENT / INDEPENDENT relation.
@@ -28,7 +38,12 @@
  *
  *   NO branch of this hook carries severity: block.
  *
- *   Budget:   ≤5s; setTimeout fallback per cc-artifacts.md Rule 7.
+ *   Budget:   ≤16s internal, 20s registered (raised 2026-10-09 when this
+ *             hook entered the Codex `apply_patch` policy table): the Codex
+ *             runtime fails every policy CLOSED, so the budget must clear the
+ *             enrolled-path fold + signature verification under load, not
+ *             only the unenrolled passthrough. setTimeout fallback per
+ *             cc-artifacts.md Rule 7.
  *
  * Flow:
  *   1. Resolve operator identity via operator-id.js (Tier 1: explicit key
@@ -60,16 +75,34 @@
  * R5-A-08 (§4.5 surfaced-not-eliminated residual).
  *
  * INDEPENDENT auto-claim: a signed `claim` record is appended to the
- * coordination log via Transport.appendRecord. Per the architecture
+ * coordination log via lib/coc-emit.js::emitSignedRecord, the one main-log
+ * writer (emit lock across head read, sign, fold check and append). Per the architecture
  * inventory the user-facing `/claim` command (M3 B3b) writes the same
  * record shape via `coc-append.js`; this hook's auto-claim is the
  * implicit-coordination path for Edit/Write that doesn't explicitly
  * invoke `/claim`.
  */
 
+/**
+ * @hook-contract
+ * {
+ *   "side_effects": {
+ *     "fs_writes": [
+ *       ".claude/learning/coordination-log.jsonl",
+ *       ".claude/learning/.coordination-log.emit.lock"
+ *     ],
+ *     "network": false,
+ *     "spawns": ["git","gpg","ssh-keygen"]
+ *   },
+ *   "idempotent": false,
+ *   "may_rewrite_input": false,
+ *   "notes": "The auto-claim append goes through lib/coc-emit.js::emitSignedRecord (which mkdirs .claude/learning/ and holds .claude/learning/.coordination-log.emit.lock from the chain-head read to the append) -> lib/append-sink.js. Spawns: git (state-resolver / sibling-porcelain) and ssh-keygen (lib/coc-sign.js signing). Each invocation appends a fresh signed claim (claim_id embeds nowMs), so a repeat is not a no-op."
+ * }
+ */
+
 "use strict";
 
-const TIMEOUT_MS = 5000;
+const TIMEOUT_MS = 16000;
 
 // setTimeout fallback per cc-artifacts.md Rule 7. Hook-internal hang
 // MUST NOT block the agent forever. {continue: true} surfaces no halt.
@@ -89,9 +122,7 @@ const { foldLog, isSessionLive, isClaimActive } = require(
 const { createFilesystemTransport } = require(
   path.join(__dirname, "lib", "transport-filesystem.js"),
 );
-const { canonicalSerialize, sign } = require(
-  path.join(__dirname, "lib", "coc-sign.js"),
-);
+const { emitSignedRecord } = require(path.join(__dirname, "lib", "coc-emit.js"));
 const adjacency = require(path.join(__dirname, "lib", "adjacency.js"));
 const siblingPorcelain = require(
   path.join(__dirname, "lib", "sibling-porcelain.js"),
@@ -337,39 +368,82 @@ function detectFilesystemExceptionMatch(candidateRelPath, repoDir) {
 }
 
 /**
- * Auto-claim: append a signed `claim` record for the operator's own
- * candidate path, via the filesystem Transport. Returns void; failures
- * are best-effort (the hook MUST NOT block on append-failure — the
- * coordination contract per the architecture is advisory at this layer).
+ * Say, in ONE stderr line, that an auto-claim was NOT appended and why.
+ * Every field that came from elsewhere is JSON-escaped, so no value can break
+ * the line or forge a second one.
  */
-async function autoClaim(transport, identity, candidateRelPath, nowMs, opts) {
-  // Build the canonical claim record.
-  const core = {
-    type: "claim",
-    verified_id: identity.verified_id,
-    person_id: identity.person_id || null,
-    display_id: identity.display_id || null,
-    seq: opts.seq != null ? opts.seq : 0,
-    prev_hash: opts.prev_hash || null,
-    ts: new Date(nowMs).toISOString(),
-    content: {
-      claim_id: `auto-${identity.verified_id || "anon"}-${nowMs}`,
-      path: candidateRelPath,
-      auto: true,
-    },
-  };
-  if (!opts.keyPath) return; // can't sign without a key — skip silently
-  const bytes = canonicalSerialize(core);
-  const r = sign(bytes, {
-    keyType: opts.keyType || "ssh",
-    keyPath: opts.keyPath,
-  });
-  if (!r.ok) return;
-  const record = Object.assign({}, core, { sig: r.sig });
+function reportDroppedAutoClaim(candidateRelPath, why) {
   try {
-    await transport.appendRecord(record);
+    process.stderr.write(
+      `[ADVISORY] adjacency-leasecheck: auto-claim for ${JSON.stringify(candidateRelPath)} DROPPED — ${why}. ` +
+        `Siblings will not see this claim; the edit proceeds.\n`,
+    );
   } catch {
-    // best-effort
+    // stderr itself is unwritable: there is no further channel to surface it on.
+  }
+}
+
+/** `error=<json>` plus `reason=<json>` when present, from a typed failure result. */
+function describeFailure(res) {
+  if (!res || typeof res !== "object") return `result=${JSON.stringify(res === undefined ? "undefined" : res)}`;
+  const parts = [`error=${JSON.stringify(res.error === undefined ? null : res.error)}`];
+  if (res.reason !== undefined) parts.push(`reason=${JSON.stringify(res.reason)}`);
+  return parts.join(" ");
+}
+
+/**
+ * Auto-claim: emit a signed `claim` record for the operator's own candidate
+ * path through lib/coc-emit.js::emitSignedRecord — the SAME writer every other
+ * main-log record goes through. It holds the emit lock from the chain-head read
+ * to the append and refuses a record that would not fold cleanly (_foldDelta),
+ * so a concurrent writer (a second hook process, a heartbeat, a journal
+ * reservation) can neither hand this claim a stale head nor have it fork the
+ * emitter's chain. Returns void and NEVER throws: the hook MUST NOT block on an
+ * emit failure (the coordination contract is advisory at this layer). But no
+ * drop is SILENT — every path that does not append says so on stderr
+ * (reportDroppedAutoClaim):
+ *   - no signing key;
+ *   - emitSignedRecord refused — `{ok:false, error, reason, step}`: the emit
+ *     lock was not released in time (`lock`), signing failed (`sign`), the
+ *     candidate would not fold into the live log, e.g. a record already sitting
+ *     at its seq (`fold-validate`), or the append was refused, including the
+ *     guard broker's refusal under the OS profile (`append`);
+ *   - emitSignedRecord threw.
+ * `opts.emit` replaces emitSignedRecord for the drop-reporting tests only.
+ */
+function autoClaim(repoDir, identity, candidateRelPath, nowMs, opts) {
+  if (!opts.keyPath) {
+    reportDroppedAutoClaim(candidateRelPath, "no signing key (COC_OPERATOR_KEY_PATH unset or missing)");
+    return;
+  }
+  const emitRecord = opts.emit || emitSignedRecord;
+  let r;
+  try {
+    r = emitRecord({
+      repoDir,
+      type: "claim",
+      identity,
+      content: {
+        claim_id: `auto-${identity.verified_id || "anon"}-${nowMs}`,
+        path: candidateRelPath,
+        auto: true,
+      },
+      signingKeyPath: opts.keyPath,
+      keyType: opts.keyType || "ssh",
+      // The key is the one COC_OPERATOR_KEY_PATH names; never fall back to git config.
+      gitConfigSigningKey: null,
+    });
+  } catch (err) {
+    const code = err && err.code ? ` code=${JSON.stringify(err.code)}` : "";
+    reportDroppedAutoClaim(
+      candidateRelPath,
+      `the signed emit threw:${code} message=${JSON.stringify(err && err.message ? err.message : String(err))}`,
+    );
+    return;
+  }
+  if (!r || r.ok !== true) {
+    const step = r && typeof r === "object" && r.step !== undefined ? ` step=${JSON.stringify(r.step)}` : "";
+    reportDroppedAutoClaim(candidateRelPath, `the signed emit refused it:${step} ${describeFailure(r)}`);
   }
 }
 
@@ -440,6 +514,7 @@ async function main() {
     if (!mainRes.ok) {
       clearTimeout(fallback);
       emit({
+        escalate: "security",
         hookEvent,
         severity: "halt-and-report",
         what_happened: `Adjacency lease-check could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
@@ -526,6 +601,7 @@ async function main() {
     if (readIndeterminate) {
       clearTimeout(fallback);
       emit({
+        escalate: "security",
         hookEvent,
         severity: "halt-and-report",
         what_happened: `Adjacency lease check could not run: the coordination log could not be read or folded — ${readIndeterminate}`,
@@ -570,6 +646,7 @@ async function main() {
       const matchedClaim = same.matched ? same : null;
       clearTimeout(fallback);
       emit({
+        escalate: "security",
         hookEvent,
         severity: "halt-and-report",
         what_happened: `Sibling worktree has '${candidateRelPath}' uncommitted-modified (porcelain match).`,
@@ -598,6 +675,7 @@ async function main() {
     if (sameVerdict.matched) {
       clearTimeout(fallback);
       emit({
+        escalate: "security",
         hookEvent,
         severity: "halt-and-report",
         what_happened: `SAME-class conflict on '${candidateRelPath}' against active sibling claim ${sameVerdict.claim_id} (predicate: ${sameVerdict.predicate}, sibling: ${sameVerdict.sibling_display_id || sameVerdict.sibling_person_id || "unknown"}).`,
@@ -646,23 +724,11 @@ async function main() {
     // Auto-claim is best-effort: it advertises the operator's intent to
     // siblings on next fold. The hook MUST NOT halt on append failure.
     if (selfVerifiedId && keyPath) {
-      const nextSeq = (() => {
-        let max = -1;
-        for (const r of accepted) {
-          if (
-            r &&
-            r.verified_id === selfVerifiedId &&
-            typeof r.seq === "number"
-          ) {
-            if (r.seq > max) max = r.seq;
-          }
-        }
-        return max + 1;
-      })();
-      await autoClaim(transport, identity, candidateRelPath, nowMs, {
+      // seq and prev_hash are NOT taken from the fold above: that read is stale the moment
+      // another writer appends. emitSignedRecord re-reads the head under the emit lock.
+      autoClaim(repoDir, identity, candidateRelPath, nowMs, {
         keyPath,
         keyType: keyType || "ssh",
-        seq: nextSeq,
       });
     }
     passthrough();
@@ -689,7 +755,9 @@ async function main() {
   }
 }
 
-module.exports = { hookMain };
+// autoClaim is exported so its drop reporting can be driven with a fake
+// emitter in-process (tests/integration/adjacency-leasecheck.test.js).
+module.exports = { hookMain, autoClaim };
 
 // CLI entry. The default path is exactly hookMain() — no engine dependency, so a
 // tree that copies this hook without lib/hook-engine.js runs it unchanged. The

@@ -40,13 +40,14 @@ const path = require("path");
 
 const {
   emitSignedRecord,
+  snapshotPlainOpts,
   MAX_LINE_BYTES,
   makeValidateFold,
 } = require("./coc-emit.js");
 const coordinationLog = require("./coordination-log.js");
 const foldCapabilityLedger = require("./fold-capability-ledger.js");
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
-const { appendSinkLine } = require("./append-sink.js");
+const { appendSinkLine, mainCheckoutBoundaryRoots } = require("./append-sink.js");
 
 // Re-export the record-type Set + the closed-set constants from the SSOT in
 // fold-capability-ledger.js (single source so emit + registration + fold
@@ -137,7 +138,12 @@ function _appendToLedger(repoDir, record) {
   // (repairing a pre-existing 0o644). The cap check above stays HERE, before signing, so an
   // oversized record is refused rather than truncated-after-sign.
   const p = resolveCapabilityLedgerPath(repoDir);
-  const w = appendSinkLine({ repoDir, sinkPath: p, line });
+  const w = appendSinkLine({
+    repoDir,
+    additionalRoots: mainCheckoutBoundaryRoots(repoDir),
+    sinkPath: p,
+    line,
+  });
   if (!w.ok)
     return {
       ok: false,
@@ -162,7 +168,12 @@ function _appendToLedger(repoDir, record) {
  *   (a caller MAY override for tests).
  */
 function emitLedgerRecord(opts) {
-  const o = opts || {};
+  // Read opts only through the emitter's own snapshot: a seam the caller left
+  // out must read `undefined` (so the `||` below picks THIS log's default),
+  // never a value planted on a polluted Object.prototype (sigcov R2-C1).
+  const snapshot = snapshotPlainOpts(opts);
+  if (snapshot.refusal) return snapshot.refusal;
+  const o = snapshot.o;
   if (!o.repoDir || typeof o.repoDir !== "string") {
     return {
       ok: false,
@@ -179,15 +190,16 @@ function emitLedgerRecord(opts) {
       step: "type-check",
     };
   }
-  return emitSignedRecord(
-    Object.assign({}, o, {
-      readChainHead:
-        o.readChainHead || ((args) => _readLedgerChainHead(o.repoDir, args)),
-      append: o.append || ((_rd, record) => _appendToLedger(o.repoDir, record)),
-      // COC-CHAIN guard, capability-ledger chain: validate against THIS log.
-      validateFold: o.validateFold || makeValidateFold(readCapabilityLedger),
-    }),
-  );
+  // Spread defines own properties; a [[Set]] copy would run a setter planted
+  // on Object.prototype (the sigcov R2-3 class).
+  return emitSignedRecord({
+    ...o,
+    readChainHead:
+      o.readChainHead || ((args) => _readLedgerChainHead(o.repoDir, args)),
+    append: o.append || ((_rd, record) => _appendToLedger(o.repoDir, record)),
+    // COC-CHAIN guard, capability-ledger chain: validate against THIS log.
+    validateFold: o.validateFold || makeValidateFold(readCapabilityLedger),
+  });
 }
 
 /**

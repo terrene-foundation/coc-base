@@ -42,10 +42,13 @@
  *       even WITH findings; only `--check` gates on them).
  *    1  `--check` mode ONLY: the scan RAN to completion and found ≥1 finding.
  *       This is the ONLY code that asserts a disclosure leak.
- *    2  the scan DID NOT START — a bad argument, a `--root` that does not
- *       resolve to a directory, a root carrying no synced surface, or a
- *       malformed tenant denylist / ecosystem registry. The ABSENCE of a
- *       result, never a clean one.
+ *    2  NO VALID RESULT for this surface — the scan DID NOT START (a bad
+ *       argument, a `--root` that does not resolve to a directory, a root
+ *       carrying no synced surface, or a malformed tenant denylist /
+ *       ecosystem registry) OR it ran to the end of the loop and could not
+ *       EXAMINE every path it collected (an unread file, an unlistable
+ *       directory, an undescended symlinked directory — § COVERAGE FENCE
+ *       below). The ABSENCE of a result, never a clean one.
  *    3  the scan STARTED and DID NOT COMPLETE — an uncaught exception during
  *       file collection or file scanning. Disclosure status UNKNOWN: the
  *       surface was only PARTIALLY examined, so this is neither a finding nor
@@ -61,6 +64,44 @@
  *  so the scanner's own output is safe to paste anywhere.
  * ============================================================================
  */
+
+// ── DRAIN-SAFE OUTPUT (2026-10-07) ────────────────────────────────────────────
+// EVERY exit in this file is preceded by output, and `console.log` / `console.error` write
+// ASYNCHRONOUSLY when the destination is a PIPE: `process.exit()` does not wait for the flush,
+// so whatever is still queued is discarded. MEASURED (this checkout, 500 findings): the
+// findings document arrived as EXACTLY 65536 bytes — one pipe buffer — through BOTH a slow
+// reader and `execFileSync`, and did not parse; the seat measured 0 of 82574 bytes surviving a
+// deliberately slow reader. The loss is not reader-dependent, which is what makes it a defect
+// rather than backpressure behaviour: a document over one buffer is ALWAYS truncated, so
+// `--findings-json` went silently undeliverable above ~64KiB (the caller's parse then fails
+// closed to a whole-tree refusal — never an all-clear, but the scope feature evaporates). The
+// stderr listing is the same shape and crosses the same threshold on a large surface. Red
+// carries the whole class: same failure as the coc-eval-all report trailer (98dbac78c).
+//
+// `fs.writeSync` IS the drain — the bytes are in the pipe before the next statement runs, so
+// the `process.exit()` that follows cannot outrun them. EPIPE/EBADF is swallowed deliberately:
+// the reader is gone (`| head`), so the bytes have no destination, and turning that into a
+// crash would convert a *truncated* read into a *failed* scan.
+function writeOut(text) {
+  drainWrite(1, text);
+}
+function writeErr(text) {
+  drainWrite(2, text);
+}
+function drainWrite(fd, text) {
+  try {
+    fs.writeSync(fd, `${text}\n`);
+  } catch (e) {
+    // NARROW, and it must stay narrow: a read-side hangup (EPIPE) or a closed descriptor
+    // (EBADF) is a delivery we cannot make, so it changes no verdict. Anything ELSE is a real
+    // write failure and PROPAGATES — a bare catch here would hide it behind a clean exit code.
+    // MEASURED by the correctness seat: `fs.writeSync` to a pipe BLOCKS to completion (10 MB
+    // delivered whole with the reader stalled 2.5 s — no EAGAIN, no partial write), so these
+    // two codes are the whole set this path can legitimately absorb.
+    if (e && (e.code === "EPIPE" || e.code === "EBADF")) return;
+    throw e;
+  }
+}
 
 import fs from "node:fs";
 import os from "node:os";
@@ -82,6 +123,12 @@ import {
   UnsafeFileReadError,
   makeHomepathRe,
   isScrubPlaceholderToken,
+  privateRepoNames,
+  resolveRedactionMapPath, resolveAccountHome, redactionAuthorityLine,
+  loadRedactionMap,
+  redactionMapGateTokens,
+  redactionMapCounts,
+  redactionMapCoverageLine,
 } from "./lib/identity-scrub.mjs";
 import { isAuditFixtureFile, isFixtureCorpusFile } from "./lib/fixture-corpus.mjs";
 
@@ -99,21 +146,35 @@ const _gse = createRequire(import.meta.url)("../hooks/lib/git-subprocess-env.js"
 // CLI args
 // ────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
-  const args = { mode: "report", root: null, allowSyntheticFixtureHomes: false, surface: "sync" };
+  const args = { mode: "report", root: null, allowSyntheticFixtureHomes: false, surface: "sync", findingsJson: false, paths: [] };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--check") args.mode = "check";
     else if (a === "--help" || a === "-h") args.help = true;
+    // OPT-IN MACHINE-READABLE FINDINGS (Gate-2 scope fence ONLY). See the emission site
+    // in the `--check` findings branch for the contract and for why `path` is RAW there.
+    // `--check` is REQUIRED and the pair is enforced loudly below rather than defaulted:
+    // a `--findings-json` that silently emitted nothing (or, worse, silently changed the
+    // human report) is the fail-open shape this scanner exists to refuse.
+    else if (a === "--findings-json") args.findingsJson = true;
     else if (a === "--root") {
       // An EMPTY or missing value used to fall back to the scanner's own checkout, so
       // `--root "$DEST"` with DEST unset scanned loom and exited 0 on the destination it never
       // looked at. A `--root` must name something.
       const v = argv[++i];
       if (typeof v !== "string" || v.trim() === "") {
-        console.error("scan-synced-disclosure: --root requires a non-empty directory argument");
+        writeErr("scan-synced-disclosure: --root requires a non-empty directory argument");
         process.exit(2);
       }
       args.root = v;
+    }
+    else if (a === "--path") {
+      const v = argv[++i];
+      if (typeof v !== "string" || !v.trim() || v.startsWith("--")) {
+        writeErr("scan-synced-disclosure: --path requires a non-empty root-relative path");
+        process.exit(2);
+      }
+      args.paths.push(v);
     }
     // OPT-IN (client-template disclosure gate ONLY): tolerate a SYNTHETIC fixture home
     // (a `jdoe`/`fakeuser`-style `/Users/<name>/` in the SYNTHETIC_FIXTURE_USERS set) inside one
@@ -139,17 +200,17 @@ function parseArgs(argv) {
     // ⛔ "EVERY FILE PRESENT IS IN SCOPE" STOOD HERE. IT IS FALSE, and the correction names the
     // two classes it was hiding rather than restating a smaller version of the same absolute.
     // Both are MEASURED; the first is the one that matters.
-    //   (a) THE WALK ROOTS. `collectFiles` seeds `.claude/` plus `TOP_LEVEL_SYNCED_DIRS`
-    //       (`.agents/skills`, `.codex`, `.gemini`, `.codex-mcp-guard`, `scripts`, `tools`).
-    //       Repo-root `tests/`, `journal/`, `workspaces/`, `burndown/` and every other top-level
-    //       path are NOT VISITED, so no file in them is in scope however this mode is set. NOT
-    //       theoretical: a real canon trust-root key id sat in
-    //       `tests/integration/operator-id.test.js`, and a `--surface projection` scan of THIS
-    //       repo returned `0 findings` — while the SAME instrument, same run, on a fixture
-    //       carrying a bare third-party org slug, returned 1. The zero was the WALK, not the
-    //       surface, and it read exactly like a clean tree. `tests/` is skipped BY DECISION,
-    //       with its reason and its accepted cost recorded at the `TOP_LEVEL_SYNCED_DIRS` note
-    //       above — read that note before assuming this one is stale.
+    //   (a) THE WALK ROOTS — CLOSED FOR THE SYNC SURFACE, DERIVED FOR A PROJECTION. On the sync
+    //       surface `collectFiles` seeds `.claude/` plus `TOP_LEVEL_SYNCED_DIRS` and the five
+    //       `TOP_LEVEL_SYNCED` root files, and every other top-level path is NOT VISITED. A
+    //       projection used to be read through that SAME closed list, so whatever else the
+    //       projection carried shipped unscanned — MEASURED on the real HEAD client-template
+    //       projection (R3-3 security R1 HIGH-2): 38 files under 9 top-level entries, 6
+    //       disclosure-shaped findings among them, with the gate passing. In this mode
+    //       `collectFiles` now walks EVERY top-level entry present: the tree IS the route's
+    //       output, and the route's own enumeration already decided what is absent. A projection
+    //       scan of a SOURCE checkout therefore reads its unshipped trees as well; the mode is for
+    //       a materialized output tree.
     //   (b) THE PER-FILE PREDICATES THAT SURVIVE THE FLIP. `isNeverSynced` is what this mode
     //       turns off, and it is consulted LAST. Everything above it in `isExcluded` still skips:
     //       the `.git` subtree; the two root declarations keyed to their one read path
@@ -159,29 +220,40 @@ function parseArgs(argv) {
     //       symlinked directories it did not descend. MEASURED on the client-template
     //       projection: 8,837 regular files present (`find -type f`) against `Scanned: 8,692` —
     //       145 present-and-not-examined, which is the honest size of this clause on that
-    //       surface. The mode removes the SYNC-SURFACE reasoning; it does not remove every
-    //       reason to skip a file, and `Scanned: N` is a count over the walk, never over the tree.
+    //       surface (measured under the CLOSED walk of (a), before R3-3 R1 HIGH-2; part of that
+    //       count was the walk-scope gap (a) has since closed). The mode removes the SYNC-SURFACE
+    //       reasoning; it does not remove every reason to skip a file, and `Scanned: N` is a count
+    //       over the walk, never over the tree. § COVERAGE FENCE (2026-10-06) keys on coverage
+    //       holes: a path the walk DID reach and could not examine refuses the run with exit 2 in
+    //       this mode exactly as in sync mode.
     //
     // The sync path keeps its own list, unchanged, and remains the default.
     else if (a === "--surface") {
       const v = argv[++i];
       if (v !== "sync" && v !== "projection") {
-        console.error("scan-synced-disclosure: --surface must be 'sync' (default) or 'projection'");
+        writeErr("scan-synced-disclosure: --surface must be 'sync' (default) or 'projection'");
         process.exit(2);
       }
       args.surface = v;
     }
     else {
       // Named by SHAPE, not echoed: an argument can carry `/Users/<operator>/…`.
-      console.error(`scan-synced-disclosure: unknown argument (${a.length} chars, starting ${JSON.stringify(a.slice(0, 2))})`);
+      writeErr(`scan-synced-disclosure: unknown argument (${a.length} chars, starting ${JSON.stringify(a.slice(0, 2))})`);
       process.exit(2);
     }
+  }
+  // A flag that changes an output contract is refused when it would apply to NO
+  // output: report mode has no findings document to emit, so `--findings-json`
+  // alone is a usage error (exit 2) rather than a silently ignored argument.
+  if (args.findingsJson && args.mode !== "check") {
+    writeErr("scan-synced-disclosure: --findings-json requires --check (report mode has no findings document)");
+    process.exit(2);
   }
   return args;
 }
 
 function usage() {
-  console.log(
+  writeOut(
     `Synced-Artifact Disclosure Scanner (issue #263)
 
 Walks the SYNCED surface (.claude/** + AGENTS.md / GEMINI.md, minus
@@ -193,9 +265,21 @@ Usage:
   node .claude/bin/scan-synced-disclosure.mjs            human report
   node .claude/bin/scan-synced-disclosure.mjs --check    exit 1 if ≥1 finding
   node .claude/bin/scan-synced-disclosure.mjs --root DIR  scan an alternate dir
+  node .claude/bin/scan-synced-disclosure.mjs --check --findings-json
+        … plus ONE line of JSON findings on stdout (the Gate-2 scope fence's
+          machine-readable input; stderr report and exit codes unchanged)
+  node .claude/bin/scan-synced-disclosure.mjs --root DIR --path .devcontainer --path bin --check
   node .claude/bin/scan-synced-disclosure.mjs --help
 
-Exit: 0 clean | 1 finding(s) in --check | 2 usage error.
+Repeat --path to scan explicit existing root-relative files/directories instead of
+walking the default synced surface. No walk exclusions apply to that selection.
+Traversal, symlinks, .git case aliases and empty selections are refused; unreadable,
+non-regular or binary selected content is incomplete, never a clean verdict.
+POSIX selections must not contain backslashes. Implementation:
+.claude/bin/scan-synced-disclosure.mjs:1380-1428 (collectSelectedFiles).
+
+Exit: 0 report/clean | 1 finding(s) in --check | 2 usage error or unread default
+surface | 3 crashed scan or incomplete explicit selection.
 
 Findings are printed with the matched token replaced by «REDACTED» —
 the scanner's own output is safe to publish. Zero findings against the
@@ -612,6 +696,10 @@ function isGitTracked(rootDir, relPath) {
 const IDENTITY_ONLY_SHAPES = new Set([
   "operator-identity-token",
   "customer-identity-token",
+  // Same property as the two identity shapes: its tokens exist only at runtime (derived from
+  // `.gitmodules`, see `loadPrivateRepoNameShape`), so a hit in one of these files is a real
+  // private repository name in a shipped file, never synthetic vocabulary.
+  "private-repo-name-token",
   "private-key-material",
 ]);
 function isIdentityOnlyPath(relPath) {
@@ -919,7 +1007,7 @@ function isExcluded(relPath) {
   // as `test-harness/**` (isNeverSynced) and now never-synced per
   // sync-manifest.yaml `exclude: **/*.test.mjs`. Their fixtures LEGITIMATELY
   // embed synthetic disclosure shapes to exercise the scrubber (e.g.
-  // sync-from-canon.test.mjs plants a synthetic `/Users/jdoe/...`
+  // sync-from-canon.test.mjs plants a synthetic `<operator-home>/...` (Source: .claude/bin/scan-synced-disclosure.mjs:1010-1015.)
   // operator-home-path), exactly like the audit-fixtures exclusion above.
   // SOURCE-ONLY (mirrors the `*.local.json` / `ecosystem.json` flip): at
   // loom-source the synthetic fixtures are by-design and self-excluded so the
@@ -1247,6 +1335,22 @@ function collectFiles(root) {
     }
     walk(p, files);
   };
+  // A PROJECTION IS WHAT SHIPS (R3-3 security R1 HIGH-2), so its root set is DERIVED FROM THE TREE,
+  // never from a list. Every publish route materializes its output and hands that tree here: the
+  // client-template edition ships the whole archive MINUS a strip list (unlisted ⇒ included), the
+  // public fork adds a root README and LICENSE, and each route's own enumeration already decided what
+  // is absent. The sync roots below are a closed list written for the SYNC surface, and reading a
+  // projection through them left every other root file and top-level directory the route shipped
+  // UNSCANNED — MEASURED on the real HEAD client-template projection: 38 files under 9 top-level
+  // entries, 6 disclosure-shaped findings among them, with the gate passing. So in this mode every
+  // top-level entry present is walked, through the same `walkTop` (symlink containment, per-file
+  // exclusions) and the same ignore filter as the sync roots.
+  if (SCAN_SURFACE === "projection") {
+    for (const name of fs.readdirSync(REPO_ROOT_ACTIVE).sort()) {
+      if (!isExcluded(name)) walkTop(path.join(REPO_ROOT_ACTIVE, name));
+    }
+    return dropIgnoredUntracked(REPO_ROOT_ACTIVE, files);
+  }
   const claudeDir = path.join(REPO_ROOT_ACTIVE, ".claude");
   walkTop(claudeDir);
   // Top-level distributed DIRECTORIES (see TOP_LEVEL_SYNCED_DIRS for the derivation).
@@ -1269,6 +1373,58 @@ function collectFiles(root) {
   // would put a subprocess behind every one of ~7.7k entries. See the function's
   // header for why ignored-AND-untracked is the predicate and why it fails closed.
   return dropIgnoredUntracked(REPO_ROOT_ACTIVE, files);
+}
+
+class SelectedPathError extends Error {}
+
+function collectSelectedFiles(root, selections) {
+  const rootReal = fs.realpathSync(root);
+  REPO_ROOT_ACTIVE = rootReal;
+  const files = new Set();
+  const invalid = (reason) => { throw new SelectedPathError(`--path ${reason}`); };
+  const isGitMetadata = (segment) => segment.toLowerCase() === ".git";
+  const inspect = (candidate) => {
+    const real = fs.realpathSync(candidate);
+    const relative = path.relative(rootReal, real);
+    if (relative.split(path.sep).some(isGitMetadata)) invalid("cannot include git metadata");
+    if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative))
+      invalid("resolves outside the scan root");
+    const st = fs.lstatSync(candidate);
+    if (st.isSymbolicLink()) invalid("symlinks are not accepted");
+    if (!st.isFile() && !st.isDirectory()) throw new Error("Selected path is not a regular file or directory");
+    return st;
+  };
+  const visit = (candidate) => {
+    const st = inspect(candidate);
+    if (st.isFile()) { files.add(candidate); return; }
+    for (const name of fs.readdirSync(candidate).sort()) {
+      if (isGitMetadata(name)) invalid("cannot include git metadata");
+      visit(path.join(candidate, name));
+    }
+  };
+  for (const selected of selections) {
+    if (path.sep === "/" && selected.includes("\\"))
+      invalid("must use native path separators; backslashes are not accepted on POSIX");
+    const parts = selected.split(/[\\/]/);
+    if (path.isAbsolute(selected) || path.win32.isAbsolute(selected) ||
+        parts.includes("..") || parts.some(isGitMetadata) || selected.includes("\0"))
+      invalid("must be relative without traversal or git metadata");
+    let candidate = rootReal;
+    for (const part of parts.filter((p) => p && p !== ".")) {
+      candidate = path.join(candidate, part);
+      try { inspect(candidate); } catch (e) {
+        if (e.code === "ENOENT" || e.code === "ENOTDIR") invalid("does not exist");
+        throw e;
+      }
+    }
+    const before = files.size;
+    const selectedFiles = new Set(files);
+    visit(candidate);
+    if (files.size === before && ![...selectedFiles].some((f) => f === candidate || f.startsWith(candidate + path.sep)))
+      invalid("selects an empty directory");
+  }
+  if (!files.size) invalid("selected no files");
+  return [...files].sort();
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1301,7 +1457,7 @@ const ALLOWLIST = [
   // allowlist and is still flagged by the nonfoundation-org-slug shape.
   /terrenefoundation(?![\w-])(\/[A-Za-z0-9._-]+)?/i,
   // (2026-10-03 walk-widening finding d: an earlier revision of this change added
-  // `/Users/jdoe/` and `/Users/op/` HERE, as GLOBAL span allowlist entries. REVERTED
+  // `<operator-home>/` and `<operator-home>/` HERE, as GLOBAL span allowlist entries. REVERTED (Source: `.claude/bin/lib/identity-scrub.mjs::SYNTHETIC_FIXTURE_USERS`.)
   // before landing: the
   // `audit-fixture-runner-convention-reaches-synthetic-home-exemption` fixture caught
   // it — a global username entry blanketed a synthetic home written into an ORDINARY
@@ -1315,7 +1471,7 @@ const ALLOWLIST = [
   // prefixes), each written as a LITERAL. They were admitted under the co-owner Option-1
   // ruling of 2026-05-17 (#263), which adjudicated them as SELF-coordinates rather than
   // third-party disclosure, and the residual note that stood beside them already named the
-  // cost under `artifact-flow.md` § Canon Neutrality: this file ships `copy/always_include`
+  // cost under `artifact-flow-routing.md` § Canon Neutrality: this file ships `copy/always_include`
   // to every consumer, so the entries both DISCLOSED the authoring ecosystem's identity at
   // every consumer and silently EXEMPTED an org that is not the consumer's. That note booked
   // its revisit trigger as "the residual sweep completing" — this is that sweep.
@@ -1341,14 +1497,14 @@ const ALLOWLIST = [
   // derive at runtime — so there is no file-scoped or per-shape tolerance anywhere; see the
   // note at the identity-shape definitions.
   // ALLOWLIST-NOTE (2026-09-07, burndown projected-class lane): the Homebrew-on-Linux
-  // service-account home `/home/linuxbrew/` (its install prefix is
-  // `/home/linuxbrew/.linuxbrew/`). `linuxbrew` is not a person — it is the fixed
+  // service-account home `<operator-home>/` (its install prefix is (Source: .claude/bin/scan-synced-disclosure.mjs:1531-1531.)
+  // `<operator-home>/.linuxbrew/`). `linuxbrew` is not a person — it is the fixed
   // account name Homebrew creates on Linux, and the path is a published constant of
   // that project, identical on every host. It reaches this tree only inside the frozen
   // binary-search constant lists the burndown query tools use to locate an interpreter
   // and `gh` (`MEMBERSHIP_PATH_DIRS`, `GH_SEARCH_DIRS`) and the fixture pinning them,
   // alongside `/opt/homebrew/bin` and `/usr/local/bin`, which this shape does not match
-  // because they are not under `/home/`. Structurally `/home/linuxbrew/` is
+  // because they are not under `/home/`. Structurally `<operator-home>/` is
   // indistinguishable from `/home/<username>/`, which is why it needs an ENTRY rather
   // than a shape change: the shape is CORRECT to fire on `/home/<x>/` in general, and
   // narrowing it would blind the fence to real operator homes.
@@ -1359,21 +1515,21 @@ const ALLOWLIST = [
   // longer `.linuxbrew` install path without failing to cover anything at all (measured:
   // the two-segment form left all three findings standing). It is NOT a relaxation of
   // `/home/*`: a real operator's home carries a different username, fails this prefix,
-  // and is still flagged. Everything under `/home/linuxbrew/` is by construction the
+  // and is still flagged. Everything under `<operator-home>/` is by construction the (Source: .claude/bin/scan-synced-disclosure.mjs:1531-1531.)
   // Homebrew install, not a human's home directory.
   //
   // MEASURED, four mutation cases, each mutating the constant list in
   // burndown-query-issues.mjs, running `--check`, and restoring byte-identically. All
   // four RED at exit 1 with the finding naming the mutated file and line, which is also
   // the proof the mutated bytes were read:
-  //   `/home/someoperator/`    — a different operator entirely
-  //   `/home/linuxbrewer/`     — a LONGER username starting with the allowed one
-  //   `/home/linuxbrew-alice/` — the allowed name with a hyphenated suffix
+  //   `<operator-home>/`    — a different operator entirely (Source: .claude/bin/scan-synced-disclosure.mjs:1531-1531.)
+  //   `<operator-home>/`     — a LONGER username starting with the allowed one
+  //   `<operator-home>/` — the allowed name with a hyphenated suffix
   // The middle two are the point: the trailing slash is load-bearing, so this entry
   // covers the username `linuxbrew` and NOT the prefix family beginning with it. An
   // entry that silently covered `linuxbrew*` would be a hole, and it does not.
   // The fourth case pins that suppression is SPAN-level, not line-level: with BOTH
-  // `/home/linuxbrew/.linuxbrew/bin` and `/home/realoperator/bin` on ONE line, the
+  // `<operator-home>/.linuxbrew/bin` and `<operator-home>/bin` on ONE line, the
   // scanner still reds and redacts ONLY the real operator home, leaving the allowed
   // literal visible in the finding context. This entry therefore cannot mask a genuine
   // leak that happens to share its line.
@@ -1604,55 +1760,55 @@ const ALLOWLIST = [
   // ALLOWLIST-NOTE: generic documentation-placeholder home paths. These
   // are NOT operator identifiers — they are the well-known generic
   // usernames used in public tooling docs:
-  //   /Users/runner/  — GitHub Actions' own hosted-runner home (literal,
+  //   <operator-home>/  — GitHub Actions' own hosted-runner home (literal, (Source: .claude/bin/scan-synced-disclosure.mjs:1750-1777.)
   //                      appears verbatim in actions/setup-* docs; the
   //                      ci-runner-troubleshooting guide cites it to
   //                      explain why setup-python breaks on self-hosted)
-  //   /home/me/, /Users/me/ — the canonical "me" placeholder in CC/Codex
+  //   <operator-home>/, <operator-home>/ — the canonical "me" placeholder in CC/Codex
   //                      MCP-config teaching examples (server.js args)
   // None correlate to the operator; all are public-doc vocabulary. Real
   // operator homes (`/Users/<operator>/`) are NOT covered — they carry
   // the operator's actual lowercase username, not `runner`/`me`.
   // ANCHORED to the whole span (2026-09-27): home spans now END at the name when no separator
-  // follows (`HOME=/home/dev`), and a span may carry a traversal chain (`/home/dev/../<name>`)
+  // follows (`HOME=<operator-home>`), and a span may carry a traversal chain (`<operator-home>/../<name>`)
   // that an unanchored substring entry would vouch for. Each entry here and below names ONE
   // home, whole, with or without its trailing separator.
   /^(?:[A-Za-z]:)?\/Users\/runner\/?$/,
   /^(?:[A-Za-z]:)?\/(?:Users|home)\/me\/?$/,
   // The same vocabulary in a WINDOWS home span (G2): `runneradmin` is the account GitHub's
-  // hosted Windows runners run as (`C:\Users\runneradmin\`, the Windows analogue of
-  // `/Users/runner/`), plus the `runner` / `me` forms above. Anchored to the whole span, any
+  // hosted Windows runners run as (`C:<operator-home>\`, the Windows analogue of (Source: .claude/bin/scan-synced-disclosure.mjs:1777-1784.)
+  // `<operator-home>/`), plus the `runner` / `me` forms above. Anchored to the whole span, any
   // separator form (`\`, `\\`, `/`). A real Windows username fails it and is still flagged.
   /^(?:[A-Za-z]:)?(?:\\{1,2}|\/)users(?:\\{1,2}|\/)(?:runneradmin|runner|me)(?:\\{1,2}|\/)?$/i,
-  // A ONE-character username (`C:\\Users\\x\\`, `/home/x/`) — the two-character floor the
+  // A ONE-character username (`C:<operator-home>\\`, `<operator-home>/`) — the two-character floor the (Source: .claude/bin/scan-synced-disclosure.mjs:1777-1784.)
   // scanner's own arms always had, kept now that the root and name class come from the lib
-  // (which takes one character). MEASURED: shipped files cite `C:\\Users\\x\\` as a teaching
+  // (which takes one character). MEASURED: shipped files cite `C:<operator-home>\\` as a teaching
   // example (the memory-cascade fixture, `hooks/lib/state-io.js`). A traversal chain
   // (`x\\..\\<name>`) is longer than one character and is not covered. DECLARED BOUND: a real
   // one-character username is not seen.
   /^(?:[A-Za-z]:)?(?:\\{1,2}|\/)(?:users|home)(?:\\{1,2}|\/)[A-Za-z0-9_](?:\\{1,2}|\/)?$/i,
-  // ALLOWLIST-NOTE (W6b-i 2026-06-17): `/home/dev/` is the CONTAINER-INTERNAL
+  // ALLOWLIST-NOTE (W6b-i 2026-06-17): `<operator-home>/` is the CONTAINER-INTERNAL (Source: .claude/bin/scan-synced-disclosure.mjs:1797-1797.)
   // devcontainer user home, NOT a host operator home. The py dev-container
   // Dockerfile creates it with `useradd ... dev` + `USER dev` and the
   // devcontainer.json sets `remoteUser: "dev"`; every consumer's container gets
   // the identical fixed `dev` user. The mount/volume targets
-  // (`target=/home/dev/.cache/uv`, `- uv-cache:/home/dev/.cache/uv`) are
+  // (`target=<operator-home>/.cache/uv`, `- uv-cache:<operator-home>/.cache/uv`) are
   // in-container destination paths, carrying zero operator/tenant identity —
-  // exact precedent class as `/Users/runner/` (GitHub hosted-runner home) and
-  // `/home/me/` (CC teaching placeholder) above. Anchored to the EXACT
+  // exact precedent class as `<operator-home>/` (GitHub hosted-runner home) and
+  // `<operator-home>/` (CC teaching placeholder) above. Anchored to the EXACT
   // fixed container username `dev`: a real operator home (`/home/<operator>/`)
   // carries the operator's actual username, fails this anchored prefix, and is
   // still flagged by the operator-home-path shape.
   /^(?:[A-Za-z]:)?\/home\/dev\/?$/,
-  // ALLOWLIST-NOTE (F404 Shard 3 2026-07-15): `/home/vscode/` is the
+  // ALLOWLIST-NOTE (F404 Shard 3 2026-07-15): `<operator-home>/` is the (Source: .claude/bin/scan-synced-disclosure.mjs:1813-1813.)
   // CONTAINER-INTERNAL devcontainer user home for the rs variant, NOT a host
-  // operator home — the exact same class as `/home/dev/` above (py). The rs
+  // operator home — the exact same class as `<operator-home>/` above (py). The rs
   // dev-container builds `FROM mcr.microsoft.com/devcontainers/base` which
   // ships the fixed non-root `vscode` user (uid/gid 1000); rs's Dockerfile
   // sets `ARG REMOTE_USER=vscode` + `USER ${REMOTE_USER}` and its
   // devcontainer.json sets `remoteUser: "vscode"`, so every consumer's rs
   // container gets the identical fixed `vscode` user. The mount targets in
-  // `rs/compose.override.yml.example` (`${HOME}/.claude:/home/vscode/.claude`,
+  // `rs/compose.override.yml.example` (`${HOME}/.claude:<operator-home>/.claude`,
   // the GPG side-mount prose) are in-container DESTINATION paths carrying zero
   // operator/tenant identity — the host SOURCE side already uses the
   // compose-aware `${HOME}` variable (never a literal operator home). Anchored
@@ -1660,8 +1816,8 @@ const ALLOWLIST = [
   // (`/home/<operator>/`) carries the operator's actual username, fails this
   // anchored prefix, and is still flagged by the operator-home-path shape.
   /^(?:[A-Za-z]:)?\/home\/vscode\/?$/,
-  // ALLOWLIST-NOTE: a `/Users/<PascalCase>/` span (e.g. `/Users/Items/`
-  // from the `mockData/Users/Items/Records/Response*` glob comment in
+  // ALLOWLIST-NOTE: a `/Users/<PascalCase>/` span (e.g. `<operator-home>/` (Source: .claude/bin/scan-synced-disclosure.mjs:1826-1826.)
+  // from the `mockData<operator-home>/Records/Response*` glob comment in
   // validate-workflow.js) is a fake-data FIELD-NAME path, not a home
   // path. macOS account usernames are lowercase by convention; a
   // Capital-then-lowercase segment immediately under /Users/ is the
@@ -1669,7 +1825,7 @@ const ALLOWLIST = [
   // Real operator homes (`/Users/<lowercase-operator>/`) are NOT
   // covered — they fail the leading-uppercase requirement.
   // The trailing `/` is OPTIONAL since 2026-09-27: home spans now also end at the name
-  // (`/Users/Shared` before a backtick — macOS's shared system directory, cited in a fixture).
+  // (`<operator-home>` before a backtick — macOS's shared system directory, cited in a fixture).
   // The premise above is about the CASE of the segment, not about what follows it, so the entry
   // covers both forms. A Windows span carries its drive letter and never matches this anchor.
   /^\/Users\/[A-Z][a-z]+\/?$/,
@@ -2320,17 +2476,17 @@ const SHAPES = [
     // a home with NO trailing separator (`"C:\\Users\\<name>"` ending a JSON value,
     // `USERPROFILE=C:\Users\<name>`, `/Users/<name>` at end of line); a UNC share
     // (`\\<server>\c$\Users\<name>\`); an 8.3 short name (`<NAME>~1`); non-ASCII and apostrophe
-    // names; and traversal past an excluded name (`C:\Users\runneradmin\..\<name>\`).
+    // names; and traversal past an excluded name (`C:<operator-home>\..\<name>\`). (Source: .claude/bin/scan-synced-disclosure.mjs:2493-2493.)
     // Two scanner-side wrappers, both for the ALLOWLIST: an optional DRIVE prefix, so the span of
     // `C:/Users/<Name>/` carries the drive and the POSIX-anchored PascalCase entry still cannot
     // cover a capitalised Windows name; and an optional trailing separator, so the span-keyed
-    // entries (`/home/dev/`, `/Users/<Word>/`) keep matching the spans they were written for.
+    // entries (`<operator-home>/`, `/Users/<Word>/`) keep matching the spans they were written for.
     // A `<letter>:` before the root is ALWAYS taken into the span (round-2 item 4, 2026-09-28).
     // It used to be taken only when not preceded by a letter/digit/`_`, which then let the
     // POSIX-anchored PascalCase entry vouch for the remainder: `x_C:/Users/<Name>/` and
     // `vol1D:/Users/<Name>/` read clean while `dir:C:/Users/<Name>/` flagged (measured). The
     // lookbehind existed for ONE real false positive — the `e:` of a compose volume mount
-    // `uv-cache:/home/dev/…` defeating the span-anchored container-home entries — which is closed
+    // `uv-cache:<operator-home>/…` defeating the span-anchored container-home entries — which is closed
     // on the ALLOWLIST side instead: those entries accept an optional `<letter>:` prefix, so a
     // container home stays clean whatever precedes it, and a drive-shaped prefix never lets the
     // PascalCase entry (which does NOT accept one) cover a capitalised name.
@@ -2669,6 +2825,7 @@ function loadCustomerIdentityShape(rootActive) {
   // so a token ending in an accented letter or punctuation (`Acmé`, `Acme Inc.`, `@acme`)
   // had no boundary to match at and never fired (measured rc=0).
   const alt = tokens.map(escapeForRegex).join("|");
+  const foldedAlt = [...new Set(tokens.map(foldForGate))].map(escapeForRegex).join("|");
   return {
     id: "customer-identity-token",
     rx: new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alt})(?![\\p{L}\\p{N}_])`, "giu"),
@@ -2676,11 +2833,96 @@ function loadCustomerIdentityShape(rootActive) {
     maskRx: new RegExp(`(?:${alt})`, "giu"),
     hasNonAsciiToken: tokens.some((t) => /[^\x00-\x7f]/.test(t)),
     // Folded twin for the FOLDED PASS (see scanFoldedLine).
-    foldRx: new RegExp(
-      `(?<![\\p{L}\\p{N}_])(?:${[...new Set(tokens.map(foldForGate))].map(escapeForRegex).join("|")})(?![\\p{L}\\p{N}_])`,
-      "giu",
-    ),
+    foldRx: new RegExp(`(?<![\\p{L}\\p{N}_])(?:${foldedAlt})(?![\\p{L}\\p{N}_])`, "giu"),
+    // ...and the folded twin of the unbounded context mask, for WITHHOLDING (see maskIdentitySpans):
+    // display is never weaker than detection, so a glued, accented token is withheld too (A5 S2).
+    foldMaskRx: new RegExp(`(?:${foldedAlt})`, "giu"),
   };
+}
+
+// ────────────────────────────────────────────────────────────────
+// PRIVATE-REPOSITORY-NAME SHAPE (runtime-derived from `.gitmodules`)
+// ────────────────────────────────────────────────────────────────
+//
+// THE GAP IT CLOSES. A repository owned by a PRIVATE org names a non-public sibling system on
+// its own — in a mount path, a clone instruction, prose — WITHOUT its org beside it, so the
+// `nonfoundation-org-slug` shape (which matches the ORG part of an `<org>/<repo>` form) never
+// saw a bare citation of one, and neither identity shape carried it.
+//
+// WHERE THE TOKENS COME FROM. `identity-scrub.mjs::privateRepoNames` — the ONE derivation the
+// identity gate (`strip-build-internal.mjs::assertTreeFreeOfPrivateIdentity`) and the publish /
+// edition scrubs share: every submodule url in a root's `.gitmodules` whose owner is in this
+// checkout's private org set. No literal is written here.
+//
+// ROOTS ARE UNIONED exactly as `loadCustomerIdentityShape` does and for the same reason: root
+// `.gitmodules` is loom-only BY CONSTRUCTION (no sync lane and no edition carries it), so it is
+// absent from every staged tree this scanner is pointed at with `--root`, and keyed on the
+// scanned root alone the shape would be inert at exactly the moment it must fire. At a
+// CONSUMER the private org set is empty, so the derivation returns nothing WITHOUT reading the
+// file and the shape is null — inert, which is correct (there is no private set to hold).
+//
+// MATCHING: UNBOUNDED and case-insensitive, with a folded twin for non-ASCII lines. A name
+// glued into a longer token (`<name>-v2`, `apps/<name>/`) is still the name; the derivation
+// already refuses a name too short to gate without halting on prose. Identity-only files are
+// scanned by it (IDENTITY_ONLY_SHAPES) and no allowlist entry suppresses it.
+//
+// A `.gitmodules` the derivation refuses — present but a symlink / FIFO / unreadable, a
+// submodule section with no url or an unparseable one — THROWS here, and the caller exits 2:
+// the scan DID NOT START. A name set that cannot be derived is never an empty one.
+//
+// ONE CARVE-OUT, `ownIgnoreEntries`: a checkout that mounts a private submodule ignores the mount
+// in its ROOT `.gitignore`, and that functional entry must stay. It is exempt ONLY as a WHOLE
+// trimmed line `/<name>/` or `/<name>` in the SCANNED root's top-level `.gitignore`, for a name
+// derived from the SCANNED root's OWN `.gitmodules` (see `isOwnSubmoduleIgnoreLine`). The name
+// anywhere else — a comment, a glued form, a nested `.gitignore`, any other file — still flags.
+// A staged or consumer tree carries no root `.gitmodules` (above), so its own set is EMPTY and
+// the carve-out never applies there: an entry that reached a destination is still a finding.
+// The editions do not rely on it — their scrub pair rewrites the entry before their own gates.
+function loadPrivateRepoNameShape(rootActive) {
+  const roots =
+    path.resolve(rootActive) === path.resolve(REPO_ROOT)
+      ? [rootActive]
+      : [rootActive, REPO_ROOT];
+  const names = new Set();
+  const ownIgnoreEntries = new Set();
+  for (const r of roots) {
+    let found;
+    try {
+      found = privateRepoNames(r);
+    } catch (e) {
+      // The derivation's own messages carry an index and a length, never a url or a name; the
+      // ROOT is named by its role label, never its absolute path.
+      throw new Error(`private-repo-name shape: ${displayPath(r)}/${e && e.message ? e.message : String(e)}`);
+    }
+    for (const n of found) {
+      names.add(String(n).toLowerCase());
+      if (r === rootActive) for (const e of [`/${n}/`, `/${n}`]) ownIgnoreEntries.add(e);
+    }
+  }
+  if (names.size === 0) return null;
+  const tokens = [...names].sort((a, b) => b.length - a.length);
+  const alt = tokens.map(escapeForRegex).join("|");
+  return {
+    id: "private-repo-name-token",
+    rx: new RegExp(`(?:${alt})`, "gi"),
+    names,
+    ownIgnoreEntries,
+    hasNonAsciiToken: tokens.some((t) => /[^\x00-\x7f]/.test(t)),
+    foldRx: new RegExp(`(?:${[...new Set(tokens.map(foldForGate))].map(escapeForRegex).join("|")})`, "gi"),
+  };
+}
+
+// The carve-out recorded at `loadPrivateRepoNameShape`. All three must hold: the file is the
+// scanned root's TOP-LEVEL `.gitignore` (`rel` has no separator), the line is a CONTENT line of a
+// regular file (`ln >= 1`; a symlink target and a path string are scanned as line 0), and the
+// WHOLE trimmed line is an anchored ignore entry for one of the root's own submodule names.
+function isOwnSubmoduleIgnoreLine(shape, rel, line, ln) {
+  return (
+    shape.id === "private-repo-name-token" &&
+    rel === ".gitignore" &&
+    ln >= 1 &&
+    shape.ownIgnoreEntries.has(line.trim())
+  );
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -3208,7 +3450,11 @@ function addSignerPersonTokens(tokens) {
   for (const t of tokens) PERSON_TOKENS.add(String(t).trim().toLowerCase());
 }
 
-function loadOperatorIdentityShape(rootActive) {
+// `privateRepoNameSet` is the `private-repo-name-token` shape's own token set (lower-cased).
+// `deriveDynamicTokens` returns those names in `gate` too; they are SUBTRACTED below, exactly
+// as the tenant tokens are, so one leaked name reads as one finding under its own shape
+// rather than as two under two ids.
+function loadOperatorIdentityShape(rootActive, privateRepoNameSet = new Set()) {
   const roots =
     path.resolve(rootActive) === path.resolve(REPO_ROOT)
       ? [rootActive]
@@ -3220,6 +3466,29 @@ function loadOperatorIdentityShape(rootActive) {
   );
   PERSON_TOKENS.clear();
   const raw = [];
+  // Tokens matched WORD-BOUNDED only — `deriveDynamicTokens().gateBounded`, the hex/digit-only and
+  // short redaction-map values (C1 R2 F1). Unbounded they would flag every digest or number that
+  // contains one; dropped, a UUID tenant id or numeric account id shipped unflagged.
+  const rawBounded = [];
+  // THE OPERATOR'S REDACTION MAP IS READ ONCE, INDEPENDENT OF ANY ROSTER (C1 R2 F6). It used to
+  // arrive only through `deriveDynamicTokens(r)` at a root WITH a roster, so a consumer with no
+  // roster — the common case once `redact` shipped to every consumer — scanned with its operator's
+  // declared values silently absent. The map belongs to the OPERATOR, not to any root, so it is
+  // loaded here and the per-root derive below runs with `redactionMap: false`. It is the operator's
+  // own declaration, so — like a roster value — it is exempt from the tenant and private-repo
+  // subtractions. A refused map THROWS, as it did through the derive; the caller exits 2.
+  const mapRef = resolveRedactionMapPath();
+  const operatorMap = loadRedactionMap(mapRef.path, { explicit: mapRef.explicit });
+  redactionAuthority = operatorMap.authority || { mode: mapRef.mode, authorityPath: mapRef.authorityPath, mapPresent: true };
+  // Authority label is deferred until the result is rendered.
+  // The loaded entry counts, per category, on EVERY run (counts only, never a value): an absent
+  // default map is legitimate here (CI, a consumer), but it must be visible — a run that checked no
+  // map-only value used to read exactly like one that checked them all (the H4 residual).
+  writeErr(`scan-synced-disclosure: ${redactionMapCoverageLine(redactionMapCounts(operatorMap))}`);
+  const mapGate = redactionMapGateTokens(operatorMap);
+  const mapTokens = mapGate.gate.map((t) => t.trim()).filter((t) => t.length >= 3);
+  raw.push(...mapTokens);
+  for (const t of mapGate.gateBounded) if (t.trim().length >= 3) rawBounded.push(t.trim());
   let rostersRead = 0;
   for (const r of roots) {
     const rp = path.join(r, ROSTER_REL);
@@ -3253,16 +3522,17 @@ function loadOperatorIdentityShape(rootActive) {
     for (const t of trustRootSignerTokens(r)) rosterDeclared.add(String(t).trim().toLowerCase());
     for (const t of [...rosterDeclared])
       if (/^sha256:[a-z0-9+/=]{6,}$/i.test(t)) rosterDeclared.add(`sha256:${t.slice(7, 13)}`);
-    const gate = deriveDynamicTokens(r)
+    const gate = deriveDynamicTokens(r, { redactionMap: false })
       .gate.filter((t) => typeof t === "string")
       .map((t) => t.trim())
-      .filter((t) => t.length >= 3 && (!tenant.has(t.toLowerCase()) || rosterDeclared.has(t.toLowerCase())));
+      .filter((t) => t.length >= 3 && (!tenant.has(t.toLowerCase()) || rosterDeclared.has(t.toLowerCase())))
+      .filter((t) => !privateRepoNameSet.has(t.toLowerCase()) || rosterDeclared.has(t.toLowerCase()));
     // A roster whose every harvested token is a PLACEHOLDER sentinel (a deliberately scrubbed
     // roster) is announced HERE, per root, from the ROSTER's own tokens. It used to be decided
     // from the union with trust-root / root-commit tokens, so a scrubbed roster beside a trust
     // root printed a bare "0 findings" with no notice (measured).
     if (!gate.some((t) => !isIdentityPlaceholder(t))) {
-      console.error(
+      writeErr(
         `scan-synced-disclosure: NOTICE — the roster at ${displayPath(r)}/ carries only PLACEHOLDER sentinels, ` +
           `so its operator identities were NOT checked.`,
       );
@@ -3273,39 +3543,50 @@ function loadOperatorIdentityShape(rootActive) {
     // LOUD whenever no roster was read, including when trust-root or git root-commit tokens
     // keep the shape alive: without this a consumer's in-place scan checked only commit and
     // signer tokens and printed a bare "0 findings" (the declared contract says a notice).
-    console.error(
-      `scan-synced-disclosure: NOTICE — operator-identity shape ${raw.length ? "PARTIAL" : "INERT"}: no ` +
+    const armed = raw.length + rawBounded.length > 0;
+    writeErr(
+      `scan-synced-disclosure: NOTICE — operator-identity shape ${armed ? "PARTIAL" : "INERT"}: no ` +
         `.claude/operators.roster.json at ${roots.map((r) => displayPath(r) + "/").join(" or ")}, so roster identities were NOT checked` +
-        (raw.length ? " (only root-commit / trust-root signer tokens were)." : "."),
+        (armed ? " (only redaction-map / root-commit / trust-root signer tokens were)." : "."),
     );
-    if (raw.length === 0) return null;
+    if (!armed) return null;
   }
   const tokens = [...new Set(raw.filter((t) => !isIdentityPlaceholder(t)))];
-  if (tokens.length === 0) {
+  // A token already matched unbounded keeps the stricter match.
+  const bounded = [...new Set(rawBounded.filter((t) => !isIdentityPlaceholder(t)))].filter((t) => !tokens.includes(t));
+  if (tokens.length === 0 && bounded.length === 0) {
     // Only placeholder sentinels anywhere: the per-roster notice above has already named each
     // scrubbed roster; this line says the shape as a whole checks nothing.
-    console.error(
+    writeErr(
       `scan-synced-disclosure: NOTICE — operator-identity shape INERT: every declared identity is a ` +
         `PLACEHOLDER sentinel, so operator identity was NOT checked.`,
     );
     return null;
   }
-  const built = buildOperatorIdentityRx(tokens);
+  const built = buildOperatorIdentityRx(tokens, bounded);
   // FOLDED twin, for lines carrying non-ASCII: the publish gate matches through
   // `foldForGate` (NFKD, marks stripped, lower-cased), so a Kelvin-sign `K`, a dotted `İ`
   // or an NFD-decomposed name that the publish gate catches read clean here (measured).
-  const folded = buildOperatorIdentityRx([...new Set(tokens.map(foldForGate))]);
+  const folded = buildOperatorIdentityRx([...new Set(tokens.map(foldForGate))], [...new Set(bounded.map(foldForGate))]);
   return {
     id: "operator-identity-token",
     rx: built.rx,
     maskRx: built.maskRx,
     foldRx: folded.rx,
-    hasNonAsciiToken: tokens.some((t) => /[^\x00-\x7f]/.test(t)),
+    // DETECTION and DISPLAY are separate questions, so they take separate folded patterns (A5 S2).
+    // `foldRx` keeps F1's bounds — a short or hex/digit-only token glued into a longer run is not
+    // a finding. But WITHHOLDING a printed line or path is display, and display is never weaker
+    // than a gate: reusing the bounded detector let a glued, accented token print in clear beside
+    // a real finding. `foldMaskRx` is the folded twin of the unbounded context mask.
+    foldMaskRx: folded.maskRx,
+    hasNonAsciiToken: [...tokens, ...bounded].some((t) => /[^\x00-\x7f]/.test(t)),
   };
 }
 
 // The operator shape's regexes over a token list: `rx` detects, `maskRx` hides in context.
-function buildOperatorIdentityRx(tokens) {
+// `bounded` tokens are matched only with no ASCII letter or digit on either side, whatever their
+// length or shape (C1 R2 F1), and are masked in context unbounded like every word token.
+function buildOperatorIdentityRx(tokens, bounded = []) {
   // A hex identity is recognised in its COMPACT form: a fingerprint written in spaced groups
   // (`gpg --fingerprint` prints it that way) or with a `0x` prefix otherwise stayed a literal
   // word, so its compact citation and every short form below were never matched (measured
@@ -3365,11 +3646,13 @@ function buildOperatorIdentityRx(tokens) {
   if (sshPre.length) alts.push(`(?:${sshPre.join("|")})`);
   if (long.length) alts.push(`(?:${long.map(escapeForRegex).join("|")})`);
   if (short.length) alts.push(`(?<![A-Za-z0-9])(?:${short.map(escapeForRegex).join("|")})(?![A-Za-z0-9])`);
+  const boundedWords = [...bounded].sort((a, b) => b.length - a.length);
+  if (boundedWords.length) alts.push(`(?<![A-Za-z0-9])(?:${boundedWords.map(escapeForRegex).join("|")})(?![A-Za-z0-9])`);
   // The CONTEXT mask hides every word token UNBOUNDED: a short token glued to letters is a
   // declared bound for DETECTION, but printed beside a real finding it was shown in clear.
   if (sshBodies.length) maskAlts.push(`(?:${sshBodies.map((b) => base64PrefixPattern(b, 16)).join("|")})`);
   if (sshPre.length) maskAlts.push(`(?:${sshPre.join("|")})`);
-  if (long.length + short.length) maskAlts.push(`(?:${[...long, ...short].map(escapeForRegex).join("|")})`);
+  if (long.length + short.length + boundedWords.length) maskAlts.push(`(?:${[...long, ...short, ...boundedWords].map(escapeForRegex).join("|")})`);
   return {
     rx: new RegExp(alts.join("|"), "gi"),
     maskRx: new RegExp(maskAlts.length ? maskAlts.join("|") : "(?!)", "gi"),
@@ -3510,7 +3793,7 @@ const CONTEXT_MASK_RXS = [];
 // The identity shapes are matched OVERLAPPING (see scanFile): their tokens are free text
 // and can start inside one another. The structural shapes keep end-to-end iteration, which
 // their finding counts are calibrated on.
-const OVERLAPPING_SHAPES = new Set(["operator-identity-token", "customer-identity-token"]);
+const OVERLAPPING_SHAPES = new Set(["operator-identity-token", "customer-identity-token", "private-repo-name-token"]);
 
 // Every hex run of 7+ digits is masked in context regardless of shape: an identity hash
 // cited in a DECLARED-BOUND form (an 11-digit prefix mid-run, a key ID glued to other hex, a
@@ -3555,8 +3838,7 @@ function maskIdentitySpans(line) {
   if (maskCache.line === line) return maskCache.masked;
   for (const sh of FOLD_MASK_SHAPES) {
     if (!foldApplies(sh, line)) continue;
-    const r = new RegExp(sh.foldRx.source, sh.foldRx.flags.replace("g", ""));
-    if (r.test(foldLine(line))) {
+    if (sh.foldMaskTest.test(foldLine(line))) {
       maskCache = { line, masked: "\u0000".repeat(line.length) };
       return maskCache.masked;
     }
@@ -3773,7 +4055,10 @@ function scanFile(file, findings, shapes, allowSyntheticFixtureHomes = false, st
     return;
   }
   const buf = opened.buf;
-  if (isProbablyBinary(buf)) return;
+  if (isProbablyBinary(buf)) {
+    if (stats?.binary) stats.binary.push(file);
+    return;
+  }
   const rel = path.relative(REPO_ROOT_ACTIVE, file);
   const base = path.basename(file);
   // Client-template gate opt-in + detector-corpus tolerance. A SYNTHETIC fixture home inside
@@ -3860,6 +4145,7 @@ function scanLines(rel, base, lines, findings, shapes, allowSyntheticFixtureHome
       // on a doc/journal/proposal that merely quotes the marker in prose,
       // which is a different file class and would false-positive.
       if (shape.pathScope && !shape.pathScope.test(rel)) continue;
+      if (isOwnSubmoduleIgnoreLine(shape, rel, line, lineNo(i))) continue;
       shape.rx.lastIndex = 0;
       const overlapping = OVERLAPPING_SHAPES.has(shape.id);
       let prevEnd = -1;
@@ -3888,13 +4174,13 @@ function scanLines(rel, base, lines, findings, shapes, allowSyntheticFixtureHome
         // since the Gate-2 preflight passes no flag) -- whose username is in the shared synthetic
         // set (loom#1318). A real username fails the set -> still flagged.
         if ((testFixtureFile || detectorFixtureFile || testsTreeFixtureFile) && shape.id === "operator-home-path") {
-          // Any separator form, so a synthetic WINDOWS fixture home (`C:\\Users\\jdoe\\`) gets
+          // Any separator form, so a synthetic WINDOWS fixture home (`C:<operator-home>\\`) gets (Source: `.claude/bin/lib/identity-scrub.mjs::SYNTHETIC_FIXTURE_USERS`.)
           // the same tolerance as its POSIX twin.
           // THE WHOLE USERNAME CHAIN, through the SAME regex the shape was built from —
           // `makeHomepathRe` group 2 is "the USERNAME CHAIN, in every form", traversal
           // chains included ("an excluded name followed by such a traversal is not
           // excluded"). SECURITY REVIEW HIGH (2026-10-03): the previous form re-extracted
-          // with `[\w.-]+`, so `/Users/jdoe/../real/` matched the PREFIX `jdoe` and was
+          // with `[\w.-]+`, so `<operator-home>/` matched the PREFIX `jdoe` and was
           // suppressed, and the spaced-Windows, 8.3 (`JDOEZQ~1`) and non-ASCII chain forms
           // were missed entirely — while the publish scrubber compares the WHOLE name
           // (identity-scrub.mjs). A traversal chain never equals a set member, so it now
@@ -3922,11 +4208,13 @@ function scanLines(rel, base, lines, findings, shapes, allowSyntheticFixtureHome
         // and an allowlist that could suppress key material would be a switch for turning the
         // one unambiguous leak class off. No allowlist entry may ever swallow a private key.
         // `operator-identity-token` self-governs like the customer shape: its tokens are
-        // the roster's own, so no placeholder allowlist entry may suppress one.
+        // the roster's own, so no placeholder allowlist entry may suppress one. So does
+        // `private-repo-name-token`: its tokens are derived from `.gitmodules`, never vocabulary.
         if (
           shape.id !== "settings-permission-absolute-path" &&
           shape.id !== "customer-identity-token" &&
           shape.id !== "operator-identity-token" &&
+          shape.id !== "private-repo-name-token" &&
           shape.id !== "cross-repo-authz-receipt-payload" &&
           shape.id !== "private-key-material" &&
           (shape.id === "nonfoundation-org-slug"
@@ -3964,7 +4252,7 @@ const root = args.root ? path.resolve(args.root) : REPO_ROOT;
 
 // A NON-DISCRIMINATING RUN MUST NOT EXIT 0.
 //
-// `artifact-flow.md` § Intake Disclosure Scrub makes `--check --root <inbound-repo>`
+// `artifact-flow-gates.md` § Intake Disclosure Scrub makes `--check --root <inbound-repo>`
 // exiting 0 the Gate-1 intake gate, and `/ecosystem-init` invariant 1 makes it the
 // pre-config-write gate. MEASURED 2026-08-10: a `--root` at a NONEXISTENT path
 // produced exit 0 with ZERO bytes of output — byte-identical to a genuinely clean
@@ -3976,11 +4264,11 @@ const root = args.root ? path.resolve(args.root) : REPO_ROOT;
 // already use for "did not run". Exit 2 is the ABSENCE of a result, never a clean
 // one — a caller that treats non-zero as "findings" must not collapse 1 and 2.
 if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
-  console.error(
+  writeErr(
     `scan-synced-disclosure: --root does not exist or is not a directory (the path is not echoed: an ` +
       `absolute path carries /Users/<operator>/)`,
   );
-  console.error(
+  writeErr(
     `  The scan DID NOT RUN. Exit 2 is the absence of a result, not a clean result.`,
   );
   process.exit(2);
@@ -3994,13 +4282,14 @@ if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
 // and no top-level synced path is a DIFFERENT thing — a wrong root, where a
 // "clean" verdict describes nothing.
 if (
+  args.paths.length === 0 &&
   !isPresentPath(path.join(root, ".claude")) &&
   ![...TOP_LEVEL_SYNCED, ...TOP_LEVEL_SYNCED_DIRS].some((t) => isPresentPath(path.join(root, t)))
 ) {
-  console.error(
+  writeErr(
     `scan-synced-disclosure: no synced surface under <scan-root> — no .claude/ and no top-level synced path`,
   );
-  console.error(
+  writeErr(
     `  The scan DID NOT RUN against a repo checkout. Exit 2 is the absence of a result, not a clean result.`,
   );
   process.exit(2);
@@ -4024,14 +4313,17 @@ if (
 // fourth outcome: STARTED, did not COMPLETE, surface only PARTIALLY examined.
 //
 // The diagnostic deliberately carries NO `[SHAPE:` token. `clean-instantiate.mjs`
-// discriminates a finding from a did-not-complete by grepping the captured
-// output for that marker, so emitting one here would re-forge the collision at
-// the caller.
+// classifies by EXIT STATUS first (only 1 is a findings verdict; 2 and 3 are the
+// ABSENCE of one, whatever the output says) and consults the captured output for
+// that marker only under exit 1 — so a marker here would present a finding-shaped
+// line on a scan that reached no verdict at all.
 // Absolute paths in free text (a crash stack, an error message from a library) become
 // ROLE labels: the scan root, this checkout, and the home directory. The output of this
 // tool is documented as safe to paste; an absolute path is `/Users/<operator>/`.
 function redactPaths(text) {
   let t = String(text);
+  let home;
+  try { home = resolveAccountHome(); } catch { home = null; }
   const pairs = [
     [path.resolve(REPO_ROOT_ACTIVE), "<scan-root>"],
     [path.resolve(REPO_ROOT), "<scanner-checkout>"],
@@ -4039,8 +4331,8 @@ function redactPaths(text) {
     // run from outside any checkout (measured: `/tmp/<dir>/` on a Linux host, where the
     // derived checkout root collapses to `/` and is skipped) printed its absolute path.
     [SCRIPT_DIR, "<scanner-dir>"],
-    [os.homedir(), "~"],
-  ].sort((a, b) => b[0].length - a[0].length);
+    [home, "~"],
+  ].filter(([from]) => typeof from === "string").sort((a, b) => b[0].length - a[0].length);
   for (const [from, to] of pairs) if (from && from.length > 1) t = t.split(from).join(to);
   return t;
 }
@@ -4059,19 +4351,19 @@ function withheldRegExpText(e) {
 }
 
 function scanDidNotComplete(phase, e) {
-  console.error("");
-  console.error(
+  writeErr("");
+  writeErr(
     `scan-synced-disclosure: FATAL — the scan DID NOT COMPLETE (phase: ${phase}).`,
   );
   const trace = isRegExpError(e) ? withheldRegExpText(e) : e && e.stack ? e.stack : String(e);
-  console.error(`  ${redactPaths(trace)}`);
-  console.error(
+  writeErr(`  ${redactPaths(trace)}`);
+  writeErr(
     `  Disclosure status is UNKNOWN. This is NOT a clean result and NOT a finding:`,
   );
-  console.error(
+  writeErr(
     `  the scanner failed mid-run, so the synced surface was only PARTIALLY examined.`,
   );
-  console.error(
+  writeErr(
     `  Exit 3 = crashed scan. Do NOT read it as "0 findings"; do NOT distribute on it.`,
   );
   process.exit(3);
@@ -4079,32 +4371,43 @@ function scanDidNotComplete(phase, e) {
 
 let files;
 try {
-  files = collectFiles(root); // sets REPO_ROOT_ACTIVE
+  files = args.paths.length ? collectSelectedFiles(root, args.paths) : collectFiles(root);
 } catch (e) {
+  if (e instanceof SelectedPathError) {
+    writeErr(`scan-synced-disclosure: ${e.message}; scan DID NOT RUN (exit 2)`);
+    process.exit(2);
+  }
   scanDidNotComplete("file collection", e);
 }
 // Build the loom-only customer-identity shape from the tenant denylist at
 // the SCANNED root (inert when absent; throws loud on a malformed file so
 // the guard never silently disables itself).
+let redactionAuthority = null;
 let customerShape;
 let operatorShape;
 let receiptPayloadShape;
+let privateRepoShape;
 try {
   customerShape = loadCustomerIdentityShape(REPO_ROOT_ACTIVE);
+  // Private repository names from `.gitmodules` (scanned root ∪ this checkout); throws loud
+  // on a `.gitmodules` the derivation refuses. Loaded BEFORE the operator shape, which
+  // subtracts these names so one leak is not reported twice.
+  privateRepoShape = loadPrivateRepoNameShape(REPO_ROOT_ACTIVE);
   // Own operator identity from the roster (scanned root ∪ this checkout); throws
   // loud on a malformed roster rather than silently scanning without it.
-  operatorShape = loadOperatorIdentityShape(REPO_ROOT_ACTIVE);
+  operatorShape = loadOperatorIdentityShape(REPO_ROOT_ACTIVE, privateRepoShape ? privateRepoShape.names : new Set());
   // #1330: own-org set derived from the D6 registry at the scanned root;
   // throws loud on a present-but-unparseable ecosystem.json.
   receiptPayloadShape = loadReceiptPayloadShape(REPO_ROOT_ACTIVE);
 } catch (e) {
-  console.error(`scan-synced-disclosure: ${isRegExpError(e) ? withheldRegExpText(e) : redactPaths(e.message)}`);
+  writeErr(`scan-synced-disclosure: ${isRegExpError(e) ? withheldRegExpText(e) : redactPaths(e.message)}`);
   process.exit(2);
 }
 const activeShapes = [
   ...SHAPES,
   ...(customerShape ? [customerShape] : []),
   ...(operatorShape ? [operatorShape] : []),
+  ...(privateRepoShape ? [privateRepoShape] : []),
   receiptPayloadShape,
 ];
 // Mask EVERY active shape's spans, not only the identity shapes: a finding's ±20-char window
@@ -4113,6 +4416,13 @@ const activeShapes = [
 for (const sh of activeShapes) {
   if (sh && sh.foldRx) {
     sh.foldRxG = new RegExp(sh.foldRx.source, sh.foldRx.flags.includes("g") ? sh.foldRx.flags : sh.foldRx.flags + "g");
+  }
+  // WITHHOLDING reads the shape's DISPLAY pattern, never its detector: a shape whose folded
+  // detector is bounded carries an unbounded `foldMaskRx` (A5 S2); one with a single unbounded
+  // folded pattern uses it for both.
+  const foldMask = sh && (sh.foldMaskRx || sh.foldRx);
+  if (foldMask) {
+    sh.foldMaskTest = new RegExp(foldMask.source, foldMask.flags.replace("g", ""));
     FOLD_MASK_SHAPES.push(sh);
   }
   if (sh && sh.rx) {
@@ -4125,7 +4435,7 @@ for (const sh of activeShapes) {
   }
 }
 const findings = [];
-const stats = { unread: [] };
+const stats = { unread: [], binary: [] };
 try {
   for (const f of files)
     scanFile(f, findings, activeShapes, args.allowSyntheticFixtureHomes, stats);
@@ -4158,9 +4468,9 @@ try {
 // reports THIS, never `files.length`. The unread list is surfaced alongside it so
 // the blind class is NAMED rather than silently absorbed into the scanned count
 // (`instrument-discipline.md` MUST-3(b) — read the hits, and name what the
-// instrument could not see). Deliberately NOT an exit-code change: whether an
-// unreadable file is a FINDING is a separate design question with caller impact,
-// left open here rather than decided as a side effect of fixing the receipt.
+// instrument could not see). Whether an unreadable file is a FINDING is NOT what
+// the fence below decides — it decides that no verdict is issued at all while one
+// exists, which is the weaker and independent question. See § COVERAGE FENCE.
 const examined = files.length - stats.unread.length;
 // Unreadable DIRECTORIES are named with the unread files but never subtracted from the file
 // count: they were never collected (counting them gave `Scanned: -1 files`, measured).
@@ -4180,11 +4490,8 @@ const unreadReceipt = () => {
 // A symlinked DIRECTORY that was NOT descended is a blind class of its own, and
 // a LOUDER one than UNREAD: UNREAD names a single file nothing opened, while
 // this names a whole SUBTREE nothing enumerated — the count of files behind it
-// is not merely unexamined, it is unknown. Reported on its own line, and
-// deliberately NOT an exit-code change, on the same reasoning recorded for
-// UNREAD above: whether an unexamined subtree is itself a FINDING is a design
-// question with caller impact, left open rather than decided as a side effect of
-// fixing the receipt.
+// is not merely unexamined, it is unknown. Reported on its own line; § COVERAGE
+// FENCE below is what keeps it from being reported NEXT TO a verdict.
 const undescendedReceipt = () => {
   const shown = undescendedLinks
     .slice(0, 10)
@@ -4201,18 +4508,129 @@ const undescendedReceipt = () => {
   );
 };
 
+if (args.paths.length && (stats.unread.length || stats.binary.length)) {
+  scanDidNotComplete("selected content", new Error(
+    `Explicit selection has ${stats.unread.length} unread/non-regular file(s) and ${stats.binary.length} binary file(s)`));
+}
+
+// ── COVERAGE FENCE — after the scan loop, BEFORE any verdict ────────────────
+//
+// A "clean" verdict over a partially-read surface is a claim about the WHOLE
+// surface, and it is false for every path nothing opened. Three classes make it
+// false, and they are the three the walk NAMES rather than absorbs: a collected
+// file `scanFile` could not read, a directory the walk could not list, and a
+// symlinked directory it did not descend. Each is an UNKNOWN; a skipped path and
+// a clean path are the same bytes downstream, which is the one failure a reader
+// cannot detect (`instrument-discipline.md` MUST-1, `verification-gate-integrity.md`
+// MUST-2 — absence of a result is not a pass).
+//
+// ORDERING IS THE RECONCILIATION with the crash fence above, and it is
+// deliberate rather than incidental: this sits AFTER the try/catch, so a throw
+// during the scan still exits 3 (STARTED, did not COMPLETE — an internal fault,
+// status UNKNOWN for a DIFFERENT reason), while this covers the scan that ran to
+// the end of its loop over a surface it could not fully read. Both are "no valid
+// result", and they keep separate codes because triage differs: 3 hunts a bug in
+// this file, 2 names paths the operator must fix or exclude. Neither may borrow
+// 0 (a clean verdict) or 1 (a finding) — see the exit-code header.
+//
+// MEASURED RATIFICATION (2026-10-06, operator-ratified Gate-1 port). Until this
+// fence, the receipts above printed ALONGSIDE a 0/1 verdict and their comments
+// recorded that whether an unreadable path is a FINDING was "left open". The
+// disposition taken is narrower than that open question and does not answer it:
+// while any gap exists, NO verdict is issued at all, because a 0 that names its
+// own blind spots in a side receipt is still read as a 0 by every caller keyed on
+// the exit code. MEASURED on this tree at the port: 8352 files scanned, zero gaps
+// — so the fence is inert on a fully-readable surface rather than merely quiet,
+// and the audit fixtures for it (`audit-fixtures/scan-synced-disclosure/run.mjs`)
+// drive BOTH poles: an all-readable root must still exit 0 with no receipt line.
+const coverageGapFiles = unreadAll();
+const coverageGapCount = coverageGapFiles.length + undescendedLinks.length;
+if (coverageGapCount > 0) {
+  writeErr(
+    `scan-synced-disclosure: FATAL — ${coverageGapCount} path(s) could not be examined, so this scan cannot speak for the surface it was pointed at:`,
+  );
+  if (coverageGapFiles.length) writeErr(unreadReceipt());
+  if (undescendedLinks.length) writeErr(undescendedReceipt());
+  writeErr("");
+  writeErr(
+    `  No verdict — clean OR findings — covers the paths above. Fix each (permissions?`,
+  );
+  writeErr(
+    `  a FIFO? a dangling symlink? a link out of the scan root?) or exclude it`,
+  );
+  writeErr(`  explicitly, then re-run.`);
+  writeErr(
+    `  Exit 2 = NO VALID RESULT for this surface. Do NOT read it as "0 findings"; do NOT distribute on it.`,
+  );
+  // Findings already recorded are PRINTED rather than swallowed, and framed as
+  // what they are: a real leak found on the portion that was examined is not made
+  // safer by hiding it behind an unrelated coverage gap. This is NOT the whole
+  // verdict — nothing above the gap was searched — which is what the frame says.
+  if (findings.length > 0) {
+    writeErr("");
+    writeErr(
+      `  NOTE — ${findings.length} finding(s) WERE recorded on the portion that WAS examined (PARTIAL list; the unread paths above were never searched):`,
+    );
+    for (const f of findings) {
+      writeErr(`  ${shownPath(f.path)}:${f.line}:${f.col}  [SHAPE:${f.shape}]  ${f.context}`);
+    }
+  }
+  process.exit(2);
+}
+
+const writeAuthorityLabel = () => writeErr(`scan-synced-disclosure: ${redactionAuthorityLine(redactionAuthority)}`);
+if (args.mode !== "check" || findings.length === 0) writeAuthorityLabel();
+if (args.mode !== "check") writeOut(redactionAuthorityLine(redactionAuthority));
 if (args.mode === "check") {
   if (findings.length > 0) {
-    console.error(
+    writeErr(
       `scan-synced-disclosure: ${findings.length} disclosure finding(s) on the synced surface`,
     );
     for (const f of findings) {
-      console.error(`  ${shownPath(f.path)}:${f.line}:${f.col}  [SHAPE:${f.shape}]  ${f.context}`);
+      writeErr(`  ${shownPath(f.path)}:${f.line}:${f.col}  [SHAPE:${f.shape}]  ${f.context}`);
     }
-    // Named even on the findings path: the finding list is not the whole verdict
-    // if part of the surface was never opened.
-    if (unreadAll().length) console.error(unreadReceipt());
-    if (undescendedLinks.length) console.error(undescendedReceipt());
+    writeAuthorityLabel();
+    // ── OPT-IN MACHINE-READABLE FINDINGS (`--findings-json`) ─────────────────────────────
+    // WHY IT EXISTS. `lib/edition-output-gate.mjs::runOutputDisclosureScan` collapses this
+    // process to `{ok, output}` — a human report. The Gate-2 scope fence has to ask a
+    // STRUCTURAL question the human report cannot answer: WHICH PATH each finding is in, so
+    // a finding in a file this run never wrote can be reported as advisory while one in a
+    // file it DID write still refuses. Recovering that by parsing the listing above would
+    // read a display form (paths are MASKED by `shownPath`, and the wrapper truncates the
+    // text), so a finding could be mis-binned — and a mis-binned finding fails OPEN.
+    //
+    // ONE LINE ON STDOUT, findings branch ONLY. Exit codes are untouched (1 here), the
+    // stderr human listing is untouched, and the CLEAN branch is untouched: a caller that
+    // does not pass the flag gets byte-identical output, which is what keeps the other
+    // call sites (clean-instantiate, edition-emit, sync-from-canon) unchanged.
+    //
+    // `path` IS RAW AND `shown` IS MASKED, deliberately and both present. `shown` is what a
+    // message may print (the same masking contract as every other printed path); `path` is
+    // only ever compared against a caller-supplied manifest IN MEMORY. The pair exists so a
+    // consumer cannot accidentally print the raw form by reaching for the obvious field.
+    //
+    // NO DOCUMENT ON THE COVERAGE-FENCE PATH (exit 2) — that branch exits above this line, so
+    // an unreadable surface yields no JSON at all and a scoped caller fails closed.
+    if (args.findingsJson) {
+      writeOut(
+        JSON.stringify({
+          schema: "scan-synced-disclosure/findings@1",
+          redaction_authority: redactionAuthority,
+          scanned: examined,
+          findings: findings.map((f) => ({
+            path: f.path,
+            shown: shownPath(f.path),
+            line: f.line,
+            col: f.col,
+            shape: f.shape,
+            context: f.context,
+          })),
+        }),
+      );
+    }
+    // No UNREAD / UNDESCENDED receipt here: § COVERAGE FENCE above exits 2 before
+    // this branch is reachable whenever either is non-empty, so this finding list
+    // IS the whole verdict — every collected path was examined.
     process.exit(1);
   }
   // The clean receipt is DISCRIMINATING: it names how many files were examined,
@@ -4222,49 +4640,46 @@ if (args.mode === "check") {
   // The count is EXAMINED, not COLLECTED. It previously reported `files.length`,
   // which includes files `scanFile` could not read — so the receipt vouched for
   // bytes nothing had looked at, and a root of entirely unreadable files printed
-  // a confident clean. Unread files are named on their OWN line rather than
-  // folded into this one, so a reader cannot mistake them for examined content.
-  console.log(`Scanned: ${examined} files on the synced surface — 0 findings`);
-  if (unreadAll().length) console.log(unreadReceipt());
-  if (undescendedLinks.length) console.log(undescendedReceipt());
+  // a confident clean. § COVERAGE FENCE above now exits 2 whenever any such file
+  // exists, so reaching this line means `examined === files.length` and the count
+  // can no longer stand in for content nothing opened.
+  writeOut(`Scanned: ${examined} files on the synced surface — 0 findings — ${redactionAuthorityLine(redactionAuthority)}`);
   process.exit(0);
 }
 
 // human report
-console.log(`Synced-Artifact Disclosure Scan (issue #263)`);
-console.log(`Root:    <scan-root>`);
-console.log(`Scanned: ${examined} files on the synced surface`);
-if (unreadAll().length) console.log(unreadReceipt());
-if (undescendedLinks.length) console.log(undescendedReceipt());
-console.log("");
+writeOut(`Synced-Artifact Disclosure Scan (issue #263)`);
+writeOut(`Root:    <scan-root>`);
+writeOut(`Scanned: ${examined} files on the synced surface`);
+writeOut("");
 if (findings.length === 0) {
-  console.log(
+  writeOut(
     `RESULT: clean — 0 findings. This is the structural receipt that the`,
   );
-  console.log(`        #252 disclosure forest is closed on this surface.`);
+  writeOut(`        #252 disclosure forest is closed on this surface.`);
   process.exit(0);
 }
-console.log(`RESULT: ${findings.length} finding(s) — synced surface NOT clean`);
-console.log("");
+writeOut(`RESULT: ${findings.length} finding(s) — synced surface NOT clean`);
+writeOut("");
 const byShape = {};
 for (const f of findings) {
   byShape[f.shape] = (byShape[f.shape] || 0) + 1;
-  console.log(`  ${shownPath(f.path)}:${f.line}:${f.col}  [SHAPE:${f.shape}]  ${f.context}`);
+  writeOut(`  ${shownPath(f.path)}:${f.line}:${f.col}  [SHAPE:${f.shape}]  ${f.context}`);
 }
-console.log("");
-console.log(`=== Summary ===`);
+writeOut("");
+writeOut(`=== Summary ===`);
 for (const [id, n] of Object.entries(byShape).sort()) {
-  console.log(`  ${id}: ${n}`);
+  writeOut(`  ${id}: ${n}`);
 }
-console.log(`  TOTAL: ${findings.length}`);
-console.log("");
-console.log(
+writeOut(`  TOTAL: ${findings.length}`);
+writeOut("");
+writeOut(
   `Resolve each by genericizing the disclosure + relocating it to the`,
 );
-console.log(
+writeOut(
   `operator-local companion (per the #255 / #260 pattern), then re-run.`,
 );
-console.log(
+writeOut(
   `Do NOT widen the allowlist to swallow a real token — that re-opens #252.`,
 );
 process.exit(0);

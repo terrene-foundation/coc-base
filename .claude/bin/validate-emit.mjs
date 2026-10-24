@@ -24,10 +24,8 @@
  *    1. command-frontmatter        every .claude/commands/*.md opens with `---`
  *                                  (or is in COMMAND_FRONTMATTER_EXEMPT)
  *    2. command-line-cap           command body (after frontmatter) <= 150 lines
- *    3. readonly-specialist-tools  agents named read-only in agents.md MUST NOT
- *                                  declare file-mutation tools (Edit/Write).
- *                                  Bash + Task are allowed — reviewer's mechanical
- *                                  sweeps need Bash, Task is sub-delegation.
+ *    3. readonly-specialist-tools  read-only roster inventory check
+ *                                  (implementation: .claude/bin/validate-emit.mjs:256-256,572-733).
  *    4. tool-canonicality          every agent `tools:` value is a canonical CC tool
  *    5. mirror-exclusion           every source SKILL is emitted to each CLI tree
  *                                  (fresh emit) OR is in cli_emit_exclusions
@@ -118,7 +116,7 @@
  * ============================================================================
  */
 
-import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync, statSync, realpathSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync, statSync, lstatSync, realpathSync } from "node:fs";
 import { join, relative, resolve, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
@@ -159,6 +157,7 @@ import { emitCoc } from "./emit-coc.mjs";
 // `cliRoot` is imported (not re-declared) so the mirror + consumer-efficacy
 // checks read the SAME per-CLI root the emitter writes. A second local copy of
 // the name is how the two sides drift into comparing mismatched roots.
+import { resolveEmissionProfile } from "./lib/local-authoring-projection.mjs";
 import { REPO as EMIT_REPO, cliRoot, cliSkillRoot, validateCodexAgentToml } from "./emit-cli-artifacts.mjs";
 // settings.json deny-rule FORM gate — loom's own settings.json (and any
 // to-be-emitted one) MUST NOT carry a Write()/NotebookEdit() permissions.deny
@@ -173,11 +172,11 @@ import { EMIT_LANGS, EMIT_CLIS } from "./lib/emit-axes.mjs";
 // static import would be ERR_MODULE_NOT_FOUND at every consumer — a hard load
 // failure of their `/cc-audit` gate, not a degraded check. It is lazy-`_require`d
 // inside `checkWiringDetectionCanonical` and degrades to SKIP, the same shape the
-// edition-libs check uses (and the same reason line 850's ALWAYS_INCLUDE comment
-// records "edition check lazy-degrades — F1030d"). MEASURED with the engine's own
+// edition-libs check uses (and the same reason the ALWAYS_INCLUDE entry
+// records at .claude/bin/sync-tier-aware.mjs:1497). MEASURED with the engine's own
 // `buildLaneClassifier`: this file is `copy/always_include` on all 8 lanes and
 // that module is `skip/loom_only` on all 8 — adding it to ALWAYS_INCLUDE does NOT
-// fix this, because loom_only is tested FIRST (sync-tier-aware.mjs:4043-4055).
+// fix this, because classifyFile tests loom_only FIRST (.claude/bin/sync-tier-aware.mjs:4537-4538).
 // `target-owned-integrity` reuses the ENGINE's own manifest readers + real plan
 // rather than standing up a second parser (security.md § Enforcement-Surface
 // Parity — a re-derived reader is the shape that silently drifts). Those readers
@@ -229,12 +228,36 @@ import { EMIT_LANGS, EMIT_CLIS } from "./lib/emit-axes.mjs";
 
 // --- Repo root resolution -----------------------------------------------
 
+// Every git this tool spawns runs under `git-subprocess-env.js`'s env, built from constants,
+// never the ambient one. An inherited GIT_DIR / GIT_WORK_TREE outranks repository discovery,
+// and `cwd:` only picks a directory: a git hook in a linked worktree runs with
+// GIT_DIR=<repo>/.git/worktrees/<wt> and no GIT_WORK_TREE, and git then takes the cwd as the
+// top of the work tree, so `ls-files` from a subdirectory answers "" at exit 0 and
+// `rev-parse --show-toplevel` names the subdirectory. Returns null when the shim cannot be
+// loaded or no git binary resolves; each caller says what null means for its own answer.
+let _gitShim;
+function validateEmitGit() {
+  if (_gitShim === undefined) {
+    _gitShim = null;
+    try {
+      const m = _require("../hooks/lib/git-subprocess-env.js");
+      const bin = m && typeof m.gitEnvForArgs === "function" && typeof m.resolveGitBinary === "function" ? m.resolveGitBinary() : null;
+      if (bin) _gitShim = { bin, lib: m };
+    } catch {}
+  }
+  return _gitShim;
+}
+
 function findRepoRoot(startDir) {
   try {
-    const out = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    const g = validateEmitGit();
+    if (!g) throw new Error("no hermetic git");
+    const args = ["rev-parse", "--show-toplevel"];
+    const out = execFileSync(g.bin, args, {
       cwd: startDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      env: g.lib.gitEnvForArgs(args),
     }).trim();
     return out || startDir;
   } catch {
@@ -254,15 +277,7 @@ const CANONICAL_CC_TOOLS = new Set([
   "WebSearch", "WebFetch", "Skill", "Agent", "NotebookEdit", "*",
 ]);
 
-// File-MUTATION tools a read-only specialist MUST NOT declare. Per agents.md
-// § "Verify Specialist Tool Inventory", implementation delegation requires a
-// specialist with `Edit` AND `Bash`; "read-only" means it cannot MUTATE files
-// (no Edit/Write). Bash is NOT forbidden — reviewer/security-reviewer run
-// read-only mechanical sweeps (`grep -c`, `pytest --collect-only`) that need
-// Bash (agents.md § "MUST: Reviewer Prompts Include Mechanical AST/Grep
-// Sweep"). Task is sub-delegation, not
-// file mutation. So the prohibition is exactly the two mutation tools.
-const READONLY_FORBIDDEN_TOOLS = new Set(["Edit", "Write"]);
+const READONLY_FORBIDDEN_TOOLS = new Set(["Edit", "Write", "NotebookEdit", "*"]);
 
 const COMMAND_LINE_CAP = 150; // cc-artifacts.md Rule 3 + command-authoring SKILL
 
@@ -288,9 +303,20 @@ const COMMAND_LINE_CAP = 150; // cc-artifacts.md Rule 3 + command-authoring SKIL
 // subdirectory does NOT inherit the exemption — matches how the rest of this
 // file addresses artifacts by `rel`.
 const COMMAND_LINE_CAP_EXCEPTIONS = Object.freeze({
-  ".claude/commands/sweep.md": { maxBodyLines: 173, receipt: "journal/0468" }, // 177 wc -l (162→173: Sweep-10 deferred-quality revisit + 6-part management report, journal/0468)
+  // 173→182 (2026-10-07): Sweep 11 — USE-template delivery freshness. +10 body lines
+  // (section header, rationale prose, the runnable probe carrying the consumer N/A
+  // sentinel, the gate paragraph) for a measurement that did not previously exist
+  // anywhere: two of three live USE templates sat 48 days behind loom main while every
+  // existing probe read self-consistent. The ceiling is the EXACT count by design, so
+  // the next addition returns here. THE RECEIPT IS THE PAIRED SKILL SECTION, chosen
+  // over a journal path because it carries NO citation window at all — the rationale
+  // ships resolved in the same change, where a journal receipt would be a phantom
+  // until the entry lands. Journal slot 0657 was reserved and signed from the lane
+  // (`journal-slot-reservation` record, coordination log seq 133) and stays as
+  // PROVENANCE for the decision — optional to write; the receipt does not depend on it.
+  ".claude/commands/sweep.md": { maxBodyLines: 182, receipt: ".claude/skills/sweep/SKILL.md § 7 (Sweep 11 — the metric, the wiring, and the cap-raise rationale; journal slot 0657 reserved as provenance)" },
   ".claude/commands/wrapup.md": { maxBodyLines: 168, receipt: "journal/0543" }, // 172 wc -l (160→168: co-owner-directed § Wave tracker POINTER + cap-3→4 allowlist + running-agent carve-out, journal/0543 § Implementation notes)
-  ".claude/commands/redteam.md": { maxBodyLines: 153, receipt: "journal/0544 + #1218 (b5f7bb9b)" }, // 157 wc -l. 145→151 (journal/0544: co-owner Step 0.5 dual-surface classification + § Convergence Criteria skip-class carve-out); 151→153 ratified 2026-07-21: CW-SDL (#1218, b5f7bb9b) added the Conformance-Walk-as-primary-standing-gate wiring (§ Execution Model, the CW-vs-/redteam gate declaration) — load-bearing procedural depth, non-extractable (a gate declaration in the execution-model preamble); redteam.md is the canonical dense procedural command (cc-artifacts.md Rule 3 § Named-rationale exception). No redundant prose to trim without losing a load-bearing verification step.
+  ".claude/commands/redteam.md": { maxBodyLines: 163, receipt: "journal/0544 + #1218 (b5f7bb9b) + the D237 ruling (2026-10-08; cap-raise rationale in .claude/skills/32-trust-posture/redteam-integration.md § D237 cap-raise)" }, // 168 wc -l. 145→151 (journal/0544: co-owner Step 0.5 dual-surface classification + § Convergence Criteria skip-class carve-out); 151→153 ratified 2026-07-21: CW-SDL (#1218, b5f7bb9b) added the Conformance-Walk-as-primary-standing-gate wiring (§ Execution Model, the CW-vs-/redteam gate declaration); 153→163 ratified 2026-10-08 (D237): the operator's canonical review-stop ruling renders rules 1-9 VERBATIM into § Convergence Criteria, SUPERSEDING the former two-consecutive-clean-rounds mechanism — body measured 163 by this check's own metric (floor with the nine one-line rules is 161); load-bearing procedural depth, non-extractable (an execution-model/preamble ruling), no redundant prose to trim without losing a load-bearing verification step.
 });
 
 // Commands intentionally exempt from the `---` frontmatter requirement.
@@ -567,59 +593,170 @@ function checkCommandLineCap(root) {
 // =======================================================================
 //  CHECK 3 — read-only specialist tool inventory
 // =======================================================================
-// Parse the read-only specialist list from agents.md verbatim
-// ("Read-only specialists (`a`, `b`, ...)"), then assert each named agent's
-// frontmatter `tools:` declares NONE of READONLY_FORBIDDEN_TOOLS.
-function parseReadonlySpecialists(root) {
-  const agentsRule = safeRead(join(root, ".claude", "rules", "agents.md"));
-  if (agentsRule === null) return null;
-  const m = agentsRule.match(/Read-only specialists\s*\(([^)]*)\)/);
-  if (!m) return null;
-  const names = [];
-  for (const bt of m[1].matchAll(/`([a-z0-9-]+)`/g)) names.push(bt[1]);
-  return names;
+function outsideMarkdownFences(text) {
+  let fence = null;
+  return text.split(/\r?\n/).map((line) => {
+    if (fence) {
+      const close = line.match(/^ {0,3}(`+|~+)[ \t]*$/);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      return "";
+    }
+    const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (open) {
+      fence = open[1];
+      return "";
+    }
+    return line;
+  }).join("\n");
 }
 
-function findAgentFile(root, name) {
-  const agentsDir = join(root, ".claude", "agents");
-  for (const f of listMarkdown(agentsDir)) {
-    if (basename(f) === `${name}.md`) return f;
+function readReadonlyRoster(root) {
+  let artifact = ".claude/rules/agents.md";
+  const rule = safeRead(join(root, artifact));
+  const error = (reason, detail) => ({ artifact, reason: `not-run:${reason}`, detail: `NOT RUN: ${detail}` });
+  if (rule === null) return error("authority-unreadable", "read-only roster rule missing or unreadable");
+  const body = outsideMarkdownFences(rule);
+  const legacy = [...body.matchAll(/^Read-only specialists[ \t]*\(([^)\r\n]*)\)[ \t]*\.?[ \t]*$/gm)];
+  const hasGuidePointer = body.includes("`.claude/guides/rule-extracts/agents.md`");
+  let roster;
+  if (hasGuidePointer) {
+    if (legacy.length) return error("roster-unparseable", "conflicting inline and declared guide roster authorities");
+    artifact = ".claude/guides/rule-extracts/agents.md";
+    const guide = safeRead(join(root, artifact));
+    if (guide === null) return error("authority-unreadable", "declared read-only roster guide missing or unreadable");
+    const sections = [...outsideMarkdownFences(guide).matchAll(/^## Verify Specialist Tool Inventory — read-only roster \+ materialization\r?\n([\s\S]*?)(?=^## |$(?![\s\S]))/gm)];
+    if (sections.length !== 1) return error("roster-unparseable", "declared guide needs exactly one inventory section");
+    const prefix = "**Read-only specialists — MUST NOT be delegated implementation work:**";
+    const lines = sections[0][1].split(/\r?\n/).filter((line) => line.startsWith(prefix));
+    if (lines.length !== 1) return error("roster-unparseable", "declared guide inventory section has no unique read-only roster");
+    roster = lines[0].slice(prefix.length).split(".")[0].trim();
+  } else {
+    if (legacy.length !== 1) return error("roster-unparseable", "rule needs one standalone inline roster or a declared guide pointer");
+    roster = legacy[0][1].trim();
   }
-  return null;
+  if (!/^`[a-z0-9-]+`(?:\s*,\s*`[a-z0-9-]+`)*$/.test(roster)) {
+    return error("roster-unparseable", "read-only roster is empty or malformed");
+  }
+  const names = [...roster.matchAll(/`([a-z0-9-]+)`/g)].map((m) => m[1]);
+  if (new Set(names).size !== names.length) return error("roster-unparseable", "read-only roster repeats a specialist");
+  return { names, artifact };
+}
+
+function scanAgentFrontmatterKeys(text) {
+  const normalizedText = text.replace(/\r\n/g, "\n");
+  const allLines = normalizedText.split("\n");
+  const boundaryError = (line, detail) => ({ declarations: [], error_code: "frontmatter-boundary-invalid", error: `frontmatter boundary invalid at line ${line}: ${detail}` });
+  const carriageReturn = normalizedText.indexOf("\r");
+  if (carriageReturn !== -1) return boundaryError(normalizedText.slice(0, carriageReturn).split("\n").length, "noncanonical carriage return");
+  if (allLines[0] !== "---") {
+    if (/^(?:\uFEFF)?---[ \t\u00a0]*$/.test(allLines[0])) return boundaryError(1, "noncanonical opening delimiter");
+    return { declarations: [], error: null };
+  }
+  const end = allLines.findIndex((line, index) => index > 0 && line === "---");
+  const normalized = allLines.join("\n");
+  const firstCloser = normalized.indexOf("---", 3);
+  const canonicalCloser = end === -1 ? -1 : allLines.slice(0, end).join("\n").length + 1;
+  if (firstCloser !== -1 && firstCloser !== canonicalCloser) return boundaryError(normalized.slice(0, firstCloser).split("\n").length, "first closing marker differs from canonical line delimiter");
+  const lines = allLines.slice(1, end === -1 ? undefined : end);
+  const declarations = [];
+  for (const [index, line] of lines.entries()) {
+    if (/^[ \t]*\t/.test(line)) return { declarations, error_code: "frontmatter-key-invalid", error: `tab-indented frontmatter at line ${index + 2}: ${line}` };
+    if (/^[ \t]/.test(line) || /^(?:\s*|#.*)$/.test(line)) continue;
+    const key = line.match(/^([A-Za-z_][A-Za-z0-9_-]*):/);
+    if (!key) return { declarations, error_code: "frontmatter-key-invalid", error: `noncanonical top-level frontmatter key at line ${index + 2}: ${line}` };
+    if (key[1] === "tools") declarations.push({ line, index });
+  }
+  return { declarations, error: null };
+}
+
+function parseAgentToolInventory(text) {
+  const keyScan = scanAgentFrontmatterKeys(text);
+  if (keyScan.error) return { tools: null, error: keyScan.error, error_code: keyScan.error_code };
+  const fm = parseFrontmatter(text);
+  const invalid = (error) => ({ tools: null, error });
+  if (!fm.hasFrontmatter || fm.unterminated) return invalid("complete frontmatter required");
+  const allLines = text.split(/\r?\n/);
+  const end = allLines.findIndex((line, index) => index > 0 && line === "---");
+  const lines = allLines.slice(1, end);
+  const { declarations } = keyScan;
+  if (declarations.length !== 1) return invalid("exactly one tools declaration required");
+  const { line, index } = declarations[0];
+  if (!/^tools:(?:[ \t]+.*)?$/.test(line)) return invalid("malformed tools key");
+  const value = line.slice("tools:".length).trim();
+  const continuation = [];
+  for (let i = index + 1; i < lines.length; i++) {
+    if (/^[A-Za-z0-9_-]+:/.test(lines[i])) break;
+    if (/^\s*(?:#.*)?$/.test(lines[i])) continue;
+    continuation.push(lines[i]);
+  }
+  if (value && continuation.length) return invalid("scalar tools declaration has unexpected continuation");
+  const unquote = (raw) => {
+    const token = raw.trim();
+    if (/^['"]/.test(token)) {
+      const quote = token[0];
+      if (token.length < 2 || token.at(-1) !== quote || token.slice(1, -1).includes(quote)) return null;
+      return token.slice(1, -1);
+    }
+    return /['"]/.test(token) ? null : token;
+  };
+  let tools;
+  if (value) {
+    const scalar = unquote(value);
+    if (scalar === null) return invalid("unbalanced tools quoting");
+    tools = scalar.split(",").map((tool) => tool.trim());
+  } else {
+    tools = [];
+    for (const item of continuation) {
+      const match = item.match(/^[ \t]+-[ \t]+(.+)$/);
+      if (!match) return invalid("malformed tools list item");
+      const token = unquote(match[1]);
+      if (token === null) return invalid("unbalanced tools list quoting");
+      tools.push(token);
+    }
+  }
+  if (!tools.length || tools.some((tool) => !tool)) return invalid("empty tools inventory or empty element");
+  return { tools, error: null };
+}
+
+function parseReadonlySpecialists(root) {
+  const roster = readReadonlyRoster(root);
+  return roster.names ?? null;
 }
 
 function checkReadonlySpecialistTools(root) {
   const id = "readonly-specialist-tools";
+  const source_rule = "agents.md § Verify Specialist Tool Inventory";
   const results = [];
-  const names = parseReadonlySpecialists(root);
-  if (names === null) {
-    return {
-      id,
-      source_rule: "agents.md § Verify Specialist Tool Inventory",
-      results: [{ artifact: "rules/agents.md", status: STATUS.SKIP, detail: "could not parse read-only specialist list" }],
-    };
-  }
-  for (const name of names) {
-    const f = findAgentFile(root, name);
-    if (!f) {
-      results.push({ artifact: `agents/**/${name}.md`, status: STATUS.SKIP, detail: "agent file not found" });
+  const roster = readReadonlyRoster(root);
+  if (!roster.names) return { id, source_rule, results: [{ ...roster, status: STATUS.FAIL }] };
+  const files = listMarkdown(join(root, ".claude", "agents"));
+  for (const name of roster.names) {
+    const matches = files.filter((file) => basename(file) === `${name}.md`);
+    if (matches.length !== 1) {
+      results.push({ artifact: `.claude/agents/**/${name}.md`, status: STATUS.FAIL, reason: "not-run:agent-missing", detail: `NOT RUN: specialist '${name}' has ${matches.length} matching agent files; expected one` });
       continue;
     }
-    const rel = relative(root, f);
-    const { fields } = parseFrontmatter(safeRead(f) || "");
-    const tools = parseToolList(fields.tools);
+    const f = matches[0];
+    const artifact = relative(root, f);
+    const text = safeRead(f);
+    if (text === null) {
+      results.push({ artifact, status: STATUS.FAIL, reason: "not-run:agent-unreadable", detail: `NOT RUN: specialist '${name}' agent file unreadable` });
+      continue;
+    }
+    const inventory = parseAgentToolInventory(text);
+    const tools = inventory.tools;
+    if (inventory.error || tools.some((tool) => !CANONICAL_CC_TOOLS.has(tool))) {
+      results.push({ artifact, status: STATUS.FAIL, reason: "not-run:tools-unparseable", ...(inventory.error_code ? { error_code: inventory.error_code } : {}), detail: `NOT RUN: ${inventory.error ?? `specialist '${name}' needs complete frontmatter and a nonempty canonical tools inventory`}` });
+      continue;
+    }
     const forbidden = tools.filter((t) => READONLY_FORBIDDEN_TOOLS.has(t));
     if (forbidden.length === 0) {
-      results.push({ artifact: rel, status: STATUS.PASS, detail: `tools: ${tools.join(", ") || "(none)"}` });
+      results.push({ artifact, status: STATUS.PASS, detail: `tools: ${tools.join(", ")}` });
     } else {
-      results.push({
-        artifact: rel,
-        status: STATUS.FAIL,
-        detail: `read-only specialist '${name}' declares implementation tools: ${forbidden.join(", ")} (agents.md classifies it read-only)`,
-      });
+      results.push({ artifact, status: STATUS.FAIL, reason: "implementation-tools", detail: `read-only specialist '${name}' declares implementation tools: ${forbidden.join(", ")} (roster authority: ${roster.artifact})` });
     }
   }
-  return { id, source_rule: "agents.md § Verify Specialist Tool Inventory", results };
+  return { id, source_rule, results };
 }
 
 // =======================================================================
@@ -636,12 +773,22 @@ function checkToolCanonicality(root) {
       results.push({ artifact: rel, status: STATUS.SKIP, detail: "unreadable" });
       continue;
     }
+    const keyScan = scanAgentFrontmatterKeys(text);
+    if (keyScan.error) {
+      results.push({ artifact: rel, status: STATUS.FAIL, reason: "not-run:tools-unparseable", error_code: keyScan.error_code, detail: `NOT RUN: ${keyScan.error}` });
+      continue;
+    }
     const { fields } = parseFrontmatter(text);
-    if (fields.tools === undefined) {
+    if (fields.tools === undefined && keyScan.declarations.length === 0) {
       results.push({ artifact: rel, status: STATUS.SKIP, detail: "no tools: frontmatter" });
       continue;
     }
-    const tools = parseToolList(fields.tools);
+    const inventory = parseAgentToolInventory(text);
+    if (inventory.error) {
+      results.push({ artifact: rel, status: STATUS.FAIL, reason: "not-run:tools-unparseable", detail: `NOT RUN: ${inventory.error}` });
+      continue;
+    }
+    const tools = inventory.tools;
     const bad = tools.filter((t) => !CANONICAL_CC_TOOLS.has(t));
     if (bad.length === 0) {
       results.push({ artifact: rel, status: STATUS.PASS });
@@ -783,7 +930,7 @@ function emitFresh(root) {
   try {
     execFileSync(
       "node",
-      [join(root, ".claude", "bin", "emit-cli-artifacts.mjs"), "--out", dir],
+      [join(root, ".claude", "bin", "emit-cli-artifacts.mjs"), "--profile", "auto", "--out", dir],
       // timeout bounds a hung emitter so it cannot wedge /sync (R1 security L2,
       // same-class hardening as checkCodexPoliciesFresh).
       { cwd: root, encoding: "utf8", timeout: 60000, stdio: ["ignore", "ignore", "pipe"] },
@@ -900,7 +1047,8 @@ function checkMirrorExclusion(root, opts) {
       (a) => a.kind === "skill" && !a.rel.startsWith("agents/management/"),
     );
     for (const cli of ["codex", "gemini"]) {
-      const excl = exclusions[cli] || [];
+      const localAuthoring = cli === "codex" && resolveEmissionProfile({ repo: root, cli }) === "local-authoring";
+      const excl = localAuthoring ? [] : exclusions[cli] || [];
       for (const a of arts) {
         const tag = `${cli}:${a.rel}`;
         if (excl.some((g) => matchesGlob(a.rel, g))) {
@@ -1569,6 +1717,25 @@ const LOOM_ONLY_TIER_CARVEOUTS = new Set([
   // carries the full measurement. Its read-half lib `hooks/lib/landing-window-read.js`
   // is NOT carved out — it ships (append-sink.js requires it on a live write path).
   "hooks/landing-window-guard.js",
+  // 2026-10-07 — the template delivery-freshness SessionStart surface. Its SUBJECT
+  // is loom's own delivery targets: a BUILD/USE consumer has no USE templates to be
+  // behind and no loom main to be behind them by, and its one dependency
+  // (`.claude/bin/template-freshness.mjs`) is OFF the F1030d fail-closed
+  // consumer-runtime allowlist, so shipping the hook would hand every consumer a
+  // MODULE_NOT_FOUND at SessionStart for a measurement it has no subject for. Under
+  // the synced `hooks/**` tier → LOAD-BEARING carve-out, the same class as the
+  // landing-window-guard sibling above; the matching `loom_only:` entry in
+  // sync-manifest.yaml carries the full reasoning, and the hook_delivery row
+  // records the cc-only lane.
+  "hooks/template-freshness-surface.js",
+  // 2026-10-10 — the context-cycle STATE WRITERS (context-meter.js: tokens/points/band;
+  // context-boundary.js: the FAIL-CLOSED boundary.ready csq reads to inject `/clear`).
+  // Both are dispatch-registry `loom_only` while the cycle is proven at loom; under the
+  // synced `hooks/**` tier, so the `loom_only:` twin in sync-manifest.yaml is LOAD-BEARING
+  // and this entry is its mutual-exclusion half. Their LIBS stay shipped: the shipped
+  // compaction-handoff hooks require lib/context-state.js + lib/boundary-seed.js.
+  "hooks/context-meter.js",
+  "hooks/context-boundary.js",
   // loom#1930 — the `--json` write-guard fixtures. The runner imports
   // `tools/cli-drift-audit.mjs`, which is loom_only, so shipping the fixture without
   // its module is ERR_MODULE_NOT_FOUND on load for every community consumer;
@@ -1834,7 +2001,7 @@ function checkLoomOnlyMutualExclusion(root) {
   // (c) loom_only x ALWAYS_INCLUDE. The pre-existing arms compare loom_only
   // against TIER globs only, which leaves the OTHER ship surface unchecked: a
   // path may sit on BOTH `loom_only` and `ALWAYS_INCLUDE`, and because
-  // `classifyFile` tests loom_only FIRST (sync-tier-aware.mjs:4043-4055) the
+  // `classifyFile` tests loom_only FIRST (.claude/bin/sync-tier-aware.mjs:4537-4538) the
   // ALWAYS_INCLUDE entry is INERT — it ships nothing while ASSERTING to every
   // later reader that it does. That is worse than absent, and it is exactly how a
   // shipped tool came to statically import a never-shipped module: the author
@@ -2041,7 +2208,7 @@ function checkEditionCommunityCompleteness(root, opts = {}) {
 // The HONESTY-LEDGER negative complement of the edition machinery (spec
 // `edition-separation.md` §"Protection model"; brief §"Protection model"):
 //   "loom has NO runtime license check and MUST NOT gain one. … Any optional
-//    soft entitlement check lives in the enterprise loom-command edition, NEVER
+//    soft entitlement check lives in the enterprise edition, NEVER
 //    in loom. `coordination.enabled` is a plain behavioral boolean with zero
 //    license/billing semantics — it is NOT the enforcement point."
 // Enterprise is gated by ACCESS + LICENSE (BSL-1.1) + BUNDLING — NOT by a runtime
@@ -2112,7 +2279,7 @@ function checkEditionNoRuntimeLicense(root, opts = {}) {
               `runtime license/entitlement enforcement surface in loom code (matched \`${m[0]}\`) — ` +
               "loom MUST NOT gain a runtime license/DRM check (§Protection model; protection = " +
               "ACCESS + BSL-1.1 LICENSE + kailash-rs BUNDLING). Any soft entitlement check belongs " +
-              "in the enterprise loom-command edition, NEVER in loom. If this is a false match, the " +
+              "in the enterprise edition, NEVER in loom. If this is a false match, the " +
               "token is not an enforcement point — rename it (e.g. `coordination.enabled` is fine).",
           });
         }
@@ -2956,6 +3123,16 @@ function collectHookCommands(jsonText) {
   return cmds;
 }
 
+// The segments a hook COMMAND string names, for the segment-exact presence oracle below. Splits on
+// whitespace, path separators, quotes AND the shell control operators ; & | ( ) < >, because a
+// registered command is shell text: Gemini's isolated launch ends "…/<hook>.js; exit 1"
+// (hooks/lib/gemini-hook-runtime.js::registrationCommand), and a split that kept ";" on the token
+// read that registered hook as ABSENT. Still segment-EXACT, so a generic token (".js", "node",
+// "exit") can never match a hook filename.
+function commandPathSegments(command) {
+  return String(command).split(/[\s/"';&|()<>]+/).filter(Boolean);
+}
+
 // IO wrapper: load manifest + hooks + emit targets, build the presence oracle,
 // delegate to the pure evaluator.
 function checkProvenanceParity(root) {
@@ -2993,7 +3170,7 @@ function checkProvenanceParity(root) {
     if (!hookFile) return false;
     if (lane === "codex" && codexTemplateNativeNames.has(hookFile)) return true;
     const cmds = templateCmds[lane] || [];
-    return cmds.some((c) => c.split(/[\s/"']+/).includes(hookFile));
+    return cmds.some((c) => commandPathSegments(c).includes(hookFile));
   };
   const laneHookPresent = (lane, hookFile) => {
     if (!hookFile) return false;
@@ -3004,7 +3181,7 @@ function checkProvenanceParity(root) {
     // hookFile. A raw `.includes(hookFile)` lets a generic f4 token (".js"/"node")
     // false-pass (security R1 HIGH); the wired branch additionally constrains f4 to
     // a `*.js` filename shape, so this segment match is the second half of the fix.
-    return cmds.some((c) => c.split(/[\s/"']+/).includes(hookFile));
+    return cmds.some((c) => commandPathSegments(c).includes(hookFile));
   };
   // Does the named hook file actually EMIT the provenance kind? Reuses the same
   // hook-source extraction as the cc_capture source-of-truth (security R2 MED — a
@@ -3670,18 +3847,30 @@ function checkCocArtifactIds(root) {
     // must still be gated here. This is a CORPUS question, not a distribution
     // one; narrowing it to one lane would silently un-gate the other lane's ids.
     const r = emitCoc({ outDir: tmp, lane: "all" });
+    const detail =
+      `${r.records} artifacts (rules=${r.counts.rules} agents=${r.counts.agents} ` +
+      `skills=${r.counts.skills} commands=${r.counts.commands})` +
+      (r.largeFiles.length > 0
+        ? ` — ${r.largeFiles.length} above emit-coc's 61440B report threshold ` +
+          `(metric, not a finding; size budget of record is budget-gate.mjs)`
+        : "");
+    // COUNT CHECK, not just a count in the detail string (operator-ratified Gate-1
+    // port, 2026-10-06). This row was an unconditional PASS whose record count
+    // appeared only as prose, so an emit producing ZERO artifacts reported
+    // "PASS — 0 artifacts". emit-coc guards each source dir with `existsSync`, so a
+    // missing or unreadable `.claude/rules/` silently yields an empty emit — the
+    // empty-denominator shape, in the validator that CERTIFIES the emit
+    // (`verification-gate-integrity.md` MUST-2: absence of a result is not a pass).
     const results = [
-      {
-        artifact: ".coc/",
-        status: STATUS.PASS,
-        detail:
-          `${r.records} artifacts (rules=${r.counts.rules} agents=${r.counts.agents} ` +
-          `skills=${r.counts.skills} commands=${r.counts.commands})` +
-          (r.largeFiles.length > 0
-            ? ` — ${r.largeFiles.length} above emit-coc's 61440B report threshold ` +
-              `(metric, not a finding; size budget of record is budget-gate.mjs)`
-            : ""),
-      },
+      r.records === 0
+        ? {
+            artifact: ".coc/",
+            status: STATUS.FAIL,
+            detail:
+              `emit produced ZERO artifacts — ${detail}. An empty emit and a broken ` +
+              `source tree are indistinguishable downstream; this is not a pass.`,
+          }
+        : { artifact: ".coc/", status: STATUS.PASS, detail },
     ];
     return { id, source_rule, results };
   } catch (err) {
@@ -4041,7 +4230,12 @@ function checkTrustRootFresh(root) {
   return {
     id,
     source_rule,
-    results: [{ artifact: tag, status: STATUS.OK, detail: "matches a fresh derivation from the roster" }],
+    // STATUS has NO `OK` member (PASS/FAIL/FIXTURE_NEEDED/SKIP) — this site read
+    // `STATUS.OK` = undefined on the SUCCESS path until 2026-10-05, so a fresh
+    // trust root reported `status: undefined`: neither blocking (isBlocking)
+    // nor a real verdict, exactly the absence-renders-as-success class the
+    // report exists to avoid. `PASS` is the enum's success member.
+    results: [{ artifact: tag, status: STATUS.PASS, detail: "matches a fresh derivation from the roster" }],
   };
 }
 
@@ -4287,14 +4481,19 @@ function classifyVariantFile(relPath, { overlays, variantOnly, nullPhantoms }) {
 
 // Enumerate TRACKED files under .claude/variants/ via git (NOT the filesystem —
 // untracked operator-local companions are out of scope by design). Returns an
-// array of repo-relative paths, or null when git is unavailable.
+// array of repo-relative paths, or null when git is unavailable. Under the hermetic env
+// (`validateEmitGit`): an inherited GIT_DIR would otherwise choose whose index is listed.
 function listTrackedVariants(root) {
+  const g = validateEmitGit();
+  if (!g) return null;
+  const args = ["ls-files", "-z", "--", ".claude/variants"];
   try {
-    const out = execFileSync(
-      "git",
-      ["ls-files", "-z", "--", ".claude/variants"],
-      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    );
+    const out = execFileSync(g.bin, args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      env: g.lib.gitEnvForArgs(args),
+    });
     return out.split("\0").filter(Boolean);
   } catch {
     return null;
@@ -5043,7 +5242,7 @@ function checkTargetOwnedIntegrity(root, opts = {}) {
   // and the ordering is the whole point of it.
   //
   // `buildPlan` runs the SAME `rejectUnsafeTargetOwned` gate and answers a defect
-  // with `fail(1, …)` → `process.exit(1)` (sync-tier-aware.mjs:3787-3793). That is
+  // with `fail(1, …)` (.claude/bin/sync-tier-aware.mjs:4271-4275; `fail` exit .claude/bin/sync-tier-aware.mjs:7886-7886). That exits, which is
   // right for the DISTRIBUTOR — refuse to apply a declaration it cannot read — and
   // fatal for this VALIDATOR: `process.exit` is not an exception, so the `try`
   // below never catches it, `laneError` is never set, and the process dies mid-run.
@@ -5457,32 +5656,60 @@ function checkWiringDetectionCanonical(root) {
   // own validate-emit (M-5). Scanning only canon made loom's gate weaker than the
   // surface it governs.
   const surfaces = [{ label: "rules", dir: join(root, ".claude", "rules") }];
+  const results = [];
+  const variantsDir = join(root, ".claude", "variants");
   let variantRoots = [];
+  let variantsPresent = false;
   try {
-    variantRoots = readdirSync(join(root, ".claude", "variants"));
-  } catch { /* no variants tree — canon-only checkout */ }
+    _require("node:fs").lstatSync(variantsDir);
+    variantsPresent = true;
+    // README.md is namespace documentation (.claude/variants/README.md:1-17).
+    variantRoots = readdirSync(variantsDir, { withFileTypes: true })
+      .filter((entry) => entry.name !== "README.md" || !entry.isFile()).map((entry) => entry.name);
+  } catch (e) {
+    // Optional ordinary absence inherits canon (.claude/bin/emit.mjs:3544-3555);
+    // present/dangling paths and every other I/O error are NOT RUN, never omission.
+    if (variantsPresent || e.code !== "ENOENT") results.push({
+      artifact: ".claude/variants/", status: STATUS.FAIL,
+      reason: "not-run:variants-directory-unreadable",
+      detail: `NOT RUN/UNKNOWN: .claude/variants/: ${String(e)}`,
+    });
+  }
   for (const v of variantRoots) {
-    const d = join(root, ".claude", "variants", v, "rules");
+    const d = join(variantsDir, v, "rules");
+    let variantReadable = false;
+    let overlayPresent = false;
     try {
-      if (statSync(d).isDirectory()) surfaces.push({ label: `variants/${v}/rules`, dir: d });
-    } catch { /* this variant declares no rules overlay */ }
+      if (!statSync(join(variantsDir, v)).isDirectory())
+        throw Object.assign(new Error(`ENOTDIR: variant root is not a directory: ${v}`), { code: "ENOTDIR" });
+      variantReadable = true;
+      _require("node:fs").lstatSync(d);
+      overlayPresent = true;
+      if (!statSync(d).isDirectory())
+        throw Object.assign(new Error(`ENOTDIR: rules overlay is not a directory: ${d}`), { code: "ENOTDIR" });
+      surfaces.push({ label: `variants/${v}/rules`, dir: d });
+    } catch (e) {
+      // No path-mirror overlay is intentional (.claude/bin/lib/variant-overlay.mjs:167-173).
+      if (!variantReadable || overlayPresent || e.code !== "ENOENT") results.push({
+        artifact: `.claude/variants/${v}/rules/`, status: STATUS.FAIL,
+        reason: "not-run:rules-directory-unreadable",
+        detail: `NOT RUN/UNKNOWN: .claude/variants/${v}/rules/: ${String(e)}`,
+      });
+    }
   }
 
-  const results = [];
   let blocksSeen = 0;
   let filesSeen = 0;
   for (const surface of surfaces) {
    let files;
    try {
      files = readdirSync(surface.dir).filter((f) => f.endsWith(".md")).sort();
-   } catch {
-     if (surface.label === "rules") {
-       return {
-         id,
-         source_rule,
-         results: [{ artifact: ".claude/rules/", status: STATUS.SKIP, detail: "rules directory unreadable or absent" }],
-       };
-     }
+   } catch (e) {
+     results.push({
+       artifact: `.claude/${surface.label}/`, status: STATUS.FAIL,
+       reason: "not-run:rules-directory-unreadable",
+       detail: `NOT RUN/UNKNOWN: .claude/${surface.label}/: ${String(e)}`,
+     });
      continue;
    }
    filesSeen += files.length;
@@ -5493,9 +5720,16 @@ function checkWiringDetectionCanonical(root) {
     // would contribute ZERO Wiring blocks while this check stayed green, which
     // is the same vacuous-pass shape this file's own header already names for
     // the marker-tolerance case (`instrument-discipline.md` MUST-3(a)).
-    const text = readGovernanceSurface(join(surface.dir, f)).text;
+    const governance = readGovernanceSurface(join(surface.dir, f));
+    const text = governance.text;
     if (text === null) {
-      results.push({ artifact: `${surface.label}/${f}`, status: STATUS.SKIP, detail: "unreadable" });
+      const artifact = `${surface.label}/${f}`;
+      results.push({
+        artifact,
+        status: STATUS.FAIL,
+        reason: "not-run:governance-surface-unreadable",
+        detail: `NOT RUN/UNKNOWN: ${artifact}: ${governance.error}`,
+      });
       continue;
     }
     const blocks = wiringBlocksIn(text, deps);
@@ -5870,25 +6104,195 @@ function checkSettingsDenyRuleForm(root) {
   return { id, source_rule, results: [{ artifact: tag, status: STATUS.PASS, detail: "permissions.deny uses the canonical Edit() matcher form" }] };
 }
 
-// #771: every top-level .claude/hooks/*.js MUST be either registered in
-// .claude/settings.json OR carry an `@settings-registration:` header marker
-// documenting how it is invoked OUTSIDE settings.json (git-hook, optional
-// consumer-registered deploy gate, etc.). Closes the class the #771
-// template-stale bug surfaced: a rule-mandated guard (analyze-completeness-guard,
-// PreToolUse:Skill) shipped INERT because its settings.json registration was
-// never propagated to the template. A top-level hook that is NEITHER registered
-// NOR documented is a silent fail-open — flagged FAIL (blocks /sync).
+// #771: every top-level .claude/hooks/*.js MUST be RUN by something — registered
+// in .claude/settings.json, ROUTED by the hook dispatcher, or carrying an
+// `@settings-registration:` header marker documenting how it is invoked OUTSIDE
+// both (git-hook, optional consumer-registered deploy gate, etc.). Closes the
+// class the #771 template-stale bug surfaced: a rule-mandated guard
+// (analyze-completeness-guard, PreToolUse:Skill) shipped INERT because its
+// registration was never propagated to the template. A top-level hook nothing
+// runs is a silent fail-open — flagged FAIL (blocks /sync).
 //
-// Scope: loom's OWN top-level .claude/hooks/*.js only (NOT lib/, NOT variant
-// hooks under variants/<lang>/hooks/ — the per-variant settings overlay is a
+// DISPATCHER-AWARE (2026-10-13). Since the hook consolidation (2026-09-26)
+// settings.json registers ONE `dispatch.js <Event>` entry per event and the
+// dispatcher runs each event's detectors from its registry. The version of this
+// check written before that read registration LEXICALLY — any `*.js` token
+// anywhere in settings.json or in `dispatch-registry.json` counted — so its
+// verdict tracked neither question a dispatched hook raises: is the dispatcher
+// registered for the event the row sits under, and would the dispatcher actually
+// select the row in THIS tree? This version answers both from the same library
+// and the same files the dispatcher reads, never from a second notion of them:
+//   - the dispatcher entries: `lib/dispatch-registry.js::dispatchedEvent` over
+//     each settings.json `hooks.<Event>[].hooks[].command` (DISPATCH_COMMAND_RE —
+//     the form the dispatcher is invoked with);
+//   - loom's rows: `<root>/.claude/hooks/dispatch-registry.json`, loaded with
+//     `loadRegistryIfPresent` and selected per event with `detectorsFor` under
+//     `makeEligible(root, reg)` — the two calls `lib/dispatch-main.js` makes;
+//   - the repo's own rows: `<root>/.claude/dispatch-registry.local.json`, loaded
+//     with `loadLocalRegistryIfPresent` and refused under `assertAddOnly` exactly
+//     as the dispatcher refuses it, then `detectorsFor`. Only events loom's
+//     registry dispatches can run a local row (dispatch-main.js names the rest
+//     "CANNOT run"), and only events settings.json dispatches run at all.
+// The library is loaded from <root> — the copy the dispatcher at <root> runs.
+// A registry the dispatcher would refuse is a FAIL, and credits NO hook as
+// routed: a registry it cannot trust runs nothing, so crediting rows from it is
+// the inert-guard class this check exists to catch.
+//
+// Direct registrations are read from the settings.json `hooks` tree only — a
+// `.claude/hooks/<name>.js` path inside a command string — never from a token
+// anywhere in the file (a `*.js` in `permissions` registers nothing).
+//
+// NOT SEEN, named so the boundary is a decision: a direct command that runs a
+// hook without spelling `.claude/hooks/<name>.js` (e.g. `cd .claude/hooks && node
+// x.js` — `reconcile-settings-hooks.mjs` treats that non-canonical form as
+// dangling and replaces it); whether the session-pinned registry
+// (`--registry-sha256=`) matches the file on disk (a freshness question,
+// `dispatch-freshness-guard.js`); and whether a routed row's MATCHER ever fires.
+//
+// Scope: <root>'s top-level .claude/hooks/*.js only (NOT lib/, NOT variant hooks
+// under variants/<lang>/hooks/ — the per-variant settings overlay is a
 // deliberately-deferred net-new mechanism; build-cache-* variant hooks are
-// documented as a residual in sync-manifest.yaml). The check reads the marker
-// from the hook header; it does NOT parse settings.json structure, only the set
-// of *.js basenames any command string references (robust to nesting/matcher shape).
+// documented as a residual in sync-manifest.yaml).
+const DIRECT_HOOK_REF_RE = /\.claude\/+hooks\/+([A-Za-z0-9][A-Za-z0-9._-]*\.js)(?![A-Za-z0-9._/-])/g;
+const DISPATCHER_LIKE_RE = /\/hooks\/+dispatch\.js(?![A-Za-z0-9._-])/;
+
+/**
+ * Which top-level hooks <root>'s settings.json runs, directly or through the
+ * dispatcher. Pure read; never throws — every state that cannot be read is a
+ * `faults` row (fail-closed: a fault credits nothing).
+ * @returns {{direct:Map<string,Set<string>>, routed:Map<string,Set<string>>,
+ *   routedLocal:Map<string,Set<string>>, loomOnlyHere:Map<string,Set<string>>,
+ *   dispatcherEvents:Set<string>, dispatcherBasename:string,
+ *   faults:Array<{artifact:string, detail:string}>}}
+ */
+function settingsHookRoutes(root, settings, diskHooks) {
+  const hooksDir = join(root, ".claude", "hooks");
+  const direct = new Map();
+  const routed = new Map();
+  const routedLocal = new Map();
+  const loomOnlyHere = new Map();
+  const dispatcherEvents = new Set();
+  const faults = [];
+  const note = (m, h, e) => {
+    if (!m.has(h)) m.set(h, new Set());
+    m.get(h).add(e);
+  };
+  // Spelled as a ROOT-ANCHORED join on purpose (the shape expandDispatchedHooks
+  // uses): emit-hook-registry's closure walker resolves `join(root, "<literal>"…)`
+  // and refuses a join through a second binding, which would leave the hook
+  // manifest's deps closure for every hook that reaches this file unpinnable.
+  const libPath = join(root, ".claude", "hooks", "lib", "dispatch-registry.js");
+  let lib = null;
+  if (existsSync(libPath)) {
+    try {
+      lib = _require(libPath);
+    } catch (e) {
+      faults.push({
+        artifact: ".claude/hooks/lib/dispatch-registry.js",
+        detail: `the dispatcher's registry library does not load (${e.message}) — the dispatcher cannot run, so no hook is credited as dispatched`,
+      });
+    }
+  }
+  const dispatcherBasename = lib ? lib.DISPATCHER_BASENAME : "dispatch.js";
+  const hooksObj =
+    settings && typeof settings.hooks === "object" && settings.hooks !== null && !Array.isArray(settings.hooks)
+      ? settings.hooks
+      : {};
+  for (const [event, groups] of Object.entries(hooksObj)) {
+    if (!Array.isArray(groups)) continue;
+    for (const g of groups) {
+      for (const h of g && Array.isArray(g.hooks) ? g.hooks : []) {
+        if (!h || typeof h.command !== "string") continue;
+        const cmd = h.command.replace(/\\/g, "/");
+        const dEvent = lib ? lib.dispatchedEvent(h.command) : null;
+        if (dEvent !== null) {
+          if (dEvent === event) dispatcherEvents.add(event);
+          else
+            faults.push({
+              artifact: `.claude/settings.json::hooks.${event}`,
+              detail: `registers ${dispatcherBasename} for ${dEvent} under the ${event} key — the dispatcher refuses a cross-event entry (lib/dispatch-registry.js::expandSettingsHooks), so nothing it would route for either event runs from it`,
+            });
+          continue;
+        }
+        if (DISPATCHER_LIKE_RE.test(cmd)) {
+          faults.push({
+            artifact: `.claude/settings.json::hooks.${event}`,
+            detail: lib
+              ? `a ${dispatcherBasename} command that is not the canonical dispatcher form (lib/dispatch-registry.js::DISPATCH_COMMAND_RE): ${JSON.stringify(h.command)} — the dispatcher refuses it, so nothing is routed for ${event} from it`
+              : `settings.json registers ${dispatcherBasename} for ${event} but .claude/hooks/lib/dispatch-registry.js is absent or did not load — the dispatcher cannot read its registry, so nothing is routed for ${event}`,
+          });
+          continue;
+        }
+        for (const m of cmd.matchAll(DIRECT_HOOK_REF_RE)) note(direct, m[1], event);
+      }
+    }
+  }
+  if (!lib || dispatcherEvents.size === 0) {
+    return { direct, routed, routedLocal, loomOnlyHere, dispatcherEvents, dispatcherBasename, faults };
+  }
+  const events = [...dispatcherEvents].sort();
+  if (!diskHooks.includes(dispatcherBasename)) {
+    faults.push({
+      artifact: `hooks/${dispatcherBasename}`,
+      detail: `settings.json registers the hook dispatcher for ${events.join(", ")} but .claude/hooks/${dispatcherBasename} is not on disk — every detector it would route is inert`,
+    });
+    return { direct, routed, routedLocal, loomOnlyHere, dispatcherEvents, dispatcherBasename, faults };
+  }
+  let reg;
+  let eligible;
+  try {
+    reg = lib.loadRegistryIfPresent(hooksDir);
+    if (!reg) throw new Error(`${lib.REGISTRY_BASENAME} is absent`);
+    eligible = lib.makeEligible(root, reg);
+  } catch (e) {
+    faults.push({
+      artifact: `.claude/hooks/${lib.REGISTRY_BASENAME}`,
+      detail: `settings.json registers the hook dispatcher for ${events.join(", ")} but its registry cannot be used (${e.message}) — the dispatcher refuses a registry it cannot trust, so NO detector is credited as routed`,
+    });
+    return { direct, routed, routedLocal, loomOnlyHere, dispatcherEvents, dispatcherBasename, faults };
+  }
+  for (const event of events) {
+    if (!reg.events[event]) {
+      faults.push({
+        artifact: `.claude/hooks/${lib.REGISTRY_BASENAME}`,
+        detail: `settings.json registers the hook dispatcher for ${event} but the registry has no ${event} event — the dispatcher faults on it and routes nothing for ${event}`,
+      });
+      continue;
+    }
+    for (const d of lib.detectorsFor(reg, event)) {
+      if (eligible(d.hook)) note(routed, d.hook, event);
+      else if (existsSync(join(hooksDir, d.hook))) note(loomOnlyHere, d.hook, event);
+    }
+  }
+  // The repo's own rows. A broken local registry does not stop loom's rows (the
+  // dispatcher runs loom's first and refuses the local one separately), so its
+  // fault is reported on its own and credits none of ITS rows.
+  let local = null;
+  try {
+    local = lib.loadLocalRegistryIfPresent(hooksDir);
+    if (local) lib.assertAddOnly(local, reg, { isLive: eligible });
+  } catch (e) {
+    local = null;
+    faults.push({
+      artifact: `.claude/${lib.LOCAL_REGISTRY_BASENAME}`,
+      detail: `the repo-owned registry is refused by the dispatcher (${e.message}) — none of its rows run, so none is credited as routed`,
+    });
+  }
+  if (local) {
+    for (const event of events) {
+      if (!reg.events[event]) continue;
+      for (const d of lib.detectorsFor(local, event)) {
+        if (existsSync(join(hooksDir, d.hook))) note(routedLocal, d.hook, event);
+      }
+    }
+  }
+  return { direct, routed, routedLocal, loomOnlyHere, dispatcherEvents, dispatcherBasename, faults };
+}
+
 function checkSettingsRegistration(root) {
   const id = "settings-hook-registration";
   const source_rule =
-    "analyze-output-completeness.md Trust Posture Wiring (settings.json registers the guard under a Skill matcher) + #771";
+    "analyze-output-completeness.md Trust Posture Wiring (settings.json registers the guard under a Skill matcher) + #771 + the hook dispatcher's own selection (lib/dispatch-main.js → lib/dispatch-registry.js::detectorsFor/makeEligible)";
   const hooksDir = join(root, ".claude", "hooks");
   let diskHooks;
   try {
@@ -5923,23 +6327,42 @@ function checkSettingsRegistration(root) {
       ],
     };
   }
-  // Registered = any *.js basename referenced by ANY settings.json command string,
-  // or by a command the dispatch registry holds for a `dispatch.js <Event>`
-  // entry (the groups moved there verbatim; a hook listed there IS registered).
-  const registryText = safeRead(join(hooksDir, "dispatch-registry.json")) || "";
-  const registered = new Set([
-    ...(settingsText.match(/[a-zA-Z0-9._-]+\.js/g) || []),
-    ...(registryText.match(/[a-zA-Z0-9._-]+\.js/g) || []),
-  ]);
+  let settings;
+  try {
+    settings = JSON.parse(settingsText);
+  } catch (e) {
+    return {
+      id,
+      source_rule,
+      results: [
+        {
+          artifact: ".claude/settings.json",
+          status: STATUS.FAIL,
+          detail: `settings.json does not parse as JSON (${e.message}) — the host registers no hook from it, so every hook here is unregistered`,
+        },
+      ],
+    };
+  }
+  const { direct, routed, routedLocal, loomOnlyHere, dispatcherEvents, dispatcherBasename, faults } =
+    settingsHookRoutes(root, settings, diskHooks);
+  const list = (s) => [...s].sort().join(", ");
   const MARKER = /@settings-registration:/;
-  const results = [];
+  const results = faults.map((f) => ({ artifact: f.artifact, status: STATUS.FAIL, detail: f.detail }));
   for (const h of diskHooks) {
-    if (registered.has(h)) {
+    if (h === dispatcherBasename && dispatcherEvents.size) {
       results.push({
         artifact: `hooks/${h}`,
         status: STATUS.PASS,
-        detail: "registered in settings.json",
+        detail: `the hook dispatcher — registered in settings.json for ${list(dispatcherEvents)}`,
       });
+      continue;
+    }
+    const how = [];
+    if (direct.has(h)) how.push(`registered in settings.json for ${list(direct.get(h))}`);
+    if (routed.has(h)) how.push(`routed by ${dispatcherBasename} (dispatch-registry.json) for ${list(routed.get(h))}`);
+    if (routedLocal.has(h)) how.push(`routed by ${dispatcherBasename} (dispatch-registry.local.json) for ${list(routedLocal.get(h))}`);
+    if (how.length) {
+      results.push({ artifact: `hooks/${h}`, status: STATUS.PASS, detail: how.join("; ") });
       continue;
     }
     const header = (safeRead(join(hooksDir, h)) || "").slice(0, 2500);
@@ -5947,7 +6370,15 @@ function checkSettingsRegistration(root) {
       results.push({
         artifact: `hooks/${h}`,
         status: STATUS.PASS,
-        detail: "documented @settings-registration (invoked outside settings.json)",
+        detail: "documented @settings-registration (invoked outside settings.json and the dispatcher)",
+      });
+      continue;
+    }
+    if (loomOnlyHere.has(h)) {
+      results.push({
+        artifact: `hooks/${h}`,
+        status: STATUS.SKIP,
+        detail: `WARN: dispatch-registry.json routes this hook for ${list(loomOnlyHere.get(h))} only as \`loom_only\`, and this tree is not loom, so the dispatcher deliberately does not run it here (lib/dispatch-registry.js::makeEligible). A loom_only hook is never delivered; this copy is stale and inert — remove it.`,
       });
       continue;
     }
@@ -5955,7 +6386,7 @@ function checkSettingsRegistration(root) {
       artifact: `hooks/${h}`,
       status: STATUS.FAIL,
       detail:
-        "top-level hook is NEITHER registered in settings.json NOR documented via an `@settings-registration:` header marker — a rule-mandated guard shipped this way is inert (fails open, #771). Register it in settings.json, or add `@settings-registration: <how-it-is-invoked>` to the header.",
+        "top-level hook is NEITHER registered in settings.json NOR documented via an `@settings-registration:` header marker — no direct settings.json registration names it, and the hook dispatcher routes no row for it under an event settings.json dispatches, so a rule-mandated guard shipped this way is inert (fails open, #771). Register it (a row in .claude/hooks/dispatch-registry.json — or, for a repo-owned hook, .claude/dispatch-registry.local.json — under an event settings.json dispatches), or add `@settings-registration: <how-it-is-invoked>` to the header.",
     });
   }
   return { id, source_rule, results };
@@ -6448,58 +6879,223 @@ function checkHookEventDeclaration(root, opts = {}) {
 // ── CHECK — codex-mcp-guard root/.claude runtime parity (F-CGUARD) ─────────────
 // loom carries the codex-mcp-guard runtime in TWO real dirs: the maintained
 // `.claude/codex-mcp-guard/` (source, 28-commit hardened) and the repo-root
-// `.codex-mcp-guard/` — which is what loom's OWN `.codex/config.toml` invokes
-// (loom's Codex DOGFOOD). It is NOT the downstream ship source: consumers get
+// `.codex-mcp-guard/` — which is what loom's OWN `.gemini/settings.json` launches as its
+// MCP guard (`"args": ["./.codex-mcp-guard/server.js"]`; `.codex/config.toml` registers
+// no MCP server, and loom's native Codex hooks load the `.claude/` copy). It is NOT the downstream ship source: consumers get
 // their `.codex-mcp-guard/` from loom's `.claude/codex-mcp-guard/` (via
 // `coc-sync.md` `cp -r .claude/codex-mcp-guard/ "$USE/.codex-mcp-guard/"`), so
 // consumers already run the hardened copy. This check keeps loom's OWN root
 // byte-identical to `.claude/`, or loom-self silently dogfoods a STALE guard —
 // the fail-OPEN-vs-fail-CLOSED drift this check exists to block (the F-CGUARD
 // gap: a hardened `.claude/` copy that never reached loom's OWN running root
-// copy while it DID reach consumers; journal/0534). `package.json` is EXCLUDED
-// — its only legitimate divergence is the repo-URL (root carries the real slug;
-// `.claude` carries the scrubbed `<owner>/<repo>` placeholder for the public
-// projection). On a consumer `.claude/codex-mcp-guard` symlinks to
-// `../.codex-mcp-guard`, so the two paths are the SAME file and the byte-compare
-// passes by construction; SKIP only when the root dir is absent (a pure-CC
-// consumer with no codex-mcp-guard at all).
-const CODEX_GUARD_PARITY_FILES = [
-  "server.js", "extract-policies.mjs", "README.md", "policies.json",
-  "package.json", "package-lock.json", "test-server.mjs", "test-extract-policies.mjs",
-];
+// copy while it DID reach consumers; journal/0534).
+//
+// MEMBERSHIP IS DERIVED, NOT LISTED. The compared set is every regular file in
+// EITHER directory at any depth (`codexGuardParityInventory`), minus the exact
+// paths declared, each with its reason, in `CODEX_GUARD_PARITY_EXEMPT`. The
+// hand-kept list this replaces omitted `policy-outcome.js` (which `server.js`
+// requires at startup) and `policy-exclusions.json`, so a drift in either would
+// have run in loom's guard with this check green. It also stated that
+// `package.json` was excluded while listing it. Bytes are compared raw. FAIL, never
+// SKIP or PASS, on each of:
+//   - a file in only one directory (the report names the side it is missing from);
+//   - ANY symlink inside either directory: Node resolves a linked module's siblings
+//     and `policies.json` from the link TARGET, so a link whose target bytes match
+//     can still run code this check never read;
+//   - a root copy that is not a real directory at `<repo>/.codex-mcp-guard` (a
+//     symlinked root moves the guard's HERE and its hooks root with it);
+//   - a missing maintained copy while the root copy exists;
+//   - a TRACKED file under a directory in `CODEX_GUARD_PARITY_SKIP_DIRS`, or an
+//     answer git cannot give about one. Those directories' untracked content
+//     (installed `node_modules/`, a nested `.claude/` of guard-test markers) is
+//     not compared.
+// On a consumer `.claude/codex-mcp-guard` is a symlink to `../.codex-mcp-guard`:
+// one file set, nothing to compare, so the check PASSes it after the inventory
+// above. SKIP only when the root dir is absent (a pure-CC consumer with no
+// codex-mcp-guard at all).
+//
+// WHY THIS IS ENOUGH FOR THE ROOT COPY'S FRESHNESS (2026-10-09, re-derived when
+// the question was raised as "nothing guards the root copy from re-drifting
+// while the freshness gate covers only .claude/"): the freshness half is
+// `checkCodexPoliciesFresh` (above), which drives the extractor over
+// `<root>/.claude/hooks` + `<root>/.claude/settings.json` and canonical-compares
+// the COMMITTED `.claude/codex-mcp-guard/policies.json` against a fresh
+// extraction. COMPOSITION: byte-parity (here) ∧ freshness (above) ⇒ the root
+// file's BYTES EQUAL the .claude file's bytes, and those bytes are fresh — so
+// the root copy is fresh too. The two checks are BLOCKING (status FAIL) and both
+// run by default (`CHECK_IDS`, and CI runs `validate-emit.mjs` with no
+// `--check`); neither half is optional. What the composition CANNOT catch, named
+// so the boundary is a decision: a drift in BOTH copies in the SAME direction
+// relative to the extractor is caught by the freshness half, not here, and a
+// consumer whose `.claude/` copy symlinks to the root (per the paragraph above)
+// is checking one file against itself by construction — its freshness rests on
+// the consumer's own extraction, not on this parity.
+// Pole proving the pair fires on a ROOT-ONLY drift (with the real tree as the
+// pass-control): `tests/integration/multi-operator/
+// owner-departure-gate-verification.test.js` § pole_i.
+const CODEX_GUARD_PARITY_EXEMPT = Object.freeze({
+  "extract-policies.dump.json":
+    "generated diagnostic dump: it carries a generated_at timestamp, so two fresh copies differ by construction, and no runtime file reads it",
+});
+// Directories whose CONTENT is not compared, because it is local state rather than shipped
+// source: `node_modules/` is installed dependencies, and a nested `.claude/` is the marker
+// state the guard's own test suite writes relative to its cwd (.gitignore's
+// `.claude/codex-mcp-guard/.claude/` entry). Not compared is not unchecked: a TRACKED file
+// under either one FAILs (`codexGuardTrackedUnder`), because tracked content there is code the
+// guard can load that this check would otherwise never read.
+const CODEX_GUARD_PARITY_SKIP_DIRS = Object.freeze(new Set(["node_modules", ".claude"]));
+// One directory's entries at ANY depth, as POSIX paths relative to it, split by kind. A
+// symlink is recorded and never followed: Node resolves a linked module's siblings from the
+// link TARGET, so a link whose target bytes match can still run code this check never read.
+function codexGuardParityInventory(dir) {
+  const files = new Set();
+  const symlinks = new Set();
+  const special = new Set();
+  const skipped = [];
+  const walk = (rel) => {
+    for (const e of readdirSync(rel ? join(dir, rel) : dir, { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isSymbolicLink()) symlinks.add(r);
+      else if (e.isDirectory()) {
+        if (CODEX_GUARD_PARITY_SKIP_DIRS.has(e.name)) skipped.push(r);
+        else walk(r);
+      } else if (e.isFile()) {
+        if (!Object.hasOwn(CODEX_GUARD_PARITY_EXEMPT, r)) files.add(r);
+      } else special.add(r);
+    }
+  };
+  walk("");
+  return { files, symlinks, special, skipped };
+}
+function codexGuardParityMembers(rootDir, claudeDir) {
+  const names = new Set();
+  for (const dir of [rootDir, claudeDir]) {
+    const inv = codexGuardParityInventory(dir);
+    for (const r of [...inv.files, ...inv.symlinks, ...inv.special]) names.add(r);
+  }
+  return [...names].sort();
+}
+// Tracked paths under the given root-relative directories, by `git ls-files` run at the
+// repository root under the hermetic env (`validateEmitGit`), so the answer comes from the
+// repository that holds the guard and not from one an inherited GIT_DIR names. Returns
+// { ok: true, tracked } with root-relative paths, or { ok: false, error }; the caller FAILs
+// closed on !ok.
+function codexGuardTrackedUnder(root, rels) {
+  const g = validateEmitGit();
+  if (!g) return { ok: false, error: "no git binary under the hermetic git-subprocess-env profile" };
+  const args = ["ls-files", "-z", "--", ...rels];
+  try {
+    const out = execFileSync(g.bin, args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 20000,
+      env: g.lib.gitEnvForArgs(args),
+    });
+    return { ok: true, tracked: out.split("\0").filter(Boolean) };
+  } catch (e) {
+    return { ok: false, error: String((e && e.stderr) || (e && e.message) || e).trim().slice(0, 200) };
+  }
+}
+// Raw bytes under the same 10 MB cap as `safeRead`, or null. Bytes, not a decoded string:
+// a UTF-8 decode maps every invalid byte to U+FFFD, so two different files can decode equal.
+function readCappedBytes(file) {
+  try {
+    if (statSync(file).size > 10 * 1024 * 1024) return null;
+    return readFileSync(file);
+  } catch {
+    return null;
+  }
+}
+function lstatOrNull(p) {
+  try {
+    return lstatSync(p);
+  } catch {
+    return null;
+  }
+}
 function checkCodexGuardRootParity(root) {
   const id = "codex-guard-root-parity";
   const source_rule = "codex-mcp-guard root/.claude runtime parity (F-CGUARD / journal/0534)";
   const rootDir = join(root, ".codex-mcp-guard");
   const claudeDir = join(root, ".claude", "codex-mcp-guard");
-  if (!existsSync(rootDir) || !existsSync(claudeDir)) {
+  const fail = (artifact, detail) => ({ id, source_rule, results: [{ artifact, status: STATUS.FAIL, detail }] });
+  const rootSt = lstatOrNull(rootDir);
+  if (!rootSt) {
     return {
       id,
       source_rule,
-      results: [{ artifact: ".codex-mcp-guard", status: STATUS.SKIP, detail: "no root+.claude codex-mcp-guard pair (CC-only consumer)" }],
+      results: [{ artifact: ".codex-mcp-guard", status: STATUS.SKIP, detail: "no root .codex-mcp-guard (CC-only consumer)" }],
     };
   }
+  // The root copy is what runs, so it must BE the directory at this path: a symlinked root
+  // (or one that resolves elsewhere) moves the guard's HERE and its hooks root with it.
+  let realRoot;
+  try {
+    realRoot = realpathSync(root);
+  } catch (e) {
+    return fail(".codex-mcp-guard", `cannot resolve the repository root: ${e && e.code}`);
+  }
+  let rootReal = null;
+  try {
+    rootReal = realpathSync(rootDir);
+  } catch {}
+  if (rootSt.isSymbolicLink() || !rootSt.isDirectory() || rootReal !== join(realRoot, ".codex-mcp-guard")) {
+    return fail(".codex-mcp-guard", `the root guard is not a real directory at this path (${rootSt.isSymbolicLink() ? "it is a symlink" : `it resolves to ${rootReal}`}): the guard would run, and resolve its hooks root, from a tree this check does not compare`);
+  }
+  const claudeSt = lstatOrNull(claudeDir);
+  if (!claudeSt) {
+    return fail(".claude/codex-mcp-guard", "the maintained copy is missing while the root copy exists: the running guard has nothing to be compared against");
+  }
+  let claudeReal = null;
+  try {
+    claudeReal = realpathSync(claudeDir);
+  } catch {}
+  // Consumer layout: `.claude/codex-mcp-guard` is a symlink to the root copy, so there is one
+  // file set and nothing to compare. Its entries are still inventoried below.
+  const consumerLayout = claudeSt.isSymbolicLink() && claudeReal === rootReal;
+  if (!consumerLayout && (claudeSt.isSymbolicLink() || !claudeSt.isDirectory() || claudeReal !== join(realRoot, ".claude", "codex-mcp-guard"))) {
+    return fail(".claude/codex-mcp-guard", `the maintained copy is not a real directory at this path and does not resolve to the root copy (resolves to ${claudeReal})`);
+  }
+  const sides = consumerLayout ? [[rootDir, ".codex-mcp-guard"]] : [[rootDir, ".codex-mcp-guard"], [claudeDir, ".claude/codex-mcp-guard"]];
   const results = [];
-  for (const f of CODEX_GUARD_PARITY_FILES) {
-    const rootF = join(rootDir, f);
-    const claudeF = join(claudeDir, f);
-    if (!existsSync(rootF) || !existsSync(claudeF)) {
-      results.push({ artifact: `.codex-mcp-guard/${f}`, status: STATUS.FAIL, detail: `runtime file present in one dir but not the other — the shipped guard is incomplete` });
+  const inv = new Map();
+  for (const [dir, label] of sides) {
+    const v = codexGuardParityInventory(dir);
+    inv.set(label, v);
+    for (const r of v.symlinks) results.push({ artifact: `${label}/${r}`, status: STATUS.FAIL, detail: "symlink inside the guard: Node resolves a linked module's siblings from the link target, which this check does not compare. Replace it with the file itself" });
+    for (const r of v.special) results.push({ artifact: `${label}/${r}`, status: STATUS.FAIL, detail: "not a regular file, directory or symlink" });
+    if (v.skipped.length) {
+      const t = codexGuardTrackedUnder(root, v.skipped.map((r) => `${label}/${r}`));
+      if (!t.ok) results.push({ artifact: `${label}/{${v.skipped.join(",")}}`, status: STATUS.FAIL, detail: `cannot establish whether files under these uncompared directories are tracked (git ls-files: ${t.error}), so they are not cleared` });
+      else for (const r of t.tracked) results.push({ artifact: r, status: STATUS.FAIL, detail: "TRACKED file under an uncompared directory (node_modules/ or .claude/): it is code the guard can load, and this check never reads it" });
+    }
+  }
+  if (consumerLayout) {
+    results.push({ artifact: ".claude/codex-mcp-guard", status: STATUS.PASS, detail: "consumer layout: a symlink to the root copy, so one file set and nothing to compare" });
+    return { id, source_rule, results };
+  }
+  const rootFiles = inv.get(".codex-mcp-guard").files;
+  const claudeFiles = inv.get(".claude/codex-mcp-guard").files;
+  for (const f of [...new Set([...rootFiles, ...claudeFiles])].sort()) {
+    if (!rootFiles.has(f) || !claudeFiles.has(f)) {
+      const missing = rootFiles.has(f) ? ".claude/codex-mcp-guard" : ".codex-mcp-guard";
+      results.push({ artifact: `.codex-mcp-guard/${f}`, status: STATUS.FAIL, detail: `runtime file missing from ${missing} (present only in the other copy): the shipped guard is incomplete` });
       continue;
     }
-    const a = safeRead(rootF); // 10 MB cap + try/catch
-    const b = safeRead(claudeF);
+    const a = readCappedBytes(join(rootDir, f));
+    const b = readCappedBytes(join(claudeDir, f));
     if (a === null || b === null) {
       results.push({ artifact: `.codex-mcp-guard/${f}`, status: STATUS.FAIL, detail: `unreadable or exceeds the 10 MB size cap` });
       continue;
     }
-    if (a === b) {
+    if (a.equals(b)) {
       results.push({ artifact: `.codex-mcp-guard/${f}`, status: STATUS.PASS, detail: `byte-identical to .claude/codex-mcp-guard/${f}` });
     } else {
       results.push({
         artifact: `.codex-mcp-guard/${f}`,
         status: STATUS.FAIL,
-        detail: `DRIFT: root .codex-mcp-guard/${f} differs from the maintained .claude/codex-mcp-guard/${f}. loom's OWN .codex/config.toml invokes the root copy (loom's Codex dogfood); a drifted root means loom-self runs a guard that diverges from the maintained/shipped .claude/ copy (the fail-open-vs-fail-closed class F-CGUARD closed for loom-self — consumers ship from .claude/ via coc-sync). Refresh: cp .claude/codex-mcp-guard/${f} .codex-mcp-guard/${f}`,
+        detail: `DRIFT: root .codex-mcp-guard/${f} differs from the maintained .claude/codex-mcp-guard/${f}. loom's OWN .gemini/settings.json launches the root copy as its MCP guard; a drifted root means loom-self runs a guard that diverges from the maintained/shipped .claude/ copy (the fail-open-vs-fail-closed class F-CGUARD closed for loom-self — consumers ship from .claude/ via coc-sync). Refresh: cp .claude/codex-mcp-guard/${f} .codex-mcp-guard/${f}`,
       });
     }
   }
@@ -6844,7 +7440,8 @@ export {
   extractRulesIndexCitations,
   checkCodexPoliciesFresh,
   checkCodexGuardRootParity,
-  CODEX_GUARD_PARITY_FILES,
+  codexGuardParityMembers,
+  CODEX_GUARD_PARITY_EXEMPT,
   canonicalPolicies,
   checkCodexHooksSchema,
   CODEX_HOOKS_ALLOWED_TOP_KEYS,
@@ -6876,6 +7473,7 @@ export {
   extractHookKinds,
   evaluateProvenanceParity,
   collectHookCommands,
+  commandPathSegments,
   parseLoomOnly,
   parseTiers,
   loomGlobMatch,

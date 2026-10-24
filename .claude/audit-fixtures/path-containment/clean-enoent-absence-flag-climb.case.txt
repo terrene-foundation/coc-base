@@ -1,0 +1,36 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// The SAFE climb, absent-flag form — the shape `.claude/hooks/dispatch.js::canonPath` uses
+// (entry 6072f082e): the flag is seeded false BEFORE the lstat try, set TRUE in the lstat's
+// catch ONLY when the caught error's code is ENOENT, and tested NEGATED by the exiting `if`.
+// Climbing therefore requires lstat to have ATTRIBUTED the absence to ENOENT; a dangling
+// link, EACCES or ELOOP leaves the flag false and the `if` returns null. Re-seeding inside
+// the loop is load-bearing: a flag hoisted out of it would keep the previous iteration's
+// true across an lstat that SUCCEEDS.
+function canonPath(p) {
+  let dir = path.dirname(path.resolve(p));
+  const tail = [path.basename(path.resolve(p))];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail);
+    } catch (e) {
+      let absent = false;
+      try {
+        fs.lstatSync(dir);
+      } catch (le) {
+        absent = !!le && le.code === "ENOENT";
+      }
+      if (!e || e.code !== "ENOENT" || !absent) return null;
+      const up = path.dirname(dir);
+      if (up === dir) return null;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return canonPath(p) === r;
+}

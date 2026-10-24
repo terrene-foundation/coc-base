@@ -6,7 +6,8 @@
  * grew its own lineage:
  *
  *   validate-bash-command.js  — a segment-aware tokenizer handling command
- *     wrappers, `-C` retarget, `--work-tree`, and sequential-last-wins.
+ *     wrappers, `-C` retarget, `--work-tree`, and repeated `-C` (modelled there
+ *     as last-wins; git composes it — see parseGitInvocation).
  *   fold-amendment-paired-with-helper.js — `/\bgit\b/` and `/\bcommit(?![\w-])/`
  *     tested against the WHOLE command string, with no `-C` awareness at all.
  *
@@ -35,6 +36,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { physicalPath } = require("./git-target-context.js");
 const {
   splitShellSegments,
   maskDocCarrierPayloads,
@@ -208,6 +210,7 @@ const SHELL_BASENAMES = new Set([
   "rbash",
   "busybox",
   "toybox",
+  "cmd",
   "pwsh",
   "powershell",
 ]);
@@ -286,9 +289,15 @@ const SH_LONG_COMMON = {
   vi: "flag",
 };
 const SH_SHORT_FLAGS = {
+  // `s` is OPAQUE (post-land gap commit, 2026-10-04): `sh -s` reads its script
+  // from STDIN, which this reader cannot see — the same "a body exists and
+  // cannot be read" class as an encoded command, so it REFUSES rather than
+  // script-runs. (`bash -s <<EOF …` is covered by the here-document rule,
+  // which reads the literal body instead.)
+  s: "opaque",
   a: "flag", b: "flag", d: "flag", e: "flag", f: "flag", g: "flag", h: "flag",
   i: "flag", k: "flag", l: "flag", m: "flag", n: "flag", p: "flag", r: "flag",
-  s: "flag", t: "flag", u: "flag", v: "flag", w: "flag", x: "flag", y: "flag",
+  t: "flag", u: "flag", v: "flag", w: "flag", x: "flag", y: "flag",
   B: "flag", C: "flag", D: "flag", E: "flag", F: "flag", G: "flag", H: "flag",
   K: "flag", P: "flag", R: "flag", T: "flag", V: "flag", X: "flag", Z: "flag",
 };
@@ -430,6 +439,212 @@ function parseOptionWord(v, g) {
   return { command, consumedNextWord: false };
 }
 
+/** cmd.exe (DOCUMENTED, NOT measured — cmd is absent on this host; the
+ * fail-closed reading applies). Options are `/x` or `-x`; `/c` and `/k` carry
+ * the command, whose body is the REST JOINED (cmd runs the remainder as one
+ * line). Unknown options refuse; no command option means an interactive
+ * console, which runs nothing scripted. */
+const CMD_FLAGS = new Set(["d", "e", "f", "q", "s", "t", "u", "v", "a", "r", "?"]);
+function cmdVerdict(later) {
+  for (let i = 0; i < later.length; i += 1) {
+    const tok = later[i];
+    if (tok.unexpandable) return UNRESOLVABLE_VERDICT;
+    const v = String(tok.value);
+    if (v.startsWith("/") || v.startsWith("-")) {
+      const word = v.slice(1).toLowerCase();
+      if (word === "c" || word === "k") {
+        const restToks = later.slice(i + 1);
+        for (const t of restToks) if (!isLiteralWord(t)) return UNRESOLVABLE_VERDICT;
+        const text = restToks.map((t) => String(t.value)).join(" ");
+        if (!text.trim()) return SCRIPT_VERDICT;
+        return { kind: "command", candidates: [{ value: text, unexpandable: false }, ...restToks] };
+      }
+      if (CMD_FLAGS.has(word)) continue;
+      return UNRESOLVABLE_VERDICT;
+    }
+    return { kind: "script", candidates: later.filter((t) => !t.unexpandable) };
+  }
+  return SCRIPT_VERDICT;
+}
+
+/** STDIN-SCRIPT SOURCES (post-land gap commit, 2026-10-04; here-string +
+ * `||` fixes 2026-10-05, gaps-v2 review items 2/4) — a PRE-PASS over the raw
+ * text, because in each form the script reaches the shell as STDIN, not as an
+ * operand the token walk can see. TWO markers do the refusal, and they are
+ * unexpandable tokens, so any body position that ends up carrying one refuses
+ * through the ordinary machinery; they differ only in the hook's RENDERING
+ * (see STDIN_PRODUCER_MARKER below): `$UNREADABLE_STDIN` for text that exists
+ * and cannot be read, `$UNKNOWN_STDIN_PRODUCER` for a producer whose output
+ * does not exist until the command runs.
+ *   • `<shell> <<EOF … EOF` (also `<<-`): a LITERAL delimiter makes the body
+ *     known text, so the span is normalized to ` -c '<body>'` and the ordinary
+ *     -c machinery evaluates it; a `-s` immediately before is dropped in the
+ *     same pass (`sh -s <<EOF` IS `sh -c body`). A heredoc on a NON-shell
+ *     command is DATA (`cat <<EOF`) and is never touched. A body over the size
+ *     cap (20k chars) keeps the body OUT of the read and inserts the marker.
+ *   • `<shell> <<<'body'` — the here-string: the single following word IS the
+ *     body. A single-quoted word is literal; a double-quoted or bare word
+ *     carrying expansions/globs is UNREADABLE (the marker); same size cap.
+ *   • `<producer> | <shell>` with no script operand: the body is the pipe. A
+ *     literal `echo`/`printf` producer is known before anything runs — its
+ *     literal arguments JOINED are the body and ride as a candidate; every
+ *     other producer is UNKNOWN (the producer marker; the hook renders that
+ *     class at `advisory`, gaps-v4 item 3). A piped shell that carries its OWN
+ *     body — a `c` in a short option word, or a first token that is not an
+ *     option word (a script operand) — is left alone: the pipe is data, and
+ *     the ordinary walk reads the real body (gaps-v4 item 3, where the
+ *     verbatim rule also restores the block the marker had downgraded). The
+ *     `|` must NOT be the first half of a `||` — the lookbehind keeps
+ *     `test -f x || bash -c 'echo hi'` intact instead of rewriting the shell's
+ *     own command away (review item 4; latent until the hook pre-pass below).
+ * All passes run inside `nestedCommandStrings`, so every READER consumer
+ * inherits them; AND validate-bash-command.js runs `normalizeStdinScripts` on
+ * the WHOLE command before its splitter (review item 2), because the splitter
+ * separates on `|` first and the per-segment call alone never saw the pipe. */
+const HEREDOC_RX = /<<-?[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1([^\n]*)\n([\s\S]*?)\n[ \t]*\2[ \t]*(?=\n|$)/g;
+const HERESTRING_RX = /<<<[ \t]*(?:'([^']*)'|"([^"]*)"|([^\s;&|<>]+))/g;
+// The `(?<!\|)` lookbehind (gaps-v2 review item 4) keeps the SECOND `|` of a
+// `||` from matching: without it, `test -f x || bash -c 'echo hi'` was
+// "normalized" into the unreadable marker, throwing the real command away.
+const STDIN_SHELL_RX = /(?<!\|)\|[ \t]*((?:[\w./\\-]*[\\/])?(?:sh|bash|zsh|dash|ksh|mksh|ash|hush|fish|csh|tcsh|yash|rbash))\b([^\n|;&]*)/g;
+const STDIN_MARKER = "$UNREADABLE_STDIN";
+// The PIPE-into-shell fallback classes its marker SEPARATELY (gaps-v4 review
+// item 3): a body the producer has not yet PRINTED is a different fact from a
+// body whose text exists and cannot be read (an expanding heredoc, an
+// over-cap body), and the hook renders the two at different severities — the
+// producer class is ADVISORY (the register BASE gave `curl … | sh`, whose
+// plain warning survives), the unreadable-text class stays halt-and-report.
+// Both markers are unexpandable tokens, so the reader's fail-closed verdict is
+// IDENTICAL for either; only the hook's rendering differs.
+const STDIN_PRODUCER_MARKER = "$UNKNOWN_STDIN_PRODUCER";
+/** True for a segment the pipe rewrite marked as an UNKNOWABLE producer's
+ * output (`<shell> -c $UNKNOWN_STDIN_PRODUCER`). Consumed by
+ * validate-bash-command.js to render the producer class at `advisory` rather
+ * than the nested-unreadable halt. STATED RESIDUAL: the marker is an in-band
+ * token, so a hand-typed `sh -c $UNKNOWN_STDIN_PRODUCER` classifies the same
+ * way — it is still a delivered finding on a command whose body cannot be
+ * read, and the difference is the severity label alone (both are non-blocking,
+ * `continue:true`), never silence. */
+const isUnknownStdinProducerSegment = (seg) =>
+  String(seg || "").includes(STDIN_PRODUCER_MARKER);
+function shellConsumesHeredoc(pre) {
+  const toks = stripRedirectionTokens(tokenize(String(pre || "")));
+  const scan = scanCommandPrefix(toks, (tok) => SHELL_BASENAMES.has(foldedBasename(tok.value)));
+  return scan.kind === "match";
+}
+function normalizeStdinScripts(seg, wrappedReceivers) {
+  let text = String(seg || "");
+  text = text.replace(HEREDOC_RX, (m, q, delim, rest, body, offset) => {
+    const pre = text.slice(Math.max(0, text.lastIndexOf("\n", offset) + 1), offset);
+    if (rest.trim() !== "") return m; // unconsumed tail after the delimiter: leave verbatim
+    if (!shellConsumesHeredoc(pre)) return m; // a DATA heredoc (cat <<EOF): untouched
+    if (body.length > 20000) return ` -c ${STDIN_MARKER}`;
+    // An UNQUOTED delimiter expands `$`/backticks in the body (a QUOTED one is
+    // literal); the expansion is unreadable, so it refuses.
+    if (q === "" && /[$`]/.test(body)) return ` -c ${STDIN_MARKER}`;
+    return ` -c ${shellQuoteWord(body)}`;
+  });
+  // HERE-STRINGS (`<<<'body'`, gaps-v2 review item 2): the single following
+  // word IS the stdin body. Single-quoted -> literal; double-quoted/bare with
+  // expansions or globs -> unreadable (the marker); same size cap as heredocs.
+  text = text.replace(HERESTRING_RX, (m, sq, dq, bare, offset) => {
+    const pre = text.slice(Math.max(0, text.lastIndexOf("\n", offset) + 1), offset);
+    if (!shellConsumesHeredoc(pre)) return m; // a here-string on a NON-shell is data (`cat <<< x`)
+    let body = null;
+    if (sq !== undefined) body = sq;
+    else if (dq !== undefined) body = /[$`\\]/.test(dq) ? null : dq;
+    else if (bare !== undefined) body = /[$`\\*?\[]/.test(bare) ? null : bare;
+    if (body === null || body.length > 20000) return ` -c ${STDIN_MARKER}`;
+    return ` -c ${shellQuoteWord(body)}`;
+  });
+  // The `-s` before our inserted -c is redundant (`sh -s <<EOF` ≡ `sh -c body`).
+  text = text.replace(/(\b[\w./\\-]+)[ \t]+-s(?=[ \t]+-c[ \t])/g, "$1");
+  text = text.replace(STDIN_SHELL_RX, (m, shell, tail, offset) => {
+    // Redirections (`2>/dev/null`) and comments (`# x`) are NOT script operands —
+    // without this strip the first-token test below read the redirect token as
+    // "a script operand the reader resolves", left the span verbatim, and the
+    // piped body was never read. MEASURED end-to-end (gaps-v2 security review):
+    // `echo 'git worktree remove --force .' | bash 2>/dev/null` ALLOWED where the
+    // tail-less form BLOCKS. stripRedirectionTokens is the same helper
+    // shellConsumesHeredoc uses one function above; the `#` slice mirrors shell
+    // comment semantics (unquoted, word start).
+    const rawTail = stripRedirectionTokens(tokenize(tail)).filter((t) => t.value.trim() !== "");
+    const hashAt = rawTail.findIndex((t) => String(t.value).startsWith("#"));
+    const tailToks = hashAt === -1 ? rawTail : rawTail.slice(0, hashAt);
+    // A shell that carries its OWN body is NOT reading the pipe as its script —
+    // leave the span VERBATIM so the ordinary machinery reads the real body.
+    // Two provable shapes, and the MARKER is the default for everything else:
+    //   • a `c` in a SHORT option word (reader rule (b): the command letter
+    //     puts the call in COMMAND MODE) — `bash -c BODY`, `bash -ec BODY`.
+    //   • a FIRST token that is not an option word — a script operand
+    //     (`bash /tmp/x.sh`), which the reader already resolves on its own
+    //     (a path runs; a literal non-path refuses; an unreadable one refuses).
+    // The DEFAULT is the marker because the inverse rule FAILS OPEN, and it
+    // was measured: a tail like `-o pipefail` carries a word the reader
+    // CONSUMES AS THE OPTION'S VALUE, so treating "any non-option word" as an
+    // operand would leave the span alone and the piped body would be INVISIBLE
+    // (`nestedCommandStrings("bash -o pipefail")` returns
+    // `commands:["-o","pipefail"], unresolvable:false` — a silent allow), while
+    // marking it keeps the fail-closed read (stdin IS the script for a tail of
+    // pure options). MEASURED before the own-body guard (gaps-v4 item 3):
+    // `curl x | bash -c 'git reset --hard HEAD'` had its `-c` operand REPLACED
+    // by the marker, halting at rc 0 (the command PROCEEDS) where the same
+    // `bash -c '…'` alone BLOCKS on a dirty tree — a fence downgrade the
+    // marker's advisory class would have weakened a second time. The guard
+    // restores the block: the span rides verbatim, the reader extracts the
+    // real `-c` body, and the git fence measures it.
+    const isShortCommandModeWord = (v) => /^[-+][^-]*c[A-Za-z]*$/.test(String(v));
+    const shellOwnsItsBody =
+      tailToks.some((t) => isShortCommandModeWord(String(t.value))) ||
+      (tailToks.length > 0 && !/^[-+]/.test(String(tailToks[0].value)));
+    if (shellOwnsItsBody) return m;
+    const head = text.slice(Math.max(0, Math.max(text.lastIndexOf("\n", offset), text.lastIndexOf(";", offset), text.lastIndexOf("&", offset)) + 1), offset);
+    const headToks = stripRedirectionTokens(tokenize(head)).filter((t) => t.value.trim() !== "");
+    const producer = headToks[0] ? foldedBasename(headToks[0].value) : "";
+    const args = headToks.slice(1);
+    if (producer === "echo" && args.every((t) => isLiteralWord(t) && !/^-|\\/.test(String(t.value)))) {
+      const textOut = args.map((t) => String(t.value)).join(" ");
+      if (textOut.trim() === "") return m; // `echo | sh`: empty stdin, nothing runs
+      return `| ${shell} -c ${shellQuoteWord(textOut)}`;
+    }
+    if (
+      producer === "printf" &&
+      args.length === 1 &&
+      isLiteralWord(args[0]) &&
+      !/[%\\]/.test(String(args[0].value))
+    ) {
+      // A conversion-free, single-argument printf: the format IS the output.
+      const textOut = String(args[0].value);
+      if (textOut.trim() === "") return m;
+      return `| ${shell} -c ${shellQuoteWord(textOut)}`;
+    }
+    return `| ${shell} -c ${STDIN_PRODUCER_MARKER}`;
+  });
+  if (wrappedReceivers) {
+    const stages = splitShellSegments(text, { withOffsets: true, newlineSeparates: true });
+    const edits = [];
+    for (let k = 1; k < stages.length; k++) {
+      const stage = stages[k];
+      if (text[stage.start - 1] !== "|" || text[stage.start - 2] === "|") continue;
+      const receiverTokens = stripRedirectionTokens(tokenize(stage.text));
+      const scan = scanCommandPrefix(receiverTokens, (token) =>
+        SHELL_BASENAMES.has(foldedBasename(token.value)));
+      if (scan.kind !== "match" || scan.idx === 0) continue;
+      const span = tokenOffsets.get(receiverTokens[scan.idx]);
+      if (!span) throw new Error("Receiver shell token offsets missing");
+      const producer = stages[k - 1].text;
+      const bare = producer + " | " + stage.text.slice(span.start);
+      const normalized = normalizeStdinScripts(bare);
+      if (normalized === bare) continue;
+      edits.push({ start: stage.start, end: stage.start + stage.text.length,
+        replacement: stage.text.slice(0, span.start) + normalized.slice(producer.length + 3) });
+    }
+    for (const edit of edits.reverse())
+      text = text.slice(0, edit.start) + edit.replacement + text.slice(edit.end);
+  }
+  return text;
+}
+
 /** The VERDICT for a sh-family / fish invocation (grammar-independent detection,
  * Tier-1 round 4). THREE rules, in priority order:
  *   (a) EVERY literal later word is ALWAYS a candidate body — whatever the
@@ -555,6 +770,7 @@ function shellInvocationVerdict(g, later, commandLetters, opts = {}) {
   if (sawCommandLetter && bodyTaken === -1 && pendingBodyWord !== -1 && pendingBodyWord === i - 1 && i < later.length) {
     bodyTaken = i + 1;
   }
+  if (opts.commandBodiesOnly === true && sawCommandLetter && i < later.length) bodyTaken = i + 1;
   const paramsFrom = bodyTaken === -1 ? later.length : bodyTaken;
   const head = later.slice(0, paramsFrom);
   const operand = later[i];
@@ -591,6 +807,9 @@ function shellInvocationVerdict(g, later, commandLetters, opts = {}) {
       // unreadable word) this still returns the bare fail-closed mark.
       if (!bodyIsRecognised) return lateBodyVerdict() || UNRESOLVABLE_VERDICT;
       return { kind: "command", candidates, unresolvable: true };
+    }
+    if (opts.commandBodiesOnly === true && bodyTaken > 0) {
+      return { kind: "command", candidates: [later[bodyTaken - 1]] };
     }
     return { kind: "command", candidates };
   }
@@ -859,9 +1078,10 @@ function shellCandidateBodies(words, opts = {}) {
   // without a table entry is a defect, and it lands loudly here).
   let verdict;
   if (shellName === "pwsh" || shellName === "powershell") verdict = pwshVerdict(later);
+  else if (shellName === "cmd") verdict = cmdVerdict(later);
   else if (shellName === "fish") verdict = shellInvocationVerdict(FISH_OPTION, later, ["c", "C"], { tolerateNonPathScriptOperand });
   else if (SH_FAMILY_BASENAMES.has(shellName)) {
-    verdict = shellInvocationVerdict(SH_FAMILY_TABLES.get(shellName) || FALLBACK_SH_OPTION, later, ["c"], { tolerateNonPathScriptOperand });
+    verdict = shellInvocationVerdict(SH_FAMILY_TABLES.get(shellName) || FALLBACK_SH_OPTION, later, ["c"], { tolerateNonPathScriptOperand, commandBodiesOnly: opts.commandBodiesOnly === true });
   } else return { candidates: [], shellAt: shellIdx, unresolvable: true };
   if (verdict.kind === "script") return { candidates: verdict.candidates || [], shellAt: shellIdx, unresolvable: false };
   if (verdict.kind === "unresolvable") return { candidates: [], shellAt: shellIdx, unresolvable: true };
@@ -1454,11 +1674,18 @@ function stripRedirectionTokens(toks) {
   return Array.isArray(toks) ? toks.filter((t) => !(t && t.redirect)) : toks;
 }
 
-function tokenize(raw) {
+const assignmentSyntax = new WeakMap();
+const tokenOffsets = new WeakMap();
+const tokenExpansionStart = new WeakMap();
+
+function tokenize(raw, opts = {}) {
   const toks = [];
   let cur = "";
   let started = false;
+  let wordStart = 0;
+  let assignmentNameLiteral = true;
   let unexpandable = false;
+  let expansionStart = null;
   let quote = null;
   // Set when the word now being accumulated OPENED with a redirection operator.
   let redirect = false;
@@ -1468,24 +1695,28 @@ function tokenize(raw) {
   // Set when the word just flushed was a BARE operator, making the word that
   // follows it that operator's operand.
   let redirectOperandPending = false;
-  const flush = () => {
-    toks.push({
-      value: cur,
-      unexpandable,
-      redirect: redirect || redirectOperandPending,
-    });
+  const flush = (end) => {
+    const token = { value: cur, unexpandable, redirect: redirect || redirectOperandPending };
+    assignmentSyntax.set(token, assignmentNameLiteral);
+    tokenOffsets.set(token, { start: wordStart, end });
+    tokenExpansionStart.set(token, expansionStart);
+    toks.push(token);
     // Recomputed from THIS word before the state resets: a bare operator arms
     // the flag for the next word, and anything else (including the operand just
     // consumed) disarms it.
     redirectOperandPending = redirect && cur === redirectOp;
     cur = "";
     started = false;
+    assignmentNameLiteral = true;
     unexpandable = false;
+    expansionStart = null;
     redirect = false;
     redirectOp = "";
   };
   for (let i = 0; i < raw.length; i++) {
+    if (!started) wordStart = i;
     const c = raw[i];
+    const prefixLength = cur.length;
     // A redirection. Tested FIRST, and only while no quote is open — a quoted
     // `">"` reaches this line with `quote` already set by the branch that opened
     // it, and an escaped `\>` is consumed by the backslash branch below without
@@ -1524,7 +1755,7 @@ function tokenize(raw) {
         // ordinary token and only the operator (with its operand) is marked.
         // `flush` recomputes `redirectOperandPending` from the word it closes —
         // an ordinary one — so it disarms, and the operator's state is set after.
-        if (started) flush();
+        if (started) flush(i);
         redirect = true;
         redirectOp = m[0];
         cur += m[0];
@@ -1541,11 +1772,12 @@ function tokenize(raw) {
     }
     // Unquoted OR double-quoted: `$` and backtick still expand.
     if (quote !== "'" && (c === "$" || c === "`")) {
+      if (!cur.includes("=")) assignmentNameLiteral = false;
       const next = raw[i + 1];
       if (c === "`") {
         const end = scanBalanced(raw, i + 1, "\0", "`");
         cur += raw.slice(i, end);
-        unexpandable = true;
+        unexpandable = true; expansionStart ??= prefixLength;
         started = true;
         i = end - 1;
         continue;
@@ -1553,7 +1785,7 @@ function tokenize(raw) {
       if (next === "(") {
         const end = scanBalanced(raw, i + 2, "(", ")");
         cur += raw.slice(i, end);
-        unexpandable = true;
+        unexpandable = true; expansionStart ??= prefixLength;
         started = true;
         i = end - 1;
         continue;
@@ -1561,7 +1793,7 @@ function tokenize(raw) {
       if (next === "{") {
         const end = scanBalanced(raw, i + 2, "{", "}");
         cur += raw.slice(i, end);
-        unexpandable = true;
+        unexpandable = true; expansionStart ??= prefixLength;
         started = true;
         i = end - 1;
         continue;
@@ -1584,7 +1816,7 @@ function tokenize(raw) {
         }
         if (escaped) {
           cur += raw.slice(i, Math.min(j + 1, raw.length));
-          unexpandable = true;
+          unexpandable = true; expansionStart ??= prefixLength;
         } else {
           cur += body; // escape-free body IS the literal value
         }
@@ -1597,7 +1829,7 @@ function tokenize(raw) {
       // unexpandable exactly like `$NAME`.
       if (next && "@*#-".includes(next)) {
         cur += raw.slice(i, i + 2);
-        unexpandable = true;
+        unexpandable = true; expansionStart ??= prefixLength;
         started = true;
         i += 1;
         continue;
@@ -1607,7 +1839,7 @@ function tokenize(raw) {
         let j = i + 1;
         while (j < raw.length && /[A-Za-z_0-9]/.test(raw[j])) j++;
         cur += raw.slice(i, j);
-        unexpandable = true;
+        unexpandable = true; expansionStart ??= prefixLength;
         started = true;
         i = j - 1;
         continue;
@@ -1623,37 +1855,41 @@ function tokenize(raw) {
       // it is an ORDINARY CHARACTER and bash passes it through.
       //
       // loom#1549 F3 lock 9 — this branch used to consume the backslash
-      // unconditionally, so `git -C "C:\Users\x\repo" reset --hard` parsed the
+      // unconditionally, so `git -C "C:<operator-home>\repo" reset --hard` parsed the
       // directory as `C:Usersxrepo`: a path that names nothing, so the
       // porcelain probe failed, `ok:false` fired, and `severity:"block"`
       // degraded to a non-blocking advisory. That is lock 6's own failure mode
       // reappearing on the exact form lock 6 exists to protect (a QUOTED path),
       // and it lands on Windows operators — where backslash paths are not an
       // edge case but the normal spelling. The single-quoted form was always
-      // correct, which is what made the gap easy to miss.
+      // correct, which is what made the gap easy to miss. (.claude/hooks/lib/git-command-parse.js:1861-1868)
       if (c === "\\" && i + 1 < raw.length) {
         const n = raw[i + 1];
         if (n === "$" || n === "`" || n === '"' || n === "\\" || n === "\n") {
+          if (opts.shellContinuations === true && n === "\n") { i++; continue; }
           cur += raw[++i]; // a real escape — the backslash is consumed
         } else {
-          cur += c; // literal backslash, e.g. every separator in C:\Users\x
+          cur += c; // literal backslash, e.g. every separator in C:<operator-home> (.claude/hooks/lib/git-command-parse.js:1861-1866)
         }
       } else if (c === '"') quote = null;
       else cur += c;
       continue;
     }
     if (c === "'" || c === '"') {
+      if (!cur.includes("=")) assignmentNameLiteral = false;
       quote = c;
       started = true;
       continue;
     }
     if (c === "\\" && i + 1 < raw.length) {
+      if (opts.shellContinuations === true && raw[i + 1] === "\n") { i++; continue; }
+      if (!cur.includes("=")) assignmentNameLiteral = false;
       cur += raw[++i];
       started = true;
       continue;
     }
     if (/\s/.test(c)) {
-      if (started) flush();
+      if (started) flush(i);
       else {
         cur = "";
         unexpandable = false;
@@ -1670,16 +1906,17 @@ function tokenize(raw) {
     // quote branches above consume them), so `find . -name '*.js'` and
     // `ls '*.txt'` stay literal, and a LONE `[` (the test builtin) is not a
     // glob — the pair tests are what keep those out of the mark class.
-    if (c === "*" || c === "?") unexpandable = true;
-    else if (c === "]" && cur.includes("[")) unexpandable = true;
+    if (c === "~" && ((!started && cur === "") || (/^[A-Za-z_]\w*=(?:.*:)?$/.test(cur) && (raw[i - 1] === "=" || raw[i - 1] === ":")))) unexpandable = true;
+    if (c === "*" || c === "?") { unexpandable = true; expansionStart ??= prefixLength; }
+    else if (c === "]" && cur.includes("[")) { unexpandable = true; expansionStart ??= cur.indexOf("["); }
     else if (c === "}") {
       const open = cur.lastIndexOf("{");
-      if (open !== -1 && /[,]|\.\./.test(cur.slice(open + 1))) unexpandable = true;
+      if (open !== -1 && /[,]|\.\./.test(cur.slice(open + 1))) { unexpandable = true; expansionStart ??= open; }
     }
     cur += c;
     started = true;
   }
-  if (started) flush();
+  if (started) flush(raw.length);
   return toks;
 }
 
@@ -1870,7 +2107,7 @@ const WRAPPER_GRAMMAR = new Map();
  * `ambiguous` — a spelling the table does not know, so nothing after it is
  * provably in command position. Long `--name=value` is always fused-consumed.
  */
-function wrapperFlagEffect(token, g) {
+function wrapperFlagEffect(token, g, onFlag) {
   if (token.startsWith("--")) {
     const body = token.slice(2);
     const eq = body.indexOf("=");
@@ -1891,11 +2128,12 @@ function wrapperFlagEffect(token, g) {
       return { pending: k === chars.length - 1, ambiguous: false };
     }
     if (spec !== "flag") return { pending: false, ambiguous: true };
+    if (onFlag) onFlag(chars[k]);
   }
   return { pending: false, ambiguous: false };
 }
 
-function scanCommandPrefix(toks, stopAt) {
+function scanCommandPrefix(toks, stopAt, environmentOps) {
   let i = 0;
   let sawWrapper = false;
   let unresolvedCommandSlot = false;
@@ -1938,8 +2176,16 @@ function scanCommandPrefix(toks, stopAt) {
   let wrapperGrammar = null;
   let pendingValue = false; // the previous flag consumes the NEXT word as its value
   let operandsSeen = 0; // positional operands consumed since the last wrapper name
+  let envWrapper = false;
+  let controlWrapper = null;
+  let envUnsetPending = false;
   while (i < toks.length) {
     const t = toks[i].value;
+    if (environmentOps && envUnsetPending) {
+      environmentOps.push({ kind: "unset", name: t });
+      envUnsetPending = false;
+    }
+    if (pendingValue) { pendingValue = false; i++; continue; }
     if (stopAt(toks[i]))
       return {
         kind: "match",
@@ -1950,15 +2196,29 @@ function scanCommandPrefix(toks, stopAt) {
         sawUnknownCommandWord,
       };
     if (/^[A-Za-z_]\w*\+?=/.test(t)) {
+      const sudoSetter = controlWrapper === "sudo" && wrapperGrammar && operandsSeen >= wrapperGrammar.operands;
+      if (environmentOps && !pendingValue && !sawWrapperOperand &&
+          (envWrapper || sudoSetter || (!sawWrapper && assignmentSyntax.get(toks[i])))) {
+        const at = t.indexOf("=");
+        const append = !sawWrapper && t[at - 1] === "+";
+        environmentOps.push({ kind: append ? "append" : "set", name: t.slice(0, append ? at - 1 : at),
+          value: toks[i].unexpandable ? { kind: "unresolved" } : t.slice(at + 1) });
+      }
+      if (environmentOps && sawWrapper && !envWrapper && !sudoSetter && !pendingValue &&
+          !sawWrapperOperand) {
+        const commandOperand = wrapperGrammar && operandsSeen >= wrapperGrammar.operands &&
+          ["command", "nice", "exec", "builtin"].includes(controlWrapper);
+        environmentOps.push({ kind: commandOperand ? "no-exec" : "unresolved-wrapper" });
+      }
       i++;
       continue;
-    } // VAR=val assignment, or the `arr+=(…)` append form (also an assignment,
-    // never a command — without the `\+?` it fell through to the command-name
-    // slot and, being substitution-bearing, marked the segment unresolvable)
+    } // Prefix operation provenance: .claude/hooks/lib/git-command-parse.js:2189-2202.
     // Case-folded: wrapper NAMES are case-insensitive on this side too (co-owner
     // ruling 2026-10-04) — `SUDO git ...` / `/usr/bin/Nice ...` must see through.
     const wrapperName = basename(t).toLowerCase();
     if (GIT_WRAPPERS.has(wrapperName)) {
+      envWrapper = ENV_COMMANDS.has(wrapperName);
+      controlWrapper = wrapperName;
       sawWrapper = true;
       wrapperGrammar = WRAPPER_GRAMMAR.get(wrapperName) || null;
       pendingValue = false;
@@ -1967,6 +2227,32 @@ function scanCommandPrefix(toks, stopAt) {
       continue;
     } // wrapper command name (basename, so `/usr/bin/sudo` counts)
     if (t.startsWith("-")) {
+      if (environmentOps && !pendingValue && wrapperGrammar && !t.startsWith("--")) {
+        wrapperFlagEffect(t, wrapperGrammar, (flag) => {
+          if (controlWrapper === "exec" && flag === "c")
+            environmentOps.push({ kind: "clear" });
+          if (controlWrapper === "command" && /[vV]/.test(flag))
+            environmentOps.push({ kind: "no-exec" });
+        });
+      }
+      if (environmentOps && envWrapper) {
+        if (t === "-" || t === "--ignore-environment") environmentOps.push({ kind: "clear" });
+        if (t === "--unset") envUnsetPending = true;
+        else if (t.startsWith("--unset=")) environmentOps.push({ kind: "unset", name: t.slice(8) });
+        else if (/^-[^-]/.test(t)) {
+          for (let n = 1; n < t.length; n++) {
+            const ch = t[n];
+            if (ch === "i") environmentOps.push({ kind: "clear" });
+            if ("uCaPS".includes(ch)) {
+              if (ch === "u") {
+                if (n + 1 < t.length) environmentOps.push({ kind: "unset", name: t.slice(n + 1) });
+                else envUnsetPending = true;
+              }
+              break;
+            }
+          }
+        }
+      }
       if (wrapperGrammar) {
         const eff = wrapperFlagEffect(t, wrapperGrammar);
         pendingValue = eff.pending;
@@ -3032,14 +3318,72 @@ function nestingFromTokens(toks, multicallHop) {
  * body is a STRICT SUBSTRING of its carrier, so termination on length alone
  * holds here exactly as it does for the wrapper half.
  */
+const nestedCommandEnvironments = new WeakMap();
+const expansionEnvironments = new WeakMap();
+const invocationContexts = new WeakMap();
+
 function nestedCommandStrings(seg) {
-  const base = nestedCommandStringsInner(seg);
-  const subs = substitutionCommandStrings(seg);
-  if (!subs.length) return base;
-  return {
-    commands: base.commands.concat(subs),
-    unresolvable: base.unresolvable,
-  };
+  // The stdin-script pre-pass runs FIRST (heredocs + pipes-into-shells, see
+  // normalizeStdinScripts); both halves below read the normalized text so an
+  // evaluated heredoc body's own substitutions are scanned too.
+  const normalized = normalizeStdinScripts(seg);
+  const base = nestedCommandStringsInner(normalized);
+  const subs = substitutionCommandStrings(normalized);
+  const environmentOps = [];
+  scanCommandPrefix(stripRedirectionTokens(tokenize(normalized)), NESTING_STOP, environmentOps);
+  const result = { commands: base.commands.concat(subs), unresolvable: base.unresolvable };
+  nestedCommandEnvironments.set(result, result.commands.map((_, i) =>
+    i < base.commands.length ? environmentOps : []));
+  return result;
+}
+
+function readOnlyWrapperCommands(segment) {
+  const toks = stripRedirectionTokens(tokenize(segment, { shellContinuations: true }));
+  const name = toks.length ? foldedBasename(toks[0].value) : "";
+  if (name === "!") return { commands: toks.length > 1 ? [rejoinTokens(toks.slice(1))] : [], unresolvable: toks.length < 2 };
+  if (name === "busybox") {
+    if (toks[1]?.unexpandable || toks[1]?.value !== "sh") return { commands: [], unresolvable: true };
+    return { commands: [rejoinTokens(toks.slice(1))], unresolvable: false };
+  }
+  if (name === "eval") return nestingFromTokens(toks, 0);
+  if (["bash", "sh", "zsh", "dash", "ksh"].includes(name)) {
+    const safe = { short: { c: "command", e: "flag", u: "flag", x: "flag", l: "flag", o: "value" }, long: { norc: "flag", noprofile: "flag" }, clusters: true };
+    let from = 1, commandMode = false;
+    for (; from < toks.length && toks[from].value.startsWith("-"); from++) {
+      const flag = toks[from].value;
+      if (flag === "--") { from++; break; }
+      if (toks[from].unexpandable || (!flag.startsWith("--") && flag.includes("o") && flag !== "-o")) return { commands: [], unresolvable: true };
+      const option = parseOptionWord(flag, safe);
+      if (!option || option === "opaque") return { commands: [], unresolvable: true };
+      commandMode ||= option.command;
+      if (option.consumedNextWord) {
+        const value = toks[++from];
+        if (!value || value.unexpandable || !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(value.value)) return { commands: [], unresolvable: true };
+      }
+    }
+    if (!commandMode && toks[from] && !toks[from].unexpandable && looksLikePathOperand(toks[from].value)) return { commands: [], unresolvable: false };
+    if (!commandMode || !toks[from] || toks[from].unexpandable) return { commands: [], unresolvable: true };
+    const read = shellCandidateBodies(toks, { commandBodiesOnly: true });
+    return { commands: read.candidates.map(t => t.value), unresolvable: read.unresolvable };
+  }
+  if (!["exec", "command", "builtin", "timeout", "nohup", "nice", "sudo", "xargs", "time", "stdbuf"].includes(name)) return null;
+  let g = WRAPPER_GRAMMAR.get(name);
+  if (!g) return { commands: [], unresolvable: true };
+  if (name === "time") g = { ...g, short: new Map([...g.short].filter(([k]) => k !== "o")), long: new Map([...g.long].filter(([k]) => k !== "output")) };
+  let from = 1;
+  for (; from < toks.length && toks[from].value.startsWith("-"); from++) {
+    const flag = toks[from].value;
+    if (flag === "--") { from++; break; }
+    if (toks[from].unexpandable) return { commands: [], unresolvable: true };
+    const effect = wrapperFlagEffect(flag, g);
+    if (effect.ambiguous || (effect.pending && (!toks[from + 1] || toks[from + 1].unexpandable))) return { commands: [], unresolvable: true };
+    if (name === "sudo" && /^(?:-[A-Za-z]*[esi]|--(?:edit|shell|login))(?:=|$)/.test(flag)) return { commands: [], unresolvable: true };
+    if (name === "command" && /^-[pvV]*[vV][pvV]*$/.test(flag)) return { commands: [], unresolvable: false, queryOnly: true };
+    if (effect.pending) from++;
+  }
+  for (let i = 0; i < g.operands; i++) if (!toks[from + i] || toks[from + i].unexpandable) return { commands: [], unresolvable: true };
+  const out = wrapperCommandStrings(toks, 1, { short: Object.fromEntries(g.short), long: Object.fromEntries(g.long), singleDashLong: {}, operands: g.operands, run: "argv" });
+  return { ...out, argumentInput: name === "xargs" };
 }
 
 // A nested body is always a STRICT SUBSTRING of the segment that carries it, so
@@ -3059,8 +3403,9 @@ const MAX_NEST_DEPTH = 8;
  * in a SUBSHELL, so it cannot move the parent shell's cwd, and splicing it into
  * a cd trail would model a directory change that never happens.
  */
-function expandNestedSegments(segments, maxDepth = MAX_NEST_DEPTH) {
+function expandNestedSegments(segments, maxDepth = MAX_NEST_DEPTH, normalizeSegment) {
   const out = [];
+  const environments = [];
   // For every emitted segment, the INDEX (in `out`) of the ORIGINAL depth-0
   // segment it descends from — its own index for an original. Consumed by
   // `parseGitInvocations` to drop a nested body's record when the original it
@@ -3071,33 +3416,93 @@ function expandNestedSegments(segments, maxDepth = MAX_NEST_DEPTH) {
   const parents = [];
   let truncated = false;
   let unresolvable = false;
-  const walk = (segs, depth, owner) => {
+  // WHICH segments were unreadable, not just THAT some were (gaps-v4 review
+  // item 3). The boolean alone cannot answer the severity question the hook
+  // must answer — "is every unreadable body an UNKNOWABLE PRODUCER's output
+  // (advisory), or is at least one a body whose TEXT exists and cannot be read
+  // (halt-and-report)?" — and asking the whole-command boolean is the
+  // `instrument-discipline.md` MUST-4 shape: a sound answer to a DIFFERENT
+  // question. The list is ATTRIBUTION, not a second verdict: `unresolvable` is
+  // still set exactly when this list is non-empty, so every existing consumer
+  // reads the same boolean it always did.
+  const unresolvableSegments = [];
+  const walk = (segs, depth, owner, inheritedEnvironment) => {
     for (const s of segs || []) {
-      const text = typeof s === "string" ? s : s && s.text;
+      const candidate = typeof s === "string" ? s : s && s.text;
+      const text = normalizeSegment && typeof candidate === "string" ? normalizeSegment(candidate) : candidate;
       if (typeof text !== "string" || !text.trim()) continue;
       const self = out.length;
       out.push(text);
+      environments.push(inheritedEnvironment);
       parents.push(depth === 0 ? self : owner);
       const nested = nestedCommandStrings(text);
-      if (nested.unresolvable) unresolvable = true;
+      if (nested.unresolvable) {
+        unresolvable = true;
+        unresolvableSegments.push(text);
+      }
       if (!nested.commands.length) continue;
       if (depth >= maxDepth) {
         truncated = true;
         continue;
       }
-      for (const cmd of nested.commands) {
-        const cleaned = stripShellComments(cmd);
+      for (let n = 0; n < nested.commands.length; n++) {
+        const cmd = nested.commands[n];
+        const stripped = stripShellComments(cmd);
+        const cleaned = normalizeSegment ? normalizeSegment(stripped) : stripped;
         if (!cleaned.trim()) continue;
         walk(
           splitShellSegments(maskCasePatterns(cleaned), { newlineSeparates: true }),
           depth + 1,
           depth === 0 ? self : owner,
+          inheritedEnvironment.concat(nestedCommandEnvironments.get(nested)[n]),
         );
       }
     }
   };
-  walk(segments, 0, -1);
-  return { segments: out, parents, truncated, unresolvable };
+  walk(segments, 0, -1, []);
+  const result = { segments: out, parents, truncated, unresolvable, unresolvableSegments };
+  expansionEnvironments.set(result, environments);
+  return result;
+}
+
+function gitPrefixTargetContext(toks, end) {
+  const context = {
+    base: { kind: "payload-cwd" }, shellChdir: [], chdir: [], workTree: null, gitDir: null,
+    unknown: [],
+  };
+  let wrapper = null;
+  for (let k = 0; k < end; k++) {
+    const tok = toks[k];
+    const t = tok.value;
+    const assignment = t.match(/^(GIT_DIR|GIT_WORK_TREE)(\+?)=(.*)$/s);
+    if (assignment) {
+      const key = assignment[1] === "GIT_DIR" ? "gitDir" : "workTree";
+      context[key] = { value: assignment[3], unexpandable: tok.unexpandable, source: assignment[1] };
+      if (assignment[2] || !assignment[3]) context.unknown.push("invalid-prefix-selector");
+      continue;
+    }
+    if (/^GIT_(?:COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CEILING_DIRECTORIES|DISCOVERY_ACROSS_FILESYSTEM|CONFIG(?:_\w+)?)(?:\+?=)/.test(t)) context.unknown.push("prefix-repository-environment");
+    const name = foldedBasename(t);
+    // `nsenter` is deliberately ABSENT: codex-native-policy's round-f/f2 parity
+    // rows pin nsenter-wrapped git as reader-visible (sub resolves; an explicit
+    // `-C` target resolves and the native path refuses on a dirty repo), which
+    // its presence here broke by forcing every nsenter invocation dir-opaque.
+    if (["chroot", "bwrap", "systemd-run", "setpriv"].includes(name)) context.unknown.push("wrapper-target-context");
+    if (GIT_WRAPPERS.has(name)) { wrapper = name; continue; }
+    if ((wrapper === "env" || wrapper === "genv") &&
+        (/^--(?:chdir|unset|split-string)(?:=|$)/.test(t) || /^-[^-]*[CuS]/.test(t))) {
+      context.unknown.push("env-target-context");
+    }
+    if (wrapper === "sudo" &&
+        (/^--(?:chdir|chroot|login|shell)(?:=|$)/.test(t) || /^-[^-]*[Dis]/.test(t))) {
+      context.unknown.push("sudo-target-context");
+    }
+    if (["chroot", "bwrap", "systemd-run", "setpriv"].includes(wrapper)) {
+      context.unknown.push("wrapper-target-context");
+    }
+  }
+  context.unknown = [...new Set(context.unknown)];
+  return context;
 }
 
 function parseGitInvocation(seg) {
@@ -3116,6 +3521,20 @@ function parseGitInvocation(seg) {
   // unchanged" — so bash runs that command as a plain `git reset --hard HEAD`
   // against the SESSION repo, the dirty tree the fence exists to protect.
   const toks = stripRedirectionTokens(tokenize(raw));
+  const context = { environmentOps: [], config: [], unresolvedConfigKey: false };
+  const addConfig = (token, prefix = 0) => {
+    const value = token.value.slice(prefix);
+    context.config.push(value);
+    const expansion = tokenExpansionStart.get(token);
+    if (expansion === undefined) throw new Error("Git config token expansion metadata missing");
+    const equals = value.indexOf("=");
+    if (expansion !== null && expansion < prefix + (equals === -1 ? value.length : equals))
+      context.unresolvedConfigKey = true;
+  };
+  const record = (invocation) => {
+    invocationContexts.set(invocation, context);
+    return invocation;
+  };
 
   // (1) Skip leading wrappers + their flags/operands + VAR=val until `git`.
   // A FUSED git token (`git$IFS…`) stops the scan too: it is positive evidence
@@ -3124,6 +3543,7 @@ function parseGitInvocation(seg) {
   const scan = scanCommandPrefix(
     toks,
     (tok) => isGitToken(tok.value) || looksLikeFusedGitToken(tok),
+    context.environmentOps,
   );
   let i = scan.idx;
 
@@ -3133,13 +3553,13 @@ function parseGitInvocation(seg) {
     // appears as its own token. Indistinguishable without expanding, and one of
     // them hides the verb — so report the mark every consumer already fails
     // CLOSED on rather than parsing one shape correctly and the other blind.
-    return {
+    return record({
       sub: null,
       dir: null,
       args: "",
       argv: [],
       unresolvable: "subcommand",
-    };
+    });
   }
 
   const gitFound = scan.kind === "match";
@@ -3157,7 +3577,7 @@ function parseGitInvocation(seg) {
       !scan.sawWrapperOperand &&
       (/^\{/.test(csVal) || /[*?]/.test(csVal) || /\[[^\]]*\]/.test(csVal))
     ) {
-      return { sub: null, dir: null, args: "", argv: [], unresolvable: "subcommand" };
+      return record({ sub: null, dir: null, args: "", argv: [], unresolvable: "subcommand" });
     }
     // Tier-1 round 4: a brace/glob AFTER a resolved wrapper operand is an
     // ARGUMENT (`time ls *.txt`, `sudo grep x *.js`, `command cat {a,b}.txt`) —
@@ -3183,16 +3603,31 @@ function parseGitInvocation(seg) {
     i++; // consume the git token
   }
   const commandSlotUnresolved = !gitFound && scan.unresolvedCommandSlot;
+  const targetContext = gitPrefixTargetContext(toks, gitFound ? scan.idx : i);
+  targetContext.segment = raw;
 
-  // (2) Skip git global options; capture the effective work-tree for the
-  // structural porcelain check. A bare `--git-dir` does NOT set the target
-  // (its work-tree defaults to cwd); only `--work-tree`/`-C` relocate it.
-  // git applies these SEQUENTIALLY, so a later `-C` supersedes an earlier
-  // one — the plain assignment below is what makes last-wins hold.
   let cDir = null;
   let cDirUnexp = false;
-  let workTree = null;
-  let workTreeUnexp = false;
+  let workTree = targetContext.workTree?.value ?? null;
+  let workTreeUnexp = Boolean(targetContext.workTree?.unexpandable);
+  const chdirFrom = (base, value) =>
+    !base || path.isAbsolute(value) ? value : base.endsWith("/") || base.endsWith(path.sep)
+      ? base + value : base + "/" + value;
+  const consumeTarget = (kind, tok, value, source) => {
+    if (!tok) { targetContext.unknown.push("missing-target-value"); return; }
+    const item = { value, unexpandable: Boolean(tok.unexpandable), source };
+    if (kind === "chdir") {
+      targetContext.chdir.push(item);
+      if (!value) return;
+      cDirUnexp = (!path.isAbsolute(value) && cDirUnexp) || item.unexpandable;
+      cDir = chdirFrom(cDir, value);
+    } else {
+      targetContext[kind] = item;
+      if (!value) targetContext.unknown.push("empty-target-selector");
+      if (kind === "workTree") { workTree = value; workTreeUnexp = item.unexpandable; }
+    }
+    if (item.unexpandable) sawUnexpandable = true;
+  };
   // Did an unexpandable construct appear anywhere at/after the git token? Used
   // ONLY to distinguish "this is not a git invocation" from "this IS one whose
   // subcommand a substitution swallowed" — see the return below.
@@ -3204,24 +3639,16 @@ function parseGitInvocation(seg) {
       i++;
       break;
     }
-    // An EMPTY value is git's documented no-op, NOT a relocation: "If <path> is
-    // present but empty, e.g. -C \"\", then the current working directory is
-    // left unchanged" (git(1)). So the empty word is CONSUMED (`i += 2`, or the
-    // subcommand would be read as the directory) while the effective target is
-    // left exactly as it was — which correctly preserves an earlier `-C` under
-    // git's sequential last-wins, and otherwise leaves `dir` null so the fence
-    // measures the session cwd. This is the tree git will really mutate.
-    //
-    // It is also a plain correctness fix, not only an evasion fix: an unset
-    // `$REPO` in `git -C "$REPO" reset --hard` produces the identical word.
-    if (t === "-C") {
+    if (t === "-C" || t === "--work-tree" || t === "--git-dir") {
+      const kind = t === "-C" ? "chdir" : t === "--work-tree" ? "workTree" : "gitDir";
       const v = toks[i + 1];
-      if (v !== undefined && v.value !== "") {
-        cDir = dequote(v.value);
-        cDirUnexp = v.unexpandable;
-        if (cDirUnexp) sawUnexpandable = true;
-      }
+      consumeTarget(kind, v, v ? v.value : "", t);
       i += 2;
+      continue;
+    }
+    if (t.startsWith("-C") && t.length > 2) {
+      consumeTarget("chdir", toks[i], t.slice(2), "-C");
+      i++;
       continue;
     }
     if (t === "--work-tree") {
@@ -3239,8 +3666,29 @@ function parseGitInvocation(seg) {
       i += 2;
       continue;
     }
+    if (t === "-c" || t === "--config-env") {
+      const value = toks[i + 1];
+      if (value) addConfig(value);
+      if (!value || /^(core\.(?:worktree|bare)|extensions\.worktreeconfig)(?:=|$)/i.test(value.value)) {
+        targetContext.unknown.push("repository-config-context");
+      }
+      i += 2;
+      continue;
+    }
+    if (/^(?:-c|--config-env=)(?:core\.(?:worktree|bare)|extensions\.worktreeconfig)(?:=|$)/i.test(t)) {
+      targetContext.unknown.push("repository-config-context");
+    }
+    if (t.startsWith("-c") && !t.startsWith("--")) {
+      addConfig(toks[i], 2);
+      i++;
+      continue;
+    }
+    if (t.startsWith("--config-env=")) {
+      addConfig(toks[i], "--config-env=".length);
+      i++;
+      continue;
+    }
     if (
-      t === "-c" ||
       t === "--git-dir" ||
       t === "--namespace" ||
       t === "--super-prefix"
@@ -3252,9 +3700,29 @@ function parseGitInvocation(seg) {
     if (wt) {
       workTree = dequote(wt[1]);
       workTreeUnexp = toks[i].unexpandable;
+      consumeTarget("workTree", toks[i], dequote(wt[1]), "--work-tree");
       i++;
       continue;
     }
+    const selector = t.match(/^--(work-tree|git-dir)=(.*)$/s);
+    if (selector) {
+      consumeTarget(selector[1] === "work-tree" ? "workTree" : "gitDir", toks[i], selector[2], "--" + selector[1]);
+      i++;
+      continue;
+    }
+    if (t === "--bare") targetContext.unknown.push("bare-repository-context");
+    if (t === "-c" || t === "--config-env") {
+      const v = toks[i + 1];
+      if (!v || /^(core\.(?:worktree|bare)|extensions\.worktreeconfig)(?:=|$)/i.test(v.value)) {
+        targetContext.unknown.push("repository-config-context");
+      }
+      i += 2;
+      continue;
+    }
+    if (/^(?:-c|--config-env=)(?:core\.(?:worktree|bare)|extensions\.worktreeconfig)(?:=|$)/i.test(t)) {
+      targetContext.unknown.push("repository-config-context");
+    }
+    if (t === "--namespace" || t === "--super-prefix") { i += 2; continue; }
     if (t.startsWith("-")) {
       i++; // --git-dir=X, -p, --paginate, --bare, --no-pager, etc.
       continue;
@@ -3284,6 +3752,16 @@ function parseGitInvocation(seg) {
     }
     break; // first non-option token = the subcommand
   }
+  // The effective target. A `--work-tree` replaces the `-C` target, but a
+  // RELATIVE one resolves against the final `-C` directory, so it composes onto
+  // it — and inherits an unknown base exactly as a relative `-C` does.
+  const wtComposes =
+    Boolean(workTree) && Boolean(cDir) && !path.isAbsolute(workTree);
+  const dir = workTree ? chdirFrom(cDir, workTree) : cDir;
+  const dirUnexp = (workTree
+    ? (wtComposes && cDirUnexp) || workTreeUnexp
+    : cDirUnexp) || Boolean(targetContext.gitDir) || targetContext.unknown.length > 0;
+  targetContext.unknown = [...new Set(targetContext.unknown)];
   if (i >= toks.length) {
     // No subcommand token. Ordinarily that is "not a git invocation" (a bare
     // `git`) and stays null. But when an unexpandable construct was consumed on
@@ -3314,21 +3792,23 @@ function parseGitInvocation(seg) {
     // "$1"` as exactly this case; this site and the precedence ladder at the
     // function's final return simply never consulted it.
     if (commandSlotUnresolved) {
-      return {
+      return record({
         sub: null,
-        dir: workTree || cDir,
+        dir,
+        targetContext,
         args: "",
         argv: [],
         unresolvable: "command",
-      };
+      });
     }
-    if (!sawUnexpandable) return null;
-    return {
+    if (!sawUnexpandable && targetContext.unknown.length === 0) return null;
+    return record({
       sub: null,
-      dir: workTree || cDir,
+      dir,
+      targetContext,
       args: "",
       unresolvable: "subcommand",
-    };
+    });
   }
   // Scope of the fail-closed mark (loom#1549 F3 lock 8). It covers ONLY the two
   // slots that can change WHICH fence fires or WHICH tree it measures:
@@ -3339,23 +3819,13 @@ function parseGitInvocation(seg) {
   //                  destructive op will mutate and the porcelain probe must
   //                  read.
   //
-  // Deliberately NOT every substitution-bearing git segment. Measured over this
-  // repo's own corpus: 1905 git invocations carry a substitution somewhere, but
-  // only 19 (1.0%) put one in a `-C`/`--work-tree`/`--git-dir` value. Marking
-  // all 1905 would halt `git log $(git merge-base a b)`, `git status`,
-  // `git rev-parse` and ~1900 more benign reads — noise on that scale is how a
-  // guard gets switched off, which costs the whole fence rather than this one
-  // slot. An ARG-slot substitution (`git reset --hard $(git rev-parse X)`)
-  // needs no mark: both the verb and the target tree are still fully known, so
-  // the fence measures the right tree and BLOCKS normally — a strictly stronger
-  // outcome than halting would be. `--git-dir` is likewise excluded: it
-  // relocates the REPO, not the work tree, so the cwd the probe reads is still
-  // the tree the op mutates.
-  const dirUnexp = workTree ? workTreeUnexp : cDirUnexp;
+  // Selectors stay separate from cwd in gitPrefixTargetContext and consumeTarget
+  // (.claude/hooks/lib/git-command-parse.js:3320-3352,3443-3460).
   const rest = toks.slice(i + 1);
-  return {
+  return record({
     sub: stripConsumedContinuation(toks[i].value).toLowerCase(),
-    dir: workTree || cDir,
+    dir,
+    targetContext,
     args: rest.map((t) => t.value).join(" "),
     // loom#1590 — the post-subcommand words as TOKENS, not a joined string.
     // A caller deciding whether an invocation MUTATES has to tell a real
@@ -3390,7 +3860,7 @@ function parseGitInvocation(seg) {
           : commandSlotUnresolved
             ? "command"
             : null,
-  };
+  });
 }
 
 /**
@@ -3542,12 +4012,63 @@ function maskCasePatterns(raw) {
   return out.join("");
 }
 
-function parseGitInvocations(command) {
-  const cleaned = dispatchSurface(command);
+
+function findGitHookBypass(command) {
+  for (const invocation of parseGitInvocations(command, true)) {
+    if (!new Set(["commit", "push", "merge"]).has(invocation.sub)) continue;
+    const context = invocationContexts.get(invocation);
+    if (!context) throw new Error("Git invocation hook context missing");
+    if (context.environmentOps.some((op) => op.kind === "no-exec")) continue;
+    if (context.environmentOps.some((op) => op.kind === "unresolved-wrapper"))
+      return { invocation, kind: "unknown", reason: "UNRESOLVED wrapper environment transition (NOT RUN/UNKNOWN)" };
+    if (context.config.some((value) => value.split("=", 1)[0].toLowerCase() === "core.hookspath"))
+      return { invocation, kind: "override", reason: "core.hooksPath override" };
+    if (context.unresolvedConfigKey)
+      return { invocation, kind: "unknown", reason: "UNRESOLVED config key (NOT RUN/UNKNOWN)" };
+    const environment = new Map();
+    const knownAbsent = new Set();
+    let cleared = false;
+    for (const op of context.environmentOps) {
+      if (op.kind === "clear") { environment.clear(); knownAbsent.clear(); cleared = true; }
+      else if (op.kind === "unset") { environment.delete(op.name); knownAbsent.add(op.name); }
+      else if (op.kind === "append") {
+        const prior = environment.has(op.name) ? environment.get(op.name) :
+          cleared || knownAbsent.has(op.name) ? "" : undefined;
+        environment.set(op.name, typeof prior === "string" && typeof op.value === "string" ?
+          prior + op.value : { kind: "unresolved" });
+      } else environment.set(op.name, op.value);
+    }
+    if (environment.get("HUSKY") === "0") return { invocation, kind: "override", reason: "HUSKY=0" };
+    if (environment.get("HUSKY")?.kind === "unresolved")
+      return { invocation, kind: "unknown", reason: "UNRESOLVED HUSKY (NOT RUN/UNKNOWN)" };
+    const countValue = environment.get("GIT_CONFIG_COUNT");
+    if (countValue === undefined || countValue === "") continue;
+    const unknown = (control) => ({ invocation, kind: "unknown", reason: "UNRESOLVED " + control + " (NOT RUN/UNKNOWN)" });
+    if (typeof countValue !== "string" || !/^\+?\d+$/.test(countValue))
+      return unknown("GIT_CONFIG_COUNT");
+    const count = Number(countValue);
+    if (!Number.isSafeInteger(count) || count > 64) return unknown("GIT_CONFIG_COUNT bounded range");
+    for (let index = 0; index < count; index++) {
+      const keyName = "GIT_CONFIG_KEY_" + index;
+      const valueName = "GIT_CONFIG_VALUE_" + index;
+      const key = environment.get(keyName);
+      if (typeof key !== "string" || key === "") return unknown(keyName);
+      if (!environment.has(valueName)) return unknown(valueName);
+      if (key.toLowerCase() === "core.hookspath")
+        return { invocation, kind: "override", reason: "Git config environment core.hooksPath override" };
+    }
+
+  }
+  return null;
+}
+
+function parseGitInvocations(command, hookSurface) {
+  const cleaned = dispatchSurface(hookSurface ? normalizeStdinScripts(command, true) : command);
   if (!cleaned.trim()) return [];
   const top = splitShellSegments(maskCasePatterns(cleaned), { newlineSeparates: true });
   // Nested shell bodies are commands too (loom#1589) — see expandNestedSegments.
-  const nested = expandNestedSegments(top);
+  const nested = expandNestedSegments(top, MAX_NEST_DEPTH, hookSurface
+    ? (segment) => stripShellGroupDelimiters(normalizeStdinScripts(segment, true)) : null);
   const out = [];
   // PRECISE ROUTE WINS over its own over-approximation. The inversion lets the
   // top-level walk see through an unknown launcher word, so a segment like
@@ -3556,18 +4077,60 @@ function parseGitInvocations(command) {
   // reported twice (measured ['reset','reset']; base and h2 report ['reset'],
   // via the nested route alone). A nested-derived record is dropped ONLY when
   // the ORIGINAL segment it descends from already reported an equal invocation
-  // (sub/dir/mark/argv). Duplicates between ORIGINALS (a literal
+  // (sub/dir/mark/argv/context: .claude/hooks/lib/git-command-parse.js:3937-3956). Duplicates between ORIGINALS (a literal
   // `git reset … ; git reset …`) and between SIBLING nested bodies
   // (`$(git reset …) $(git reset …)`) are real invocations and never dropped.
   // The key includes argv, so a substitution's body and its carrier differ
   // (the carrier's argv holds the substitution placeholder) and neither is
   // suppressed.
-  const keyOf = (g) => JSON.stringify([g.sub, g.dir, g.unresolvable ?? null, g.argv]);
+  const keyOf = (g) => JSON.stringify([g.sub, g.dir, g.unresolvable ?? null, g.argv, invocationContexts.get(g), g.targetContext?.chdir, g.targetContext?.workTree, g.targetContext?.gitDir, g.targetContext?.unknown]);
   const topKeysBySegment = new Map();
+  const shellChdir = [];
+  let shellUnknown = false;
+  let shellTargetUnknown = false;
+  const controlAmbiguous = /\|/.test(cleaned) || /[()]/.test(cleaned) || (/[&]/.test(cleaned) && /[;\n]/.test(cleaned));
   for (let k = 0; k < nested.segments.length; k += 1) {
     const g = parseGitInvocation(nested.segments[k]);
-    if (!g) continue;
+    if (!g) {
+      if (nested.parents[k] === k) {
+        const words = stripRedirectionTokens(tokenize(nested.segments[k]));
+        const changesShellEnvironment = ["export", "unset"].includes(words[0]?.value) || (words.length > 0 && words.every((word) => /^[A-Za-z_]\w*\+?=/.test(word.value)));
+        if (changesShellEnvironment && words.some((word) => /^GIT_(?:DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|CONFIG(?:_\w+)?)(?:\+?=|$)/.test(word.value))) shellTargetUnknown = true;
+        if (shellCdEnvironmentUnknown(words)) shellUnknown = true;
+        if (["cd", "pushd", "popd"].includes(words[0]?.value)) {
+          const selector = shellCdSelector(words);
+          if (!selector || controlAmbiguous) {
+            shellUnknown = true;
+          } else {
+            shellChdir.push(selector);
+          }
+        } else if (/(?:^|[^\w./-])(?:cd|pushd|popd)(?=\s|$)/.test(nested.segments[k])) shellUnknown = true;
+      }
+      continue;
+    }
+    const context = invocationContexts.get(g);
+    context.environmentOps = expansionEnvironments.get(nested)[k].concat(context.environmentOps);
     const owner = nested.parents[k];
+    if (g.targetContext) {
+      g.targetContext.shellChdir = shellChdir.map((item) => ({ ...item }));
+      if (shellTargetUnknown) {
+        g.targetContext.unknown.push("shell-target-environment");
+        if (g.unresolvable !== "subcommand") g.unresolvable = "dir";
+      }
+      if (shellUnknown || (owner !== k && /(?:^|[^\w./-])(?:cd|pushd|popd)(?=\s|$)/.test(nested.segments[owner]))) {
+        g.targetContext.unknown.push("shell-cwd-context");
+        if (g.unresolvable !== "subcommand") g.unresolvable = "dir";
+      }
+    }
+    if (owner !== k && g.targetContext) {
+      const parentTokens = stripRedirectionTokens(tokenize(nested.segments[owner]));
+      const prefixEnd = scanCommandPrefix(parentTokens, (t) => isGitToken(t.value) || SHELL_BASENAMES.has(foldedBasename(t.value)) || t.value === "eval").idx;
+      const outer = gitPrefixTargetContext(parentTokens, prefixEnd);
+      if (outer.workTree || outer.gitDir || outer.unknown.length) {
+        g.targetContext.unknown.push("nested-prefix-target-context");
+        if (g.unresolvable !== "subcommand") g.unresolvable = "dir";
+      }
+    }
     if (owner === k) {
       let keys = topKeysBySegment.get(k);
       if (!keys) topKeysBySegment.set(k, (keys = new Set()));
@@ -3595,91 +4158,102 @@ function parseGitInvocations(command) {
   return out;
 }
 
+
 /**
- * WHICH DIRECTORY do this command's later segments actually run in?
- *
- * A hook's payload `cwd` is the SESSION directory, and in this repo's own
- * workflow that is the MAIN CHECKOUT while the work happens in a linked
- * worktree reached by a `cd <wt> &&` prefix on the command itself. A guard that
- * resolves a command's relative path argument against the payload `cwd` is
- * therefore resolving against a tree the command never enters — it reads a
- * DIFFERENT file, or (far more often) no file at all.
- *
- * This is the SAME walk `validate-bash-command.js` already performs inline for
- * its worktree stale-base probe, extracted so a second consumer cannot grow a
- * second lineage of it (`security.md` § Multi-Site Kwarg Plumbing, the one-parser
- * rationale this whole module was extracted on). Its conservatism is inherited
- * verbatim and is load-bearing:
- *
- *   - Heredoc BODIES are stripped and doc-carrier payloads masked FIRST, so a
- *     `cd` mentioned in prose being written to a file is not applied.
- *   - The trail is trusted ONLY for a homogeneous `&&` chain or a homogeneous
- *     `;`/newline chain. Any pipeline, subshell, backgrounding, or a MIX of `&&`
- *     with `;` makes it unknowable: `cd <B> | cat ; cmd` runs the cd in a
- *     SUBSHELL, and `a || cd <B> ; cmd` runs it only on a failure that has not
- *     happened yet. Reconstructing the shell's control flow is not attempted.
- *   - Only `cd <one literal operand>` / `pushd <one literal operand>` is applied.
- *     A bare `cd`, `cd -`, `popd`, an option form, or an operand carrying
- *     `$` `` ` `` `*` `?` `~` marks the directory UNKNOWN.
- *   - A `cd` to something that is not a directory FAILS in the shell, leaving it
- *     where it was, so the trail is unchanged rather than advanced; a path that
- *     cannot be stat'ed is UNKNOWN.
- *
- * FAIL DIRECTION. `known: false` means "do not use this" — every caller is
- * expected to fall back to whatever root it used before rather than guess, so an
- * untrackable command lands on the caller's PRE-EXISTING behaviour and never on
- * an invented directory.
- *
- * @param {string} command the raw shell command string
- * @param {string} baseDir the directory the command STARTS in (the payload cwd)
- * @param {{stopWhen?:(segment:string)=>boolean}} [opts] stop before the segment
- *   the caller cares about, so a LATER `cd` is not applied to an EARLIER command
- * @returns {{dir:string|null, known:boolean}}
+ * Supported literal Bash directory changes keep logical PWD for default cd,
+ * and reset it to native physical identity for explicit -P. UNKNOWN is never
+ * a substitute directory. Source: the symbols `shellCdSelector` and
+ * `resolveShellCdSequence` in this module (the range this line used to carry was
+ * stale by ~200 lines at the parent commit). The env-free expansion symbols were
+ * REVERTED for train 10 (HIGH confirmed, d4614cf3e/960218776/a3ff17ff8).
  */
-function resolveCdTrailDir(command, baseDir, opts = {}) {
-  const base = typeof baseDir === "string" && baseDir ? baseDir : null;
-  if (!base) return { dir: null, known: false };
-  const cmd = String(command || "");
-  if (!cmd) return { dir: base, known: true };
-  // No `cd`/`pushd` token at all → the command runs where it started. Cheap
-  // exact exit, not a heuristic: the walk below can only ever move the
-  // directory through one of those two verbs.
-  if (!/(?:^|[^\w./-])(?:cd|pushd|popd)(?=\s|$)/.test(cmd)) {
-    return { dir: base, known: true };
+function shellCdSelector(words) {
+  if (!Array.isArray(words) || words[0]?.unexpandable) return null;
+  // `pushd <dir>` moves the shell exactly as `cd <dir>` does (the stack it also
+  // pushes is not a directory fact), so it is tracked like `cd` and NOT treated
+  // as UNKNOWN. A bare `pushd` (stack swap) and `pushd -n …` (rotate without
+  // moving) carry no single literal operand and fall through to null.
+  if (words[0]?.value === "pushd") {
+    const operand = words[1];
+    if (words.length !== 2 || !operand || operand.unexpandable || !operand.value || operand.value.startsWith("-")) return null;
+    return { value: operand.value, unexpandable: false, source: "pushd" };
   }
+  if (words[0]?.value !== "cd") return null;
+  const physical = words.length === 3 && words[1]?.value === "-P" && !words[1].unexpandable;
+  const operand = words[physical ? 2 : 1];
+  if (words.length !== (physical ? 3 : 2) || !operand || operand.unexpandable || !operand.value || operand.value.startsWith("-")) return null;
+  return { value: operand.value, unexpandable: false, source: "cd", ...(physical ? { physical: true } : {}) };
+}
 
-  const spans =
-    cmd.indexOf("<<") === -1 ? { structural: cmd } : parseHeredocSpans(cmd);
+function shellCdEnvironmentUnknown(words) {
+  const changesEnvironment = ["export", "unset"].includes(words[0]?.value) || (words.length > 0 && words.every(word => /^[A-Za-z_]\w*\+?=/.test(word.value)));
+  return (changesEnvironment && words.some(word => /^CDPATH(?:\+?=|$)/.test(word.value))) || (words[0]?.value === "set" && words.some(word => /^[-+]/.test(word.value)));
+}
+
+function resolveShellCdSequence(selectors, baseDir, opts = {}) {
+  const failGates = opts.failGates === true;
+  const unknown = () => ({ dir: null, known: false });
+  if (!Array.isArray(selectors) || selectors.length > 64 || typeof baseDir !== "string" || !path.isAbsolute(baseDir)) return unknown();
+  let current = physicalPath(baseDir, "");
+  let logicalDir = path.resolve(baseDir);
+  if (!current || physicalPath(logicalDir, "") !== current) return unknown();
+  try {
+    if (!fs.statSync(current).isDirectory()) return unknown();
+  } catch { return unknown(); }
+  if (selectors.length && typeof process.env.CDPATH === "string" && process.env.CDPATH) return unknown();
+  for (const selector of selectors) {
+    if (!selector || typeof selector.value !== "string" || !selector.value || selector.unexpandable || selector.value.startsWith("-") || selector.value.includes("\0") || (selector.physical !== undefined && typeof selector.physical !== "boolean")) return unknown();
+    const logicalNext = path.resolve(logicalDir, selector.value);
+    const next = selector.physical === true
+      ? physicalPath(selector.value, current)
+      : physicalPath(logicalNext, "");
+    if (!next) return unknown();
+    try {
+      // A `cd`/`pushd` to a path that is NOT a directory FAILS. What that does
+      // to the REST of the trail is a CONNECTOR fact: under `&&` the failure
+      // SKIPS everything after it — nothing downstream runs, so no directory
+      // fact is derivable and the trail reads UNKNOWN; under `;`/newline (and
+      // with no connector at all) the shell stays put and the next command
+      // RUNS in the current directory, so the selector is CONSUMED — not
+      // applied, not UNKNOWN. Reading UNKNOWN for the `;` case walked the probe
+      // off a real directory and reported "clean" for a command that really did
+      // run in the stale repo (worktree-isolation Rule 7 lane); CONSUMING the
+      // `&&` case let the PCF resolver read a decoy body for a chain whose
+      // command never ran (pcf-target-context). `failGates` is set from the
+      // connector split in resolveCdTrailDir; callers passing no flag keep the
+      // CONSUMED reading.
+      if (!fs.statSync(next).isDirectory()) {
+        if (failGates) return unknown();
+        continue;
+      }
+    } catch { return unknown(); }
+    logicalDir = selector.physical === true ? next : logicalNext;
+    current = next;
+  }
+  return { dir: current, known: true };
+}
+
+function resolveCdTrailDir(command, baseDir, opts = {}) {
+  const unknown = () => ({ dir: null, known: false });
+  const cmd = String(command || "");
+  if (!cmd || !/(?:^|[^\w./-])(?:cd|pushd|popd)(?=\s|$)/.test(cmd)) return resolveShellCdSequence([], baseDir);
+  const spans = cmd.indexOf("<<") === -1 ? { structural: cmd } : parseHeredocSpans(cmd);
   const masked = maskDocCarrierPayloads(spans.structural || "");
-  const hasPipe = /\|/.test(masked);
-  const hasAmp = /&/.test(masked);
-  const hasSeq = /[;\n]/.test(masked);
-  const trailTrustworthy =
-    !hasPipe && !/[()]/.test(masked) && !(hasAmp && hasSeq);
-
-  let dir = base;
+  const hasPipe = /\|/.test(masked), hasAmp = /&/.test(masked), hasSeq = /[;\n]/.test(masked);
+  const trailTrustworthy = !hasPipe && !/[()]/.test(masked) && !(hasAmp && hasSeq);
+  const selectors = [];
   for (const seg of splitShellSegments(masked, { newlineSeparates: true })) {
     const t = seg.trim();
     if (typeof opts.stopWhen === "function" && opts.stopWhen(t)) break;
+    const words = stripRedirectionTokens(tokenize(t));
+    if (shellCdEnvironmentUnknown(words)) return unknown();
     if (!/(?:^|[^\w./-])(?:cd|pushd|popd)(?=\s|$)/.test(t)) continue;
-    const m = /^(?:cd|pushd)\s+(\S+)$/.exec(t);
-    const arg = m ? m[1].replace(/^(['"])(.*)\1$/, "$2") : null;
-    if (!arg || !trailTrustworthy || /[$`*?~]/.test(arg) || arg.startsWith("-")) {
-      return { dir: null, known: false };
-    }
-    const next = path.resolve(dir, arg);
-    let st = null;
-    try {
-      st = fs.statSync(next);
-    } catch {
-      st = null;
-    }
-    if (!st) return { dir: null, known: false };
-    // `cd <file>` fails and the shell stays put, so `dir` is deliberately
-    // unchanged rather than advanced to a path no shell will ever be in.
-    if (st.isDirectory()) dir = next;
+    const selector = shellCdSelector(words);
+    if (!selector || !trailTrustworthy) return unknown();
+    selectors.push(selector);
+    if (selectors.length > 64) return unknown();
   }
-  return { dir, known: true };
+  return resolveShellCdSequence(selectors, baseDir, { failGates: hasAmp });
 }
 
 /**
@@ -3887,10 +4461,23 @@ module.exports = {
   dequote,
   stripShellComments,
   stripShellGroupDelimiters,
+  // Exported for `validate-bash-command.js` (post-land gap, 2026-10-05): the
+  // hook builds its OWN `rawSegments` before calling `parseGitInvocation` per
+  // segment, and that pipeline never applied this masker — so a `case "$S" in
+  // *queued*|*in_progress*|"")` split on its `|`-alternates into glob-shaped
+  // fragments (`*queued*`, `*)`) that the fail-closed glob lane marked
+  // "subcommand" (MEASURED: the orchestrator's gh poll loop halted with the
+  // git-branded message while containing NO git invocation). ONE masker, both
+  // surfaces — `security.md` § Enforcement-Surface Parity.
+  maskCasePatterns,
   // Exported for the fidelity suites and for the corpus measurements that size
   // this module's false-positive surface: an approximation of the tokenizer
   // measures an approximation of the fence.
   tokenize,
+  tokenSource: (token, source) => {
+    const span = tokenOffsets.get(token);
+    return span ? source.slice(span.start, span.end) : "";
+  },
   stripRedirectionTokens,
   // Exported for `violation-patterns.js::substitutionBodies`, which needs the
   // BODY of a `$(…)` / backtick that `tokenize` already grouped atomically. It
@@ -3899,11 +4486,20 @@ module.exports = {
   scanBalanced,
   scanCommandPrefix,
   nestedCommandStrings,
+  readOnlyWrapperCommands,
+  rejoinTokens,
   expandNestedSegments,
+  normalizeStdinScripts,
+  // The producer-vs-unreadable-text split (gaps-v4 item 3): the hook renders
+  // the unknowable-producer class at `advisory`, so it needs the predicate
+  // over the rewritten segment text.
+  isUnknownStdinProducerSegment,
   parseGitInvocation,
   parseGitInvocations,
+  findGitHookBypass,
   findGitSubcommand,
   resolveCdTrailDir,
+  resolveShellCdSequence,
   isGhToken,
   GH_VALUE_FLAGS,
   parseGhInvocation,

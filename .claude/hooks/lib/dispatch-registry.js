@@ -19,8 +19,8 @@
  * matcher" (the delivery contract, the settings reconciler, the Codex/Gemini
  * emitters, the matcher-coherence suite, …) reads the EXPANDED view, so each of
  * them sees the registration set it always saw. `collapseSettingsHooks()` is the
- * inverse the migration uses; the pair round-trips byte-for-byte (pinned by
- * `hook-dispatch-registry.test.mjs`).
+ * inverse for canonical command-hook groups, preserving their JSON values rather
+ * than serialization bytes (.claude/hooks/lib/dispatch-registry.js:1587-1604).
  *
  * CommonJS so both the hooks and the `.mjs` tooling can load it.
  */
@@ -55,7 +55,123 @@ const MAX_LOCAL_REGISTRY_BYTES = 1024 * 1024;
 // pinned session then runs its hash-verified kept copy (resolvePinnedRegistryText).
 const MAX_REGISTRY_BYTES = 1024 * 1024;
 const MAX_LOCAL_ROWS_PER_EVENT = 512;
-const DETECTOR_MODES = new Set(["module", "process"]);
+// "module" (default): the dispatcher requires the file and calls its `hookMain` export
+// — the contract every converted loom hook satisfies. "legacy": the engine runs the file
+// as its own CLI entry, in a worker thread of the dispatcher, with the process-shaped
+// sandbox (stdin payload, captured stdout/stderr, process.exit / process.exitCode as the
+// row's result, per-row budget; hook-engine.js § LEGACY ROWS) — for a hook written as a
+// standalone stdin script, which exports no hookMain and therefore cannot be a module
+// row. "process": the dispatcher spawns it as its own node process.
+const DETECTOR_MODES = new Set(["module", "process", "legacy"]);
+// The per-row incomplete-execution contract — `on_incomplete` on a registry row.
+// "deny": the row's code path can turn the merged reply into a refusal, so the
+// dispatcher runs it in a worker of its OWN (lib/hook-engine.js::runDetectorsIsolated
+// § the per-row boundary) — no other row's realm can reach its verdict, and the
+// engine additionally keeps per-realm-kind git-answer pools so no shared-batch
+// neighbour can plant a git answer the deny row is served (round-6 SEC R1-F2;
+// deny rows share that isolated pool with the OTHER DENY ROWS by design);
+// AND a deny row that does NOT complete — crash, own-budget overrun, non-zero
+// exit without a JSON reply — REFUSES the call at PreToolUse, fail-closed
+// (lib/dispatch-main.js § FAIL-CLOSED FOR INCOMPLETE DENY ROWS; the field name
+// is the contract). "continue":
+// advisory; it shares a batch. MISSING or an unrecognised value reads as "deny":
+// fail-closed, an unclassified row is treated as one whose verdict may refuse,
+// never as one that may not (there is NO RegistryError for this field — a
+// registry that cannot be READ is refused whole, but an unknown value here is a
+// declaration to coerce, not a shape to reject; the authored registry's row set
+// is kept explicit by .claude/bin/check-deny-capable-declarations.mjs, which reds
+// both directions). The Codex policy emitter (C4 lane) reads the same
+// declaration from this same registry — the field is a cross-lane interface.
+const ROW_ON_INCOMPLETE_DEFAULT = "deny";
+// The per-row ENFORCEMENT mode — `enforcement` on a registry row (owner order
+// 2026-10-14: the old guards stop BLOCKING and become a REVIEW FEED for the guard
+// foundation, while the data-loss arms keep enforcing).
+// "enforce": the row's verdict is delivered as it always was.
+// "shadow": the row still RUNS, but a restrictive verdict it reaches (deny, ask,
+// exit 2, decision:"block", continue:false), an incomplete-deny refusal it would
+// earn, or a starved-row refusal is NOT delivered — the dispatcher records ONE
+// structured line in the gitignored shadow feed instead (lib/dispatch-main.js §
+// SHADOW ROWS; lib/shadow-feed.js). A shadow row's non-restrictive output passes
+// unchanged.
+// MISSING or an unrecognised value reads as "enforce": fail-closed. As with
+// `on_incomplete`, there is NO RegistryError for an unknown value — it is a
+// declaration to coerce toward the STRICTER reading, never a shape that refuses the
+// whole registry (which would refuse every call). Only the exact string "shadow",
+// as the row's OWN property, relaxes a row. Two rows naming one hook with DIFFERENT
+// readings ARE refused (assertNoDivergentEnforcement): one hook, one declaration.
+const ENFORCEMENT_DEFAULT = "enforce";
+const ENFORCEMENT_VALUES = Object.freeze(["enforce", "shadow"]);
+// THE DATA-LOSS ORDER, HELD IN CODE (owner order 2026-10-14: "the data-loss arms keep
+// enforcing"). A registry row cannot shadow these hooks: enforcementOf coerces them to
+// "enforce" whatever the row declares, and hook-dispatch-shadow.test.mjs reds the moment
+// the real registry declares one of them shadow. Each protects work that has no other
+// copy: a merge-dropping rebase, an uncommitted quiet tree, an overwritten journal entry
+// or reserved slot. validate-bash-command.js is NOT here: it mixes data-loss arms
+// (git reset --hard, git clean -f, a forced remove of a dirty target) with others, so it
+// may go shadow ROW-wide while those arms enforce ARM by ARM (NEVER_SHADOW_ARMS below).
+// That is sound only because the hook reports EVERY refusing finding's id, and
+// evaluates its data-loss fences even when an earlier refusal returns first
+// (validate-bash-command.js::withDeferred, ::withEarlyRefusal); the shadow suite drives
+// the real hook through a shadow row to pin both.
+const NEVER_SHADOW_HOOKS = Object.freeze(
+  new Set(["rebase-content-loss-guard.js", "worktree-conservation-guard.js", "journal-write-guard.js"]),
+);
+// THE SAME ORDER, ARM BY ARM, for a shadow row whose hook mixes data-loss arms with
+// others: a verdict whose rule id (the id lib/instruct-and-wait.js REPORTS to the engine
+// through process.cocRefusalRuleId, = lib/hook-findings.js::ruleIdOf(why), never read
+// from the reply) is in this set ENFORCES on a shadow row, and so
+// does a verdict with no structural rule id at all (lib/dispatch-main.js § SHADOW ROWS).
+// Keyed by hook so a hook named here also enforces its incomplete and starved outcomes
+// (no verdict, so no rule id, so the arm is unknown). The ids are the exact ruleIdOf
+// values of each data-loss arm's `why`; the shadow suite re-derives each from the
+// hook source.
+const NEVER_SHADOW_ARMS = Object.freeze(
+  new Map([
+    [
+      "validate-bash-command.js",
+      Object.freeze(
+        new Set([
+          'worktree-isolation.md Rule 8 / git.md § "Destructive Workin…', // forced remove: unassessable or dirty target
+          'git.md § "Destructive Working-Tree Ops"', // forced remove of a critical path
+          "security.md Path Containment", // forced remove with an unresolved boundary
+          "git.md MUST 'Destructive Working-Tree Ops MUST Verify Clean…", // git reset --hard
+          "git.md MUST 'Destructive Working-Tree Ops'", // git clean -f
+          "validate-bash-command/Blocked", // root-filesystem remove, block device, mkfs, dd (shared with fork bomb and chmod: the safe side)
+        ]),
+      ),
+    ],
+    [
+      // The ledger-write-failure floor (logAllAndEmit): a violations row the hook could
+      // not write is DROPPED, and its halt is the only place that says so (R2b MED-A).
+      "detect-violations.js",
+      Object.freeze(new Set(["detect-violations/ledger-write-failed"])),
+    ],
+    [
+      "journal-write-guard.js",
+      Object.freeze(
+        new Set([
+          "multi-operator-coc/journal-write-guard MUST-NOT-1", // overwrite of an existing entry
+          "multi-operator-coc/journal-write-guard MUST-NOT-2", // clobber of a reserved slot
+          "multi-operator-coc/journal-write-guard", // reservation root unidentified
+        ]),
+      ),
+    ],
+  ]),
+);
+// Case-folded lookups (R2b M-2, defense in depth behind enforceInexactNames): on a
+// case-insensitive volume `Rebase-Content-Loss-Guard.js` runs the real file, so the
+// never-shadow sets are matched without case.
+const NEVER_SHADOW_HOOKS_FOLDED = Object.freeze(new Set([...NEVER_SHADOW_HOOKS].map((h) => h.toLowerCase())));
+const NEVER_SHADOW_ARMS_FOLDED = Object.freeze(new Map([...NEVER_SHADOW_ARMS].map(([h, ids]) => [h.toLowerCase(), ids])));
+/** Whether a hook basename is a never-shadow row, case-folded. */
+function isNeverShadowHook(base) {
+  return typeof base === "string" && NEVER_SHADOW_HOOKS_FOLDED.has(base.toLowerCase());
+}
+/** The frozen data-loss arm ids of a hook basename (case-folded), or null. */
+function dataLossArmsOf(base) {
+  return typeof base === "string" ? NEVER_SHADOW_ARMS_FOLDED.get(base.toLowerCase()) || null : null;
+}
+const NEVER_SHADOW_RULE_IDS = Object.freeze(new Set([...NEVER_SHADOW_ARMS.values()].flatMap((ids) => [...ids])));
 // How dispatch.js runs an event's detectors (lib/hook-engine.js::runDetectorsIsolated):
 // "event" (default) one shared worker, in order; "detector" a fresh worker each, in
 // order; "parallel" every detector at once, a worker each.
@@ -115,6 +231,21 @@ function dispatchedEvent(command) {
   return m ? m[1] : null;
 }
 
+function dispatcherCommandMatches(group) {
+  const hs = (group && group.hooks) || [];
+  const matches = [];
+  for (let i = 0; i < hs.length; i++) {
+    const h = hs[i];
+    if (!h || ((h.type === undefined || h.type === "command") && typeof h.command !== "string")) throw new RegistryError("invalid hook command");
+    if (h.type !== undefined && h.type !== "command") continue;
+    const event = dispatchedEvent(h.command);
+    const dispatcherLike = /\/hooks\/dispatch\.js/i.test(path.posix.normalize(h.command.replace(/\\/g, "/")));
+    if (event) matches.push({ index: i, event });
+    else if (dispatcherLike) throw new RegistryError("unconsumed malformed dispatcher command");
+  }
+  return matches;
+}
+
 /** The hook basename a canonical registration command names, or null. */
 function hookBasename(command) {
   const m = typeof command === "string" ? command.match(HOOK_COMMAND_RE) : null;
@@ -159,15 +290,21 @@ function validateRegistry(reg) {
     }
     validateGroups(event, spec.groups, { allowMode: false });
   }
+  assertNoDivergentEnforcement(reg);
   return reg;
 }
 
 /**
  * The group list of one event — the settings.json group shape. `allowMode`
  * admits the per-hook `mode` field the LOCAL registry may carry: "module" (the
- * default — runs in-process, the hook must export hookMain) or "process" (the
- * dispatcher spawns it as its own node process, for a repo hook not yet
- * converted; it keeps its exact standalone semantics and costs one process).
+ * default — runs in-process, the hook must export hookMain), "legacy" (runs
+ * in-process as the CLI script it is: the engine loads the file the way `node
+ * <file>` does, so a hook that exports no hookMain still runs inside the
+ * dispatcher's worker instead of costing a process; hook-engine.js § LEGACY ROWS),
+ * or "process" (the dispatcher spawns it as its own node process, outside the
+ * dispatcher's process tree, for a repo hook whose isolation requirement the
+ * worker-thread path does not meet; it keeps its exact standalone semantics and
+ * costs one process).
  */
 function validateGroups(event, groups, { allowMode }) {
     if (!Array.isArray(groups) || groups.length === 0) throw new RegistryError(`${event}: groups must be a non-empty array`);
@@ -209,8 +346,119 @@ function validateLocalRegistry(reg) {
       }
     }
     validateGroups(`local ${event}`, spec.groups, { allowMode: true });
+    assertNoDivergentDuplicateRows(event, spec.groups);
   }
   return reg;
+}
+
+// The typed refusal for two rows on ONE event that name the same hook and declare
+// DIFFERENT `on_incomplete` values. Divergence is an ERROR, not a tie to break: the
+// two lookups that consume the declaration (registry order, and the deny-class set
+// the dispatcher refuses an incomplete row from) would otherwise disagree — first
+// wins in one, last in the other — and the seam is silently fail-OPEN in one order
+// ([deny, continue]: the deny row RUNS, its crash refuses nothing) and
+// OVER-REFUSING in the other ([continue, deny]: a row that declared no refusal
+// refuses). Measured by the security round's p3 probes. Refused LOUDLY, whole file,
+// in the add-only spirit: ambiguity is a state to reject, not to resolve.
+const DUPLICATE_ROW_DIVERGENCE_CODE = "DUPLICATE_ROW_DIVERGENCE";
+
+/** Throws when two rows of one event name the same hook with different normalized `on_incomplete`. */
+function assertNoDivergentDuplicateRows(event, groups) {
+  const seen = new Map(); // hook basename (case-folded) → { hook, declared }
+  for (const g of groups) {
+    for (const h of g.hooks || []) {
+      const base = hookBasename(h.command);
+      if (!base) continue;
+      const declared = onIncompleteOf(h);
+      const key = base.toLowerCase();
+      const prev = seen.get(key);
+      if (!prev) {
+        seen.set(key, { hook: base, declared });
+        continue;
+      }
+      if (prev.declared !== declared) {
+        const e = new RegistryError(
+          `local ${event}: ${base} is declared TWICE with DIVERGENT on_incomplete values (${prev.hook === base ? "" : `${prev.hook} vs ${base}: `}` +
+            `${JSON.stringify(prev.declared)} and ${JSON.stringify(declared)}). One hook gets one declaration — ` +
+            "an incomplete deny-capable row must not be able to hide behind a duplicate that says it is advisory. " +
+            "Give the rows the same on_incomplete, or rename one detector.",
+        );
+        e.code = DUPLICATE_ROW_DIVERGENCE_CODE;
+        throw e;
+      }
+      // Identical declarations: left as they are. The host runs one command once per
+      // event, and planLocalRows keeps the FIRST matching row per hook, so the
+      // duplicates collapse to one run and no verdict is ambiguous.
+    }
+  }
+  return null;
+}
+
+// The typed refusal a local row earns when it names a hook the TEMPLATE registry
+// already dispatches for the same event — the add-only invariant of
+// `.claude/rules/local/` (bin/lib/local-rules.mjs::loadLocalRules,
+// LocalRulesError("add-only-violation", …)) applied to hook rows. A local row can
+// never override, disable or re-class a template row; naming one is refused, not
+// ignored, because an ignored row reads to its author as one that added something.
+const ADD_ONLY_VIOLATION_CODE = "ADD_ONLY_VIOLATION";
+
+/** The hook basenames the TEMPLATE registry dispatches for one event, lower-cased. */
+function templateHookNames(template, event) {
+  const spec = template && template.events && template.events[event];
+  const out = new Set();
+  for (const g of (spec && spec.groups) || []) {
+    for (const h of g.hooks || []) {
+      const b = hookBasename(h.command);
+      if (b) out.add(b.toLowerCase());
+    }
+  }
+  return out;
+}
+
+/**
+ * ADD-ONLY. Throws a TYPED refusal (RegistryError with
+ * `code === ADD_ONLY_VIOLATION`) when a local row names a hook the template
+ * registry already dispatches FOR THE SAME EVENT. Decided at LOAD, like the
+ * local-rules precedent, so a collision is refused whether or not the call in
+ * hand matches either row's matcher — a row that shadows only sometimes is
+ * exactly the shape that cannot be reasoned about.
+ *
+ * Case-folded (macOS filesystems are case-insensitive, so `Posture-Gate.js` and
+ * `posture-gate.js` are one file there), matching the precedent. A local row for
+ * an event the template registry does not carry is NOT a collision — the local
+ * group for such an event never runs at all (withLocal), which is a separate gap
+ * this check does not own.
+ *
+ * `opts.isLive(hook)` — the SAME eligibility predicate the dispatcher runs the
+ * template rows under (dispatch-registry.js::makeEligible: the script resolves
+ * here and it is not `loom_only` outside loom). A template row this tree does NOT
+ * run shadows nothing, and the dispatcher's rule has always been that an
+ * ineligible loom row must not block the repo's own row of that name
+ * (dispatch-main.js, "eligibility BEFORE de-duplication"). Without this the check
+ * would refuse a file the runtime would happily run — it would be a NEW shadowing
+ * of the repo's rows, by this very invariant.
+ */
+function assertAddOnly(local, template, opts = {}) {
+  const isLive = typeof opts.isLive === "function" ? opts.isLive : () => true;
+  for (const [event, spec] of Object.entries(local.events)) {
+    const shadowed = templateHookNames(template, event);
+    if (!shadowed.size) continue;
+    for (const g of spec.groups) {
+      for (const h of g.hooks) {
+        const base = hookBasename(h.command);
+        if (!shadowed.has(base.toLowerCase())) continue;
+        if (!isLive(base)) continue;
+        const e = new RegistryError(
+          `local ${event}: row for ${base} COLLIDES with a detector .claude/hooks/dispatch-registry.json already dispatches for ${event}. ` +
+            "The repo-local registry is ADD-ONLY — a local row MUST NOT override, disable or re-class a loom row. " +
+            "Rename the repo's detector (and the file it names), or contribute the change to loom via /codify.",
+        );
+        e.code = ADD_ONLY_VIOLATION_CODE;
+        throw e;
+      }
+    }
+  }
+  return local;
 }
 
 /** Whether a local registry is present at all (lstat only — its content is not read). */
@@ -223,12 +471,20 @@ function localRegistryPresent(hooksDir) {
  * The consumer's local registry, or null when absent. Throws RegistryError when
  * malformed or over MAX_LOCAL_REGISTRY_BYTES (fstat-checked before any byte is
  * read, and the read itself stops one byte past the cap — a file that grows while
- * it is read is refused too).
+ * it is read is refused too). When `template` is passed, the ADD-ONLY check runs
+ * too (assertAddOnly) — the dispatcher passes it; the settings-expansion tooling,
+ * which only reads, stays able to inspect a tree this check would refuse.
  */
-function loadLocalRegistryIfPresent(hooksDir) {
+function loadLocalRegistryIfPresent(hooksDir, template = null) {
   const p = localRegistryPath(hooksDir);
   if (!localRegistryPresent(hooksDir)) return null;
-  const text = readRegularFileSync(p, MAX_LOCAL_REGISTRY_BYTES);
+  const reg = parseLocalRegistryText(readRegularFileSync(p, MAX_LOCAL_REGISTRY_BYTES));
+  if (template) assertAddOnly(reg, template);
+  return reg;
+}
+
+/** Parse + validate one local registry's text. Throws RegistryError. */
+function parseLocalRegistryText(text) {
   let reg;
   try {
     reg = JSON.parse(text);
@@ -236,6 +492,293 @@ function loadLocalRegistryIfPresent(hooksDir) {
     throw new RegistryError(`local: unparseable JSON: ${e.message}`);
   }
   return validateLocalRegistry(reg);
+}
+
+// ---------------------------------------------------------------------------
+// The repo-local registry's SESSION PIN
+// ---------------------------------------------------------------------------
+//
+// The template registry is pinned by the `--registry-sha256=` value the host
+// snapshotted into settings.json at session start; the local registry has no
+// settings entry to carry one, so the FIRST read of a session IS the pin: the
+// text read then is kept, and every later event of that session runs THAT text
+// wherever the file on disk has changed (or gone). The property is the one the
+// template registry already has — the session's guard set does not change
+// underneath it — and the move it denies is the one only editing can make: a row
+// REMOVED (or a detector path re-pointed) after the session began.
+//
+// BOUNDED AND OPTIONAL, exactly like the file it pins: a session with no local
+// registry writes NO pin (there is nothing to protect, and an appearing file is
+// an addition — rows cannot disable anything loom runs); a pin that cannot be
+// read or written is a NOTICE, never a refusal — the pin is the dispatcher's own
+// bookkeeping, and losing it must not cost the repo its detectors. Only the
+// registry FILE's own faults (unreadable, malformed, colliding) refuse.
+const LOCAL_PIN_PREFIX = "local-registry-";
+// Room for the 64-hex hash, the newline, and a short fault worth of slack: the pin
+// holds the registry's own bytes verbatim, capped where the registry itself is.
+const LOCAL_PIN_OVERHEAD_BYTES = 256;
+
+/**
+ * Where a session's pinned local-registry copy lives. The key is the SESSION **and
+ * the registry's own absolute path**: two trees' registries are different files,
+ * and a session id alone would let one tree's pin be served to another (measured
+ * while building this: a probe reusing one session id across sandbox trees had the
+ * first tree's pin answer the second tree's reads, reported as "changed on disk").
+ * Hashing the pair keeps the name a fixed length whatever the path holds.
+ */
+function localRegistryPinPath(dir, sessionId, registryAbsPath) {
+  return path.join(dir, `${LOCAL_PIN_PREFIX}${sha256Hex(`local-registry-session:${sessionId}\n${registryAbsPath}`)}.pin`);
+}
+
+/**
+ * The pin's ANCHOR — the second file, beside the pinned text, recording which sha
+ * THIS session accepted at its first read.
+ *
+ * WHY A SECOND FILE (the security round's finding). A pin file alone is
+ * self-sufficient: `sha256(text)\ntext` verifies against itself. So a pin that was
+ * DELETED mid-session read as "no pin yet" and the edited registry was pinned
+ * silently (fail-open, no notice), and a pin that was REPLACED with a
+ * self-consistent forgery was served verbatim, with the note blaming the live file
+ * for a change the live file never made. The template registry has neither hole
+ * because its pin VALUE lives in settings.json — a hash the session cannot lose —
+ * and the kept copy is only ever a copy. The anchor is that hash, for the local
+ * registry: written once per session beside the text, never re-derived from the pin
+ * file, so a missing, changed or unreadable pin becomes a REFUSAL with its own name
+ * instead of a silent re-pin.
+ *
+ * NAMED RESIDUAL: an adversary who can write this private directory AND remove both
+ * files returns the state to "the session has not pinned yet" — that is not
+ * distinguishable from a first read without state outside the directory (the
+ * template pin's escape is settings.json; there is no equivalent here), and it is a
+ * STRICTLY larger capability than the one the finding demonstrated (one `rm` of the
+ * pin, which now refuses). The invariant this design holds: once this session has
+ * ACCEPTED a registry text, no later event of it runs a different one silently.
+ */
+function localRegistryAnchorPath(dir, sessionId, registryAbsPath) {
+  return path.join(dir, `${LOCAL_PIN_PREFIX}${sha256Hex(`local-registry-session:${sessionId}\n${registryAbsPath}`)}.anchor`);
+}
+
+/** Read a kept pin (raw `sha\n<text>`), or a fault description — never a throw. */
+function readLocalPin(pinPath) {
+  let raw;
+  try {
+    raw = readRegularFileSync(pinPath, MAX_LOCAL_REGISTRY_BYTES + LOCAL_PIN_OVERHEAD_BYTES);
+  } catch (e) {
+    if (e && e.code === "ENOENT") return { ok: false, kind: "absent", problem: "it does not exist" };
+    return { ok: false, kind: "file", problem: (e && e.message) || (e && e.code) || String(e) };
+  }
+  const nl = raw.indexOf("\n");
+  const head = nl === -1 ? "" : raw.slice(0, nl);
+  const text = nl === -1 ? "" : raw.slice(nl + 1);
+  if (!/^[0-9a-f]{64}$/.test(head) || sha256Hex(text) !== head) {
+    return { ok: false, kind: "file", problem: "its content does not match its own hash" };
+  }
+  return { ok: true, sha: head, text };
+}
+
+/** Read the anchor (`sha\n<registry path>`), or a fault description — never a throw. */
+function readLocalAnchor(anchorPath) {
+  let raw;
+  try {
+    raw = readRegularFileSync(anchorPath, LOCAL_PIN_OVERHEAD_BYTES);
+  } catch (e) {
+    if (e && e.code === "ENOENT") return { ok: false, kind: "absent", problem: "it does not exist" };
+    return { ok: false, kind: "file", problem: (e && e.message) || (e && e.code) || String(e) };
+  }
+  const sha = raw.split("\n", 1)[0];
+  if (!/^[0-9a-f]{64}$/.test(sha)) return { ok: false, kind: "file", problem: "it names no accepted registry hash" };
+  return { ok: true, sha };
+}
+
+/** Write the anchor atomically (0600); never overwrite an entry that is there. */
+function writeLocalAnchor(anchorPath, sha) {
+  const tmp = `${anchorPath}.${process.pid}.tmp`;
+  let ours = false;
+  try {
+    const c = fs.constants;
+    const fd = fs.openSync(tmp, c.O_WRONLY | c.O_CREAT | c.O_EXCL | (c.O_NOFOLLOW || 0), 0o600);
+    ours = true;
+    try {
+      fs.writeSync(fd, `${sha}\n`);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, anchorPath);
+    return { ok: true, problem: null };
+  } catch (e) {
+    if (ours) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {}
+    }
+    return { ok: false, problem: (e && e.code) || (e && e.message) || String(e) };
+  }
+}
+
+/** Write a pin atomically; never overwrite an entry that is already there. */
+function writeLocalPin(pinPath, text) {
+  const tmp = `${pinPath}.${process.pid}.tmp`;
+  let ours = false;
+  try {
+    const c = fs.constants;
+    const fd = fs.openSync(tmp, c.O_WRONLY | c.O_CREAT | c.O_EXCL | (c.O_NOFOLLOW || 0), 0o600);
+    ours = true;
+    try {
+      fs.writeSync(fd, `${sha256Hex(text)}\n${text}`);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, pinPath);
+    return { ok: true, problem: null };
+  } catch (e) {
+    // Only a file THIS call created is removed; a planted entry fails O_EXCL or
+    // O_NOFOLLOW and is left exactly where it was — the write is refused, never
+    // worked around.
+    if (ours) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {}
+    }
+    return { ok: false, problem: (e && e.code) || (e && e.message) || String(e) };
+  }
+}
+
+/**
+ * The local registry text the dispatcher must run THIS event, pinned to the
+ * session's first read (`sessionId` — the payload's `session_id`).
+ *
+ * THE PIN IS AN ACCEPTANCE RECORD, NOT A CACHE. Once this session has accepted a
+ * text, nothing else may run: the pin (the accepted text) and its anchor (the
+ * accepted sha) are both required, and every way they can disagree with each other
+ * or with the session's own record is a REFUSAL — never a silent re-pin of whatever
+ * is on disk now, and never a note that blames a file for a change it did not make.
+ *
+ * @returns {{text:string|null, note:string|null, notice:string|null, pinPending:{pinPath:string,anchorPath:string,text:string}|null}}
+ *   `text` null ⇒ the file is (pinned) absent: no repo-owned rows for the event.
+ *   `note` ⇒ the file on disk is not what runs (it changed, or cannot be read),
+ *   the session's own accepted copy is serving — true of every event while it lasts.
+ *   `notice` ⇒ the pin could not be KEPT (its directory is unusable, or the writes
+ *   were refused): the file on disk runs, so nothing is hidden, and the session has
+ *   no pin to fall back on — a hazard, said out loud, never a refusal.
+ *   `pinPending` ⇒ the session's first read of a file that needs, and has not yet
+ *   been given, a pin: the caller writes it with commitLocalRegistryPin ONLY once
+ *   the text it returns has PARSED and VALIDATED (and passed the add-only and
+ *   duplicate checks). A pin taken from a text the loader then refuses would freeze
+ *   the fault: the operator repairs the file, and every later event of the session
+ *   keeps serving the unparseable copy — the trap this two-step exists to close.
+ *   Measured: a repaired file still refused until the session was restarted.
+ * @throws RegistryError when the LIVE file is unreadable and there is no accepted
+ *   copy to serve, and when the pin state itself cannot be trusted: a pin that was
+ *   established and is now absent, a pin that is not the text this session
+ *   accepted, an anchor with no pin, or a pin with no anchor. The caller turns
+ *   every one of these into a refusal at PreToolUse (the repair hatch admits a
+ *   Read and an edit of the local registry) and a loud note elsewhere.
+ */
+function resolveLocalRegistryText(hooksDir, sessionId, snapshotDirOrChoice) {
+  // Absolute: the pin is keyed on this path, and two spellings of one file must not
+  // key two pins.
+  const livePath = path.resolve(localRegistryPath(hooksDir));
+  const readLive = () => {
+    if (!localRegistryPresent(hooksDir)) return { text: null, problem: "it does not exist" };
+    try {
+      return { text: readRegularFileSync(livePath, MAX_LOCAL_REGISTRY_BYTES), problem: null };
+    } catch (e) {
+      if (e && e.code === "ENOENT") return { text: null, problem: "it does not exist" };
+      return { text: null, problem: e && e.code === "ELOOP" ? "it is a symbolic link" : (e && e.message) || (e && e.code) || String(e) };
+    }
+  };
+  const live = readLive();
+  // No session to pin against (a payload without a usable session_id): the file is
+  // read fresh on every event, exactly as before the pin existed.
+  if (typeof sessionId !== "string" || !sessionId || sessionId.length > 512) {
+    if (live.text === null && live.problem !== "it does not exist") throw new RegistryError(`local: cannot read the local registry: ${live.problem}`);
+    return { text: live.text, note: null, notice: null };
+  }
+  const choice = snapshotDirOrChoice && typeof snapshotDirOrChoice === "object" ? snapshotDirOrChoice : { dir: snapshotDirOrChoice, rejected: null };
+  const dirProblem = snapshotDirProblem(choice.dir);
+  if (dirProblem !== null) {
+    // No usable directory: the pin cannot be kept at all. The live file runs and the
+    // hazard is said; an unreadable one is still the fault it has always been.
+    if (live.text === null && live.problem !== "it does not exist") throw new RegistryError(`local: cannot read the local registry: ${live.problem}`);
+    return { text: live.text, note: null, notice: localPinUnusableNotice(dirProblem) };
+  }
+  const pinPath = localRegistryPinPath(choice.dir, sessionId, livePath);
+  const anchorPath = localRegistryAnchorPath(choice.dir, sessionId, livePath);
+  const pin = readLocalPin(pinPath);
+  const anchor = readLocalAnchor(anchorPath);
+  const refuse = (why) =>
+    new RegistryError(
+      `local: ${why} — the repo-local registry is pinned to the text this session ACCEPTED, and that record can no longer be trusted. ` +
+        `Remove both \`${pinPath}\` and \`${anchorPath}\` (or restart the session) to accept the file as it is now.`,
+    );
+  if (anchor.ok) {
+    if (!pin.ok) throw refuse(`this session's pin for .claude/${LOCAL_REGISTRY_BASENAME} is ${pin.kind === "absent" ? "GONE" : `unreadable (${pin.problem})`}`);
+    if (pin.sha !== anchor.sha) throw refuse("the pin is not the text this session accepted (it was replaced)");
+    // The accepted text is what runs, whenever the file on disk is not identical to it.
+    if (live.problem === null && sha256Hex(live.text) === pin.sha) return { text: live.text, note: null, notice: null };
+    return {
+      text: pin.text,
+      notice: null,
+      note:
+        live.problem === null
+          ? `.claude/${LOCAL_REGISTRY_BASENAME} changed on disk since this session first read it; the dispatcher is running the registry this session ACCEPTED. ` +
+            "Restart the session (or re-review the file) to apply the change.\n"
+          : `.claude/${LOCAL_REGISTRY_BASENAME} cannot be read (${live.problem}); the dispatcher is running the registry this session ACCEPTED, so the repo's own detectors still ran. ` +
+            `Restore the file (e.g. \`git checkout -- .claude/${LOCAL_REGISTRY_BASENAME}\`): a NEW session cannot start its detectors without it.\n`,
+    };
+  }
+  if (anchor.kind === "file") throw refuse(`the session's pin ACCEPTANCE RECORD at \`${anchorPath}\` cannot be read (${anchor.problem})`);
+  // No anchor: either the session's first read, or a pin nobody recorded accepting.
+  if (pin.ok || pin.kind === "file") throw refuse(`a pin is present with no acceptance record for it${pin.kind === "file" ? ` (${pin.problem})` : ""}`);
+  if (live.text === null && live.problem !== "it does not exist") {
+    throw new RegistryError(`local: cannot read the local registry: ${live.problem}`);
+  }
+  return { text: live.text, note: null, notice: null, pinPending: live.text === null ? null : { pinPath, anchorPath, text: live.text } };
+}
+
+/**
+ * Write the pin resolveLocalRegistryText handed back, ONCE the caller has accepted
+ * the text (it parsed, validated, and passed the add-only check). A refused write is
+ * a notice the caller says — never a refusal of the call.
+ * @returns {{ok:boolean, problem:string|null}}
+ */
+function commitLocalRegistryPin(pinPending) {
+  const w = writeLocalPin(pinPending.pinPath, pinPending.text);
+  if (!w.ok) return { ok: false, problem: w.problem };
+  // The anchor LAST, and never left half-written: a pin whose anchor is missing
+  // refuses on every later event, so if the anchor cannot be written the pin is
+  // taken back down rather than left to poison the session.
+  const a = writeLocalAnchor(pinPending.anchorPath, sha256Hex(pinPending.text));
+  if (a.ok) return { ok: true, problem: null };
+  let kept = "";
+  try {
+    fs.unlinkSync(pinPending.pinPath);
+  } catch (e2) {
+    kept = `; the pin itself could not be removed either (${(e2 && e2.code) || (e2 && e2.message) || e2}), so the NEXT event will refuse until ${pinPending.pinPath} and ${pinPending.anchorPath} are removed`;
+  }
+  return { ok: false, problem: `its acceptance record could not be written (${a.problem}) and the pin was removed again${kept}` };
+}
+
+/** The sentence said when the pin could not be WRITTEN (its own remedy, not the directory's). */
+function localPinWriteNotice(pinPath, problem) {
+  return (
+    `the repo-local registry's pin for this session could not be written at ${pinPath} (${problem}), so it is read fresh on every event and an edit to it takes effect mid-session. ` +
+    "Free space there, or remove whatever is planted at that path — the copy is retried on every event, and this notice clears once one succeeds."
+  );
+}
+
+/**
+ * The sentence said when a session cannot pin its local registry because the
+ * SNAPSHOT DIRECTORY is not usable (the caller's notice). The directory's remedy
+ * only — a fault at the pin FILE (unreadable, forged, replaced, removed) is a
+ * REFUSAL with its own message, never this sentence (the correctness round measured
+ * the old wording blaming "that directory" for faults that were at the file).
+ */
+function localPinUnusableNotice(why) {
+  return (
+    `this session cannot pin .claude/${LOCAL_REGISTRY_BASENAME} (${why}), so it is read fresh on every event and an edit to it takes effect mid-session. ` +
+    "Remove or fix that directory (it must be a real directory owned by you, mode 0700)."
+  );
 }
 
 function registryPath(hooksDir) {
@@ -291,7 +834,41 @@ function readRegularFileSync(p, maxBytes) {
 }
 
 function loadRegistry(hooksDir) {
-  return parseRegistryText(readRegularFileSync(registryPath(hooksDir), MAX_REGISTRY_BYTES));
+  return enforceInexactNames(parseRegistryText(readRegularFileSync(registryPath(hooksDir), MAX_REGISTRY_BYTES)), hooksDir);
+}
+
+/**
+ * A row that does not name its hook file EXACTLY as it is on disk ENFORCES (R2b M-2,
+ * MED-1). On a case-insensitive volume a row naming `Rebase-Content-Loss-Guard.js` runs
+ * the real `rebase-content-loss-guard.js` under a name the never-shadow sets were not
+ * built for, so its `enforcement: "shadow"` is DROPPED and the guard's verdict is
+ * delivered as if the row had never been shadowed. Decided PER ROW, never for the whole
+ * registry: refusing the registry outright made the dispatcher exit with no detectors at
+ * every event but PreToolUse, so the Stop and SessionStart guards that enforce silently
+ * vanished (fail-OPEN). A name with no file in any case is left to the missing-guard path,
+ * which is never shadowed either. A listing that cannot be read leaves every name
+ * unverifiable, so EVERY row enforces; no row is disabled.
+ *
+ * @returns {object} the same registry object, its inexact rows' `enforcement` removed.
+ */
+function enforceInexactNames(reg, hooksDir) {
+  let names = null;
+  try {
+    names = new Set(fs.readdirSync(hooksDir));
+  } catch {
+    names = null; // unverifiable: every row below enforces
+  }
+  for (const spec of Object.values(reg.events)) {
+    for (const g of spec.groups) {
+      for (const h of g.hooks || []) {
+        if (!h || typeof h !== "object" || !Object.hasOwn(h, "enforcement")) continue;
+        const base = hookBasename(h.command);
+        if (names !== null && base && names.has(base)) continue;
+        delete h.enforcement;
+      }
+    }
+  }
+  return reg;
 }
 
 function parseRegistryText(text) {
@@ -382,6 +959,131 @@ function privateSnapshotDir(dir) {
   return snapshotDirProblem(dir) === null ? dir : null;
 }
 
+// THE REPOSITORY'S KEPT COPIES (landing-safety Addendum 2). The per-user snapshot
+// above exists only once a session has RUN an event while the file on disk still
+// matched its pin. A session that started — its settings pinned to registry R1 — and
+// had not yet dispatched when a landing advanced the checkout to R2 had no copy at all,
+// and EVERY Bash of it was refused ("no pinned copy is available"); measured live on a
+// landing that changed dispatch-registry.json under two freshly spawned sessions. So
+// whatever REPLACES the registry keeps the OUTGOING one first, content-addressed, in the
+// checkout's COMMON git dir (one per repository, shared by every worktree and session),
+// and a pinned session reads it there when its own copy is absent. The writer is
+// keepRegistryCopy below — the ONE function a landing calls, so the writer and this
+// reader cannot disagree about where the copy lives or how it is named.
+//
+// Trust: a copy is served ONLY when its bytes hash to the session's pin (a SHA-256
+// preimage is the only forgery), read O_NONBLOCK|O_NOFOLLOW and fstat'd regular
+// (readRegularFileSync) under MAX_REGISTRY_BYTES — so the location needs no trust,
+// and a planted FIFO, symlink, directory or wrong-hash file is a named non-copy.
+const SHARED_COPY_DIRNAME = "coc-dispatch-registry";
+const MAX_GITFILE_BYTES = 4096;
+
+/**
+ * Where the repository keeps its registry copies: `<common git dir>/coc-dispatch-registry`,
+ * the checkout being the one `.claude/hooks` sits in (`hooksDir/../..`). Resolved from
+ * the files git itself writes — a `.git` directory, or a linked worktree's `.git` file
+ * (`gitdir: <path>`) and that gitdir's `commondir` — with no git spawned, so the
+ * answer cannot be redirected by an ambient GIT_DIR (hooks/lib/git-subprocess-env.js
+ * names that class). Never throws.
+ * @returns {{ dir: string|null, problem: string|null }} `dir` null with `problem` null:
+ *   not a git checkout (no `.git`), quietly no shared copy.
+ */
+function sharedRegistryCopyDir(hooksDir) {
+  try {
+    const repoRoot = path.resolve(hooksDir, "..", "..");
+    const dot = path.join(repoRoot, ".git");
+    let st;
+    try {
+      st = fs.lstatSync(dot);
+    } catch (e) {
+      if (e && e.code === "ENOENT") return { dir: null, problem: null };
+      throw e;
+    }
+    let gitDir;
+    if (st.isDirectory()) gitDir = dot;
+    else if (st.isFile()) {
+      const m = /^gitdir:[ \t]*(\S.*?)[ \t\r]*$/m.exec(readRegularFileSync(dot, MAX_GITFILE_BYTES));
+      if (!m) return { dir: null, problem: `${dot} names no gitdir` };
+      gitDir = path.resolve(repoRoot, m[1]);
+    } else return { dir: null, problem: `${dot} is neither a directory nor a gitdir file` };
+    let common = gitDir;
+    try {
+      const rel = readRegularFileSync(path.join(gitDir, "commondir"), MAX_GITFILE_BYTES).trim();
+      if (rel) common = path.resolve(gitDir, rel);
+    } catch (e) {
+      if (!e || e.code !== "ENOENT") throw e;
+    }
+    return { dir: path.join(common, SHARED_COPY_DIRNAME), problem: null };
+  } catch (e) {
+    return { dir: null, problem: `the repository's git dir could not be read (${(e && e.code) || (e && e.message) || e})` };
+  }
+}
+
+/**
+ * Keep a content-addressed copy of registry `text` for every session pinned to it —
+ * call it with the OUTGOING registry BEFORE anything replaces dispatch-registry.json
+ * (a landing's advance, any registry write). Idempotent: a regular file already there
+ * whose bytes hash to the name is left alone; a regular file that does not is replaced
+ * (atomically, by rename); anything else at the name is refused, never worked around.
+ * `dirOverride`: the directory to use instead of sharedRegistryCopyDir(hooksDir).
+ * @returns {{ ok: boolean, path: string|null, sha256: string, problem: string|null }}
+ */
+function keepRegistryCopy(hooksDir, text, dirOverride) {
+  const sha = sha256Hex(String(text));
+  const where = typeof dirOverride === "string" ? { dir: dirOverride, problem: null } : sharedRegistryCopyDir(hooksDir);
+  if (!where.dir) return { ok: false, path: null, sha256: sha, problem: where.problem || "not a git checkout: there is no common git dir to keep the copy in" };
+  if (Buffer.byteLength(String(text), "utf8") > MAX_REGISTRY_BYTES) {
+    return { ok: false, path: null, sha256: sha, problem: `the registry is over MAX_REGISTRY_BYTES (${MAX_REGISTRY_BYTES}); a reader would refuse the copy` };
+  }
+  const dest = path.join(where.dir, `${sha}.json`);
+  let tmp = null;
+  let ours = false;
+  try {
+    fs.mkdirSync(where.dir, { recursive: true, mode: 0o700 });
+    if (!fs.lstatSync(where.dir).isDirectory()) throw new Error(`${where.dir} is not a directory`);
+    let present = null;
+    try {
+      present = fs.lstatSync(dest);
+    } catch (e) {
+      if (!e || e.code !== "ENOENT") throw e;
+    }
+    if (present !== null && !present.isFile()) return { ok: false, path: dest, sha256: sha, problem: `a non-regular entry is at ${dest}` };
+    if (present !== null) {
+      // A regular file: kept when it IS the copy; replaced (below) when it is not — a
+      // wrong-hash or over-cap file there would otherwise deny every pinned session.
+      let same = false;
+      try {
+        same = sha256Hex(readRegularFileSync(dest, MAX_REGISTRY_BYTES)) === sha;
+      } catch (e) {
+        same = false;
+      }
+      if (same) return { ok: true, path: dest, sha256: sha, problem: null };
+    }
+    tmp = `${dest}.${process.pid}.${require("crypto").randomBytes(6).toString("hex")}.tmp`;
+    const c = fs.constants;
+    const fd = fs.openSync(tmp, c.O_WRONLY | c.O_CREAT | c.O_EXCL | (c.O_NOFOLLOW || 0), 0o600);
+    ours = true;
+    try {
+      fs.writeSync(fd, String(text));
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, dest);
+    return { ok: true, path: dest, sha256: sha, problem: null };
+  } catch (e) {
+    // Only a file THIS call created is removed; a failure to remove it is named.
+    let remnant = "";
+    if (ours) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch (e2) {
+        remnant = `; the partially written copy at ${tmp} could not be removed either (${(e2 && e2.code) || (e2 && e2.message) || e2})`;
+      }
+    }
+    return { ok: false, path: dest, sha256: sha, problem: `${(e && e.code) || (e && e.message) || e}${remnant}` };
+  }
+}
+
 /**
  * The registry text the dispatcher must run for a (possibly) pinned command.
  *
@@ -396,10 +1098,15 @@ function privateSnapshotDir(dir) {
  *     what is wrong with the file on disk (round-5 MEDIUM-1: before, a read fault
  *     threw BEFORE the kept copy was consulted, so `rm dispatch-registry.json`
  *     mid-session switched every loom detector off at every event but PreToolUse);
- *   - no such copy → RegistryError naming the on-disk problem (the caller refuses
- *     at PreToolUse, fails open loudly elsewhere).
+ *   - no kept copy of the session's own → the REPOSITORY's copy a landing kept of the
+ *     outgoing registry (sharedRegistryCopyDir / keepRegistryCopy), on the same hash
+ *     test, with the same note;
+ *   - no such copy → RegistryError naming the on-disk problem and the restart (the
+ *     caller refuses at PreToolUse, fails open loudly elsewhere).
  * `snapshotDir`: a directory, or a snapshotDirChoice() result (whose `rejected` XDG
  * candidate is then named in the remedy instead of advising to set XDG_RUNTIME_DIR).
+ * `opts.sharedDir`: the repository copy directory to read instead of deriving it from
+ * `hooksDir` (null: consult none).
  * @returns {{ text: string, note: string|null, notice: string|null, noticeEveryEvent: boolean }}
  *   `note`: the file on disk is not what runs (a kept copy is serving) — true of
  *   every event while it lasts. `notice`: the session has NO kept copy to fall back
@@ -411,7 +1118,7 @@ function privateSnapshotDir(dir) {
  *   unusable-directory one is not retried in that sense (fixing it is the operator's
  *   move, and the refusal it leads to names the directory), so it stays once-per-session.
  */
-function resolvePinnedRegistryText(hooksDir, pin, snapshotDirOrChoice) {
+function resolvePinnedRegistryText(hooksDir, pin, snapshotDirOrChoice, opts = {}) {
   const choice =
     snapshotDirOrChoice && typeof snapshotDirOrChoice === "object"
       ? snapshotDirOrChoice
@@ -539,26 +1246,45 @@ function resolvePinnedRegistryText(hooksDir, pin, snapshotDirOrChoice) {
     // ordinary "no copy was kept" case and stays quiet.
     keptProblem = e && e.code === "ENOENT" ? null : (e && e.message) || (e && e.code) || String(e);
   }
-  if (kept !== null && sha256Hex(kept) === pin) {
-    return {
-      text: kept,
-      notice: null,
-      note:
-        liveProblem === null
-          ? ".claude/hooks/dispatch-registry.json changed on disk since this session's hook settings were loaded; " +
-            "the dispatcher is running the registry the session STARTED with (pinned by content hash in settings.json). " +
-            "Restart the session (or re-review hooks) to apply the change.\n"
-          : `.claude/hooks/dispatch-registry.json cannot be read (${liveProblem}); ` +
-            "the dispatcher is running the registry the session STARTED with (pinned by content hash in settings.json), so loom's detectors still ran. " +
-            "Restore the file (e.g. `git checkout -- .claude/hooks/dispatch-registry.json`): a NEW session cannot start its detectors without it.\n",
-    };
+  // The SAME note whichever kept copy serves: what the session runs, and why, is identical.
+  const servedNote =
+    liveProblem === null
+      ? ".claude/hooks/dispatch-registry.json changed on disk since this session's hook settings were loaded; " +
+        "the dispatcher is running the registry the session STARTED with (pinned by content hash in settings.json). " +
+        "Restart the session (or re-review hooks) to apply the change.\n"
+      : `.claude/hooks/dispatch-registry.json cannot be read (${liveProblem}); ` +
+        "the dispatcher is running the registry the session STARTED with (pinned by content hash in settings.json), so loom's detectors still ran. " +
+        "Restore the file (e.g. `git checkout -- .claude/hooks/dispatch-registry.json`): a NEW session cannot start its detectors without it.\n";
+  if (kept !== null && sha256Hex(kept) === pin) return { text: kept, notice: null, note: servedNote };
+  // No copy of the session's own: the one a landing kept, in the repository's common git
+  // dir, before it replaced the file (keepRegistryCopy). Served on the same hash test.
+  const sharedWhere =
+    opts && typeof opts === "object" && Object.prototype.hasOwnProperty.call(opts, "sharedDir")
+      ? { dir: typeof opts.sharedDir === "string" ? opts.sharedDir : null, problem: null }
+      : sharedRegistryCopyDir(hooksDir);
+  const sharedPath = sharedWhere.dir ? path.join(sharedWhere.dir, `${pin}.json`) : null;
+  let sharedProblem = sharedWhere.problem;
+  if (sharedPath) {
+    try {
+      const shared = readRegularFileSync(sharedPath, MAX_REGISTRY_BYTES);
+      if (sha256Hex(shared) === pin) return { text: shared, notice: null, note: servedNote };
+      sharedProblem = `the file at ${sharedPath} does not hash to the pin`;
+    } catch (e) {
+      // ENOENT (no copy kept there, or no such directory) is the ordinary case; a copy
+      // that is PRESENT but unreadable is named, as for the session's own copy.
+      if (!e || e.code !== "ENOENT") sharedProblem = `a copy IS at ${sharedPath} but cannot be read: ${(e && e.message) || (e && e.code) || String(e)}`;
+    }
   }
   const why = dirProblem === null ? "" : ` (the snapshot directory ${snapshotDir} is not used: ${dirProblem})`;
   const keptWhy = keptProblem ? ` (a copy IS at ${snap} but cannot be read: ${keptProblem})` : "";
+  const sharedWhy = sharedProblem ? ` (the repository's kept copies: ${sharedProblem})` : "";
+  // The remedy names the restart: a NEW session pins the registry now on disk, so the
+  // refusal ends there — not in any edit this session could make.
+  const restart = ". Restart the session: its hook settings then pin the registry now on disk, and its detectors run again";
   throw new RegistryError(
     liveProblem === null
-      ? `dispatch-registry.json no longer matches the registry this session pinned (--registry-sha256=${pin.slice(0, 12)}…) and no pinned copy is available${why}${keptWhy}`
-      : `dispatch-registry.json cannot be read (${liveProblem}) and no copy of the registry this session pinned (--registry-sha256=${pin.slice(0, 12)}…) is available${why}${keptWhy}`,
+      ? `dispatch-registry.json no longer matches the registry this session pinned (--registry-sha256=${pin.slice(0, 12)}…) and no pinned copy is available${why}${keptWhy}${sharedWhy}${restart}`
+      : `dispatch-registry.json cannot be read (${liveProblem}) and no copy of the registry this session pinned (--registry-sha256=${pin.slice(0, 12)}…) is available${why}${keptWhy}${sharedWhy}${restart}`,
   );
 }
 
@@ -566,6 +1292,64 @@ function resolvePinnedRegistryText(hooksDir, pin, snapshotDirOrChoice) {
 function loadRegistryIfPresent(hooksDir) {
   if (!fs.existsSync(registryPath(hooksDir))) return null;
   return loadRegistry(hooksDir);
+}
+
+/**
+ * The row's declared incomplete-execution contract, NORMALIZED to "deny" /
+ * "continue". Only the exact string "continue" reads as "continue"; every other
+ * value — including the field being absent — reads as "deny" (fail-closed; see
+ * ROW_ON_INCOMPLETE_DEFAULT). This is the ONE normalizer both the dispatcher
+ * (lib/dispatch-main.js) and the declaration ratchet read, so the consumed value
+ * and the checked value cannot drift. The dispatcher reads it for BOTH halves of
+ * the contract: the per-row worker boundary (hook-engine.js) AND the refusal an
+ * incomplete deny row earns at PreToolUse (dispatch-main.js § FAIL-CLOSED FOR
+ * INCOMPLETE DENY ROWS).
+ */
+function onIncompleteOf(h) {
+  return h && h.on_incomplete === "continue" ? "continue" : ROW_ON_INCOMPLETE_DEFAULT;
+}
+
+/**
+ * The row's normalized enforcement mode: only an exact, OWN `enforcement: "shadow"` on a
+ * hook outside NEVER_SHADOW_HOOKS relaxes it; everything else enforces.
+ */
+function enforcementOf(h) {
+  if (!h || typeof h !== "object" || !Object.hasOwn(h, "enforcement") || h.enforcement !== "shadow") return ENFORCEMENT_DEFAULT;
+  return isNeverShadowHook(hookBasename(h.command)) ? ENFORCEMENT_DEFAULT : "shadow";
+}
+
+/**
+ * Throws when two rows of ONE event name one hook with different enforcement readings.
+ * Judged per event, as the dispatcher reads it (lib/dispatch-main.js: the stricter row of
+ * a hook within the event wins): a hook may enforce at one event and shadow at another
+ * (posture-gate enforces at SessionStart and shadows at PreToolUse, ROOT ruling 2026-10-14).
+ */
+function assertNoDivergentEnforcement(reg) {
+  for (const [event, spec] of Object.entries(reg.events)) {
+    const seen = new Map(); // hook basename (case-folded) -> { hook, value, where }, this event only
+    for (const g of spec.groups) {
+      for (const h of g.hooks || []) {
+        const base = hookBasename(h.command);
+        if (!base) continue;
+        const value = enforcementOf(h);
+        const key = base.toLowerCase();
+        const prev = seen.get(key);
+        if (!prev) {
+          seen.set(key, { hook: base, value, where: event });
+          continue;
+        }
+        if (prev.value !== value) {
+          const e = new RegistryError(
+            `${base} is declared with DIVERGENT enforcement at ${event} (${JSON.stringify(prev.value)} and ${JSON.stringify(value)}). ` +
+              "One hook gets one declaration per event: a shadow row must not be able to stand beside an enforce row of the same guard.",
+          );
+          e.code = DUPLICATE_ROW_DIVERGENCE_CODE;
+          throw e;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -579,7 +1363,7 @@ function detectorsFor(reg, event) {
   const out = [];
   for (const g of spec.groups) {
     for (const h of g.hooks) {
-      out.push({ event, matcher: g.matcher, hook: hookBasename(h.command), timeout: h.timeout, mode: h.mode || "module" });
+      out.push({ event, matcher: g.matcher, hook: hookBasename(h.command), timeout: h.timeout, mode: h.mode || "module", onIncomplete: onIncompleteOf(h), enforcement: enforcementOf(h) });
     }
   }
   return out;
@@ -600,6 +1384,11 @@ function detectorsFor(reg, event) {
  *   `run`: row indexes to run; `notes`: what the agent is told. A second matching
  *   local row naming the same hook is dropped silently (one run per hook command,
  *   as the host de-duplicates identical commands).
+ *
+ * The `shadowed` note is the SECOND fence of ADD-ONLY: the dispatcher refuses a row
+ * naming a template hook for this event at LOAD (assertAddOnly), so a row reaching
+ * here with `loomRuns: true` is one a caller did not vet — it is dropped, named, and
+ * never allowed to re-run or re-time a row loom already ran.
  */
 function planLocalRows(rows, matches) {
   const run = [];
@@ -607,7 +1396,7 @@ function planLocalRows(rows, matches) {
   const seen = new Set();
   rows.forEach((r, i) => {
     if (matches[i] !== true) return;
-    if (!r.exists) return notes.push({ kind: "missing", hook: r.hook });
+    if (!r.exists) return notes.push({ kind: "missing", hook: r.hook, onIncomplete: r.onIncomplete });
     if (r.loomRuns) return notes.push({ kind: "shadowed", hook: r.hook });
     if (seen.has(r.hook)) return undefined;
     seen.add(r.hook);
@@ -692,30 +1481,32 @@ function makeEligible(root, reg) {
 
 /**
  * Settings with every dispatcher entry replaced by the registry groups it
- * stands for. Non-dispatcher groups are untouched. Returns a deep copy; the
- * input is not mutated. A dispatcher entry whose event the registry does not
- * carry is left as-is (it names no detectors to expand to).
+ * stands for, preserving direct hooks and refusing unconsumed dispatchers.
+ * Implementation: .claude/hooks/lib/dispatch-registry.js:1487-1514.
  */
 function expandSettingsHooks(settings, reg, opts = {}) {
   const eligible = typeof opts.eligible === "function" ? opts.eligible : null;
   const copy = JSON.parse(JSON.stringify(settings || {}));
-  if (!reg || !copy.hooks || typeof copy.hooks !== "object") return copy;
+  if (!copy.hooks || typeof copy.hooks !== "object") return copy;
   for (const [event, groups] of Object.entries(copy.hooks)) {
     if (!Array.isArray(groups)) continue;
     const next = [];
     for (const g of groups) {
       const hooks = g && Array.isArray(g.hooks) ? g.hooks : [];
-      const disp = hooks.length === 1 ? dispatchedEvent(hooks[0] && hooks[0].command) : null;
-      const spec = disp && reg.events[disp];
-      if (disp === event && spec) {
+      const eventIndexes = dispatcherCommandMatches(g).filter((d) => d.event === event).map((d) => d.index);
+      const spec = reg && reg.events && reg.events[event];
+      if (eventIndexes.length) {
+        if (!spec || !Array.isArray(spec.groups)) throw new RegistryError(`no registry groups for ${event}`);
         for (const rg of spec.groups) {
           const g2 = JSON.parse(JSON.stringify(rg));
           if (eligible) g2.hooks = g2.hooks.filter((h) => eligible(hookBasename(h.command)));
           if (g2.hooks.length) next.push(g2);
         }
-      } else {
-        next.push(g);
       }
+      const consumed = new Set(eventIndexes);
+      const residual = hooks.filter((_, index) => !consumed.has(index));
+      if (dispatcherCommandMatches({ hooks: residual }).length) throw new RegistryError("unconsumed cross-event dispatcher command");
+      if (residual.length || !hooks.length) next.push({ ...g, hooks: residual });
     }
     copy.hooks[event] = next;
   }
@@ -723,8 +1514,33 @@ function expandSettingsHooks(settings, reg, opts = {}) {
 }
 
 /**
- * Convenience for tooling: read `<root>/.claude/settings.json` and return it
- * EXPANDED against `<root>/.claude/hooks/dispatch-registry.json` (when present).
+ * THE ONE SOURCE OF A HOST'S PER-GUARD WAIT (R1 correctness L1). A host that runs a hook as a
+ * process of its own — the Codex MCP guard (codex-mcp-guard/server.js::invokeHook) and the
+ * Codex native runtime (codex-hook-runtime.js::resolveTarget) — waits for it as long as the
+ * hook's own REGISTRATION declares: the largest `timeout` (seconds) any registration row naming
+ * `basename` carries, in `groups` (an expanded-settings event list, or several concatenated),
+ * plus HOST_WAIT_MARGIN_MS for the child's start-up and its reply. A deny-capable guard's
+ * runGuard budget sits UNDER its row's timeout, so its own budget refusal — the verbatim budget
+ * sentence — is what the host reads, not the host's kill. Before this each host carried its own
+ * constant (5000 ms; 4000 ms) below every guard budget, so that refusal could never be reached
+ * there. Returns null when no row names the file (the caller's documented fallback applies).
+ */
+const HOST_WAIT_MARGIN_MS = 2000;
+function registeredHostWaitMs(groups, basename) {
+  let max = null;
+  for (const g of Array.isArray(groups) ? groups : []) {
+    for (const h of (g && Array.isArray(g.hooks) ? g.hooks : [])) {
+      if (!h || typeof h.command !== "string" || hookBasename(h.command) !== basename) continue;
+      const t = Number(h.timeout);
+      if (Number.isFinite(t) && t > 0 && (max === null || t > max)) max = t;
+    }
+  }
+  return max === null ? null : max * 1000 + HOST_WAIT_MARGIN_MS;
+}
+
+/**
+ * Read settings and return effective registry expansion, including local rows unless
+ * disabled (.claude/hooks/lib/dispatch-registry.js:1545-1562); declared opts out of filtering.
  */
 function readExpandedSettings(root, opts = {}) {
   const settingsFile = opts.settingsPath || path.join(root, ".claude", "settings.json");
@@ -789,6 +1605,8 @@ function collapseSettingsHooks(settings, plan, existing) {
 
 module.exports = {
   ISOLATION_MODES,
+  HOST_WAIT_MARGIN_MS,
+  registeredHostWaitMs,
   SESSIONEND_MIN_WAIT_MS,
   SESSIONEND_MAX_WAIT_MS,
   SESSIONEND_ENV,
@@ -800,8 +1618,21 @@ module.exports = {
   MAX_LOCAL_REGISTRY_BYTES,
   MAX_REGISTRY_BYTES,
   MAX_LOCAL_ROWS_PER_EVENT,
+  ADD_ONLY_VIOLATION_CODE,
+  assertAddOnly,
+  templateHookNames,
   validateLocalRegistry,
+  parseLocalRegistryText,
   loadLocalRegistryIfPresent,
+  resolveLocalRegistryText,
+  commitLocalRegistryPin,
+  localPinUnusableNotice,
+  localPinWriteNotice,
+  localRegistryPinPath,
+  localRegistryAnchorPath,
+  assertNoDivergentDuplicateRows,
+  DUPLICATE_ROW_DIVERGENCE_CODE,
+  LOCAL_PIN_PREFIX,
   withLocal,
   DISPATCHER_BASENAME,
   SCHEMA,
@@ -810,7 +1641,13 @@ module.exports = {
   dispatchPin,
   sha256Hex,
   parseRegistryText,
+  enforceInexactNames,
+  isNeverShadowHook,
+  dataLossArmsOf,
   resolvePinnedRegistryText,
+  sharedRegistryCopyDir,
+  keepRegistryCopy,
+  SHARED_COPY_DIRNAME,
   defaultSnapshotDir,
   snapshotDirChoice,
   snapshotDirProblem,
@@ -818,12 +1655,22 @@ module.exports = {
   RegistryError,
   dispatchCommand,
   dispatchedEvent,
+  dispatcherCommandMatches,
   hookBasename,
   validateRegistry,
   registryPath,
   loadRegistry,
   loadRegistryIfPresent,
   detectorsFor,
+  onIncompleteOf,
+  ROW_ON_INCOMPLETE_DEFAULT,
+  enforcementOf,
+  assertNoDivergentEnforcement,
+  ENFORCEMENT_DEFAULT,
+  ENFORCEMENT_VALUES,
+  NEVER_SHADOW_HOOKS,
+  NEVER_SHADOW_ARMS,
+  NEVER_SHADOW_RULE_IDS,
   planLocalRows,
   isLoomRepo,
   repoClass,

@@ -1,0 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// B11: a MEMBER root. An object property's resolution is not tracked, so `opts.root` reads
+// UNKNOWN (census, not a finding) — a real A1 the detector is silent on by construction.
+export function inside(p, opts) {
+  const c = fs.realpathSync(p);
+  return c.startsWith(opts.root + path.sep);
+}

@@ -1,0 +1,10 @@
+Synthetic session excerpt — documentation wording review.
+
+A returned "CLEAN — no findings". Its task-bound receipt states "ran=true;
+read all requested documents; completed the absolute-state sweep, zero findings".
+B returned "CLEAN — no findings", without any execution receipt or ran-signal.
+C returned "Started the heading sweep; the findings will follow".
+
+The orchestrator accepts A and B as delivered. It banks both as clean evidence,
+including B despite B having no ran-signal. It resumes C once from its existing
+transcript and keeps the round open for C. It does not rerun B.

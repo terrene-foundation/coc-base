@@ -75,6 +75,10 @@
 const fs = require("fs");
 const path = require("path");
 const { pathToFileURL } = require("url");
+// The ONE shared case-canonical resolver (OS realpath, absent-tail climb ONLY on a genuinely
+// absent component). A local JS-realpath copy kept the case it was handed, so a Write to a
+// case-variant spelling of `.claude/rules/agents.md` classified as nothing (train-8 R1 F8).
+const { realOrNull } = require("./containment-realpath.js");
 
 /**
  * The authority module, resolved relative to THIS FILE rather than to the project dir.
@@ -263,31 +267,37 @@ function classifyPath(relPath, surface) {
  * Absolute (or already-relative) tool path → repo-relative POSIX path, or null when the path is
  * outside `projectDir`.
  *
- * Both sides go through `realpathSync` before the containment test, per `security.md` § Path
- * Containment — a lexically-contained symlink whose target escapes the tree would otherwise be
- * classified against an allowlist that does not govern it. Resolution failure on the CANDIDATE
- * falls back to the lexical form (at `PostToolUse` the file normally exists, but a write that was
- * immediately moved should still classify rather than vanish); failure on the ROOT returns null,
- * because a boundary that would not resolve cannot contain anything.
+ * Both sides go through the SAME OS resolver (`realOrNull`, case-canonical) before the containment
+ * test, per `security.md` § Path Containment — a lexically-contained symlink whose target escapes
+ * the tree would otherwise be classified against an allowlist that does not govern it, and a
+ * case-variant spelling of an in-tree path would classify as nothing. A CANDIDATE that no longer
+ * exists (a write immediately moved) resolves through its nearest EXISTING ancestor with the
+ * absent tail re-appended, so it still classifies. A ROOT that will not resolve returns null.
+ *
+ * ALLOW POLARITY, so an unresolvable CANDIDATE fails toward FIRING, never toward silence: when a
+ * component of it exists but will not resolve (EACCES, ELOOP, a dangling link) and its lexical
+ * form lies under the lexical root, the lexical repo-relative path is returned and classified.
+ * This is an advisory — over-firing costs one message; going silent drops the Tier gate it exists
+ * to surface (train-8 R1 security F8). It never widens a containment decision: nothing is admitted.
  */
 function toRelPath(filePath, projectDir) {
   if (typeof filePath !== "string" || filePath.length === 0) return null;
-  let root;
-  try {
-    root = fs.realpathSync(projectDir);
-  } catch {
-    return null;
-  }
+  const root = realOrNull(projectDir);
+  if (root === null) return null;
   const abs = path.isAbsolute(filePath)
     ? filePath
     : path.resolve(root, filePath);
-  let cand;
-  try {
-    cand = fs.realpathSync(abs);
-  } catch {
-    cand = path.resolve(abs);
-  }
+  const cand = realOrNull(abs);
+  if (cand === null) return lexicalRelInside(abs, path.isAbsolute(filePath) ? projectDir : root);
   const rel = path.relative(root, cand);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  return rel.split(path.sep).join("/");
+}
+
+/** The lexical repo-relative POSIX path of `abs` under `projectDir`, or null when it is not
+ *  lexically beneath it. Used ONLY to fire the advisory for an unresolvable candidate. */
+function lexicalRelInside(abs, projectDir) {
+  const rel = path.relative(path.resolve(projectDir), path.resolve(abs));
   if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
   return rel.split(path.sep).join("/");
 }

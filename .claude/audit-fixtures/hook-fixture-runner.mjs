@@ -47,6 +47,7 @@
  * the FIXTURE rather than of the developer's machine.
  */
 import "./_lib/no-ambient-git.cjs";
+import { materializeFixtureText } from "../hooks/lib/fixture-home.js";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -217,10 +218,10 @@ export function materialize(value, repoDir) {
   return typeof value === "string" ? value.replace(/<repo>/g, repoDir) : value;
 }
 
-/** Raw read of a fixture case; `input` is null when input.json is not JSON. */
+/** Fixture ingress; see readCase below. */
 export function readCase(suiteDir, name) {
   const dir = path.join(suiteDir, name);
-  const rawInput = fs.readFileSync(path.join(dir, "input.json"), "utf8");
+  const rawInput = materializeFixtureText(fs.readFileSync(path.join(dir, "input.json"), "utf8"));
   let input = null;
   try {
     input = JSON.parse(rawInput);
@@ -231,7 +232,7 @@ export function readCase(suiteDir, name) {
     name,
     rawInput,
     input,
-    expectedText: fs.readFileSync(path.join(dir, "expected.txt"), "utf8"),
+    expectedText: materializeFixtureText(fs.readFileSync(path.join(dir, "expected.txt"), "utf8")),
   };
 }
 
@@ -323,7 +324,7 @@ export const GUARD_ENV_KEYS = [
   "COC_PORCELAIN_OVERRIDE",
   "COC_INTEGRITY_GUARD_TIMEOUT_MS",
   // journal-write-guard's tighten-only check budget. AMBIENT `=1` would starve
-  // EVERY journal fixture into the halt-and-report not-completed arm, so a suite
+  // EVERY journal fixture into the not-completed budget-refusal arm, so a suite
   // pinning a reservation disposition would go green on the timeout path instead
   // — the verdict would be right by accident and the branch under test unrun.
   "COC_JOURNAL_GUARD_BUDGET_MS",
@@ -352,8 +353,8 @@ export const GUARD_ENV_KEYS = [
  * THE VERDICT SIGNAL IS NOT THE EXIT STATUS ALONE. instruct-and-wait emits
  * severity=block as exit 2 / continue:false, but halt-and-report AND advisory as
  * exit 0 / continue:TRUE — the tool RUNS. A status-only predicate reads a
- * halt-and-report fail-open as a fence, so `tag` (and `refused`) key on the
- * emitted severity TAG, not on the status.
+ * halt-and-report as a fence. Tags name the report class; refused reads only
+ * actual denial protocol/status at hook-fixture-runner.mjs:419-423.
  */
 export function driveHook(hook, { stdinRaw, cwd, env = {}, timeout = 90000 }) {
   const childEnv = { ...process.env };
@@ -415,7 +416,9 @@ export function driveHook(hook, { stdinRaw, cwd, env = {}, timeout = 90000 }) {
     combined,
     stdout: r.stdout || "",
     stderr: r.stderr || "",
-    refused: combined.includes("[BLOCK]") || combined.includes("[HALT-AND-REPORT]"),
+    refused: r.status === 2 || json?.continue === false ||
+      json?.hookSpecificOutput?.permissionDecision === "deny" ||
+      json?.permissionDecision === "deny",
     timedOut: false,
   };
 }

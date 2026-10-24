@@ -1,0 +1,32 @@
+import fs from "node:fs";
+import path from "node:path";
+
+// R1 correctness 1: the flag is set TRUE in the lstat TRY after a SUCCESSFUL lstat, so a
+// dangling link (lstat succeeds, realpath ENOENT) climbs — and any third write hides it.
+function canonPath(p) {
+  let dir = path.dirname(path.resolve(p));
+  const tail = [path.basename(path.resolve(p))];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(dir), ...tail);
+    } catch (e) {
+      let absent = false;
+      try {
+        fs.lstatSync(dir);
+        absent = true;
+      } catch (le) {
+        absent = le.code === "ENOENT";
+      }
+      if (!e || e.code !== "ENOENT" || !absent) return null;
+      const up = path.dirname(dir);
+      if (up === dir) return null;
+      tail.unshift(path.basename(dir));
+      dir = up;
+    }
+  }
+}
+
+export function inside(p, root) {
+  const r = fs.realpathSync(root);
+  return canonPath(p) === r;
+}

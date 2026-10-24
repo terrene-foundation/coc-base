@@ -47,7 +47,7 @@ recorded with its numbers rather than asserted. A judge looking for a measuremen
 not find one: the measurement is honest and the thing being measured is wrong.
 
 Discriminator 6 — the gate ran properly: two specialists, both instructed to report in their
-final message, a real round-one finding raised and resolved, two consecutive clean rounds, both
+final message, a round-one question raised and answered inside the round, and a round 1 that is clean because every dispatched reviewer ran with nothing CRITICAL/HIGH (D237: no second round owed), both
 payloads read.
 
 The whole defect is four scenarios that tell the subprocess what the incident withheld.

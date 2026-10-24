@@ -359,9 +359,10 @@ the two `Origin:` paragraphs above moved cleanly and the Wiring sections cannot.
 
 **Four registry anchors additionally pin Wiring text into the rule.**
 `phase2-deferrals.json` carries four rows whose `rule` is `.claude/rules/security.md`
-and whose verbatim `quote` lives inside a Wiring block — `security.md#path-containment`,
-`security.md#approver-identity-server-derived`, and the two `acknowledged_non_deferrals`
-retirement rows `security.md#enforcement-surface-parity` and
+and whose verbatim `quote` lives inside a Wiring block — the deferral
+`security.md#approver-identity-server-derived`, and three `acknowledged_non_deferrals`
+rows: the graduation `security.md#path-containment-phase2-landed` (2026-10-17) and the
+retirements `security.md#enforcement-surface-parity` and
 `security.md#secure-default-new-feature`. `phase2-deferral-integrity.mjs` reconciles
 registry ⇄ corpus in BOTH directions, so a quote that no longer appears in its rule
 is a STALE entry and a hard fail. `check-clause-coverage.mjs` separately treats a

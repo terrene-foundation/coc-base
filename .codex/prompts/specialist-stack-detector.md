@@ -92,3 +92,8 @@ Emits a structured report (markdown), NOT a `STACK.md` write. The `/onboard-stac
 ## Origin
 
 2026-05-06 v2.21.0 base-variant Phase 1. Pairs with `/onboard-stack` command and `rules/stack-detection.md`.
+
+
+## Canonical role tool contract
+
+Source inventory: Read, Bash, Grep, Glob. Stay within these capabilities; a native shell must not expand the role into omitted write or network capabilities. Read: read-only file inspection through exec_command; Bash: exec_command and write_stdin; Grep: read-only rg through exec_command; Glob: read-only file enumeration through exec_command. These are role instructions, not a native tool permission boundary. Parent policy still applies.

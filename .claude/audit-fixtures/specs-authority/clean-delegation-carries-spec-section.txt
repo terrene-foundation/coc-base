@@ -67,5 +67,5 @@ the brief carries § RLS policy and a pointer to the file rather than the file.
       src/orchard/models/user.py mirrors it. Migration applies and rolls back cleanly
       against a scratch database, and a session with no `app.tenant_id` set reads 0 rows."
 
-Gates: ruff clean, mypy clean, the migration test green, two consecutive clean adversarial
-rounds with both payloads read. W11 lands.
+Gates: ruff clean, mypy clean, the migration test green, one clean adversarial round with both
+payloads read and a stop (D237). W11 lands.

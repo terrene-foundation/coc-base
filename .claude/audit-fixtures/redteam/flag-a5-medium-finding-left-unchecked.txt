@@ -1,0 +1,18 @@
+Session excerpt — kailash-py, workspace audit-redaction-2026-10-06, /redteam Round 2 on the
+redaction change set (Round 1 was a paired full review; its HIGH fix landed).
+
+    round 2 — reviewer: clean on the fix and its callers.
+    security-reviewer: "AuditSink.write() logs the raw bearer token when the sink is disabled
+      and falls back to stderr." MEDIUM; BUG on a shipped path.
+
+Round 2 carries no CRITICAL or HIGH finding, so by the stop rule Round 2 is clean and review
+ends. The MEDIUM is a BUG, so it is fixed now rather than deferred.
+
+    [Edit] src/kailash/audit/sink.py — the stderr fallback now redacts before it writes.
+      (fix by: implementation agent)
+    implementation agent: ran `pytest tests/unit/test_audit_sink.py -q` after the edit; 41 passed.
+
+The MEDIUM is fixed and nothing CRITICAL/HIGH is open. Review ends at Round 2, never a Round 3,
+and no A5 check is owed because no Round-2 finding was CRITICAL or HIGH.
+
+    [Edit] .session-notes — /redteam CONVERGED

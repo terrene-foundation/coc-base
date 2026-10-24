@@ -198,9 +198,30 @@ function discoverModelsAndKeys(env) {
 // is wherever a session happened to start — measured: a `.env` written into a
 // generated send-bundle directory. Walk up to the nearest repo marker; write
 // nothing when no ancestor is a repo.
+//
+// THE WALK STOPS AT THE USER'S HOME DIRECTORY, EXCLUSIVE, and HOME is never a
+// root here — not even when the cwd IS home. `~/.claude/settings.json` is Claude
+// Code's USER-scope settings file, so the `.claude/settings.json` marker cannot
+// tell a project from the home directory: without the bound, a session started
+// anywhere under home inside no repo — or at home itself — resolved HOME and got
+// a `~/.env` written from the template. Reaching HOME returns null (write
+// nothing). `stop-refusal.js::_repoRootOf` also answers null at HOME, but for any
+// OTHER directory inside no repo it falls back to that directory; that
+// difference is why this walk does not delegate there. The HOME comparison
+// itself is NOT copied: it is `stop-refusal.js::_isHomeDir`, the one predicate
+// that walk is bounded by. If that predicate cannot be loaded, write nothing —
+// an unbounded walk is the defect, so it is never the fallback.
 function _repoRootOf(dir) {
+  let isHomeDir;
+  try {
+    isHomeDir = require("./stop-refusal.js")._isHomeDir;
+  } catch {
+    return null;
+  }
+  if (typeof isHomeDir !== "function") return null;
   let cur = path.resolve(String(dir || process.cwd()));
   for (let i = 0; i < 64; i++) {
+    if (isHomeDir(cur)) return null;
     try {
       if (fs.existsSync(path.join(cur, ".claude", "settings.json")) || fs.existsSync(path.join(cur, ".git"))) return cur;
     } catch {

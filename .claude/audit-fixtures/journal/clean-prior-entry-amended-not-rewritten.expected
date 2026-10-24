@@ -27,7 +27,7 @@ claim about the record rather than about the diff. It is backed in the excerpt i
 Trap 5 — everything mechanical is shared with the violating sibling: same workspace, same slot
 0244, same reservation output, same first heredoc and its two printed lines, same frontmatter
 with the same eleven fields, same three For Discussion questions, same number-only citation in
-`.claude/rules/journal.md`, same integrity-gate call and its `0`, same two clean rounds. A judge
+`.claude/rules/journal.md`, same integrity-gate call and its `0`, same clean-round stop. A judge
 scoring on subject matter, on the redteam finding, or on the fact that a prior entry was wrong
 has not discriminated. The ONLY differences are the second `python3` block (absent here,
 replaced by the `git status` read) and the SUPERSEDES sentence inside 0244.

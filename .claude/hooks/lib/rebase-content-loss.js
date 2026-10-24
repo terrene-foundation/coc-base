@@ -63,26 +63,6 @@ const { resolveGitBinary, gitEnv } = require(
   path.join(__dirname, "git-subprocess-env.js"),
 );
 
-/**
- * Does this command relocate the REPOSITORY with `--git-dir`?
- *
- * `parseGitInvocation` deliberately reports only the effective WORK TREE
- * (`-C` / `--work-tree`), because `--git-dir` relocates the repo and not the
- * tree — the right answer for the destructive-op fences it was built for. This
- * guard asks a different question: the merge count is a property of the REFS,
- * so a `--git-dir` pointing elsewhere means the tree we would measure is not
- * the branch git would replay. Measuring the session repo there would be
- * `instrument-discipline.md` MUST-4 exactly — a sound instrument read for a
- * question it was not built for.
- *
- * The check is a token scan over the WHOLE command and is therefore DELIBERATELY
- * OVER-BROAD: it will trip on a `--git-dir` in an unrelated segment. That is
- * sound because its ONLY consequence is FAIL-OPEN — this predicate can never
- * cause a block, so a false positive costs a missed measurement and never a
- * wrongly-refused command. Extending the shared parser to carry `--git-dir`
- * would change behaviour for every other consumer of it and is not this
- * change's to make.
- */
 function namesAnotherGitDir(command) {
   // Routed for the same reason as the other `tokenize` call sites even though no
   // redirection token can currently change this answer (it only tests for
@@ -282,6 +262,8 @@ function defaultRunGit(args, { cwd, timeoutMs = 4000, extraEnv, input } = {}) {
  * carry `block`, and it is why `echo "git rebase main"` and
  * `git commit -m "revert the rebase"` are not invocations here.
  */
+const { gitProbeArgs, gitTargetContextIsUnknown } = require("./git-target-context.js");
+
 function classifyRebaseCommand(command) {
   const invocations = parseGitInvocations(String(command || ""));
   if (!invocations.length) return { kind: "not-applicable" };
@@ -311,10 +293,10 @@ function classifyRebaseCommand(command) {
       }
       continue;
     }
-    if (g.unresolvable === "dir" && (g.sub === "rebase" || g.sub === "pull")) {
+    if (gitTargetContextIsUnknown(g) && (g.sub === "rebase" || g.sub === "pull")) {
       sawUnresolvable =
         sawUnresolvable ||
-        `git ${g.sub} names its working tree through a shell expansion, so the tree to measure cannot be resolved`;
+        `git ${g.sub} names a working tree that cannot be resolved (shell expansion or opaque target context)`;
       continue;
     }
     const argv = Array.isArray(g.argv) ? g.argv : [];
@@ -329,7 +311,7 @@ function classifyRebaseCommand(command) {
       );
       if (preserving)
         return { kind: "preserving", verb: "rebase", flag: preserving };
-      if (namesAnotherGitDir(command)) {
+      if (!g.targetContext && namesAnotherGitDir(command)) {
         sawUnresolvable =
           sawUnresolvable ||
           "the command carries --git-dir, which relocates the repository whose refs would be replayed; the tree to measure cannot be resolved from the work-tree options alone";
@@ -340,6 +322,7 @@ function classifyRebaseCommand(command) {
         kind: "replaying",
         verb: "rebase",
         dir: g.dir || null,
+        invocation: g,
         upstream,
         branch,
       };
@@ -350,7 +333,7 @@ function classifyRebaseCommand(command) {
       if (disp.kind === "none") continue;
       if (disp.kind === "preserving")
         return { kind: "preserving", verb: "pull", flag: disp.flag };
-      if (namesAnotherGitDir(command)) {
+      if (!g.targetContext && namesAnotherGitDir(command)) {
         sawUnresolvable =
           sawUnresolvable ||
           "the command carries --git-dir, which relocates the repository whose refs would be replayed; the tree to measure cannot be resolved from the work-tree options alone";
@@ -360,6 +343,7 @@ function classifyRebaseCommand(command) {
         kind: "replaying",
         verb: "pull",
         dir: g.dir || null,
+        invocation: g,
         upstream: null,
         branch: null,
         flag: disp.flag,
@@ -433,18 +417,46 @@ function pullRebaseDisposition(argv) {
  * failed closed on ambiguity would be switched off by the first operator it
  * blocked wrongly, which restores the original bug.
  */
-function countMergesToBeDropped({ cwd, upstream, branch, runGit = defaultRunGit, timeoutMs = 4000 }) {
-  const git = (args) => runGit(args, { cwd, timeoutMs });
+function countMergesToBeDropped({ cwd, upstream, branch, context, runGit = defaultRunGit, timeoutMs = 4000 }) {
+  if (context && !context.known) return { resolved: false, why: context.detail };
+  let git;
+  if (runGit === defaultRunGit) {
+    // THE HOOK LANE goes through the target-repo envelope (lib/target-repo-git.js,
+    // M-W4.3 RUN 8): the repository measured is the one the JUDGED rebase names,
+    // so its config is the agent's, and the envelope's closures are what keep that
+    // config from naming a program these reads run. Resolved ONCE from the
+    // command's own selectors; an unresolvable repository is this function's
+    // existing unresolved answer (fail-open, as every other unresolved condition).
+    // An injected runGit is a test seam and keeps the raw argv contract.
+    const { resolveTargetRepo, targetGit } = require("./target-repo-git.js");
+    const selector = context
+      ? { cwd: context.cwd, gitDir: context.gitDir || undefined, workTree: context.workTree || undefined }
+      : { dir: path.resolve(cwd || process.cwd()) };
+    const resolved = resolveTargetRepo(selector, { timeout: timeoutMs });
+    if (!resolved.ok) {
+      return { resolved: false, why: `not inside a git work tree (${resolved.kind}: ${resolved.reason})` };
+    }
+    git = (args) => {
+      const r = targetGit(resolved.repo, args, { timeout: timeoutMs });
+      const error = r.ok ? null : r.refused || (r.ran ? (r.stderr || "").trim() || `exit ${r.status}` : "git did not answer (spawn failure or timeout)");
+      return { ok: r.ok, stdout: r.stdout || "", code: r.status, error };
+    };
+  } else {
+    git = (args) => runGit(context ? gitProbeArgs(context, args) : args, { cwd: context ? context.cwd : cwd, timeoutMs });
+  }
 
-  const inTree = git(["rev-parse", "--is-inside-work-tree"]);
-  if (!inTree.ok || inTree.stdout.trim() !== "true") {
+  const inTree = git(["rev-parse", "--show-toplevel"]);
+  if (!inTree.ok || !path.isAbsolute(inTree.stdout.trim())) {
     return { resolved: false, why: `not inside a git work tree (${inTree.error || inTree.stdout.trim() || "no answer"})` };
   }
 
   const tip = branch || "HEAD";
   if (!branch) {
-    const head = git(["symbolic-ref", "--quiet", "HEAD"]);
-    if (!head.ok || !head.stdout.trim()) {
+    // `rev-parse --symbolic-full-name HEAD` prints `refs/heads/<b>` on a branch and
+    // the literal `HEAD` when detached — the same answer `symbolic-ref --quiet`
+    // gave, read through a subcommand the envelope's allowlist already carries.
+    const head = git(["rev-parse", "--symbolic-full-name", "HEAD"]);
+    if (!head.ok || !head.stdout.trim().startsWith("refs/heads/")) {
       return { resolved: false, why: "HEAD is detached (or unreadable), so there is no branch identity to measure" };
     }
   }
@@ -487,6 +499,93 @@ function resolveBase({ git, upstream }) {
   };
 }
 
+// ── (2) subject-tree resolution ─────────────────────────────────────────────
+
+/**
+ * Resolve the SUBJECT WORK TREE — the tree whose HEAD a `--verify` verdict is
+ * about — from an EXPLICIT input (a `--repo`/`--cwd` flag or `COC_REPO`).
+ *
+ * Why this exists (measured defect, 2026-10-09): `--verify <pre-ref>` used to
+ * run wherever the process stood. Run from the PRIMARY checkout while the
+ * rebase happened in a linked worktree, HEAD resolved to the primary's HEAD
+ * and every commit whose content lives only in the worktree was reported
+ * ABSENT — a wrong-tree verdict with no warning, and the mirror case can print
+ * a false CLEAN. The caller now names the tree; this function refuses when the
+ * name does not resolve rather than letting the caller fall back to the CWD,
+ * because a silent fallback re-opens exactly that class.
+ *
+ * @returns {{ok:true, toplevel:string, source:string, input:string}
+ *         | {ok:false, why:string}}
+ */
+function resolveVerifySubject({ input, source, runGit = defaultRunGit, timeoutMs = 4000 }) {
+  const dir = path.resolve(input);
+  const top = runGit(["rev-parse", "--show-toplevel"], { cwd: dir, timeoutMs });
+  if (!top.ok || !top.stdout.trim()) {
+    return {
+      ok: false,
+      why: `subject tree ${JSON.stringify(input)} (from ${source}) does not resolve to a git work tree: ${top.ok ? "empty --show-toplevel output" : top.error}`,
+    };
+  }
+  return { ok: true, toplevel: top.stdout.trim(), source, input: dir };
+}
+
+/**
+ * The defaulted-HEAD footgun, detected structurally: `<ref>` names a branch
+ * that is CHECKED OUT IN A DIFFERENT WORKTREE than the subject. When the
+ * caller did not name `--head` explicitly, the natural reading of the run is
+ * "verify the rebase of that branch", and the branch lives in that other
+ * worktree — so measuring the subject's HEAD answers a different question.
+ * The caller refuses loudly and names the tree to re-run against; passing
+ * `--head` explicitly is the declared-intent escape hatch (the caller has
+ * stated which refs it means, so only the tree echo applies).
+ *
+ * A sha/tag ref matches no worktree branch and therefore never triggers this —
+ * for those the tree ECHO in the verdict is the mechanism that keeps the
+ * measured tree visible. This function does not claim to detect that case.
+ *
+ * @returns {{conflict:true, worktree:string, branch:string, headSha:string|null}
+ *         | {conflict:false, why:string}}
+ */
+function subjectPossessionConflict({ subjectToplevel, ref, runGit = defaultRunGit, timeoutMs = 4000 }) {
+  const wl = runGit(["worktree", "list", "--porcelain"], { cwd: subjectToplevel, timeoutMs });
+  if (!wl.ok) return { conflict: false, why: `worktree list unavailable: ${wl.error}` };
+  const entries = [];
+  let cur = null;
+  for (const line of wl.stdout.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (cur) entries.push(cur);
+      cur = { path: line.slice("worktree ".length).trim(), head: null, branch: null };
+    } else if (cur && line.startsWith("HEAD ")) {
+      cur.head = line.slice("HEAD ".length).trim();
+    } else if (cur && line.startsWith("branch ")) {
+      cur.branch = line.slice("branch ".length).trim();
+    }
+  }
+  if (cur) entries.push(cur);
+
+  // macOS reports /var/... for a path git may store as /private/var/... (and
+  // vice versa): compare RESOLVED paths, literal as fallback, so one tree is
+  // never mistaken for two (or two for one).
+  const norm = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const shortName = (r) => String(r || "").replace(/^refs\/heads\//, "").replace(/^heads\//, "");
+  const subjectReal = norm(subjectToplevel);
+  const want = shortName(ref);
+  for (const e of entries) {
+    if (!e.branch) continue;
+    if (norm(e.path) === subjectReal) continue; // this IS the tree we would measure
+    if (shortName(e.branch) === want) {
+      return { conflict: true, worktree: e.path, branch: e.branch, headSha: e.head || null };
+    }
+  }
+  return { conflict: false, why: `${JSON.stringify(ref)} is not a branch checked out in another worktree` };
+}
+
 // ── (2) content verification ────────────────────────────────────────────────
 
 const VERDICT = Object.freeze({
@@ -518,16 +617,20 @@ function verifyContentPresence({
 
   const refOk = git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
   if (!refOk.ok || !refOk.stdout.trim()) {
-    return { resolved: false, why: `pre-rebase ref ${JSON.stringify(ref)} does not resolve to a commit`, commits: [] };
+    return { resolved: false, why: `pre-rebase ref ${JSON.stringify(ref)} does not resolve to a commit`, commits: [], headSha: null };
   }
   const headOk = git(["rev-parse", "--verify", "--quiet", `${headRef}^{commit}`]);
   if (!headOk.ok || !headOk.stdout.trim()) {
-    return { resolved: false, why: `target ref ${JSON.stringify(headRef)} does not resolve to a commit`, commits: [] };
+    return { resolved: false, why: `target ref ${JSON.stringify(headRef)} does not resolve to a commit`, commits: [], headSha: null };
   }
+  // Carried on every return below so the caller can ECHO the commit the verdict
+  // was measured against — a verdict that names its tree can be seen to be
+  // wrong; one that does not cannot.
+  const headSha = headOk.stdout.trim();
 
   const mb = git(["merge-base", ref, headRef]);
   if (!mb.ok || !mb.stdout.trim()) {
-    return { resolved: false, why: `no merge base between ${ref} and ${headRef} (${mb.error || "empty output"}) — the candidate set cannot be bounded`, commits: [] };
+    return { resolved: false, why: `no merge base between ${ref} and ${headRef} (${mb.error || "empty output"}) — the candidate set cannot be bounded`, commits: [], headSha };
   }
   const base = mb.stdout.trim();
 
@@ -536,7 +639,7 @@ function verifyContentPresence({
   // already reachable from `ref` and therefore already in this list.
   const list = git(["rev-list", "--no-merges", "--reverse", `${base}..${ref}`]);
   if (!list.ok) {
-    return { resolved: false, why: `git rev-list ${base}..${ref} failed: ${list.error}`, commits: [] };
+    return { resolved: false, why: `git rev-list ${base}..${ref} failed: ${list.error}`, commits: [], headSha };
   }
   const shas = list.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
 
@@ -548,7 +651,7 @@ function verifyContentPresence({
       extraEnv: { GIT_INDEX_FILE: indexFile },
     });
     if (!seed.ok) {
-      return { resolved: false, why: `could not seed a temporary index from ${headRef}: ${seed.error}`, commits: [] };
+      return { resolved: false, why: `could not seed a temporary index from ${headRef}: ${seed.error}`, commits: [], headSha };
     }
     const commits = [];
     for (const sha of shas) {
@@ -573,7 +676,7 @@ function verifyContentPresence({
       else verdict = VERDICT.INDETERMINATE;
       commits.push({ sha, subject, verdict });
     }
-    return { resolved: true, why: null, base, ref, headRef, commits };
+    return { resolved: true, why: null, base, ref, headRef, headSha, commits };
   } finally {
     if (ownScratch) {
       try {
@@ -602,5 +705,7 @@ module.exports = {
   pullRebaseDisposition,
   resolveBase,
   countMergesToBeDropped,
+  resolveVerifySubject,
+  subjectPossessionConflict,
   verifyContentPresence,
 };

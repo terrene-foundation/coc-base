@@ -113,9 +113,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMainModule } from "./lib/entry-point.mjs";
+import { resolveGhBinary } from "./lib/gh-binary.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const { resolveGitBinary, gitEnvForArgs } = createRequire(import.meta.url)(path.join(HERE, "..", "hooks", "lib", "git-subprocess-env.js"));
+const { resolveGitBinary, gitEnvForArgs, gitHookEnv } = createRequire(import.meta.url)(path.join(HERE, "..", "hooks", "lib", "git-subprocess-env.js"));
 // THE PROTECTION FLOOR, shared with the hook path rather than copied. MEASURED
 // 2026-09-10: `preserve/s50-coord-predicate-983303d1` is LANDED-BY-CONTENT on
 // origin/main, so a ref named for its own preservation was one
@@ -422,7 +423,8 @@ function main() {
   const PR_LIMIT = 500;
   function openPrHeads() {
     if (NO_PR_CHECK) return { known: true, heads: new Set(), skipped: true };
-    const gh = process.env.COC_GH_BIN || "gh";
+    const gh = resolveGhBinary();
+    if (!gh) return { known: false, heads: new Set(), skipped: false, untrusted: Boolean(process.env.COC_GH_BIN), error: "no physically trusted absolute gh executable could be resolved" };
     // F5 — THE GATE MUST ANSWER ABOUT THE REPOSITORY BEING DELETED FROM. `gh pr list`
     // with no `--repo` resolves the forge from the CWD's git remotes, which is a
     // DIFFERENT question from "what is open on the remote this run is reaping". Under
@@ -738,15 +740,6 @@ function main() {
 
   let exit = 0;
   if (APPLY) {
-    const ghBin = process.env.COC_GH_BIN;
-    // F7 — `COC_GH_BIN` names a program this tool EXECUTES, and its answer decides which
-    // branches are safe to delete. A test seam is fine; an arbitrary interpreter chosen by
-    // the ambient environment on a destructive run is not. Under `--apply` it must be an
-    // absolute path whose basename is exactly `gh`.
-    // Bound to the case where the gate ACTUALLY RUNS: under `--no-pr-check` no `gh` is
-    // spawned at all, so the variable names a program nothing executes and refusing on it
-    // would be a fence with no hazard behind it.
-    const ghBinOk = NO_PR_CHECK || !ghBin || (path.isAbsolute(ghBin) && path.basename(ghBin) === "gh");
     // FIRST in the chain, because it invalidates the BASE every verdict below was
     // measured against — the other refusals are about the sweep, this one is about
     // the ruler. Nothing is archived and nothing is deleted.
@@ -768,8 +761,8 @@ function main() {
       process.stderr.write(`remote-ref-reap: --apply REFUSED — landing provenance is configured here but its map could not be built (${PROVENANCE.why}); no ref is deleted on a run whose landing record is unreadable, whatever --include-content-landed says. No archive ref was written and no ref was deleted. Repair the map (\`node .claude/bin/landed-map.mjs --ref ${BASE_SHA}\`), then re-run.\n`);
       summary.refused = "provenance-unavailable";
       exit = 2;
-    } else if (!ghBinOk) {
-      process.stderr.write(`remote-ref-reap: --apply REFUSED — COC_GH_BIN is set to ${ghBin}, which is not an absolute path named \`gh\`; the open-PR gate decides which branches are deletable, so it will not be taken from an arbitrary program on a destructive run\n`);
+    } else if (pr.untrusted) {
+      process.stderr.write(`remote-ref-reap: --apply REFUSED — COC_GH_BIN did not resolve to a physically trusted absolute gh executable; no PR producer was executed\n`);
       summary.refused = "gh-bin-untrusted";
       exit = 2;
     } else if (!pr.known) {
@@ -777,52 +770,63 @@ function main() {
       summary.refused = "pr-heads-unknown"; // visible to a JSON-only reader, not only on stderr
       exit = 2;
     } else {
-      const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15); // YYYYMMDDTHHMMSS — two runs on one day never overwrite each other's archive
-      for (const r of refs) {
-        // `mergeCarriesContent` disqualifies a LANDED-CONTENT ref outright: the patch-id heuristic
-        // did not measure that merge, so "landed" was never established for it. LANDED-ANCESTOR is
-        // unaffected — it rests on an ancestry PROOF, not on patch-ids. LANDED-PROVENANCE is
-        // eligible WITHOUT a flag (the landing was RECORDED and its trailers BACKED —
-        // `applyBacking` turns an unbacked one into PROVENANCE-UNBACKED, which is never
-        // eligible), and carries the same merge disqualifier: its trailers cover non-merge
-        // commits only. LANDED-PROVENANCE additionally needs a REMOTE-tracking base
-        // (`applyEligible`).
-        const eligible = r.verdict === "LANDED-ANCESTOR"
-          || (PROVENANCE.applyEligible && r.verdict === "LANDED-PROVENANCE" && !r.mergeCarriesContent)
-          || (INCLUDE_CONTENT && r.verdict === "LANDED-CONTENT" && !r.mergeCarriesContent);
-        if (!eligible || r.prOpen) continue;
-        const archive = `refs/archive/remote/${stamp}/${r.branch}`;
-        if (git(["update-ref", archive, r.sha]) === null) { r.error = `archive ref not written: ${archive}`; exit = 2; continue; }
-        r.archived = archive;
-        // F3 — THE DELETE IS A COMPARE-AND-SWAP. Between the classification read and this
-        // push, someone can advance the branch; a plain delete would then destroy work
-        // that was never measured. `--force-with-lease=<ref>:<sha>` in its EXPLICIT-VALUE
-        // form makes the remote reject the delete unless the branch is still at the very
-        // sha this run archived. The BARE form is NOT equivalent and is not used: it
-        // consults the local tracking ref, which a fetch can refresh out from under the
-        // check (measured in `sync-gate2-worktree.test.mjs:2134`).
-        // F2 — `:refs/heads/<branch>` rather than `--delete <branch>`: the refspec form
-        // never places a remote-supplied name in a position git could read as an option.
-        const delArgs = ["push", `--force-with-lease=refs/heads/${r.branch}:${r.sha}`, REMOTE, `:refs/heads/${r.branch}`];
-        const del = spawnSync(GIT, delArgs, { cwd, encoding: "utf8", timeout: 60000, env: gitEnvFor(delArgs) });
-        if (del.status === 0) r.deleted = true; else { r.error = `delete refused: ${(del.stderr || "").trim().slice(0, 200)}`; exit = 2; }
+      let deleteEnv;
+      try {
+        deleteEnv = gitHookEnv({ network: true });
+      } catch (error) {
+        summary.refused = "delete-env-unavailable";
+        summary.deleteEnvError = `${error.code || "GIT_HOOK_ENV_SETUP_FAILED"}: ${error.message}`;
+        process.stderr.write(`remote-ref-reap: --apply REFUSED — ${summary.deleteEnvError}. No archive ref was written and no ref was deleted.\n`);
+        exit = 2;
       }
-      // AFTER the sweep, never before: the ledger records refs whose archive ref was
-      // actually written, and that is not known until `update-ref` has run.
-      if (NO_RECORD) {
-        summary.adjudication = { status: "skipped", detail: "--no-record was passed; the archive refs written by this run carry NO verdict and will red once past their window", ledger: null, recorded: [], notRecordable: [], preserved: [] };
-      } else {
-        const ledgerPath = path.resolve(ledgerGiven || path.join(top, ".claude", "ref-adjudications.json"));
-        const rec = recordLandedVerdicts(refs, { ledgerPath, stamp });
-        for (const r of refs) if (rec.recorded.includes(r.archived)) r.adjudicated = "landed";
-        summary.adjudication = rec;
-        // A verdict this run MEASURED and then failed to record is this change's own
-        // failure mode. It is never folded into a green.
-        if (rec.status === "LEDGER-UNREADABLE" || rec.status === "LEDGER-UNWRITABLE") {
-          process.stderr.write(`remote-ref-reap: VERDICTS DROPPED — ${rec.detail}\n`);
-          exit = 2;
-        } else if (rec.status === "NO-LEDGER") {
-          process.stderr.write(`remote-ref-reap: ${rec.detail}\n`);
+      if (deleteEnv) {
+        const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15); // YYYYMMDDTHHMMSS — two runs on one day never overwrite each other's archive
+        for (const r of refs) {
+          // `mergeCarriesContent` disqualifies a LANDED-CONTENT ref outright: the patch-id heuristic
+          // did not measure that merge, so "landed" was never established for it. LANDED-ANCESTOR is
+          // unaffected — it rests on an ancestry PROOF, not on patch-ids. LANDED-PROVENANCE is
+          // eligible WITHOUT a flag (the landing was RECORDED and its trailers BACKED —
+          // `applyBacking` turns an unbacked one into PROVENANCE-UNBACKED, which is never
+          // eligible), and carries the same merge disqualifier: its trailers cover non-merge
+          // commits only. LANDED-PROVENANCE additionally needs a REMOTE-tracking base
+          // (`applyEligible`).
+          const eligible = r.verdict === "LANDED-ANCESTOR"
+            || (PROVENANCE.applyEligible && r.verdict === "LANDED-PROVENANCE" && !r.mergeCarriesContent)
+            || (INCLUDE_CONTENT && r.verdict === "LANDED-CONTENT" && !r.mergeCarriesContent);
+          if (!eligible || r.prOpen) continue;
+          const archive = `refs/archive/remote/${stamp}/${r.branch}`;
+          if (git(["update-ref", archive, r.sha]) === null) { r.error = `archive ref not written: ${archive}`; exit = 2; continue; }
+          r.archived = archive;
+          // F3 — THE DELETE IS A COMPARE-AND-SWAP. Between the classification read and this
+          // push, someone can advance the branch; a plain delete would then destroy work
+          // that was never measured. `--force-with-lease=<ref>:<sha>` in its EXPLICIT-VALUE
+          // form makes the remote reject the delete unless the branch is still at the very
+          // sha this run archived. The BARE form is NOT equivalent and is not used: it
+          // consults the local tracking ref, which a fetch can refresh out from under the
+          // check (measured in `sync-gate2-worktree.test.mjs:2134`).
+          // F2 — `:refs/heads/<branch>` rather than `--delete <branch>`: the refspec form
+          // never places a remote-supplied name in a position git could read as an option.
+          const delArgs = ["push", `--force-with-lease=refs/heads/${r.branch}:${r.sha}`, REMOTE, `:refs/heads/${r.branch}`];
+          const del = spawnSync(GIT, delArgs, { cwd, encoding: "utf8", timeout: 60000, env: deleteEnv });
+          if (del.status === 0) r.deleted = true; else { r.error = `delete refused: ${(del.stderr || "").trim().slice(0, 200)}`; exit = 2; }
+        }
+        // AFTER the sweep, never before: the ledger records refs whose archive ref was
+        // actually written, and that is not known until `update-ref` has run.
+        if (NO_RECORD) {
+          summary.adjudication = { status: "skipped", detail: "--no-record was passed; the archive refs written by this run carry NO verdict and will red once past their window", ledger: null, recorded: [], notRecordable: [], preserved: [] };
+        } else {
+          const ledgerPath = path.resolve(ledgerGiven || path.join(top, ".claude", "ref-adjudications.json"));
+          const rec = recordLandedVerdicts(refs, { ledgerPath, stamp });
+          for (const r of refs) if (rec.recorded.includes(r.archived)) r.adjudicated = "landed";
+          summary.adjudication = rec;
+          // A verdict this run MEASURED and then failed to record is this change's own
+          // failure mode. It is never folded into a green.
+          if (rec.status === "LEDGER-UNREADABLE" || rec.status === "LEDGER-UNWRITABLE") {
+            process.stderr.write(`remote-ref-reap: VERDICTS DROPPED — ${rec.detail}\n`);
+            exit = 2;
+          } else if (rec.status === "NO-LEDGER") {
+            process.stderr.write(`remote-ref-reap: ${rec.detail}\n`);
+          }
         }
       }
     }
